@@ -10,6 +10,8 @@
 /.nova
 /.phpunit.cache
 /.vscode
+/.phpunit.result.cache
+/.php-cs-fixer.cache
 /.zed
 /auth.json
 /node_modules
@@ -22,3 +24,4 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+.env.testing
