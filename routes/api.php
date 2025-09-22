@@ -1,0 +1,49 @@
+<?php
+
+use App\Http\Controllers\Request\RequestController;
+use App\Http\Controllers\User\UserController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Route;
+
+// Ruta para login
+Route::post('/login', function (Request $request) {
+    $credentials = $request->validate([
+        'email' => 'required|email',
+        'password' => 'required',
+    ]);
+
+    if (!Auth::attempt($credentials)) {
+        return response()->json(['message' => 'Credenciales incorrectas'], 401);
+    }
+
+    $request->session()->regenerate();
+
+    return response()->json([
+        'user' => Auth::user(),
+    ]);
+});
+
+// Ruta para logout
+Route::post('/logout', function (Request $request) {
+    Auth::guard('web')->logout();
+    $request->session()->invalidate();
+    $request->session()->regenerateToken();
+
+    return response()->json(['message' => 'Logout exitoso']);
+});
+
+// Ruta para obtener usuario autenticado
+Route::get('/user', function (Request $request) {
+    return $request->user();
+})->middleware('auth:sanctum');
+
+// Request management routes
+Route::get('/requests', [RequestController::class, 'index']);
+Route::post('/requests', [RequestController::class, 'store']);
+Route::get('/requests/{request}', [RequestController::class, 'show']);
+Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus']);
+
+// User management routes
+Route::apiResource('users', UserController::class);
+Route::patch('/users/{user}/status', [UserController::class, 'changeStatus']);
