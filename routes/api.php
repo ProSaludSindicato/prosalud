@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Request\RequestController;
 use App\Http\Controllers\User\UserController;
+use App\Http\Controllers\WellnessEventController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -47,3 +48,7 @@ Route::patch('/requests/{request}/status', [RequestController::class, 'changeSta
 // User management routes
 Route::apiResource('users', UserController::class);
 Route::patch('/users/{user}/status', [UserController::class, 'changeStatus']);
+
+// Wellness Events management routes
+Route::apiResource('wellness-events', WellnessEventController::class);
+Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility']);
