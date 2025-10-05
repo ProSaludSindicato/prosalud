@@ -7,6 +7,7 @@ return [
 
     'allowed_origins' => [
         'https://prosalud-redesign.lovable.app',
+        'https://prosalud-spa.lovable.app',
     ],
 
     'allowed_origins_patterns' => [],

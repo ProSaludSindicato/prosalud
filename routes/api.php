@@ -3,6 +3,7 @@
 use App\Http\Controllers\Request\RequestController;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\WellnessEventController;
+use App\Http\Controllers\ChatbotConversationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -52,3 +53,9 @@ Route::patch('/users/{user}/status', [UserController::class, 'changeStatus']);
 // Wellness Events management routes
 Route::apiResource('wellness-events', WellnessEventController::class);
 Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility']);
+
+// Chatbot Conversations routes
+Route::get('/chatbot-conversations', [ChatbotConversationController::class, 'index']);
+Route::post('/chatbot-conversations', [ChatbotConversationController::class, 'store']);
+Route::patch('/chatbot-conversations/{conversation}/feedback', [ChatbotConversationController::class, 'updateFeedback']);
+Route::patch('/chatbot-conversations/client/{client_turn_id}/feedback', [ChatbotConversationController::class, 'updateFeedbackByClientTurnId']);
