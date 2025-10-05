@@ -7,9 +7,11 @@ use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Request\ChangeRequestStatusRequest;
 use App\Models\RequestForm;
+use App\Mail\RequestFormReceived;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class RequestController extends Controller
 {
@@ -24,6 +26,19 @@ class RequestController extends Controller
         $requestForm = new RequestForm($requestData);
         $requestForm->created_at = now();
         $requestForm->save();
+
+        // Send confirmation email to requester with CC to comunicaciones
+        try {
+            Mail::to($requestForm->email)
+                ->cc('comunicaciones@sindicatoprosalud.com')
+                ->send(new RequestFormReceived($requestForm));
+        } catch (\Throwable $e) {
+            Log::error('Error enviando correo de confirmación de solicitud', [
+                'request_id' => $requestForm->id,
+                'email' => $requestForm->email,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         Log::info('Nueva solicitud procesada', [
             'request_id' => $requestForm->id,

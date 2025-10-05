@@ -5,10 +5,8 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
-        'https://prosalud-redesign.lovable.app',
-        'https://prosalud-spa.lovable.app',
-    ],
+    // Development-only: allow all origins
+    'allowed_origins' => ['*'],
 
     'allowed_origins_patterns' => [],
 
@@ -18,5 +16,6 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => true,
+    // Must be false to use wildcard origins
+    'supports_credentials' => false,
 ];
