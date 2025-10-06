@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Constants\RequestStatuses;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -153,6 +154,153 @@ class RequestForm extends Model
     public function getPayloadValue(string $key, $default = null)
     {
         return $this->payload[$key] ?? $default;
+    }
+
+    /**
+     * Get the translated status in Spanish
+     */
+    public function getTranslatedStatusAttribute(): string
+    {
+        return match(strtoupper($this->status)) {
+            RequestStatuses::PENDING => 'Pendiente',
+            RequestStatuses::IN_REVIEW => 'En revisión',
+            RequestStatuses::REJECTED => 'Rechazada',
+            RequestStatuses::COMPLETED => 'Completada',
+            'PENDING' => 'Pendiente',
+            'IN_REVIEW' => 'En revisión',
+            'REJECTED' => 'Rechazada',
+            'COMPLETED' => 'Completada',
+            'pending' => 'Pendiente',
+            'processed' => 'Procesada',
+            default => ucfirst(strtolower($this->status))
+        };
+    }
+
+    /**
+     * Format payload value for display in email
+     */
+    public function formatPayloadValue(string $key, $value): string
+    {
+        // Special handling for certificado info
+        if ($key === 'infoCertificado' && is_array($value)) {
+            return $this->formatCertificadoInfo($value);
+        }
+
+        // Handle other arrays or objects
+        if (is_array($value) || is_object($value)) {
+            return $this->formatArrayValue($value);
+        }
+
+        return (string) $value;
+    }
+
+    /**
+     * Format certificado info in a user-friendly way
+     */
+    private function formatCertificadoInfo(array $certificadoData): string
+    {
+        $formatted = [];
+
+        foreach ($certificadoData as $field => $value) {
+            $label = match($field) {
+                'fechaIngresoRetiro' => 'Fecha de ingreso/retiro',
+                'valorCompensaciones' => 'Valor de compensaciones',
+                'dirigidoAEntidad' => 'Dirigido a entidad',
+                'paraSubsidioDesempleo' => 'Para subsidio de desempleo',
+                'paraSubsidioVivienda' => 'Para subsidio de vivienda',
+                'dirigidoFondoPensiones' => 'Dirigido a fondo de pensiones',
+                'adicionarActividades' => 'Adicionar actividades',
+                'dirigidoTransitoPicoPlaca' => 'Dirigido a tránsito pico y placa',
+                'dirigidoBancolombia' => 'Dirigido a Bancolombia',
+                'otros' => 'Otros',
+                'dirigidoAQuien' => 'Dirigido a quién',
+                default => $this->formatFieldName($field)
+            };
+
+            $status = $this->parseBooleanValue($value) ? 'Sí' : 'No';
+            $formatted[] = "{$label}: {$status}";
+        }
+
+        return implode('<br>', $formatted);
+    }
+
+    /**
+     * Parse various value types to boolean
+     */
+    public function parseBooleanValue($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            $lowerValue = strtolower(trim($value));
+            return in_array($lowerValue, ['true', '1', 'yes', 'si', 'sí', 'on']);
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value !== 0;
+        }
+
+        if (is_array($value)) {
+            return !empty($value);
+        }
+
+        return false;
+    }
+
+    /**
+     * Format field names in a user-friendly way
+     */
+    public function formatFieldName(string $field): string
+    {
+        // Handle special cases first
+        $specialCases = [
+            'dirigidoAQuien' => 'Dirigido a quién',
+            'fechaIngresoRetiro' => 'Fecha de ingreso/retiro',
+            'valorCompensaciones' => 'Valor de compensaciones',
+            'dirigidoAEntidad' => 'Dirigido a entidad',
+            'paraSubsidioDesempleo' => 'Para subsidio de desempleo',
+            'paraSubsidioVivienda' => 'Para subsidio de vivienda',
+            'dirigidoFondoPensiones' => 'Dirigido a fondo de pensiones',
+            'adicionarActividades' => 'Adicionar actividades',
+            'dirigidoTransitoPicoPlaca' => 'Dirigido a tránsito pico y placa',
+            'dirigidoBancolombia' => 'Dirigido a Bancolombia',
+        ];
+
+        if (isset($specialCases[$field])) {
+            return $specialCases[$field];
+        }
+
+        // Split camelCase and snake_case
+        $result = preg_replace('/([a-z])([A-Z])/', '$1 $2', $field);
+        $result = str_replace('_', ' ', $result);
+
+        return ucwords($result);
+    }
+
+    /**
+     * Format array values in a user-friendly way
+     */
+    private function formatArrayValue($value): string
+    {
+        if (is_array($value) && !empty($value)) {
+            // For simple arrays, join with commas
+            if (array_keys($value) === range(0, count($value) - 1)) {
+                return implode(', ', array_map(function($item) {
+                    return is_array($item) ? json_encode($item) : (string) $item;
+                }, $value));
+            }
+
+            // For associative arrays, format as key: value pairs
+            $pairs = [];
+            foreach ($value as $k => $v) {
+                $pairs[] = ucwords(str_replace('_', ' ', $k)) . ': ' . (string) $v;
+            }
+            return implode('<br>', $pairs);
+        }
+
+        return (string) $value;
     }
 
     /**

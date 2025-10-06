@@ -101,7 +101,7 @@
                                 </tr>
                                 <tr>
                                     <td style="padding:12px 16px; font-size:14px; border-bottom:1px solid #e5e7eb;"><strong>Estado:</strong></td>
-                                    <td style="padding:12px 16px; font-size:14px; border-bottom:1px solid #e5e7eb;">{{ strtoupper($requestForm->status) }}</td>
+                                    <td style="padding:12px 16px; font-size:14px; border-bottom:1px solid #e5e7eb;">{{ $requestForm->translated_status }}</td>
                                 </tr>
                                 <tr>
                                     <td style="padding:12px 16px; font-size:14px;"><strong>Fecha de creación:</strong></td>
@@ -133,8 +133,8 @@
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 16px; background:#ffffff; border:1px solid #DDDDDD; border-radius:8px;">
                                 @foreach($payloadSummary as $k => $v)
                                 <tr>
-                                    <td style="padding:10px 14px; font-size:13px; width:40%; border-bottom:1px solid #F0F0F0; color:#555555;"><strong>{{ ucwords(str_replace('_',' ', preg_replace('/([a-z])([A-Z])/', '$1 $2', $k))) }}:</strong></td>
-                                    <td style="padding:10px 14px; font-size:13px; border-bottom:1px solid #F0F0F0; color:#333333;">{{ is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE) : $v }}</td>
+                                    <td style="padding:10px 14px; font-size:13px; width:40%; border-bottom:1px solid #F0F0F0; color:#555555;"><strong>{{ $requestForm->formatFieldName($k) }}:</strong></td>
+                                    <td style="padding:10px 14px; font-size:13px; border-bottom:1px solid #F0F0F0; color:#333333;">{!! $requestForm->formatPayloadValue($k, $v) !!}</td>
                                 </tr>
                                 @endforeach
                             </table>
@@ -155,7 +155,7 @@
                     <tr>
                         <td class="footer" style="padding: 20px 24px; background: #f8f9fa; border-top: 1px solid #e9ecef; text-align: center;">
                             <p style="color: #64748b; font-size: 12px; margin: 0; line-height: 1.5;">
-                                Este es un mensaje automático generado por el sistema de gestión de solicitudes de ProSalud.
+                                Este es un mensaje automático generado por el sistema de gestión de solicitudes de ProSalud. <br>
                                 Si tienes alguna pregunta o requieres asistencia, por favor comunícate con nuestro equipo de soporte a través de los canales oficiales.
                             </p>
                             <p style="color: #64748b; font-size: 11px; margin: 8px 0 0;">
@@ -164,3 +164,9 @@
                         </td>
                     </tr>
                 </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>
