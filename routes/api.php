@@ -4,6 +4,7 @@ use App\Http\Controllers\Request\RequestController;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\WellnessEventController;
 use App\Http\Controllers\ChatbotConversationController;
+use App\Http\Controllers\IncapacidadesController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -59,3 +60,6 @@ Route::get('/chatbot-conversations', [ChatbotConversationController::class, 'ind
 Route::post('/chatbot-conversations', [ChatbotConversationController::class, 'store']);
 Route::patch('/chatbot-conversations/{conversation}/feedback', [ChatbotConversationController::class, 'updateFeedback']);
 Route::patch('/chatbot-conversations/client/{client_turn_id}/feedback', [ChatbotConversationController::class, 'updateFeedbackByClientTurnId']);
+
+// Incapacidades routes (public endpoint for chatbot)
+Route::post('/incapacidades/search', [IncapacidadesController::class, 'search']);
