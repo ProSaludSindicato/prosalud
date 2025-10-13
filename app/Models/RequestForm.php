@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 /**
- * @property int $id
+ * @property string $id
  * @property string $request_type
  * @property string $document_type
  * @property string $document_number
@@ -30,6 +30,7 @@ class RequestForm extends Model
     use HasFactory;
 
     protected $fillable = [
+        'id',
         'request_type',
         'document_type',
         'document_number',
@@ -43,11 +44,49 @@ class RequestForm extends Model
     ];
 
     protected $casts = [
+        'id' => 'string',
         'payload' => 'array',
         'processed_at' => 'datetime',
     ];
 
     public $timestamps = false;
+    public $incrementing = false;
+    protected $keyType = 'string';
+
+    /**
+     * Boot the model.
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (empty($model->id)) {
+                $model->id = $model->generateUnique10DigitId();
+            }
+        });
+    }
+
+    /**
+     * Generate a unique 10-digit number
+     */
+    private function generateUnique10DigitId(): string
+    {
+        do {
+            // Generate a 10-digit number using timestamp + random component
+            $timestamp = time(); // 10 digits, but we'll use last 6
+            $random = mt_rand(1000, 9999); // 4 digits
+            
+            // Combine to create exactly 10 digits
+            $idString = substr($timestamp, -6) . $random; // 6 + 4 = 10 digits
+            
+            // Ensure it's exactly 10 digits by padding if needed
+            $idString = str_pad($idString, 10, '0', STR_PAD_LEFT);
+            
+        } while (static::where('id', $idString)->exists());
+        
+        return $idString;
+    }
 
     /**
      * Get the full name attribute

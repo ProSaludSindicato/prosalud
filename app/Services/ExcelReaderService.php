@@ -17,7 +17,7 @@ class ExcelReaderService
     {
         try {
             $excelPath = public_path(self::EXCEL_FILE_PATH);
-            
+
             // Check if file exists
             if (!file_exists($excelPath)) {
                 Log::error('Archivo de incapacidades no encontrado', [
@@ -68,7 +68,7 @@ class ExcelReaderService
     public function getFileInfo(): array
     {
         $excelPath = public_path(self::EXCEL_FILE_PATH);
-        
+
         if (!file_exists($excelPath)) {
             return [
                 'exists' => false,

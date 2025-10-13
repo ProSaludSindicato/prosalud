@@ -54,6 +54,8 @@ Route::patch('/users/{user}/status', [UserController::class, 'changeStatus']);
 // Wellness Events management routes
 Route::apiResource('wellness-events', WellnessEventController::class);
 Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility']);
+Route::post('/wellness-events/{wellness_event}/images', [WellnessEventController::class, 'addImages']);
+Route::delete('/wellness-events/{wellness_event}/images/{image}', [WellnessEventController::class, 'removeImage']);
 
 // Chatbot Conversations routes
 Route::get('/chatbot-conversations', [ChatbotConversationController::class, 'index']);

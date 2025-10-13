@@ -7,8 +7,10 @@ use App\Http\Requests\ChangeWellnessEventVisibilityRequest;
 use App\Http\Requests\StoreWellnessEventRequest;
 use App\Http\Requests\UpdateWellnessEventRequest;
 use App\Models\WellnessEvent;
+use App\Models\WellnessEventImage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
 
 class WellnessEventController extends Controller
 {
@@ -51,7 +53,17 @@ class WellnessEventController extends Controller
             $data['provider'] = Providers::PROSALUD;
         }
 
+        // Remove images from data before creating event
+        $images = $data['images'] ?? [];
+        unset($data['images']);
+
         $event = WellnessEvent::create($data);
+
+        // Handle image uploads
+        if (!empty($images)) {
+            $this->handleImageUploads($event, $images);
+        }
+
         $event->load('images');
 
         return response()->json($event, Response::HTTP_CREATED);
@@ -72,6 +84,20 @@ class WellnessEventController extends Controller
     public function update(UpdateWellnessEventRequest $request, WellnessEvent $wellnessEvent)
     {
         $data = $request->validated();
+
+        // Handle image uploads if provided
+        if (isset($data['images'])) {
+            $images = $data['images'];
+            unset($data['images']);
+            
+            // Delete existing images
+            $this->deleteEventImages($wellnessEvent);
+            
+            // Upload new images
+            if (!empty($images)) {
+                $this->handleImageUploads($wellnessEvent, $images);
+            }
+        }
 
         $wellnessEvent->update($data);
         $wellnessEvent->load('images');
@@ -98,5 +124,83 @@ class WellnessEventController extends Controller
             'id' => $wellnessEvent->id,
             'is_visible' => $wellnessEvent->is_visible,
         ]);
+    }
+
+    /**
+     * Add images to an existing event
+     */
+    public function addImages(Request $request, WellnessEvent $wellnessEvent)
+    {
+        $request->validate([
+            'images' => ['required', 'array', 'min:1'],
+            'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,gif,webp', 'max:5120'],
+        ]);
+
+        $this->handleImageUploads($wellnessEvent, $request->file('images'));
+        $wellnessEvent->load('images');
+
+        return response()->json([
+            'message' => 'Imágenes agregadas exitosamente',
+            'event' => $wellnessEvent,
+        ]);
+    }
+
+    /**
+     * Remove a specific image from an event
+     */
+    public function removeImage(WellnessEvent $wellnessEvent, WellnessEventImage $image)
+    {
+        // Verify the image belongs to the event
+        if ($image->event_id !== $wellnessEvent->id) {
+            return response()->json(['message' => 'La imagen no pertenece a este evento'], 404);
+        }
+
+        // Delete file from storage
+        $path = str_replace('/storage/', '', $image->image_url);
+        if (Storage::disk('public')->exists($path)) {
+            Storage::disk('public')->delete($path);
+        }
+
+        // Delete database record
+        $image->delete();
+
+        return response()->json(['message' => 'Imagen eliminada exitosamente']);
+    }
+
+    /**
+     * Handle image uploads for an event
+     */
+    private function handleImageUploads(WellnessEvent $event, array $images)
+    {
+        foreach ($images as $index => $image) {
+            $filename = 'wellness-events/' . $event->id . '/' . time() . '_' . $index . '.' . $image->getClientOriginalExtension();
+            
+            // Store the file
+            $path = Storage::disk('public')->putFileAs('wellness-events/' . $event->id, $image, basename($filename));
+            
+            // Create database record
+            WellnessEventImage::create([
+                'event_id' => $event->id,
+                'image_url' => Storage::url($path),
+                'is_main' => $index === 0, // First image is main
+            ]);
+        }
+    }
+
+    /**
+     * Delete all images for an event
+     */
+    private function deleteEventImages(WellnessEvent $event)
+    {
+        foreach ($event->images as $image) {
+            // Delete file from storage
+            $path = str_replace('/storage/', '', $image->image_url);
+            if (Storage::disk('public')->exists($path)) {
+                Storage::disk('public')->delete($path);
+            }
+            
+            // Delete database record
+            $image->delete();
+        }
     }
 }

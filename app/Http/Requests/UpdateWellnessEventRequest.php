@@ -16,6 +16,16 @@ class UpdateWellnessEventRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation()
+    {
+        // Parse is_visible from string to boolean if needed
+        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
+            $this->merge([
+                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+            ]);
+        }
+    }
+
     public function rules(): array
     {
         return [
@@ -26,8 +36,10 @@ class UpdateWellnessEventRequest extends FormRequest
             'location' => ['sometimes', 'required', 'string', 'max:255'],
             'attendees' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'gift' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'provider' => ['sometimes', 'nullable', 'string', Rule::in([Providers::PROSALUD])],
+            'provider' => ['sometimes', 'nullable', 'string', 'max:255'],
             'is_visible' => ['sometimes', 'boolean'],
+            'images' => ['sometimes', 'nullable', 'array'],
+            'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,gif,webp', 'max:5120'], // 5MB max
         ];
     }
 
@@ -66,7 +78,7 @@ class UpdateWellnessEventRequest extends FormRequest
 
             // provider
             'provider.string' => 'El proveedor debe ser un texto válido.',
-            'provider.in' => 'El proveedor seleccionado no es válido.',
+            'provider.max' => 'El proveedor no puede exceder 255 caracteres.',
 
             // is_visible
             'is_visible.boolean' => 'El campo de visibilidad debe ser verdadero o falso.',

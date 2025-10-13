@@ -19,7 +19,7 @@ class RequestController extends Controller
     {
         $dto = RequestFormDTO::fromArray($request->validated());
         $requestData = $dto->toArray();
-        
+
         // Set default status to PENDING
         $requestData['status'] = RequestStatuses::PENDING;
 
@@ -136,10 +136,13 @@ class RequestController extends Controller
                     'request_type' => $request->request_type,
                     'document_type' => $request->document_type,
                     'document_number' => $request->document_number,
+                    'name' => $request->name,
+                    'last_name' => $request->last_name,
                     'full_name' => $request->full_name,
                     'email' => $request->email,
                     'phone_number' => $request->phone_number,
                     'status' => $request->status,
+                    'payload' => $request->payload,
                     'created_at' => $request->created_at,
                     'formatted_created_at' => $request->formatted_created_at,
                     'processed_at' => $request->processed_at,
@@ -195,9 +198,9 @@ class RequestController extends Controller
     public function changeStatus(ChangeRequestStatusRequest $statusRequest, RequestForm $request): JsonResponse
     {
         $status = $statusRequest->validated()['status'];
-        
+
         $updateData = ['status' => $status];
-        
+
         // If changing to completed, set processed_at timestamp
         if ($status === RequestStatuses::COMPLETED) {
             $updateData['processed_at'] = now();
@@ -205,7 +208,7 @@ class RequestController extends Controller
             // For other statuses, clear processed_at
             $updateData['processed_at'] = null;
         }
-        
+
         $request->update($updateData);
 
         $statusText = $this->getStatusText($status);
