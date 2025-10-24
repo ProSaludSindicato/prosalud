@@ -19,6 +19,14 @@ return Application::configure(basePath: dirname(__DIR__))
             // HandleCors::class,
         ]);
         
+        $middleware->web(append: [
+            \App\Http\Middleware\SecurityHeaders::class,
+        ]);
+        
+        $middleware->api(append: [
+            \App\Http\Middleware\SecurityHeaders::class,
+        ]);
+        
         $middleware->alias([
             'permission' => \App\Http\Middleware\CheckPermission::class,
         ]);
