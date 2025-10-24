@@ -66,17 +66,22 @@ class UserController extends Controller
     public function store(StoreUserRequest $request): JsonResponse
     {
         $userData = $request->validated();
-        
-        // Hash the password
+        $role = $userData['role'];
+
+        unset($userData['role']);
+
         $userData['password'] = Hash::make($userData['password']);
 
         $user = User::create($userData);
+
+        $user->assignRole($role);
 
         Log::info('Usuario creado exitosamente', [
             'user_id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
             'is_active' => $user->is_active,
+            'role' => $role,
             'created_at' => $user->created_at,
         ]);
 
@@ -88,6 +93,7 @@ class UserController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'is_active' => $user->is_active,
+                'role' => $role,
                 'created_at' => $user->created_at,
             ]
         ], 201);
@@ -111,6 +117,7 @@ class UserController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'is_active' => $user->is_active,
+                'roles' => $user->roles->pluck('name'),
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at,
             ]
@@ -124,7 +131,6 @@ class UserController extends Controller
     {
         $userData = $request->validated();
 
-        // Hash password if provided
         if (isset($userData['password'])) {
             $userData['password'] = Hash::make($userData['password']);
         }
@@ -158,7 +164,7 @@ class UserController extends Controller
     public function changeStatus(ChangeUserStatusRequest $request, User $user): JsonResponse
     {
         $isActive = $request->validated()['is_active'];
-        
+
         $user->update(['is_active' => $isActive]);
 
         $statusText = $isActive ? 'activado' : 'desactivado';
