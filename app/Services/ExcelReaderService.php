@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 class ExcelReaderService
 {
     private const EXCEL_FILE_PATH = 'data/_RELACION INCAPACIDADES 2025.xlsx';
+    private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES PENDIENTES.xlsx';
 
     /**
      * Read the incapacidades Excel file
@@ -59,6 +60,58 @@ class ExcelReaderService
     public function isFileAvailable(): bool
     {
         $excelPath = public_path(self::EXCEL_FILE_PATH);
+        return file_exists($excelPath) && is_readable($excelPath);
+    }
+
+    /**
+     * Read the liquidaciones Excel file
+     */
+    public function readLiquidacionesFile(): array
+    {
+        try {
+            $excelPath = public_path(self::LIQUIDACIONES_FILE_PATH);
+
+            // Check if file exists
+            if (!file_exists($excelPath)) {
+                Log::error('Archivo de liquidaciones no encontrado', [
+                    'path' => $excelPath
+                ]);
+                return [];
+            }
+
+            // Load the Excel file
+            $spreadsheet = IOFactory::load($excelPath);
+            $worksheet = $spreadsheet->getActiveSheet();
+            $data = $worksheet->toArray();
+
+            Log::info('Archivo de liquidaciones leído exitosamente', [
+                'rows_count' => count($data),
+                'file_path' => $excelPath
+            ]);
+
+            return $data;
+
+        } catch (SpreadsheetException $e) {
+            Log::error('Error al procesar archivo Excel de liquidaciones', [
+                'error' => $e->getMessage(),
+                'file_path' => public_path(self::LIQUIDACIONES_FILE_PATH)
+            ]);
+            return [];
+        } catch (\Exception $e) {
+            Log::error('Error inesperado al leer archivo Excel de liquidaciones', [
+                'error' => $e->getMessage(),
+                'file_path' => public_path(self::LIQUIDACIONES_FILE_PATH)
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Check if the liquidaciones Excel file exists and is readable
+     */
+    public function isLiquidacionesFileAvailable(): bool
+    {
+        $excelPath = public_path(self::LIQUIDACIONES_FILE_PATH);
         return file_exists($excelPath) && is_readable($excelPath);
     }
 

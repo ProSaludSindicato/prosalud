@@ -5,6 +5,7 @@ use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\WellnessEventController;
 use App\Http\Controllers\ChatbotConversationController;
 use App\Http\Controllers\IncapacidadesController;
+use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
 use Illuminate\Http\Request;
@@ -67,6 +68,9 @@ Route::patch('/chatbot-conversations/client/{client_turn_id}/feedback', [Chatbot
 
 // Incapacidades routes (public endpoint for chatbot)
 Route::post('/incapacidades/search', [IncapacidadesController::class, 'search']);
+
+// Liquidaciones routes (public endpoint for chatbot)
+Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search']);
 
 // Roles and Permissions management routes
 Route::apiResource('roles', RoleController::class);

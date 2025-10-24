@@ -12,7 +12,11 @@ class DateFormatterService
         'Fecha Incio Incapacidad',
         'Fecha Fin Incapacidad',
         'FECHA ENVIO',
-        'Fecha Expedicion'
+        'Fecha Expedicion',
+        'FECHA EXPEDICION',
+        'FECHA INGRESO',
+        'FECHA RETIRO',
+        'FECHA DE ENTREGA A CAMILA'
     ];
 
     private const INPUT_DATE_FORMAT = 'm/d/Y';
