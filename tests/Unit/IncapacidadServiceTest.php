@@ -26,9 +26,9 @@ class IncapacidadServiceTest extends TestCase
     public function test_search_by_document_returns_success_when_records_found()
     {
         $excelData = [
-            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI'],
-            ['001', '12/09/24', 'CC', '123456789', 'Juan Pérez', 'SI', 'si'],
-            ['002', '23/10/24', 'CC', '987654321', 'María García', 'NO', 'no']
+            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI'],
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', 'SI', 'si'],
+            ['002', '23/10/24', 'CC', '987654321', '2/1/2025', 'María García', 'NO', 'no']
         ];
 
         $this->excelReader
@@ -40,7 +40,7 @@ class IncapacidadServiceTest extends TestCase
             ->shouldReceive('isDateField')
             ->andReturn(false);
 
-        $result = $this->service->searchByDocument('CC', '123456789', '2024-01-15');
+        $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
         $this->assertEquals('success', $result['status']);
         $this->assertArrayHasKey('data', $result);
@@ -80,8 +80,8 @@ class IncapacidadServiceTest extends TestCase
     public function test_internal_fields_are_filtered_from_response()
     {
         $excelData = [
-            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI', 'estado'],
-            ['001', '12/09/24', 'CC', '123456789', 'Juan Pérez', 'SI', 'si', 'PAGADA']
+            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI', 'estado'],
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', 'SI', 'si', 'PAGADA']
         ];
 
         $this->excelReader
@@ -93,7 +93,7 @@ class IncapacidadServiceTest extends TestCase
             ->shouldReceive('isDateField')
             ->andReturn(false);
 
-        $result = $this->service->searchByDocument('CC', '123456789', '2024-01-15');
+        $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
         $this->assertEquals('success', $result['status']);
         $record = $result['data'][0];
@@ -111,8 +111,8 @@ class IncapacidadServiceTest extends TestCase
     public function test_date_conversion_with_english_format()
     {
         $excelData = [
-            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Nombres', 'FECHA ENVIO', 'Fecha Incio Incapacidad'],
-            ['001', '12/09/24', 'CC', '123456789', 'Juan Pérez', '20-Mar-25', '2/15/2025']
+            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'FECHA ENVIO', 'Fecha Incio Incapacidad'],
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', '20-Mar-25', '2/15/2025']
         ];
 
         $this->excelReader
@@ -133,6 +133,11 @@ class IncapacidadServiceTest extends TestCase
         $this->dateFormatter
             ->shouldReceive('isDateField')
             ->with('Fecha Incio Incapacidad')
+            ->andReturn(true);
+
+        $this->dateFormatter
+            ->shouldReceive('isDateField')
+            ->with('Fecha Expedicion')
             ->andReturn(true);
 
         $this->dateFormatter
@@ -170,13 +175,67 @@ class IncapacidadServiceTest extends TestCase
             ->with('2/15/2025')
             ->andReturn('15/02/2025');
 
-        $result = $this->service->searchByDocument('CC', '123456789', '2024-01-15');
+        $this->dateFormatter
+            ->shouldReceive('convertDateFormat')
+            ->with('1/1/2025')
+            ->andReturn('01/01/2025');
+
+        $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
         $this->assertEquals('success', $result['status']);
         $record = $result['data'][0];
 
         $this->assertEquals('20/03/2025', $record['FECHA ENVIO']);  // English format converted
         $this->assertEquals('15/02/2025', $record['Fecha Incio Incapacidad']);  // MM/DD/YYYY converted
+        $this->assertEquals('01/01/2025', $record['Fecha Expedicion']);  // Fecha Expedicion converted
+    }
+
+    public function test_search_by_document_with_date_validation_filters_mismatched_dates()
+    {
+        $excelData = [
+            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez'],
+            ['002', '23/10/24', 'CC', '123456789', '2/1/2025', 'Juan Pérez Otro']
+        ];
+
+        $this->excelReader
+            ->shouldReceive('readIncapacidadesFile')
+            ->once()
+            ->andReturn($excelData);
+
+        $this->dateFormatter
+            ->shouldReceive('isDateField')
+            ->andReturn(false);
+
+        // Search with date that only matches first record
+        $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
+
+        $this->assertEquals('success', $result['status']);
+        $this->assertCount(1, $result['data']); // Only one record should match
+        $this->assertEquals('001', $result['data'][0]['N° Radicado']);
+    }
+
+    public function test_search_by_document_with_date_validation_returns_not_found_when_no_matching_dates()
+    {
+        $excelData = [
+            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez']
+        ];
+
+        $this->excelReader
+            ->shouldReceive('readIncapacidadesFile')
+            ->once()
+            ->andReturn($excelData);
+
+        $this->dateFormatter
+            ->shouldReceive('isDateField')
+            ->andReturn(false);
+
+        // Search with date that doesn't match
+        $result = $this->service->searchByDocument('CC', '123456789', '2025-01-02');
+
+        $this->assertEquals('not_found', $result['status']);
+        $this->assertStringContainsString('No se encontraron', $result['message']);
     }
 
     protected function tearDown(): void

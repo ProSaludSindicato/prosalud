@@ -28,7 +28,7 @@ class IncapacidadesControllerTest extends TestCase
         $this->incapacidadService
             ->shouldReceive('searchByDocument')
             ->once()
-            ->with('CC', '1152451126', '2024-01-15')
+            ->with('CC', '1152451126', '2025-01-01')
             ->andReturn([
                 'status' => 'success',
                 'data' => [
@@ -36,6 +36,7 @@ class IncapacidadesControllerTest extends TestCase
                         'N° Radicado' => '003850',
                         'Tipo' => 'CC',
                         'Numero Documento' => '1152451126',
+                        'Fecha Expedicion' => '01/01/2025',
                         'Nombres' => 'Juan Pérez'
                     ]
                 ]
@@ -44,7 +45,7 @@ class IncapacidadesControllerTest extends TestCase
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '1152451126',
-            'fecha_expedicion' => '2024-01-15'
+            'fecha_expedicion' => '2025-01-01'
         ]);
 
         $response->assertStatus(200)
