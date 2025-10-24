@@ -15,96 +15,226 @@ class DateFormatterServiceTest extends TestCase
         $this->service = new DateFormatterService();
     }
 
-    public function test_is_date_field_returns_true_for_date_fields()
+    public function test_is_date_field_returns_true_for_known_date_fields()
     {
-        $this->assertTrue($this->service->isDateField('fecha recibido'));
-        $this->assertTrue($this->service->isDateField('Fecha Incio Incapacidad'));
-        $this->assertTrue($this->service->isDateField('Fecha Fin Incapacidad'));
-        $this->assertTrue($this->service->isDateField('FECHA ENVIO'));
+        $dateFields = [
+            'fecha recibido',
+            'Fecha Incio Incapacidad',
+            'Fecha Fin Incapacidad',
+            'FECHA ENVIO',
+            'Fecha Expedicion',
+            'FECHA EXPEDICION',
+            'FECHA INGRESO',
+            'FECHA RETIRO',
+            'FECHA DE ENTREGA A CAMILA'
+        ];
+
+        foreach ($dateFields as $field) {
+            $this->assertTrue($this->service->isDateField($field), "Field '{$field}' should be recognized as date field");
+        }
     }
 
     public function test_is_date_field_returns_false_for_non_date_fields()
     {
-        $this->assertFalse($this->service->isDateField('Nombres'));
-        $this->assertFalse($this->service->isDateField('Cargo'));
-        $this->assertFalse($this->service->isDateField('estado'));
+        $nonDateFields = [
+            'N° Radicado',
+            'Tipo',
+            'Numero Documento',
+            'Nombres',
+            'Cargo',
+            'Hospital',
+            'PROCESO',
+            'ESTADO BD'
+        ];
+
+        foreach ($nonDateFields as $field) {
+            $this->assertFalse($this->service->isDateField($field), "Field '{$field}' should not be recognized as date field");
+        }
     }
 
-    public function test_convert_date_format_converts_mm_dd_yyyy_correctly()
-    {
-        $result = $this->service->convertDateFormat('2/15/2025');
-        $this->assertEquals('15/02/2025', $result);
-    }
-
-    public function test_convert_date_format_converts_english_format_correctly()
-    {
-        $result = $this->service->convertDateFormat('20-Mar-25');
-        $this->assertEquals('20/03/2025', $result);
-    }
-
-    public function test_convert_date_format_handles_various_english_months()
+    public function test_convert_date_format_handles_mm_dd_yyyy_format()
     {
         $testCases = [
-            '15-Jan-25' => '15/01/2025',
-            '20-Feb-25' => '20/02/2025',
-            '10-Mar-25' => '10/03/2025',
-            '25-Apr-25' => '25/04/2025',
-            '30-May-25' => '30/05/2025',
-            '12-Jun-25' => '12/06/2025',
-            '18-Jul-25' => '18/07/2025',
-            '22-Aug-25' => '22/08/2025',
-            '05-Sep-25' => '05/09/2025',
-            '28-Oct-25' => '28/10/2025',
-            '14-Nov-25' => '14/11/2025',
-            '31-Dec-25' => '31/12/2025'
+            '1/1/2025' => '01/01/2025',
+            '12/31/2024' => '31/12/2024',
+            '6/15/2023' => '15/06/2023',
+            '3/8/2022' => '08/03/2022'
         ];
 
         foreach ($testCases as $input => $expected) {
             $result = $this->service->convertDateFormat($input);
-            $this->assertEquals($expected, $result, "Failed for input: $input");
+            $this->assertEquals($expected, $result, "Failed to convert '{$input}' to '{$expected}'");
         }
     }
 
-    public function test_convert_date_format_handles_invalid_date()
+    public function test_convert_date_format_handles_english_format()
     {
-        $result = $this->service->convertDateFormat('invalid-date');
-        $this->assertEquals('invalid-date', $result);
+        $testCases = [
+            '20-Mar-25' => '20/03/2025',
+            '15-Jan-24' => '15/01/2024',
+            '31-Dec-23' => '31/12/2023',
+            '1-Jun-22' => '01/06/2022'
+        ];
+
+        foreach ($testCases as $input => $expected) {
+            $result = $this->service->convertDateFormat($input);
+            $this->assertEquals($expected, $result, "Failed to convert '{$input}' to '{$expected}'");
+        }
     }
 
-    public function test_convert_record_dates_converts_mixed_date_formats()
+    public function test_convert_date_format_returns_original_string_on_parse_failure()
+    {
+        $invalidDates = [
+            'invalid-date',
+            'not-a-date',
+            '2025-13-32',
+            ''
+        ];
+
+        foreach ($invalidDates as $invalidDate) {
+            $result = $this->service->convertDateFormat($invalidDate);
+            $this->assertEquals($invalidDate, $result, "Should return original string for invalid date: '{$invalidDate}'");
+        }
+    }
+
+    public function test_convert_record_dates_processes_all_date_fields()
     {
         $record = [
-            'Nombres' => 'Juan Pérez',
-            'Fecha Incio Incapacidad' => '2/15/2025',  // MM/DD/YYYY format
-            'Fecha Fin Incapacidad' => '2/17/2025',    // MM/DD/YYYY format
-            'FECHA ENVIO' => '20-Mar-25',              // English format
-            'estado' => 'PAGADA'
+            'N° Radicado' => '001',
+            'Tipo' => 'CC',
+            'fecha recibido' => '1/15/2024',
+            'Fecha Incio Incapacidad' => '2/20/2024',
+            'Fecha Fin Incapacidad' => '3/25/2024',
+            'FECHA ENVIO' => '15-Mar-24',
+            'Nombres' => 'Juan Pérez'
         ];
 
         $result = $this->service->convertRecordDates($record);
 
+        $this->assertEquals('15/01/2024', $result['fecha recibido']);
+        $this->assertEquals('20/02/2024', $result['Fecha Incio Incapacidad']);
+        $this->assertEquals('25/03/2024', $result['Fecha Fin Incapacidad']);
+        $this->assertEquals('15/03/2024', $result['FECHA ENVIO']);
+        $this->assertEquals('Juan Pérez', $result['Nombres']); // Non-date field unchanged
+    }
+
+    public function test_convert_record_dates_handles_empty_values()
+    {
+        $record = [
+            'fecha recibido' => '',
+            'Fecha Incio Incapacidad' => null,
+            'FECHA ENVIO' => '   ',
+            'Nombres' => 'Juan Pérez'
+        ];
+
+        $result = $this->service->convertRecordDates($record);
+
+        $this->assertEquals('', $result['fecha recibido']);
+        $this->assertNull($result['Fecha Incio Incapacidad']);
+        $this->assertEquals('   ', $result['FECHA ENVIO']);
         $this->assertEquals('Juan Pérez', $result['Nombres']);
-        $this->assertEquals('15/02/2025', $result['Fecha Incio Incapacidad']);
-        $this->assertEquals('17/02/2025', $result['Fecha Fin Incapacidad']);
-        $this->assertEquals('20/03/2025', $result['FECHA ENVIO']);  // Converted from English
-        $this->assertEquals('PAGADA', $result['estado']);
+    }
+
+    public function test_get_date_fields_returns_correct_list()
+    {
+        $expectedFields = [
+            'fecha recibido',
+            'Fecha Incio Incapacidad',
+            'Fecha Fin Incapacidad',
+            'FECHA ENVIO',
+            'Fecha Expedicion',
+            'FECHA EXPEDICION',
+            'FECHA INGRESO',
+            'FECHA RETIRO',
+            'FECHA DE ENTREGA A CAMILA'
+        ];
+
+        $actualFields = $this->service->getDateFields();
+
+        $this->assertEquals($expectedFields, $actualFields);
     }
 
     public function test_can_convert_date_returns_true_for_valid_dates()
     {
-        // MM/DD/YYYY format
-        $this->assertTrue($this->service->canConvertDate('2/15/2025'));
-        $this->assertTrue($this->service->canConvertDate('12/31/2024'));
-        
-        // English format
-        $this->assertTrue($this->service->canConvertDate('20-Mar-25'));
-        $this->assertTrue($this->service->canConvertDate('15-Jan-24'));
+        $validDates = [
+            '1/1/2025',
+            '12/31/2024',
+            '20-Mar-25',
+            '15-Jan-24'
+        ];
+
+        foreach ($validDates as $date) {
+            $this->assertTrue($this->service->canConvertDate($date), "Date '{$date}' should be convertible");
+        }
     }
 
     public function test_can_convert_date_returns_false_for_invalid_dates()
     {
-        $this->assertFalse($this->service->canConvertDate('invalid-date'));
-        $this->assertFalse($this->service->canConvertDate('2025-03-20'));   // ISO format
-        $this->assertFalse($this->service->canConvertDate('random-text'));
+        $invalidDates = [
+            'invalid-date',
+            'not-a-date',
+            '2025-13-32',
+            ''
+        ];
+
+        foreach ($invalidDates as $date) {
+            $this->assertFalse($this->service->canConvertDate($date), "Date '{$date}' should not be convertible");
+        }
+    }
+
+    public function test_convert_date_format_handles_edge_cases()
+    {
+        $edgeCases = [
+            '2/29/2024' => '29/02/2024', // Leap year
+        ];
+
+        foreach ($edgeCases as $input => $expected) {
+            $result = $this->service->convertDateFormat($input);
+            $this->assertEquals($expected, $result, "Failed to convert edge case '{$input}' to '{$expected}'");
+        }
+    }
+
+    public function test_convert_date_format_handles_whitespace()
+    {
+        $testCases = [
+            '1/1/2025' => '01/01/2025',
+            '20-Mar-25' => '20/03/2025'
+        ];
+
+        foreach ($testCases as $input => $expected) {
+            $result = $this->service->convertDateFormat($input);
+            $this->assertEquals($expected, $result, "Failed to handle date '{$input}'");
+        }
+    }
+
+    public function test_convert_record_dates_preserves_non_date_fields()
+    {
+        $record = [
+            'N° Radicado' => '001',
+            'Tipo' => 'CC',
+            'Numero Documento' => '123456789',
+            'Nombres' => 'Juan Pérez',
+            'Cargo' => 'Enfermero',
+            'Hospital' => 'Hospital Central',
+            'fecha recibido' => '1/15/2024'
+        ];
+
+        $result = $this->service->convertRecordDates($record);
+
+        // Non-date fields should remain unchanged
+        $this->assertEquals('001', $result['N° Radicado']);
+        $this->assertEquals('CC', $result['Tipo']);
+        $this->assertEquals('123456789', $result['Numero Documento']);
+        $this->assertEquals('Juan Pérez', $result['Nombres']);
+        $this->assertEquals('Enfermero', $result['Cargo']);
+        $this->assertEquals('Hospital Central', $result['Hospital']);
+
+        // Date field should be converted
+        $this->assertEquals('15/01/2024', $result['fecha recibido']);
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
     }
 }
