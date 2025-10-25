@@ -11,16 +11,17 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('comfenalco_events', function (Blueprint $table) {
+            $table->id();
             $table->string('title');
             $table->string('banner_image_url')->unique();
             $table->string('registration_link')->nullable();
             $table->string('category');
             $table->enum('display_size', ['carousel', 'mosaic'])->default('mosaic');
             $table->text('description')->nullable();
-            $table->date('created_at')->useCurrent();
             $table->date('registration_deadline')->nullable();
             $table->date('event_date')->nullable();
             $table->boolean('is_visible')->default(true);
+            $table->timestamps();
         });
     }
 

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Request\RequestController;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\WellnessEventController;
+use App\Http\Controllers\ComfenalcoEventController;
 use App\Http\Controllers\ChatbotConversationController;
 use App\Http\Controllers\IncapacidadesController;
 use App\Http\Controllers\LiquidacionesController;
@@ -85,6 +86,10 @@ Route::apiResource('wellness-events', WellnessEventController::class);
 Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility']);
 Route::post('/wellness-events/{wellness_event}/images', [WellnessEventController::class, 'addImages']);
 Route::delete('/wellness-events/{wellness_event}/images/{image}', [WellnessEventController::class, 'removeImage']);
+
+// Comfenalco Events management routes
+Route::apiResource('comfenalco-events', ComfenalcoEventController::class);
+Route::patch('/comfenalco-events/{comfenalco_event}/visibility', [ComfenalcoEventController::class, 'changeVisibility']);
 
 // Chatbot Conversations routes
 Route::get('/chatbot-conversations', [ChatbotConversationController::class, 'index']);
