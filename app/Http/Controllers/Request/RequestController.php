@@ -31,7 +31,8 @@ class RequestController extends Controller
 
         try {
             Mail::to($requestForm->email)
-                ->cc('comunicaciones@sindicatoprosalud.com')
+                ->cc('comunicaciones-prosalud@yopmail.com')
+                // ->cc('comunicaciones@sindicatoprosalud.com')
                 ->send(new RequestFormReceived($requestForm));
         } catch (\Throwable $e) {
             Log::error('Error enviando correo de confirmación de solicitud', [
