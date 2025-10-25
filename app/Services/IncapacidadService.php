@@ -16,19 +16,44 @@ class IncapacidadService
      */
     public function searchByDocument(string $tipo, string $numeroDocumento, string $fechaExpedicion): array
     {
+        $startTime = microtime(true);
+
         try {
+            Log::info('Iniciando búsqueda en archivo de incapacidades', [
+                'tipo' => $tipo,
+                'numero_documento' => $numeroDocumento,
+                'fecha_expedicion' => $fechaExpedicion,
+            ]);
+
             $excelData = $this->excelReader->readIncapacidadesFile();
 
             if (empty($excelData)) {
+                Log::warning('Archivo de incapacidades vacío o no encontrado', [
+                    'tipo' => $tipo,
+                    'numero_documento' => $numeroDocumento,
+                ]);
+
                 return [
                     'status' => 'error',
                     'message' => 'No se pudo leer el archivo de incapacidades.'
                 ];
             }
 
+            Log::info('Archivo de incapacidades leído exitosamente', [
+                'total_rows' => count($excelData),
+                'tipo' => $tipo,
+                'numero_documento' => $numeroDocumento,
+            ]);
+
             $matches = $this->findMatchingRecords($excelData, $tipo, $numeroDocumento, $fechaExpedicion);
 
             if (empty($matches)) {
+                Log::info('No se encontraron registros coincidentes', [
+                    'tipo' => $tipo,
+                    'numero_documento' => $numeroDocumento,
+                    'fecha_expedicion' => $fechaExpedicion,
+                ]);
+
                 return [
                     'status' => 'not_found',
                     'message' => 'No se encontraron incapacidades registradas para el documento especificado.'
@@ -37,16 +62,28 @@ class IncapacidadService
 
             $formattedMatches = $this->formatRecordDates($matches);
 
+            $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+
+            Log::info('Búsqueda de incapacidades completada exitosamente', [
+                'tipo' => $tipo,
+                'numero_documento' => $numeroDocumento,
+                'records_found' => count($formattedMatches),
+                'execution_time_ms' => $executionTime,
+            ]);
+
             return [
                 'status' => 'success',
                 'data' => $formattedMatches
             ];
 
         } catch (\Exception $e) {
+            $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+
             Log::error('Error en búsqueda de incapacidades', [
                 'tipo' => $tipo,
                 'numero_documento' => $numeroDocumento,
                 'fecha_expedicion' => $fechaExpedicion,
+                'execution_time_ms' => $executionTime,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -136,10 +173,10 @@ class IncapacidadService
         try {
             // Request date is in Y-m-d format (e.g., "2025-01-01")
             $requestCarbon = \Carbon\Carbon::createFromFormat('Y-m-d', $requestDate);
-            
+
             // Excel date could be in various formats (e.g., "1/1/2025", "01/01/2025")
             $excelCarbon = $this->parseExcelDate($excelDate);
-            
+
             if (!$excelCarbon) {
                 Log::warning('No se pudo parsear fecha del Excel', [
                     'excel_date' => $excelDate,
@@ -147,10 +184,10 @@ class IncapacidadService
                 ]);
                 return false;
             }
-            
+
             // Compare dates (ignore time)
             return $requestCarbon->format('Y-m-d') === $excelCarbon->format('Y-m-d');
-            
+
         } catch (\Exception $e) {
             Log::warning('Error al validar fechas', [
                 'request_date' => $requestDate,
@@ -167,13 +204,13 @@ class IncapacidadService
     private function parseExcelDate(string $dateString): ?\Carbon\Carbon
     {
         $formats = [
-            'm/d/Y',      // 1/1/2025
-            'm/d/y',      // 1/1/25
-            'd/m/Y',      // 1/1/2025 (European format)
-            'd/m/y',      // 1/1/25 (European format)
-            'Y-m-d',      // 2025-01-01
-            'd-M-y',      // 1-Jan-25
-            'd-M-Y',      // 1-Jan-2025
+            'm/d/Y',
+            'm/d/y',
+            'd/m/Y',
+            'd/m/y',
+            'Y-m-d',
+            'd-M-y',
+            'd-M-Y',
         ];
 
         foreach ($formats as $format) {

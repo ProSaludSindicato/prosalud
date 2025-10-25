@@ -24,14 +24,35 @@ class IncapacidadesController extends Controller
         $numeroDocumento = $request->validated('numero_documento');
         $fechaExpedicion = $request->validated('fecha_expedicion');
 
-        // Delegate business logic to service
+        \Illuminate\Support\Facades\Log::info('Búsqueda de incapacidades iniciada', [
+            'tipo_documento' => $tipo,
+            'numero_documento' => $numeroDocumento,
+            'fecha_expedicion' => $fechaExpedicion,
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'timestamp' => now()->toISOString(),
+        ]);
+
+        $startTime = microtime(true);
+
         $result = $this->incapacidadService->searchByDocument(
             $tipo,
             $numeroDocumento,
             $fechaExpedicion
         );
 
-        // Return appropriate HTTP status based on result
+        $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+
+        \Illuminate\Support\Facades\Log::info('Búsqueda de incapacidades completada', [
+            'tipo_documento' => $tipo,
+            'numero_documento' => $numeroDocumento,
+            'result_status' => $result['status'],
+            'execution_time_ms' => $executionTime,
+            'records_found' => isset($result['data']) ? count($result['data']) : 0,
+            'ip_address' => $request->ip(),
+            'timestamp' => now()->toISOString(),
+        ]);
+
         return $this->buildResponse($result);
     }
 
@@ -41,7 +62,7 @@ class IncapacidadesController extends Controller
     private function buildResponse(array $result): JsonResponse
     {
         $status = $result['status'];
-        
+
         return match ($status) {
             'success' => response()->json($result),
             'not_found' => response()->json($result, 404),

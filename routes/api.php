@@ -19,14 +19,40 @@ Route::post('/login', function (Request $request) {
         'password' => 'required',
     ]);
 
+    \Illuminate\Support\Facades\Log::info('Intento de login', [
+        'email' => $credentials['email'],
+        'ip_address' => $request->ip(),
+        'user_agent' => $request->userAgent(),
+        'timestamp' => now()->toISOString(),
+    ]);
+
     if (!Auth::attempt($credentials)) {
+        \Illuminate\Support\Facades\Log::warning('Login fallido', [
+            'email' => $credentials['email'],
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'timestamp' => now()->toISOString(),
+        ]);
+
         return response()->json(['message' => 'Credenciales incorrectas'], 401);
     }
+
+    $user = Auth::user();
+
+    // Log successful login
+    \Illuminate\Support\Facades\Log::info('Login exitoso', [
+        'user_id' => $user->id,
+        'email' => $user->email,
+        'name' => $user->name,
+        'ip_address' => $request->ip(),
+        'user_agent' => $request->userAgent(),
+        'timestamp' => now()->toISOString(),
+    ]);
 
     $request->session()->regenerate();
 
     return response()->json([
-        'user' => Auth::user(),
+        'user' => $user,
     ]);
 });
 

@@ -66,6 +66,19 @@ class WellnessEventController extends Controller
 
         $event->load('images');
 
+        \Illuminate\Support\Facades\Log::info('Evento de bienestar creado', [
+            'event_id' => $event->id,
+            'title' => $event->title,
+            'category' => $event->category,
+            'date' => $event->date,
+            'is_visible' => $event->is_visible,
+            'provider' => $event->provider,
+            'images_count' => $event->images->count(),
+            'user_id' => $request->user()?->id,
+            'ip_address' => $request->ip(),
+            'timestamp' => now()->toISOString(),
+        ]);
+
         return response()->json($event, Response::HTTP_CREATED);
     }
 
@@ -89,10 +102,10 @@ class WellnessEventController extends Controller
         if (isset($data['images'])) {
             $images = $data['images'];
             unset($data['images']);
-            
+
             // Delete existing images
             $this->deleteEventImages($wellnessEvent);
-            
+
             // Upload new images
             if (!empty($images)) {
                 $this->handleImageUploads($wellnessEvent, $images);
@@ -111,6 +124,7 @@ class WellnessEventController extends Controller
     public function changeVisibility(ChangeWellnessEventVisibilityRequest $request, WellnessEvent $wellnessEvent)
     {
         $validated = $request->validated();
+        $oldVisibility = $wellnessEvent->is_visible;
 
         if (array_key_exists('is_visible', $validated)) {
             $wellnessEvent->is_visible = (bool) $validated['is_visible'];
@@ -119,6 +133,16 @@ class WellnessEventController extends Controller
         }
 
         $wellnessEvent->save();
+
+        \Illuminate\Support\Facades\Log::info('Visibilidad de evento de bienestar cambiada', [
+            'event_id' => $wellnessEvent->id,
+            'title' => $wellnessEvent->title,
+            'old_visibility' => $oldVisibility,
+            'new_visibility' => $wellnessEvent->is_visible,
+            'user_id' => $request->user()?->id,
+            'ip_address' => $request->ip(),
+            'timestamp' => now()->toISOString(),
+        ]);
 
         return response()->json([
             'id' => $wellnessEvent->id,
@@ -174,10 +198,10 @@ class WellnessEventController extends Controller
     {
         foreach ($images as $index => $image) {
             $filename = 'wellness-events/' . $event->id . '/' . time() . '_' . $index . '.' . $image->getClientOriginalExtension();
-            
+
             // Store the file
             $path = Storage::disk('public')->putFileAs('wellness-events/' . $event->id, $image, basename($filename));
-            
+
             // Create database record
             WellnessEventImage::create([
                 'event_id' => $event->id,
@@ -198,7 +222,7 @@ class WellnessEventController extends Controller
             if (Storage::disk('public')->exists($path)) {
                 Storage::disk('public')->delete($path);
             }
-            
+
             // Delete database record
             $image->delete();
         }

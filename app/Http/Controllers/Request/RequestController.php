@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Request;
 use App\Constants\RequestStatuses;
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\Request\ChangeRequestStatusRequest;
 use App\Models\RequestForm;
 use App\Mail\RequestFormReceived;
+use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -15,19 +15,20 @@ use Illuminate\Support\Facades\Mail;
 
 class RequestController extends Controller
 {
+    public function __construct(
+        private AuditLogService $auditLogService
+    ) {}
     public function store(StoreRequestFormRequest $request): JsonResponse
     {
         $dto = RequestFormDTO::fromArray($request->validated());
         $requestData = $dto->toArray();
 
-        // Set default status to PENDING
         $requestData['status'] = RequestStatuses::PENDING;
 
         $requestForm = new RequestForm($requestData);
         $requestForm->created_at = now();
         $requestForm->save();
 
-        // Send confirmation email to requester with CC to comunicaciones
         try {
             Mail::to($requestForm->email)
                 ->cc('comunicaciones@sindicatoprosalud.com')
@@ -56,6 +57,13 @@ class RequestController extends Controller
             'ip_address' => $request->ip(),
             'user_agent' => $request->userAgent(),
         ]);
+
+        $this->auditLogService->logBusinessProcess('request_form', 'created', $this->auditLogService->addRequestContext($request, [
+            'request_id' => $requestForm->id,
+            'request_type' => $requestForm->request_type,
+            'affiliate_document' => $requestForm->document_number,
+            'affiliate_email' => $requestForm->email,
+        ]));
 
         return response()->json([
             'message' => 'Solicitud recibida exitosamente',
@@ -225,6 +233,15 @@ class RequestController extends Controller
             'new_status' => $status,
             'processed_at' => $request->processed_at,
         ]);
+
+        $this->auditLogService->logBusinessProcess('request_form', 'status_changed', $this->auditLogService->addRequestContext($statusRequest, [
+            'request_id' => $request->id,
+            'request_type' => $request->request_type,
+            'old_status' => $request->getOriginal('status'),
+            'new_status' => $status,
+            'affiliate_document' => $request->document_number,
+            'affiliate_email' => $request->email,
+        ]));
 
         return response()->json([
             'success' => true,

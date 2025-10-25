@@ -7,7 +7,7 @@ use App\Http\Requests\UpdateChatbotFeedbackRequest;
 use App\Models\ChatbotConversation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
- 
+
 
 class ChatbotConversationController extends Controller
 {
@@ -54,9 +54,18 @@ class ChatbotConversationController extends Controller
     {
         $data = $request->validated();
 
-        // Enrich with request context
         $data['user_ip'] = $request->ip();
         $data['user_agent'] = $request->userAgent();
+
+        \Illuminate\Support\Facades\Log::info('Nueva conversación de chatbot registrada', [
+            'client_turn_id' => $data['client_turn_id'] ?? null,
+            'conversation_id' => $data['conversation_id'] ?? null,
+            'user_question_length' => strlen($data['user_question'] ?? ''),
+            'bot_answer_length' => strlen($data['bot_answer'] ?? ''),
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'timestamp' => now()->toISOString(),
+        ]);
 
         $conversation = ChatbotConversation::create($data);
 
@@ -68,7 +77,6 @@ class ChatbotConversationController extends Controller
      */
     public function updateFeedback(UpdateChatbotFeedbackRequest $request, ChatbotConversation $conversation)
     {
-        // Ensure the feedback key is present; allow null to clear feedback
         if (!$request->exists('feedback')) {
             return response()->json([
                 'message' => 'The given data was invalid.',
@@ -79,8 +87,19 @@ class ChatbotConversationController extends Controller
         }
 
         $data = $request->validated();
+        $oldFeedback = $conversation->feedback;
         $conversation->feedback = $data['feedback'] ?? null;
         $conversation->save();
+
+        // Log feedback update
+        \Illuminate\Support\Facades\Log::info('Feedback de chatbot actualizado', [
+            'conversation_id' => $conversation->id,
+            'client_turn_id' => $conversation->client_turn_id,
+            'old_feedback' => $oldFeedback,
+            'new_feedback' => $conversation->feedback,
+            'ip_address' => $request->ip(),
+            'timestamp' => now()->toISOString(),
+        ]);
 
         return response()->json($conversation->fresh(), Response::HTTP_OK);
     }

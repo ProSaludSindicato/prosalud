@@ -3,10 +3,8 @@
 namespace App\Http\Controllers\User;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\User\StoreUserRequest;
-use App\Http\Controllers\User\UpdateUserRequest;
-use App\Http\Controllers\User\ChangeUserStatusRequest;
 use App\Models\User;
+use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -14,6 +12,9 @@ use Illuminate\Support\Facades\Log;
 
 class UserController extends Controller
 {
+    public function __construct(
+        private AuditLogService $auditLogService
+    ) {}
     /**
      * Display a listing of users
      */
@@ -21,7 +22,6 @@ class UserController extends Controller
     {
         $query = User::query();
 
-        // Search by name or email
         if ($request->has('search')) {
             $search = $request->get('search');
             $query->where(function ($q) use ($search) {
@@ -84,6 +84,13 @@ class UserController extends Controller
             'role' => $role,
             'created_at' => $user->created_at,
         ]);
+
+        $this->auditLogService->logAdministrativeAction('user_created', $this->auditLogService->addRequestContext($request, [
+            'target_user_id' => $user->id,
+            'target_user_email' => $user->email,
+            'target_user_name' => $user->name,
+            'assigned_role' => $role,
+        ]));
 
         return response()->json([
             'success' => true,
@@ -176,6 +183,15 @@ class UserController extends Controller
             'new_status' => $isActive,
             'updated_at' => $user->updated_at,
         ]);
+
+        $this->auditLogService->logAdministrativeAction('user_status_changed', $this->auditLogService->addRequestContext($request, [
+            'target_user_id' => $user->id,
+            'target_user_email' => $user->email,
+            'target_user_name' => $user->name,
+            'old_status' => !$isActive,
+            'new_status' => $isActive,
+            'action' => $statusText,
+        ]));
 
         return response()->json([
             'success' => true,

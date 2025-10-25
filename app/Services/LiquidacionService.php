@@ -16,19 +16,44 @@ class LiquidacionService
      */
     public function searchByDocument(string $tipo, string $numeroDocumento, string $fechaExpedicion): array
     {
+        $startTime = microtime(true);
+
         try {
+            Log::info('Iniciando búsqueda en archivo de liquidaciones', [
+                'tipo' => $tipo,
+                'numero_documento' => $numeroDocumento,
+                'fecha_expedicion' => $fechaExpedicion,
+            ]);
+
             $excelData = $this->excelReader->readLiquidacionesFile();
 
             if (empty($excelData)) {
+                Log::warning('Archivo de liquidaciones vacío o no encontrado', [
+                    'tipo' => $tipo,
+                    'numero_documento' => $numeroDocumento,
+                ]);
+
                 return [
                     'status' => 'error',
                     'message' => 'No se pudo leer el archivo de liquidaciones.'
                 ];
             }
 
+            Log::info('Archivo de liquidaciones leído exitosamente', [
+                'total_rows' => count($excelData),
+                'tipo' => $tipo,
+                'numero_documento' => $numeroDocumento,
+            ]);
+
             $matches = $this->findMatchingRecords($excelData, $tipo, $numeroDocumento, $fechaExpedicion);
 
             if (empty($matches)) {
+                Log::info('No se encontraron registros coincidentes', [
+                    'tipo' => $tipo,
+                    'numero_documento' => $numeroDocumento,
+                    'fecha_expedicion' => $fechaExpedicion,
+                ]);
+
                 return [
                     'status' => 'not_found',
                     'message' => 'No se encontraron liquidaciones registradas para el documento especificado.'
@@ -37,16 +62,28 @@ class LiquidacionService
 
             $formattedMatches = $this->formatRecordDates($matches);
 
+            $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+
+            Log::info('Búsqueda de liquidaciones completada exitosamente', [
+                'tipo' => $tipo,
+                'numero_documento' => $numeroDocumento,
+                'records_found' => count($formattedMatches),
+                'execution_time_ms' => $executionTime,
+            ]);
+
             return [
                 'status' => 'success',
                 'data' => $formattedMatches
             ];
 
         } catch (\Exception $e) {
+            $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+
             Log::error('Error en búsqueda de liquidaciones', [
                 'tipo' => $tipo,
                 'numero_documento' => $numeroDocumento,
                 'fecha_expedicion' => $fechaExpedicion,
+                'execution_time_ms' => $executionTime,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -136,12 +173,10 @@ class LiquidacionService
     private function validateDateMatch(string $requestDate, string $excelDate): bool
     {
         try {
-            // Request date is in Y-m-d format (e.g., "2020-01-01")
             $requestCarbon = \Carbon\Carbon::createFromFormat('Y-m-d', $requestDate);
-            
-            // Excel date could be in various formats (e.g., "1/1/2020", "01/01/2020")
+
             $excelCarbon = $this->parseExcelDate($excelDate);
-            
+
             if (!$excelCarbon) {
                 Log::warning('No se pudo parsear fecha del Excel', [
                     'excel_date' => $excelDate,
@@ -149,10 +184,9 @@ class LiquidacionService
                 ]);
                 return false;
             }
-            
-            // Compare dates (ignore time)
+
             return $requestCarbon->format('Y-m-d') === $excelCarbon->format('Y-m-d');
-            
+
         } catch (\Exception $e) {
             Log::warning('Error al validar fechas', [
                 'request_date' => $requestDate,
@@ -169,13 +203,13 @@ class LiquidacionService
     private function parseExcelDate(string $dateString): ?\Carbon\Carbon
     {
         $formats = [
-            'm/d/Y',      // 1/1/2020
-            'm/d/y',      // 1/1/20
-            'd/m/Y',      // 1/1/2020 (European format)
-            'd/m/y',      // 1/1/20 (European format)
-            'Y-m-d',      // 2020-01-01
-            'd-M-y',      // 1-Jan-20
-            'd-M-Y',      // 1-Jan-2020
+            'm/d/Y',
+            'm/d/y',
+            'd/m/Y',
+            'd/m/y',
+            'Y-m-d',
+            'd-M-y',
+            'd-M-Y',
         ];
 
         foreach ($formats as $format) {

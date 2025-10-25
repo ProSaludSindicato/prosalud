@@ -24,11 +24,34 @@ class LiquidacionesController extends Controller
         $numeroDocumento = $request->validated('numero_documento');
         $fechaExpedicion = $request->validated('fecha_expedicion');
 
+        \Illuminate\Support\Facades\Log::info('Búsqueda de liquidaciones iniciada', [
+            'tipo_documento' => $tipo,
+            'numero_documento' => $numeroDocumento,
+            'fecha_expedicion' => $fechaExpedicion,
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'timestamp' => now()->toISOString(),
+        ]);
+
+        $startTime = microtime(true);
+
         $result = $this->liquidacionService->searchByDocument(
             $tipo,
             $numeroDocumento,
             $fechaExpedicion
         );
+
+        $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+
+        \Illuminate\Support\Facades\Log::info('Búsqueda de liquidaciones completada', [
+            'tipo_documento' => $tipo,
+            'numero_documento' => $numeroDocumento,
+            'result_status' => $result['status'],
+            'execution_time_ms' => $executionTime,
+            'records_found' => isset($result['data']) ? count($result['data']) : 0,
+            'ip_address' => $request->ip(),
+            'timestamp' => now()->toISOString(),
+        ]);
 
         return $this->buildResponse($result);
     }
