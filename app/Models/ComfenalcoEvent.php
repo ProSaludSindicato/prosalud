@@ -15,20 +15,17 @@ class ComfenalcoEvent extends Model
     public function getBannerImageUrlAttribute(): ?string
     {
         if ($this->banner_image) {
-            $disk = 'public';
+            $disk = 'prosalud-public';
             return Storage::disk($disk)->url($this->banner_image);
         }
         return null;
     }
 
-    /**
-     * Get the full banner image path
-     */
     public function getBannerImagePathAttribute(): ?string
     {
         if ($this->banner_image) {
-            $disk = 'public';
-            return Storage::disk($disk)->path($this->banner_image);
+            $disk = 'prosalud-public';
+            return Storage::disk($disk)->url($this->banner_image);
         }
         return null;
     }
@@ -43,7 +40,7 @@ class ComfenalcoEvent extends Model
         static::deleting(function ($event) {
             try {
                 if ($event->banner_image) {
-                    $disk = 'public';
+                    $disk = 'prosalud-public';
                     if (Storage::disk($disk)->exists($event->banner_image)) {
                         Storage::disk($disk)->delete($event->banner_image);
                     }

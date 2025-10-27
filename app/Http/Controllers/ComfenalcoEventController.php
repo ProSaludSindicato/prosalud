@@ -29,7 +29,10 @@ class ComfenalcoEventController extends Controller
     {
         try {
             $data = $request->validated();
-            $disk = 'public'; // Use public disk for web-accessible images
+            
+            // Try prosalud-public first, fallback to public disk if S3 is not available
+            $disk = 'prosalud-public';
+            $fallbackDisk = 'public';
 
             // Handle banner image upload
             if ($request->hasFile('banner_image')) {
@@ -42,15 +45,47 @@ class ComfenalcoEventController extends Controller
                     'file_size' => $bannerImage->getSize(),
                 ]);
                 
-                // Store the file using putFileAs for local storage
-                Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
-                
-                Log::info('Resultado del upload', [
-                    'filename' => $filename,
-                    'exists' => Storage::disk($disk)->exists($filename),
-                ]);
-                
-                $data['banner_image'] = $filename;
+                try {
+                    // Store the file using putFileAs for S3 storage
+                    $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                    
+                    // If S3 fails (returns false), try local disk
+                    if ($storedPath === false) {
+                        Log::warning('S3 upload failed, trying local disk', [
+                            's3_disk' => $disk,
+                            'fallback_disk' => $fallbackDisk,
+                        ]);
+                        
+                        $storedPath = Storage::disk($fallbackDisk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                        $disk = $fallbackDisk;
+                    }
+                    
+                    $data['banner_image'] = $storedPath;
+                    
+                    Log::info('Resultado del upload', [
+                        'stored_path' => $storedPath,
+                        'final_disk' => $disk,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Error al guardar imagen en disco S3', [
+                        'filename' => $filename,
+                        'disk' => $disk,
+                        'error' => $e->getMessage(),
+                    ]);
+                    
+                    // Try fallback disk
+                    try {
+                        Log::info('Intentando disco de respaldo', ['fallback_disk' => $fallbackDisk]);
+                        $storedPath = Storage::disk($fallbackDisk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                        $data['banner_image'] = $storedPath;
+                        Log::info('Imagen guardada en disco de respaldo', ['stored_path' => $storedPath]);
+                    } catch (\Exception $fallbackError) {
+                        Log::error('Error también en disco de respaldo', [
+                            'fallback_error' => $fallbackError->getMessage(),
+                        ]);
+                        throw new \Exception('No se pudo guardar la imagen en ningún disco disponible');
+                    }
+                }
             }
 
             $event = ComfenalcoEvent::create($data);
@@ -98,22 +133,70 @@ class ComfenalcoEventController extends Controller
     {
         try {
             $data = $request->validated();
-            $disk = 'public'; // Use public disk for web-accessible images
+            
+            // Try prosalud-public first, fallback to public disk if S3 is not available
+            $disk = 'prosalud-public';
+            $fallbackDisk = 'public';
 
             // Handle banner image upload
             if ($request->hasFile('banner_image')) {
                 // Delete old banner image if exists
-                if ($comfenalcoEvent->banner_image && Storage::disk($disk)->exists($comfenalcoEvent->banner_image)) {
-                    Storage::disk($disk)->delete($comfenalcoEvent->banner_image);
+                if ($comfenalcoEvent->banner_image) {
+                    try {
+                        // Try to determine which disk the old image is on
+                        $oldDisk = $disk;
+                        if (!Storage::disk($disk)->exists($comfenalcoEvent->banner_image)) {
+                            $oldDisk = $fallbackDisk;
+                        }
+                        
+                        if (Storage::disk($oldDisk)->exists($comfenalcoEvent->banner_image)) {
+                            Storage::disk($oldDisk)->delete($comfenalcoEvent->banner_image);
+                        }
+                    } catch (\Exception $e) {
+                        Log::warning('Error al eliminar imagen antigua', [
+                            'old_image' => $comfenalcoEvent->banner_image,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
                 }
 
                 $bannerImage = $request->file('banner_image');
                 $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
                 
-                // Store the file using putFileAs for local storage
-                Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
-                
-                $data['banner_image'] = $filename;
+                try {
+                    // Store the file using putFileAs for S3 storage
+                    $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                    
+                    // If S3 fails (returns false), try local disk
+                    if ($storedPath === false) {
+                        Log::warning('S3 upload failed, trying local disk', [
+                            's3_disk' => $disk,
+                            'fallback_disk' => $fallbackDisk,
+                        ]);
+                        
+                        $storedPath = Storage::disk($fallbackDisk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                        $disk = $fallbackDisk;
+                    }
+                    
+                    $data['banner_image'] = $storedPath;
+                } catch (\Exception $e) {
+                    Log::error('Error al guardar imagen en disco S3', [
+                        'filename' => $filename,
+                        'disk' => $disk,
+                        'error' => $e->getMessage(),
+                    ]);
+                    
+                    // Try fallback disk
+                    try {
+                        $storedPath = Storage::disk($fallbackDisk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                        $data['banner_image'] = $storedPath;
+                    } catch (\Exception $fallbackError) {
+                        Log::error('Error también en disco de respaldo', [
+                            'fallback_error' => $fallbackError->getMessage(),
+                        ]);
+                        throw new \Exception('No se pudo guardar la imagen en ningún disco disponible');
+                    }
+                }
             }
 
             $comfenalcoEvent->update($data);
