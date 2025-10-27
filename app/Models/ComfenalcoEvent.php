@@ -15,7 +15,8 @@ class ComfenalcoEvent extends Model
     public function getBannerImageUrlAttribute(): ?string
     {
         if ($this->banner_image) {
-            return Storage::url($this->banner_image);
+            $disk = 'public';
+            return Storage::disk($disk)->url($this->banner_image);
         }
         return null;
     }
@@ -26,7 +27,8 @@ class ComfenalcoEvent extends Model
     public function getBannerImagePathAttribute(): ?string
     {
         if ($this->banner_image) {
-            return Storage::path($this->banner_image);
+            $disk = 'public';
+            return Storage::disk($disk)->path($this->banner_image);
         }
         return null;
     }
@@ -39,8 +41,19 @@ class ComfenalcoEvent extends Model
         parent::boot();
 
         static::deleting(function ($event) {
-            if ($event->banner_image && Storage::exists($event->banner_image)) {
-                Storage::delete($event->banner_image);
+            try {
+                if ($event->banner_image) {
+                    $disk = 'public';
+                    if (Storage::disk($disk)->exists($event->banner_image)) {
+                        Storage::disk($disk)->delete($event->banner_image);
+                    }
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Error eliminando banner image en ComfenalcoEvent::boot', [
+                    'event_id' => $event->id,
+                    'banner_image' => $event->banner_image,
+                    'error' => $e->getMessage(),
+                ]);
             }
         });
     }

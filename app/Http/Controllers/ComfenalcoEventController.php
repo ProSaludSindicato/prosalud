@@ -18,7 +18,7 @@ class ComfenalcoEventController extends Controller
      */
     public function index(): \Illuminate\Http\JsonResponse
     {
-        $events = ComfenalcoEvent::query()->orderBy('created_at', 'desc')->get();
+        $events = ComfenalcoEvent::orderBy('created_at', 'desc')->get();
         return response()->json($events);
     }
 
@@ -27,31 +27,60 @@ class ComfenalcoEventController extends Controller
      */
     public function store(StoreComfenalcoEventRequest $request): \Illuminate\Http\JsonResponse
     {
-        $data = $request->validated();
+        try {
+            $data = $request->validated();
+            $disk = 'public'; // Use public disk for web-accessible images
 
-        // Handle banner image upload
-        if ($request->hasFile('banner_image')) {
-            $bannerImage = $request->file('banner_image');
-            $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
-            $bannerImage->storeAs('public', $filename);
-            $data['banner_image'] = $filename;
+            // Handle banner image upload
+            if ($request->hasFile('banner_image')) {
+                $bannerImage = $request->file('banner_image');
+                $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
+                
+                Log::info('Intentando guardar imagen en disco', [
+                    'filename' => $filename,
+                    'disk' => $disk,
+                    'file_size' => $bannerImage->getSize(),
+                ]);
+                
+                // Store the file using putFileAs for local storage
+                Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                
+                Log::info('Resultado del upload', [
+                    'filename' => $filename,
+                    'exists' => Storage::disk($disk)->exists($filename),
+                ]);
+                
+                $data['banner_image'] = $filename;
+            }
+
+            $event = ComfenalcoEvent::create($data);
+
+            Log::info('Evento Comfenalco creado', [
+                'event_id' => $event->id,
+                'title' => $event->title,
+                'category' => $event->category,
+                'event_date' => $event->event_date,
+                'is_visible' => $event->is_visible,
+                'banner_image' => $event->banner_image,
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json($event, Response::HTTP_CREATED);
+        } catch (\Exception $e) {
+            Log::error('Error creando evento Comfenalco', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al crear el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
         }
-
-        $event = ComfenalcoEvent::create($data);
-
-        Log::info('Evento Comfenalco creado', [
-            'event_id' => $event->id,
-            'title' => $event->title,
-            'category' => $event->category,
-            'event_date' => $event->event_date,
-            'is_visible' => $event->is_visible,
-            'banner_image' => $event->banner_image,
-            'user_id' => $request->user()?->id,
-            'ip_address' => $request->ip(),
-            'timestamp' => now()->toISOString(),
-        ]);
-
-        return response()->json($event, Response::HTTP_CREATED);
     }
 
     /**
@@ -67,36 +96,54 @@ class ComfenalcoEventController extends Controller
      */
     public function update(UpdateComfenalcoEventRequest $request, ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
     {
-        $data = $request->validated();
+        try {
+            $data = $request->validated();
+            $disk = 'public'; // Use public disk for web-accessible images
 
-        // Handle banner image upload
-        if ($request->hasFile('banner_image')) {
-            // Delete old banner image if exists
-            if ($comfenalcoEvent->banner_image && Storage::exists($comfenalcoEvent->banner_image)) {
-                Storage::delete($comfenalcoEvent->banner_image);
+            // Handle banner image upload
+            if ($request->hasFile('banner_image')) {
+                // Delete old banner image if exists
+                if ($comfenalcoEvent->banner_image && Storage::disk($disk)->exists($comfenalcoEvent->banner_image)) {
+                    Storage::disk($disk)->delete($comfenalcoEvent->banner_image);
+                }
+
+                $bannerImage = $request->file('banner_image');
+                $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
+                
+                // Store the file using putFileAs for local storage
+                Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
+                
+                $data['banner_image'] = $filename;
             }
 
-            $bannerImage = $request->file('banner_image');
-            $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
-            $bannerImage->storeAs('public', $filename);
-            $data['banner_image'] = $filename;
+            $comfenalcoEvent->update($data);
+
+            Log::info('Evento Comfenalco actualizado', [
+                'event_id' => $comfenalcoEvent->id,
+                'title' => $comfenalcoEvent->title,
+                'category' => $comfenalcoEvent->category,
+                'event_date' => $comfenalcoEvent->event_date,
+                'is_visible' => $comfenalcoEvent->is_visible,
+                'banner_image' => $comfenalcoEvent->banner_image,
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json($comfenalcoEvent);
+        } catch (\Exception $e) {
+            Log::error('Error actualizando evento Comfenalco', [
+                'event_id' => $comfenalcoEvent->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Error al actualizar el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
         }
-
-        $comfenalcoEvent->update($data);
-
-        Log::info('Evento Comfenalco actualizado', [
-            'event_id' => $comfenalcoEvent->id,
-            'title' => $comfenalcoEvent->title,
-            'category' => $comfenalcoEvent->category,
-            'event_date' => $comfenalcoEvent->event_date,
-            'is_visible' => $comfenalcoEvent->is_visible,
-            'banner_image' => $comfenalcoEvent->banner_image,
-            'user_id' => $request->user()?->id,
-            'ip_address' => $request->ip(),
-            'timestamp' => now()->toISOString(),
-        ]);
-
-        return response()->json($comfenalcoEvent);
     }
 
     /**

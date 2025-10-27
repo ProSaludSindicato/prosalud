@@ -11,6 +11,7 @@ use App\Models\WellnessEventImage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class WellnessEventController extends Controller
 {
@@ -47,39 +48,53 @@ class WellnessEventController extends Controller
      */
     public function store(StoreWellnessEventRequest $request)
     {
-        $data = $request->validated();
+        try {
+            $data = $request->validated();
 
-        if (!isset($data['provider'])) {
-            $data['provider'] = Providers::PROSALUD;
+            if (!isset($data['provider'])) {
+                $data['provider'] = Providers::PROSALUD;
+            }
+
+            // Remove images from data before creating event
+            $images = $data['images'] ?? [];
+            unset($data['images']);
+
+            $event = WellnessEvent::create($data);
+
+            // Handle image uploads
+            if (!empty($images)) {
+                $this->handleImageUploads($event, $images);
+            }
+
+            $event->load('images');
+
+            Log::info('Evento de bienestar creado', [
+                'event_id' => $event->id,
+                'title' => $event->title,
+                'category' => $event->category,
+                'date' => $event->date,
+                'is_visible' => $event->is_visible,
+                'provider' => $event->provider,
+                'images_count' => $event->images->count(),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json($event, Response::HTTP_CREATED);
+        } catch (\Exception $e) {
+            Log::error('Error creando evento de bienestar', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al crear el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
         }
-
-        // Remove images from data before creating event
-        $images = $data['images'] ?? [];
-        unset($data['images']);
-
-        $event = WellnessEvent::create($data);
-
-        // Handle image uploads
-        if (!empty($images)) {
-            $this->handleImageUploads($event, $images);
-        }
-
-        $event->load('images');
-
-        \Illuminate\Support\Facades\Log::info('Evento de bienestar creado', [
-            'event_id' => $event->id,
-            'title' => $event->title,
-            'category' => $event->category,
-            'date' => $event->date,
-            'is_visible' => $event->is_visible,
-            'provider' => $event->provider,
-            'images_count' => $event->images->count(),
-            'user_id' => $request->user()?->id,
-            'ip_address' => $request->ip(),
-            'timestamp' => now()->toISOString(),
-        ]);
-
-        return response()->json($event, Response::HTTP_CREATED);
     }
 
     /**
@@ -155,18 +170,31 @@ class WellnessEventController extends Controller
      */
     public function addImages(Request $request, WellnessEvent $wellnessEvent)
     {
-        $request->validate([
-            'images' => ['required', 'array', 'min:1'],
-            'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,gif,webp', 'max:5120'],
-        ]);
+        try {
+            $request->validate([
+                'images' => ['required', 'array', 'min:1'],
+                'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,gif,webp', 'max:5120'],
+            ]);
 
-        $this->handleImageUploads($wellnessEvent, $request->file('images'));
-        $wellnessEvent->load('images');
+            $this->handleImageUploads($wellnessEvent, $request->file('images'));
+            $wellnessEvent->load('images');
 
-        return response()->json([
-            'message' => 'Imágenes agregadas exitosamente',
-            'event' => $wellnessEvent,
-        ]);
+            return response()->json([
+                'message' => 'Imágenes agregadas exitosamente',
+                'event' => $wellnessEvent,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error agregando imágenes al evento', [
+                'event_id' => $wellnessEvent->id,
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Error al agregar imágenes',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
     }
 
     /**
@@ -174,21 +202,38 @@ class WellnessEventController extends Controller
      */
     public function removeImage(WellnessEvent $wellnessEvent, WellnessEventImage $image)
     {
-        // Verify the image belongs to the event
-        if ($image->event_id !== $wellnessEvent->id) {
-            return response()->json(['message' => 'La imagen no pertenece a este evento'], 404);
+        try {
+            // Verify the image belongs to the event
+            if ($image->event_id !== $wellnessEvent->id) {
+                return response()->json(['message' => 'La imagen no pertenece a este evento'], 404);
+            }
+
+            $disk = config('filesystems.default');
+            
+            // Extract path from URL
+            $path = $this->extractPathFromUrl($image->image_url);
+            
+            // Delete file from storage
+            if ($path && Storage::disk($disk)->exists($path)) {
+                Storage::disk($disk)->delete($path);
+            }
+
+            // Delete database record
+            $image->delete();
+
+            return response()->json(['message' => 'Imagen eliminada exitosamente']);
+        } catch (\Exception $e) {
+            Log::error('Error eliminando imagen del evento', [
+                'event_id' => $wellnessEvent->id,
+                'image_id' => $image->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al eliminar imagen',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
         }
-
-        // Delete file from storage
-        $path = str_replace('/storage/', '', $image->image_url);
-        if (Storage::disk('public')->exists($path)) {
-            Storage::disk('public')->delete($path);
-        }
-
-        // Delete database record
-        $image->delete();
-
-        return response()->json(['message' => 'Imagen eliminada exitosamente']);
     }
 
     /**
@@ -196,16 +241,25 @@ class WellnessEventController extends Controller
      */
     private function handleImageUploads(WellnessEvent $event, array $images)
     {
+        $disk = config('filesystems.default');
+        
         foreach ($images as $index => $image) {
             $filename = 'wellness-events/' . $event->id . '/' . time() . '_' . $index . '.' . $image->getClientOriginalExtension();
 
-            // Store the file
-            $path = Storage::disk('public')->putFileAs('wellness-events/' . $event->id, $image, basename($filename));
+            // Store the file with public visibility
+            $path = Storage::disk($disk)->put(
+                $filename,
+                file_get_contents($image->getRealPath()),
+                [
+                    'visibility' => 'public',
+                    'CacheControl' => 'max-age=31536000, public'
+                ]
+            );
 
-            // Create database record
+            // Create database record with full URL
             WellnessEventImage::create([
                 'event_id' => $event->id,
-                'image_url' => Storage::url($path),
+                'image_url' => Storage::disk($disk)->url($filename),
                 'is_main' => $index === 0, // First image is main
             ]);
         }
@@ -216,15 +270,45 @@ class WellnessEventController extends Controller
      */
     private function deleteEventImages(WellnessEvent $event)
     {
+        $disk = config('filesystems.default');
+        
         foreach ($event->images as $image) {
-            // Delete file from storage
-            $path = str_replace('/storage/', '', $image->image_url);
-            if (Storage::disk('public')->exists($path)) {
-                Storage::disk('public')->delete($path);
-            }
+            try {
+                // Extract path from URL
+                $path = $this->extractPathFromUrl($image->image_url);
+                
+                // Delete file from storage
+                if ($path && Storage::disk($disk)->exists($path)) {
+                    Storage::disk($disk)->delete($path);
+                }
 
-            // Delete database record
-            $image->delete();
+                // Delete database record
+                $image->delete();
+            } catch (\Exception $e) {
+                Log::error('Error eliminando imagen en deleteEventImages', [
+                    'event_id' => $event->id,
+                    'image_id' => $image->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
+    }
+
+    /**
+     * Extract path from CloudFront or S3 URL
+     */
+    private function extractPathFromUrl(string $url): ?string
+    {
+        // Remove domain and get path
+        $parsed = parse_url($url);
+        if (!$parsed || !isset($parsed['path'])) {
+            return null;
+        }
+        
+        // Remove leading /storage/ or just /
+        $path = ltrim($parsed['path'], '/');
+        $path = preg_replace('#^storage/#', '', $path);
+        
+        return $path;
     }
 }
