@@ -8,9 +8,11 @@ use Illuminate\Support\Facades\Storage;
 class ComfenalcoEvent extends Model
 {
     protected $guarded = [];
-    
-    // Disable timestamps since they're not needed
-    public $timestamps = false;
+
+    public $timestamps = true;
+    const UPDATED_AT = null;
+
+    protected $appends = ['banner_image_url'];
 
     /**
      * Get the banner image URL
