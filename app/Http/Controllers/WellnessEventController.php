@@ -142,26 +142,156 @@ class WellnessEventController extends Controller
      */
     public function update(UpdateWellnessEventRequest $request, WellnessEvent $wellnessEvent)
     {
-        $data = $request->validated();
+        try {
+            // Log incoming request data
+            Log::info('Iniciando actualización de evento de bienestar', [
+                'event_id' => $wellnessEvent->id,
+                'method' => $request->method(),
+                'content_type' => $request->header('Content-Type'),
+                'request_data' => $request->except(['images']),
+                'json_data' => $request->json()->all(),
+                'input_data' => $request->input(),
+                'all_data' => $request->all(),
+                'has_images' => $request->hasFile('images'),
+                'images_count' => count($request->file('images', [])),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString(),
+            ]);
 
-        // Handle image uploads if provided
-        if (isset($data['images'])) {
-            $images = $data['images'];
-            unset($data['images']);
+            $data = $request->validated();
 
-            // Delete existing images
-            $this->deleteEventImages($wellnessEvent);
+            Log::info('Datos validados para actualización de evento de bienestar', [
+                'event_id' => $wellnessEvent->id,
+                'validated_data' => $data,
+                'has_images' => isset($data['images']),
+                'timestamp' => now()->toISOString(),
+            ]);
 
-            // Upload new images
-            if (!empty($images)) {
-                $this->handleImageUploads($wellnessEvent, $images);
+            // Handle image uploads if provided
+            if (isset($data['images'])) {
+                $images = $data['images'];
+                unset($data['images']);
+
+                Log::info('Procesando imágenes para actualización de evento de bienestar', [
+                    'event_id' => $wellnessEvent->id,
+                    'images_count' => count($images),
+                    'timestamp' => now()->toISOString(),
+                ]);
+
+                // Delete existing images
+                $this->deleteEventImages($wellnessEvent);
+
+                // Upload new images
+                if (!empty($images)) {
+                    $this->handleImageUploads($wellnessEvent, $images);
+                }
             }
+
+            $wellnessEvent->update($data);
+            $wellnessEvent->load('images');
+
+            Log::info('Evento de bienestar actualizado exitosamente', [
+                'event_id' => $wellnessEvent->id,
+                'title' => $wellnessEvent->title,
+                'category' => $wellnessEvent->category,
+                'date' => $wellnessEvent->date,
+                'is_visible' => $wellnessEvent->is_visible,
+                'images_count' => $wellnessEvent->images->count(),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Log response data
+            Log::info('Enviando respuesta de evento de bienestar actualizado', [
+                'event_id' => $wellnessEvent->id,
+                'response_data_keys' => array_keys($wellnessEvent->toArray()),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json($wellnessEvent);
+        } catch (\Exception $e) {
+            Log::error('Error actualizando evento de bienestar', [
+                'event_id' => $wellnessEvent->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->except(['images']),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al actualizar el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
         }
+    }
 
-        $wellnessEvent->update($data);
-        $wellnessEvent->load('images');
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(Request $request, WellnessEvent $wellnessEvent)
+    {
+        try {
+            // Log incoming request data
+            Log::info('Iniciando eliminación de evento de bienestar', [
+                'event_id' => $wellnessEvent->id,
+                'title' => $wellnessEvent->title,
+                'category' => $wellnessEvent->category,
+                'date' => $wellnessEvent->date,
+                'images_count' => $wellnessEvent->images->count(),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString(),
+            ]);
 
-        return response()->json($wellnessEvent);
+            // Delete all images first
+            if ($wellnessEvent->images->count() > 0) {
+                Log::info('Eliminando imágenes del evento de bienestar', [
+                    'event_id' => $wellnessEvent->id,
+                    'images_count' => $wellnessEvent->images->count(),
+                    'timestamp' => now()->toISOString(),
+                ]);
+                $this->deleteEventImages($wellnessEvent);
+            }
+
+            // Delete the event
+            $wellnessEvent->delete();
+
+            Log::info('Evento de bienestar eliminado exitosamente', [
+                'event_id' => $wellnessEvent->id,
+                'title' => $wellnessEvent->title,
+                'user_id' => $request->user()?->id,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Log response data
+            Log::info('Enviando respuesta de evento de bienestar eliminado', [
+                'event_id' => $wellnessEvent->id,
+                'response_message' => 'Evento eliminado exitosamente',
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json(['message' => 'Evento eliminado exitosamente']);
+        } catch (\Exception $e) {
+            Log::error('Error eliminando evento de bienestar', [
+                'event_id' => $wellnessEvent->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al eliminar el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
     }
 
     /**
