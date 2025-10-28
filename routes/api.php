@@ -8,6 +8,7 @@ use App\Http\Controllers\ChatbotConversationController;
 use App\Http\Controllers\IncapacidadesController;
 use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\ActivosController;
+use App\Http\Controllers\VoteController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
 use Illuminate\Http\Request;
@@ -106,6 +107,11 @@ Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search'])
 
 // Activos routes (public endpoint for hospital search)
 Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital']);
+
+// Vote routes (public endpoints for assembly voting)
+Route::post('/votes', [VoteController::class, 'store']);
+Route::get('/votes/statistics', [VoteController::class, 'statistics']);
+Route::get('/votes/check', [VoteController::class, 'checkVote']);
 
 // Roles and Permissions management routes
 Route::apiResource('roles', RoleController::class);
