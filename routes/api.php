@@ -7,6 +7,7 @@ use App\Http\Controllers\ComfenalcoEventController;
 use App\Http\Controllers\ChatbotConversationController;
 use App\Http\Controllers\IncapacidadesController;
 use App\Http\Controllers\LiquidacionesController;
+use App\Http\Controllers\ActivosController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
 use Illuminate\Http\Request;
@@ -102,6 +103,9 @@ Route::post('/incapacidades/search', [IncapacidadesController::class, 'search'])
 
 // Liquidaciones routes (public endpoint for chatbot)
 Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search']);
+
+// Activos routes (public endpoint for hospital search)
+Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital']);
 
 // Roles and Permissions management routes
 Route::apiResource('roles', RoleController::class);
