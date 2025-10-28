@@ -121,17 +121,45 @@ class ComfenalcoEventController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
+    public function show($id): \Illuminate\Http\JsonResponse
     {
-        return response()->json($comfenalcoEvent);
+        try {
+            $comfenalcoEvent = ComfenalcoEvent::find($id);
+            
+            if (!$comfenalcoEvent) {
+                return response()->json([
+                    'message' => 'Evento no encontrado'
+                ], 404);
+            }
+
+            return response()->json($comfenalcoEvent);
+        } catch (\Exception $e) {
+            Log::error('Error obteniendo evento Comfenalco', [
+                'id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al obtener el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateComfenalcoEventRequest $request, ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
+    public function update(UpdateComfenalcoEventRequest $request, $id): \Illuminate\Http\JsonResponse
     {
         try {
+            $comfenalcoEvent = ComfenalcoEvent::find($id);
+            
+            if (!$comfenalcoEvent) {
+                return response()->json([
+                    'message' => 'Evento no encontrado'
+                ], 404);
+            }
+
             $data = $request->validated();
             
             // Try prosalud-public first, fallback to public disk if S3 is not available
@@ -216,7 +244,7 @@ class ComfenalcoEventController extends Controller
             return response()->json($comfenalcoEvent);
         } catch (\Exception $e) {
             Log::error('Error actualizando evento Comfenalco', [
-                'event_id' => $comfenalcoEvent->id,
+                'id' => $id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'user_id' => $request->user()?->id,
@@ -232,39 +260,83 @@ class ComfenalcoEventController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
+    public function destroy($id): \Illuminate\Http\JsonResponse
     {
-        Log::info('Evento Comfenalco eliminado', [
-            'event_id' => $comfenalcoEvent->id,
-            'title' => $comfenalcoEvent->title,
-            'user_id' => auth()->user()?->id,
-            'timestamp' => now()->toISOString(),
-        ]);
+        try {
+            // Find the event manually to handle invalid IDs better
+            $comfenalcoEvent = ComfenalcoEvent::find($id);
+            
+            if (!$comfenalcoEvent) {
+                return response()->json([
+                    'message' => 'Evento no encontrado'
+                ], 404);
+            }
 
-        $comfenalcoEvent->delete();
+            Log::info('Evento Comfenalco eliminado', [
+                'event_id' => $comfenalcoEvent->id,
+                'title' => $comfenalcoEvent->title,
+                'user_id' => auth()->user()?->id,
+                'timestamp' => now()->toISOString(),
+            ]);
 
-        return response()->json(['message' => 'Evento eliminado exitosamente']);
+            $comfenalcoEvent->delete();
+
+            return response()->json(['message' => 'Evento eliminado exitosamente']);
+        } catch (\Exception $e) {
+            Log::error('Error eliminando evento Comfenalco', [
+                'id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => auth()->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Error al eliminar el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
     }
 
     /**
      * Change the visibility of the specified resource.
      */
-    public function changeVisibility(Request $request, ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
+    public function changeVisibility(Request $request, $id): \Illuminate\Http\JsonResponse
     {
-        $request->validate([
-            'is_visible' => 'required|boolean'
-        ]);
+        try {
+            $comfenalcoEvent = ComfenalcoEvent::find($id);
+            
+            if (!$comfenalcoEvent) {
+                return response()->json([
+                    'message' => 'Evento no encontrado'
+                ], 404);
+            }
 
-        $comfenalcoEvent->update(['is_visible' => $request->is_visible]);
+            $request->validate([
+                'is_visible' => 'required|boolean'
+            ]);
 
-        Log::info('Visibilidad de evento Comfenalco cambiada', [
-            'event_id' => $comfenalcoEvent->id,
-            'title' => $comfenalcoEvent->title,
-            'is_visible' => $comfenalcoEvent->is_visible,
-            'user_id' => $request->user()?->id,
-            'timestamp' => now()->toISOString(),
-        ]);
+            $comfenalcoEvent->update(['is_visible' => $request->is_visible]);
 
-        return response()->json($comfenalcoEvent);
+            Log::info('Visibilidad de evento Comfenalco cambiada', [
+                'event_id' => $comfenalcoEvent->id,
+                'title' => $comfenalcoEvent->title,
+                'is_visible' => $comfenalcoEvent->is_visible,
+                'user_id' => $request->user()?->id,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json($comfenalcoEvent);
+        } catch (\Exception $e) {
+            Log::error('Error cambiando visibilidad de evento Comfenalco', [
+                'id' => $id,
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Error al cambiar la visibilidad del evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+            ], 500);
+        }
     }
 }
