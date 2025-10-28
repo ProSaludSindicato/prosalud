@@ -49,6 +49,16 @@ class WellnessEventController extends Controller
     public function store(StoreWellnessEventRequest $request)
     {
         try {
+            // Log incoming request data
+            Log::info('Iniciando creación de evento de bienestar', [
+                'request_data' => $request->except(['images']), // Exclude images from log for security
+                'images_count' => count($request->file('images', [])),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
             $data = $request->validated();
 
             if (!isset($data['provider'])) {
@@ -59,16 +69,27 @@ class WellnessEventController extends Controller
             $images = $data['images'] ?? [];
             unset($data['images']);
 
+            Log::info('Datos validados para evento de bienestar', [
+                'validated_data' => $data,
+                'images_count' => count($images),
+                'timestamp' => now()->toISOString(),
+            ]);
+
             $event = WellnessEvent::create($data);
 
             // Handle image uploads
             if (!empty($images)) {
+                Log::info('Procesando imágenes para evento de bienestar', [
+                    'event_id' => $event->id,
+                    'images_count' => count($images),
+                    'timestamp' => now()->toISOString(),
+                ]);
                 $this->handleImageUploads($event, $images);
             }
 
             $event->load('images');
 
-            Log::info('Evento de bienestar creado', [
+            Log::info('Evento de bienestar creado exitosamente', [
                 'event_id' => $event->id,
                 'title' => $event->title,
                 'category' => $event->category,
@@ -81,13 +102,23 @@ class WellnessEventController extends Controller
                 'timestamp' => now()->toISOString(),
             ]);
 
+            // Log response data
+            Log::info('Enviando respuesta de evento de bienestar creado', [
+                'event_id' => $event->id,
+                'response_status' => Response::HTTP_CREATED,
+                'response_data_keys' => array_keys($event->toArray()),
+                'timestamp' => now()->toISOString(),
+            ]);
+
             return response()->json($event, Response::HTTP_CREATED);
         } catch (\Exception $e) {
             Log::error('Error creando evento de bienestar', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
+                'request_data' => $request->except(['images']),
                 'user_id' => $request->user()?->id,
                 'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json([
@@ -208,14 +239,27 @@ class WellnessEventController extends Controller
                 return response()->json(['message' => 'La imagen no pertenece a este evento'], 404);
             }
 
-            $disk = config('filesystems.default');
-            
+            $disk = 'prosalud-public';
+            $fallbackDisk = 'public';
+
             // Extract path from URL
             $path = $this->extractPathFromUrl($image->image_url);
-            
+
+            // Try to determine which disk the image is on
+            $currentDisk = $disk;
+            if ($path && !Storage::disk($disk)->exists($path)) {
+                $currentDisk = $fallbackDisk;
+            }
+
             // Delete file from storage
-            if ($path && Storage::disk($disk)->exists($path)) {
-                Storage::disk($disk)->delete($path);
+            if ($path && Storage::disk($currentDisk)->exists($path)) {
+                Storage::disk($currentDisk)->delete($path);
+                Log::info('Imagen eliminada del almacenamiento', [
+                    'event_id' => $wellnessEvent->id,
+                    'image_id' => $image->id,
+                    'path' => $path,
+                    'disk' => $currentDisk,
+                ]);
             }
 
             // Delete database record
@@ -241,26 +285,135 @@ class WellnessEventController extends Controller
      */
     private function handleImageUploads(WellnessEvent $event, array $images)
     {
-        $disk = config('filesystems.default');
-        
+        $disk = 'prosalud-public';
+        $fallbackDisk = 'public';
+
         foreach ($images as $index => $image) {
-            $filename = 'wellness-events/' . $event->id . '/' . time() . '_' . $index . '.' . $image->getClientOriginalExtension();
+            // Generate unique filename with UUID to ensure uniqueness
+            $uniqueId = \Illuminate\Support\Str::uuid();
+            $extension = $image->getClientOriginalExtension();
+            $filename = $uniqueId . '.' . $extension;
+            $fullPath = 'wellness-events/' . $event->id . '/' . $filename;
 
-            // Store the file with public visibility
-            $path = Storage::disk($disk)->put(
-                $filename,
-                file_get_contents($image->getRealPath()),
-                [
-                    'visibility' => 'public',
-                    'CacheControl' => 'max-age=31536000, public'
-                ]
-            );
+            Log::info('Subiendo imagen para evento de bienestar', [
+                'event_id' => $event->id,
+                'filename' => $filename,
+                'full_path' => $fullPath,
+                'original_name' => $image->getClientOriginalName(),
+                'size' => $image->getSize(),
+                'disk' => $disk,
+                'timestamp' => now()->toISOString(),
+            ]);
 
-            // Create database record with full URL
+            try {
+                // Store the file using putFileAs for S3 storage (same as Comfenalco)
+                $storedPath = Storage::disk($disk)->putFileAs(
+                    'wellness-events/' . $event->id,
+                    $image,
+                    $filename
+                );
+
+                // If S3 fails (returns false), try local disk
+                if ($storedPath === false) {
+                    Log::warning('S3 upload failed, trying local disk', [
+                        's3_disk' => $disk,
+                        'fallback_disk' => $fallbackDisk,
+                    ]);
+
+                    $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                        'wellness-events/' . $event->id,
+                        $image,
+                        $filename
+                    );
+                    $disk = $fallbackDisk;
+                }
+
+                Log::info('Imagen subida exitosamente', [
+                    'event_id' => $event->id,
+                    'filename' => $filename,
+                    'stored_path' => $storedPath,
+                    'expected_path' => $fullPath,
+                    'final_disk' => $disk,
+                    'timestamp' => now()->toISOString(),
+                ]);
+
+            } catch (\Exception $e) {
+                Log::error('Error al guardar imagen en disco S3', [
+                    'filename' => $filename,
+                    'disk' => $disk,
+                    'error' => $e->getMessage(),
+                ]);
+
+                // Try fallback disk
+                try {
+                    Log::info('Intentando disco de respaldo', ['fallback_disk' => $fallbackDisk]);
+                    $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                        'wellness-events/' . $event->id,
+                        $image,
+                        $filename
+                    );
+                    $disk = $fallbackDisk;
+                    Log::info('Imagen guardada en disco de respaldo', ['stored_path' => $storedPath]);
+                } catch (\Exception $fallbackError) {
+                    Log::error('Error también en disco de respaldo', [
+                        'fallback_error' => $fallbackError->getMessage(),
+                    ]);
+                    throw new \Exception('No se pudo guardar la imagen en ningún disco disponible');
+                }
+            }
+
+            // Ensure we have a valid stored path
+            if (!$storedPath) {
+                Log::error('No se obtuvo path válido para la imagen', [
+                    'event_id' => $event->id,
+                    'filename' => $filename,
+                    'disk' => $disk,
+                ]);
+                throw new \Exception('No se pudo obtener el path de la imagen almacenada');
+            }
+
+            // Generate URL manually based on disk configuration
+            // Use the actual stored path, not the expected path
+            if ($disk === 'prosalud-public') {
+                $baseUrl = config('filesystems.disks.prosalud-public.url');
+                $imageUrl = rtrim($baseUrl, '/') . '/' . ltrim($storedPath, '/');
+            } else {
+                $baseUrl = config('filesystems.disks.public.url');
+                $imageUrl = rtrim($baseUrl, '/') . '/' . ltrim($storedPath, '/');
+            }
+
+            Log::info('URL generada para imagen', [
+                'event_id' => $event->id,
+                'filename' => $filename,
+                'stored_path' => $storedPath,
+                'image_url' => $imageUrl,
+                'disk' => $disk,
+                'base_url' => $baseUrl,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Verify URL uniqueness before saving to database
+            $existingImage = \App\Models\WellnessEventImage::where('image_url', $imageUrl)->first();
+            if ($existingImage) {
+                Log::error('URL duplicada detectada', [
+                    'event_id' => $event->id,
+                    'duplicate_url' => $imageUrl,
+                    'existing_image_id' => $existingImage->id,
+                ]);
+                throw new \Exception('URL de imagen duplicada detectada: ' . $imageUrl);
+            }
+
             WellnessEventImage::create([
                 'event_id' => $event->id,
-                'image_url' => Storage::disk($disk)->url($filename),
+                'image_url' => $imageUrl,
                 'is_main' => $index === 0, // First image is main
+            ]);
+
+            Log::info('Imagen guardada en base de datos', [
+                'event_id' => $event->id,
+                'image_url' => $imageUrl,
+                'is_main' => $index === 0,
+                'timestamp' => now()->toISOString(),
             ]);
         }
     }
@@ -270,16 +423,29 @@ class WellnessEventController extends Controller
      */
     private function deleteEventImages(WellnessEvent $event)
     {
-        $disk = config('filesystems.default');
-        
+        $disk = 'prosalud-public';
+        $fallbackDisk = 'public';
+
         foreach ($event->images as $image) {
             try {
                 // Extract path from URL
                 $path = $this->extractPathFromUrl($image->image_url);
-                
+
+                // Try to determine which disk the image is on
+                $currentDisk = $disk;
+                if ($path && !Storage::disk($disk)->exists($path)) {
+                    $currentDisk = $fallbackDisk;
+                }
+
                 // Delete file from storage
-                if ($path && Storage::disk($disk)->exists($path)) {
-                    Storage::disk($disk)->delete($path);
+                if ($path && Storage::disk($currentDisk)->exists($path)) {
+                    Storage::disk($currentDisk)->delete($path);
+                    Log::info('Imagen eliminada del almacenamiento', [
+                        'event_id' => $event->id,
+                        'image_id' => $image->id,
+                        'path' => $path,
+                        'disk' => $currentDisk,
+                    ]);
                 }
 
                 // Delete database record
@@ -304,11 +470,11 @@ class WellnessEventController extends Controller
         if (!$parsed || !isset($parsed['path'])) {
             return null;
         }
-        
+
         // Remove leading /storage/ or just /
         $path = ltrim($parsed['path'], '/');
         $path = preg_replace('#^storage/#', '', $path);
-        
+
         return $path;
     }
 }

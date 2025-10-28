@@ -32,7 +32,7 @@ class UpdateComfenalcoEventRequest extends FormRequest
             'category' => ['sometimes', 'required', 'string', 'max:255'],
             'display_size' => ['nullable', 'string', 'in:carousel,mosaic'],
             'description' => ['nullable', 'string'],
-            'registration_deadline' => ['nullable', 'date', 'after_or_equal:today'],
+            'registration_deadline' => ['nullable', 'date'],
             'event_date' => ['nullable', 'date'],
             'is_visible' => ['nullable', 'boolean'],
         ];

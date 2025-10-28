@@ -32,7 +32,7 @@ class StoreComfenalcoEventRequest extends FormRequest
             'category' => ['required', 'string', 'max:255'],
             'display_size' => ['nullable', 'string', 'in:carousel,mosaic'],
             'description' => ['nullable', 'string'],
-            'registration_deadline' => ['nullable', 'date', 'after_or_equal:today'],
+            'registration_deadline' => ['nullable', 'date'],
             'event_date' => ['nullable', 'date'],
             'is_visible' => ['nullable', 'boolean'],
         ];
@@ -58,9 +58,8 @@ class StoreComfenalcoEventRequest extends FormRequest
             'display_size.string' => 'El tamaño de visualización debe ser una cadena de texto.',
             'display_size.in' => 'El tamaño de visualización debe ser "carousel" o "mosaic".',
             'description.string' => 'La descripción debe ser una cadena de texto.',
-            'registration_deadline.date' => 'La fecha límite de registro debe ser una fecha válida.',
-            'registration_deadline.after_or_equal' => 'La fecha límite de registro debe ser hoy o una fecha futura.',
-            'event_date.date' => 'La fecha del evento debe ser una fecha válida.',
+            'registration_deadline.date' => 'La fecha límite de registro debe ser una fecha válida (opcional).',
+            'event_date.date' => 'La fecha del evento debe ser una fecha válida (opcional).',
             'is_visible.boolean' => 'La visibilidad debe ser verdadero o falso.',
         ];
     }

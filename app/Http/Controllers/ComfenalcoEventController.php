@@ -29,7 +29,7 @@ class ComfenalcoEventController extends Controller
     {
         try {
             $data = $request->validated();
-            
+
             // Try prosalud-public first, fallback to public disk if S3 is not available
             $disk = 'prosalud-public';
             $fallbackDisk = 'public';
@@ -38,30 +38,30 @@ class ComfenalcoEventController extends Controller
             if ($request->hasFile('banner_image')) {
                 $bannerImage = $request->file('banner_image');
                 $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
-                
+
                 Log::info('Intentando guardar imagen en disco', [
                     'filename' => $filename,
                     'disk' => $disk,
                     'file_size' => $bannerImage->getSize(),
                 ]);
-                
+
                 try {
                     // Store the file using putFileAs for S3 storage
                     $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
-                    
+
                     // If S3 fails (returns false), try local disk
                     if ($storedPath === false) {
                         Log::warning('S3 upload failed, trying local disk', [
                             's3_disk' => $disk,
                             'fallback_disk' => $fallbackDisk,
                         ]);
-                        
+
                         $storedPath = Storage::disk($fallbackDisk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
                         $disk = $fallbackDisk;
                     }
-                    
+
                     $data['banner_image'] = $storedPath;
-                    
+
                     Log::info('Resultado del upload', [
                         'stored_path' => $storedPath,
                         'final_disk' => $disk,
@@ -72,7 +72,7 @@ class ComfenalcoEventController extends Controller
                         'disk' => $disk,
                         'error' => $e->getMessage(),
                     ]);
-                    
+
                     // Try fallback disk
                     try {
                         Log::info('Intentando disco de respaldo', ['fallback_disk' => $fallbackDisk]);
@@ -125,7 +125,7 @@ class ComfenalcoEventController extends Controller
     {
         try {
             $comfenalcoEvent = ComfenalcoEvent::find($id);
-            
+
             if (!$comfenalcoEvent) {
                 return response()->json([
                     'message' => 'Evento no encontrado'
@@ -152,16 +152,38 @@ class ComfenalcoEventController extends Controller
     public function update(UpdateComfenalcoEventRequest $request, $id): \Illuminate\Http\JsonResponse
     {
         try {
+            Log::info('Iniciando actualización de evento Comfenalco', [
+                'event_id' => $id,
+                'request_data' => $request->except(['banner_image']), // Exclude image from log for security
+                'has_banner_image' => $request->hasFile('banner_image'),
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
             $comfenalcoEvent = ComfenalcoEvent::find($id);
-            
+
             if (!$comfenalcoEvent) {
+                Log::warning('Evento Comfenalco no encontrado para actualización', [
+                    'event_id' => $id,
+                    'user_id' => $request->user()?->id,
+                    'timestamp' => now()->toISOString(),
+                ]);
                 return response()->json([
                     'message' => 'Evento no encontrado'
                 ], 404);
             }
 
             $data = $request->validated();
-            
+
+            Log::info('Datos validados para actualización de evento Comfenalco', [
+                'event_id' => $id,
+                'validated_data' => $data,
+                'has_banner_image' => $request->hasFile('banner_image'),
+                'timestamp' => now()->toISOString(),
+            ]);
+
             // Try prosalud-public first, fallback to public disk if S3 is not available
             $disk = 'prosalud-public';
             $fallbackDisk = 'public';
@@ -176,7 +198,7 @@ class ComfenalcoEventController extends Controller
                         if (!Storage::disk($disk)->exists($comfenalcoEvent->banner_image)) {
                             $oldDisk = $fallbackDisk;
                         }
-                        
+
                         if (Storage::disk($oldDisk)->exists($comfenalcoEvent->banner_image)) {
                             Storage::disk($oldDisk)->delete($comfenalcoEvent->banner_image);
                         }
@@ -190,22 +212,22 @@ class ComfenalcoEventController extends Controller
 
                 $bannerImage = $request->file('banner_image');
                 $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
-                
+
                 try {
                     // Store the file using putFileAs for S3 storage
                     $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
-                    
+
                     // If S3 fails (returns false), try local disk
                     if ($storedPath === false) {
                         Log::warning('S3 upload failed, trying local disk', [
                             's3_disk' => $disk,
                             'fallback_disk' => $fallbackDisk,
                         ]);
-                        
+
                         $storedPath = Storage::disk($fallbackDisk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
                         $disk = $fallbackDisk;
                     }
-                    
+
                     $data['banner_image'] = $storedPath;
                 } catch (\Exception $e) {
                     Log::error('Error al guardar imagen en disco S3', [
@@ -213,7 +235,7 @@ class ComfenalcoEventController extends Controller
                         'disk' => $disk,
                         'error' => $e->getMessage(),
                     ]);
-                    
+
                     // Try fallback disk
                     try {
                         $storedPath = Storage::disk($fallbackDisk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
@@ -229,7 +251,7 @@ class ComfenalcoEventController extends Controller
 
             $comfenalcoEvent->update($data);
 
-            Log::info('Evento Comfenalco actualizado', [
+            Log::info('Evento Comfenalco actualizado exitosamente', [
                 'event_id' => $comfenalcoEvent->id,
                 'title' => $comfenalcoEvent->title,
                 'category' => $comfenalcoEvent->category,
@@ -238,6 +260,13 @@ class ComfenalcoEventController extends Controller
                 'banner_image' => $comfenalcoEvent->banner_image,
                 'user_id' => $request->user()?->id,
                 'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Log response data
+            Log::info('Enviando respuesta de evento Comfenalco actualizado', [
+                'event_id' => $comfenalcoEvent->id,
+                'response_data_keys' => array_keys($comfenalcoEvent->toArray()),
                 'timestamp' => now()->toISOString(),
             ]);
 
@@ -260,26 +289,57 @@ class ComfenalcoEventController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy($id): \Illuminate\Http\JsonResponse
+    public function destroy(Request $request, $id): \Illuminate\Http\JsonResponse
     {
         try {
+            // Log incoming request data
+            Log::info('Iniciando eliminación de evento Comfenalco', [
+                'event_id' => $id,
+                'user_id' => $request->user()?->id,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
             // Find the event manually to handle invalid IDs better
             $comfenalcoEvent = ComfenalcoEvent::find($id);
-            
+
             if (!$comfenalcoEvent) {
+                Log::warning('Evento Comfenalco no encontrado para eliminación', [
+                    'event_id' => $id,
+                    'user_id' => $request->user()?->id,
+                    'timestamp' => now()->toISOString(),
+                ]);
                 return response()->json([
                     'message' => 'Evento no encontrado'
                 ], 404);
             }
 
-            Log::info('Evento Comfenalco eliminado', [
+            Log::info('Evento Comfenalco encontrado para eliminación', [
                 'event_id' => $comfenalcoEvent->id,
                 'title' => $comfenalcoEvent->title,
-                'user_id' => auth()->user()?->id,
+                'category' => $comfenalcoEvent->category,
+                'event_date' => $comfenalcoEvent->event_date,
+                'banner_image' => $comfenalcoEvent->banner_image,
+                'user_id' => $request->user()?->id,
                 'timestamp' => now()->toISOString(),
             ]);
 
             $comfenalcoEvent->delete();
+
+            Log::info('Evento Comfenalco eliminado exitosamente', [
+                'event_id' => $comfenalcoEvent->id,
+                'title' => $comfenalcoEvent->title,
+                'user_id' => $request->user()?->id,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Log response data
+            Log::info('Enviando respuesta de evento Comfenalco eliminado', [
+                'event_id' => $comfenalcoEvent->id,
+                'response_message' => 'Evento eliminado exitosamente',
+                'timestamp' => now()->toISOString(),
+            ]);
 
             return response()->json(['message' => 'Evento eliminado exitosamente']);
         } catch (\Exception $e) {
@@ -287,7 +347,7 @@ class ComfenalcoEventController extends Controller
                 'id' => $id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'user_id' => auth()->user()?->id,
+                'user_id' => $request->user()?->id,
             ]);
 
             return response()->json([
@@ -304,7 +364,7 @@ class ComfenalcoEventController extends Controller
     {
         try {
             $comfenalcoEvent = ComfenalcoEvent::find($id);
-            
+
             if (!$comfenalcoEvent) {
                 return response()->json([
                     'message' => 'Evento no encontrado'
