@@ -9,6 +9,7 @@ use App\Http\Controllers\IncapacidadesController;
 use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\ActivosController;
 use App\Http\Controllers\VoteController;
+use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
 use Illuminate\Http\Request;
@@ -112,6 +113,12 @@ Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospit
 Route::post('/votes', [VoteController::class, 'store']);
 Route::get('/votes/statistics', [VoteController::class, 'statistics']);
 Route::get('/votes/check', [VoteController::class, 'checkVote']);
+
+// Delegados routes (public endpoints for delegates consultation)
+Route::get('/delegados', [DelegadosController::class, 'index']);
+Route::get('/delegados/by-sede', [DelegadosController::class, 'getBySede']);
+Route::get('/delegados/by-cedula', [DelegadosController::class, 'getByCedula']);
+Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupedBySede']);
 
 // Roles and Permissions management routes
 Route::apiResource('roles', RoleController::class);

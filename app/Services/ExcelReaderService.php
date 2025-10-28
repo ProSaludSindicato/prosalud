@@ -11,6 +11,7 @@ class ExcelReaderService
     private const EXCEL_FILE_PATH = 'data/_RELACION INCAPACIDADES 2025.xlsx';
     private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES PENDIENTES.xlsx';
     private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
+    private const DELEGADOS_FILE_PATH = 'data/DELEGADOS_2025_2.xlsx';
 
     /**
      * Read the incapacidades Excel file
@@ -198,7 +199,7 @@ class ExcelReaderService
     {
         try {
             $data = $this->readActivosFile();
-            
+
             if (empty($data)) {
                 return null;
             }
@@ -220,10 +221,10 @@ class ExcelReaderService
                 $normalizedInputDate = $this->normalizeDate($fechaExpedicion);
                 $normalizedRowDate = $this->normalizeDate($rowFechaExpedicion);
 
-                if ($rowTipoDocumento === $tipoDocumento && 
-                    $rowDocumento === $documento && 
+                if ($rowTipoDocumento === $tipoDocumento &&
+                    $rowDocumento === $documento &&
                     $normalizedInputDate === $normalizedRowDate) {
-                    
+
                     // Return the HOSPITAL column (column 5, 0-indexed)
                     return trim($row[5] ?? '');
                 }
@@ -268,6 +269,196 @@ class ExcelReaderService
             return $date;
         } catch (\Exception $e) {
             return $date;
+        }
+    }
+
+    /**
+     * Read the delegados Excel file
+     */
+    public function readDelegadosFile(): array
+    {
+        try {
+            $excelPath = public_path(self::DELEGADOS_FILE_PATH);
+
+            // Check if file exists
+            if (!file_exists($excelPath)) {
+                Log::error('Archivo de delegados no encontrado', [
+                    'path' => $excelPath
+                ]);
+                return [];
+            }
+
+            // Load the Excel file
+            $spreadsheet = IOFactory::load($excelPath);
+            $worksheet = $spreadsheet->getActiveSheet();
+            $data = $worksheet->toArray();
+
+            Log::info('Archivo de delegados leído exitosamente', [
+                'rows_count' => count($data),
+                'file_path' => $excelPath
+            ]);
+
+            return $data;
+
+        } catch (SpreadsheetException $e) {
+            Log::error('Error al procesar archivo Excel de delegados', [
+                'error' => $e->getMessage(),
+                'file_path' => public_path(self::DELEGADOS_FILE_PATH)
+            ]);
+            return [];
+        } catch (\Exception $e) {
+            Log::error('Error inesperado al leer archivo Excel de delegados', [
+                'error' => $e->getMessage(),
+                'file_path' => public_path(self::DELEGADOS_FILE_PATH)
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Check if the delegados Excel file exists and is readable
+     */
+    public function isDelegadosFileAvailable(): bool
+    {
+        $excelPath = public_path(self::DELEGADOS_FILE_PATH);
+        return file_exists($excelPath) && is_readable($excelPath);
+    }
+
+    /**
+     * Get all delegados candidates
+     */
+    public function getAllDelegados(): array
+    {
+        try {
+            $data = $this->readDelegadosFile();
+
+            if (empty($data)) {
+                return [];
+            }
+
+            $delegados = [];
+
+            // Process each row, skip the first row if it contains headers
+            foreach ($data as $index => $row) {
+                // Skip empty rows
+                if (empty(array_filter($row))) {
+                    continue;
+                }
+
+                // Check if row has enough columns
+                if (count($row) < 6) {
+                    continue;
+                }
+
+                $nombreApellidos = trim($row[0] ?? '');
+                $cedula = trim($row[1] ?? '');
+
+                // Skip if this looks like a header row (contains column names)
+                if ($nombreApellidos === 'NOMBRE Y APELLIDOS' ||
+                    $cedula === 'CEDULA' ||
+                    $nombreApellidos === 'SEDE' ||
+                    $cedula === 'SEDE') {
+                    continue;
+                }
+
+                // Only add if has essential data and looks like real data
+                if (!empty($nombreApellidos) && !empty($cedula) && is_numeric($cedula)) {
+                    $delegado = [
+                        'id' => count($delegados) + 1, // Generate ID based on actual data count
+                        'nombre_apellidos' => $nombreApellidos,
+                        'cedula' => $cedula,
+                        'sede' => trim($row[2] ?? ''),
+                        'estado_bd_1' => trim($row[3] ?? ''),
+                        'proceso' => trim($row[4] ?? ''),
+                        'estado_bd_2' => trim($row[5] ?? ''),
+                        'avatar_url' => "https://prosalud-vote-hub.lovable.app/avatars/{$cedula}.jpeg",
+                    ];
+
+                    $delegados[] = $delegado;
+                }
+            }
+
+            return $delegados;
+
+        } catch (\Exception $e) {
+            Log::error('Error al obtener delegados', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Search delegados by sede (hospital)
+     */
+    public function getDelegadosBySede(string $sede): array
+    {
+        try {
+            $allDelegados = $this->getAllDelegados();
+
+            return array_filter($allDelegados, function($delegado) use ($sede) {
+                return strtoupper(trim($delegado['sede'])) === strtoupper(trim($sede));
+            });
+
+        } catch (\Exception $e) {
+            Log::error('Error al buscar delegados por sede', [
+                'error' => $e->getMessage(),
+                'sede' => $sede
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Search delegados by cedula
+     */
+    public function getDelegadoByCedula(string $cedula): ?array
+    {
+        try {
+            $allDelegados = $this->getAllDelegados();
+
+            foreach ($allDelegados as $delegado) {
+                if (trim($delegado['cedula']) === trim($cedula)) {
+                    return $delegado;
+                }
+            }
+
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('Error al buscar delegado por cédula', [
+                'error' => $e->getMessage(),
+                'cedula' => $cedula
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Get delegados grouped by sede
+     */
+    public function getDelegadosGroupedBySede(): array
+    {
+        try {
+            $allDelegados = $this->getAllDelegados();
+            $grouped = [];
+
+            foreach ($allDelegados as $delegado) {
+                $sede = $delegado['sede'];
+                if (!isset($grouped[$sede])) {
+                    $grouped[$sede] = [];
+                }
+                $grouped[$sede][] = $delegado;
+            }
+
+            return $grouped;
+
+        } catch (\Exception $e) {
+            Log::error('Error al agrupar delegados por sede', [
+                'error' => $e->getMessage()
+            ]);
+            return [];
         }
     }
 }

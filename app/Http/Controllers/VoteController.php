@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
-class feat extends Controller
+class VoteController extends Controller
 {
     /**
      * Store a new vote
