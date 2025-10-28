@@ -58,17 +58,19 @@ return [
             'report' => false,
         ],
 
-        /*'prosalud-public' => [
+        'prosalud-public' => [
             'driver' => 's3',
             'key' => env('AWS_PUBLIC_ACCESS_KEY_ID'),
             'secret' => env('AWS_PUBLIC_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_PUBLIC_DEFAULT_REGION'),
-            'bucket' => env('AWS_PUBLIC_BUCKET'),
+            'region' => env('AWS_PUBLIC_DEFAULT_REGION', 'auto'),
+            'bucket' => env('AWS_PUBLIC_BUCKET', 'prosalud-public'),
             'url' => env('AWS_PUBLIC_URL'),
+            'endpoint' => env('AWS_PUBLIC_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_PUBLIC_USE_PATH_STYLE_ENDPOINT', false),
             'visibility' => 'public',
             'throw' => false,
             'report' => false,
-        ],*/
+        ],
     ],
 
     /*
