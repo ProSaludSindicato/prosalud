@@ -22,7 +22,8 @@ class VoteController extends Controller
             // Extract voter information
             $voter = $validatedData['voter'];
             $candidate = $validatedData['candidate'];
-            $timestamp = Carbon::parse($validatedData['timestamp']);
+            // Parse timestamp and set to Colombia timezone
+            $timestamp = Carbon::parse($validatedData['timestamp'])->setTimezone('America/Bogota');
 
             // Check if voter has already voted for this candidate
             if (Vote::hasVoted($voter['documentType'], $voter['documentNumber'], $candidate['id'])) {
@@ -77,7 +78,7 @@ class VoteController extends Controller
                     'id' => $vote->id,
                     'voter' => $vote->voter,
                     'candidate' => $vote->candidate,
-                    'timestamp' => $vote->vote_timestamp->toISOString(),
+                    'timestamp' => $vote->vote_timestamp->setTimezone('America/Bogota')->format('Y-m-d\TH:i:s.vP'),
                 ]
             ], 201);
 
@@ -277,10 +278,10 @@ class VoteController extends Controller
                         'position' => $vote->candidate_position,
                         'hospital' => $vote->candidate_hospital,
                     ],
-                    'vote_timestamp' => $vote->vote_timestamp->toISOString(),
+                    'vote_timestamp' => $vote->vote_timestamp->setTimezone('America/Bogota')->format('Y-m-d\TH:i:s.vP'),
                     'ip_address' => $vote->ip_address,
                     'user_agent' => $vote->user_agent,
-                    'created_at' => $vote->created_at->toISOString(),
+                    'created_at' => $vote->created_at->setTimezone('America/Bogota')->format('Y-m-d\TH:i:s.vP'),
                 ];
             });
 
