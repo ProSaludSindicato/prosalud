@@ -10,7 +10,7 @@ class ExcelReaderService
 {
     private const EXCEL_FILE_PATH = 'data/_RELACION INCAPACIDADES 2025.xlsx';
     private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES PENDIENTES.xlsx';
-    private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
+    private const ACTIVOS_FILE_PATH = 'data/ACTIVOS2.xlsx';
     private const DELEGADOS_FILE_PATH = 'data/DELEGADOS_2025_2.xlsx';
 
     /**
