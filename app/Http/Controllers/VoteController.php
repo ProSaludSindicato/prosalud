@@ -170,6 +170,76 @@ class VoteController extends Controller
     }
 
     /**
+     * Get vote statistics by hospital (assembly and candidates)
+     * If hospital is provided, returns statistics for that hospital
+     * If hospital is not provided, returns general statistics
+     */
+    public function hospitalStatistics(Request $request): JsonResponse
+    {
+        try {
+            $hospital = $request->query('hospital');
+
+            // Base query - apply hospital filter if provided
+            $baseQuery = Vote::query();
+            if ($hospital) {
+                $baseQuery->byHospital($hospital);
+            }
+
+            // Get total votes
+            $totalVotes = $baseQuery->count();
+
+            // Get votes by candidate (apply hospital filter if provided)
+            $votesByCandidateQuery = Vote::selectRaw('candidate_id, candidate_name, COUNT(*) as vote_count')
+                ->groupBy('candidate_id', 'candidate_name');
+            
+            if ($hospital) {
+                $votesByCandidateQuery->byHospital($hospital);
+            }
+            
+            $votesByCandidate = $votesByCandidateQuery
+                ->orderBy('vote_count', 'desc')
+                ->get();
+
+            // Get votes by hospital
+            // If hospital filter is applied, this will only show that hospital
+            // If not, it will show all hospitals
+            $votesByHospitalQuery = Vote::selectRaw('voter_hospital, COUNT(*) as vote_count')
+                ->groupBy('voter_hospital');
+            
+            if ($hospital) {
+                $votesByHospitalQuery->byHospital($hospital);
+            }
+            
+            $votesByHospital = $votesByHospitalQuery
+                ->orderBy('vote_count', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'statistics' => [
+                    'total_votes' => $totalVotes,
+                    'votes_by_candidate' => $votesByCandidate,
+                    'votes_by_hospital' => $votesByHospital,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al obtener estadísticas de votación por hospital', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'hospital' => $request->query('hospital'),
+                'timestamp' => now()->toISOString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener estadísticas',
+                'error_code' => 'HOSPITAL_STATISTICS_ERROR'
+            ], 500);
+        }
+    }
+
+    /**
      * Check if voter has voted (regardless of candidate)
      */
     public function checkVote(Request $request): JsonResponse
