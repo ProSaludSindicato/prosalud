@@ -244,6 +244,66 @@ class ExcelReaderService
     }
 
     /**
+     * Search for a person's full name in the activos file by document type and document number
+     */
+    public function searchPersonNameInActivos(string $tipoDocumento, string $documento): ?string
+    {
+        try {
+            $data = $this->readActivosFile();
+
+            if (empty($data)) {
+                return null;
+            }
+
+            // Skip header row (assuming first row is header)
+            $rows = array_slice($data, 1);
+
+            foreach ($rows as $row) {
+                // Check if row has enough columns
+                if (count($row) < 7) {
+                    continue;
+                }
+
+                $rowTipoDocumento = trim($row[0] ?? '');
+                $rowDocumento = trim($row[1] ?? '');
+
+                if ($rowTipoDocumento === $tipoDocumento && $rowDocumento === $documento) {
+                    // Try to get name from columns 2 and 3 (nombres and apellidos) or column 2 if it's combined
+                    $nombres = trim($row[2] ?? '');
+                    $apellidos = trim($row[3] ?? '');
+                    
+                    // If both columns exist, concatenate them
+                    if (!empty($nombres) && !empty($apellidos)) {
+                        return trim($nombres . ' ' . $apellidos);
+                    }
+                    
+                    // If only one column has data, return it
+                    if (!empty($nombres)) {
+                        return $nombres;
+                    }
+                    
+                    if (!empty($apellidos)) {
+                        return $apellidos;
+                    }
+                    
+                    // If no name found in expected columns, return null
+                    return null;
+                }
+            }
+
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('Error al buscar nombre de persona en archivo de activos', [
+                'error' => $e->getMessage(),
+                'tipo_documento' => $tipoDocumento,
+                'documento' => $documento
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Normalize date format for comparison
      */
     private function normalizeDate(string $date): string

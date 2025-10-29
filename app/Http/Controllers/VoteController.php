@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreVoteRequest;
 use App\Models\Vote;
+use App\Services\ExcelReaderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -11,6 +12,12 @@ use Carbon\Carbon;
 
 class VoteController extends Controller
 {
+    private ExcelReaderService $excelReaderService;
+
+    public function __construct(ExcelReaderService $excelReaderService)
+    {
+        $this->excelReaderService = $excelReaderService;
+    }
     /**
      * Store a new vote
      */
@@ -262,8 +269,53 @@ class VoteController extends Controller
                           ->take($perPage)
                           ->get();
 
-            // Transform votes for response
-            $votesData = $votes->map(function ($vote) {
+            // Build a map of document -> full name from ACTIVOS2.xlsx for efficiency
+            $nameMap = [];
+            if ($this->excelReaderService->isActivosFileAvailable()) {
+                try {
+                    $activosData = $this->excelReaderService->readActivosFile();
+                    if (!empty($activosData)) {
+                        $rows = array_slice($activosData, 1); // Skip header
+                        foreach ($rows as $row) {
+                            if (count($row) >= 4) {
+                                $tipoDocumento = trim($row[0] ?? '');
+                                $documento = trim($row[1] ?? '');
+                                $nombres = trim($row[2] ?? '');
+                                $apellidos = trim($row[3] ?? '');
+                                
+                                if (!empty($tipoDocumento) && !empty($documento)) {
+                                    $key = $tipoDocumento . '|' . $documento;
+                                    
+                                    // Build full name
+                                    $fullName = null;
+                                    if (!empty($nombres) && !empty($apellidos)) {
+                                        $fullName = trim($nombres . ' ' . $apellidos);
+                                    } elseif (!empty($nombres)) {
+                                        $fullName = $nombres;
+                                    } elseif (!empty($apellidos)) {
+                                        $fullName = $apellidos;
+                                    }
+                                    
+                                    if ($fullName) {
+                                        $nameMap[$key] = $fullName;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Error al construir mapa de nombres para auditoría', [
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            // Transform votes for response (with voter information but without candidate information)
+            $votesData = $votes->map(function ($vote) use ($nameMap) {
+                // Get full name from map
+                $key = $vote->voter_document_type . '|' . $vote->voter_document_number;
+                $fullName = $nameMap[$key] ?? null;
+
                 return [
                     'vote_id' => $vote->id,
                     'voter' => [
@@ -271,12 +323,7 @@ class VoteController extends Controller
                         'document_number' => $vote->voter_document_number,
                         'hospital' => $vote->voter_hospital,
                         'position' => $vote->voter_position,
-                    ],
-                    'candidate' => [
-                        'id' => $vote->candidate_id,
-                        'name' => $vote->candidate_name,
-                        'position' => $vote->candidate_position,
-                        'hospital' => $vote->candidate_hospital,
+                        'full_name' => $fullName,
                     ],
                     'vote_timestamp' => $vote->vote_timestamp->setTimezone('America/Bogota')->format('Y-m-d\TH:i:s.vP'),
                     'ip_address' => $vote->ip_address,
