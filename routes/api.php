@@ -10,6 +10,7 @@ use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\ActivosController;
 use App\Http\Controllers\VoteController;
 use App\Http\Controllers\DelegadosController;
+use App\Http\Controllers\AfiliadoController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
 use Illuminate\Http\Request;
@@ -120,6 +121,9 @@ Route::get('/delegados', [DelegadosController::class, 'index']);
 Route::get('/delegados/by-sede', [DelegadosController::class, 'getBySede']);
 Route::get('/delegados/by-cedula', [DelegadosController::class, 'getByCedula']);
 Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupedBySede']);
+
+// Afiliados routes (public endpoint for affiliate authentication and information)
+Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
 
 // Roles and Permissions management routes
 Route::apiResource('roles', RoleController::class);
