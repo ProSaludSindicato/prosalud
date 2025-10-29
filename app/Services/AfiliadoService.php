@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Log;
 
 class AfiliadoService
 {
-    private const EXCEL_FILE_PATH = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
+    private const EXCEL_FILE_PATH = 'data/SIMPLE_PROSANET_INFORMACION_AFILIADOS.xlsx';
     private const SHEET_INFORMACION_GENERAL = 'INFORMACIÓN GENERAL';
     private const SHEET_CONVENIOS = 'CONVENIOS';
 
@@ -89,7 +89,7 @@ class AfiliadoService
 
             // Load the Excel file with read-only mode for better performance
             $spreadsheet = IOFactory::load($excelPath);
-            
+
             // Get INFORMACIÓN GENERAL sheet
             $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
             if (!$informacionSheet) {
@@ -165,7 +165,7 @@ class AfiliadoService
             // Increase memory limit temporarily for large Excel files
             $originalMemoryLimit = ini_get('memory_limit');
             ini_set('memory_limit', '512M');
-            
+
             // Increase execution time for large files
             $originalMaxExecutionTime = ini_get('max_execution_time');
             set_time_limit(60);
@@ -228,11 +228,11 @@ class AfiliadoService
 
             // Filter to return only required fields
             $result = $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
-            
+
             // Restore original settings
             ini_set('memory_limit', $originalMemoryLimit);
             set_time_limit($originalMaxExecutionTime);
-            
+
             return $result;
 
         } catch (SpreadsheetException $e) {
@@ -336,22 +336,22 @@ class AfiliadoService
 
         // Get highest row to know when to stop
         $highestRow = $sheet->getHighestRow();
-        
+
         // Iterate through rows (skip header row at row 1)
         for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             // Read only necessary columns first for matching (optimization)
             $colLetter = Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1);
             $cell = $sheet->getCell($colLetter . $rowIndex);
             $rowTipoDocumentoRaw = $this->getCellValue($cell);
-            
+
             $colLetter = Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1);
             $cell = $sheet->getCell($colLetter . $rowIndex);
             $rowDocumentoRaw = $this->getCellValue($cell);
-            
+
             $colLetter = Coordinate::stringFromColumnIndex(self::COL_FECHA_EXPEDICION + 1);
             $cell = $sheet->getCell($colLetter . $rowIndex);
             $rowFechaExpedicionRaw = $this->getCellValue($cell);
-            
+
             // Normalize values for comparison
             $rowTipoDocumento = $this->normalizeValue($rowTipoDocumentoRaw);
             $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
@@ -375,7 +375,7 @@ class AfiliadoService
             if ($rowTipoDocumento === $normalizedTipoDocumento &&
                 $rowDocumento === $normalizedDocumento &&
                 $rowFechaExpedicion === $normalizedFechaExpedicion) {
-                
+
                 // Match found! Now read the complete row
                 $rowData = [];
                 for ($colIndex = 0; $colIndex < 39; $colIndex++) {
@@ -396,17 +396,17 @@ class AfiliadoService
     private function getCellValue($cell)
     {
         $value = $cell->getCalculatedValue();
-        
+
         // Handle DateTime objects from Excel dates
         if ($value instanceof \DateTime) {
             return $value->format('Y-m-d');
         }
-        
+
         // Handle numeric values (convert to string to maintain consistency)
         if (is_numeric($value) && !is_string($value)) {
             return (string) $value;
         }
-        
+
         return $value;
     }
 
@@ -420,7 +420,7 @@ class AfiliadoService
 
         // Get highest row
         $highestRow = $sheet->getHighestRow();
-        
+
         // Iterate through rows (skip header row at row 1)
         for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             // Read only necessary columns for matching
@@ -508,7 +508,7 @@ class AfiliadoService
         // Extract date from Banco column if it contains a date (Fecha Rethus might be embedded)
         $banco = $this->normalizeValue($row[self::COL_BANCO] ?? '');
         $fechaRethus = $this->normalizeValue($row[self::COL_FECHA_RETHUS] ?? '');
-        
+
         // If fecha rethus is empty but banco contains a date, extract it
         if (empty($fechaRethus) && !empty($banco)) {
             $extractedDate = $this->extractDateFromString($banco);
@@ -640,14 +640,14 @@ class AfiliadoService
         $conveniosFiltered = [];
         foreach ($conveniosFull as $convenio) {
             $clienteOriginal = $this->normalizeValue($convenio['cliente'] ?? '');
-            
+
             $convenioFiltered = [
                 'cliente' => $this->transformCliente($clienteOriginal),
                 'proceso' => $this->normalizeValue($convenio['proceso'] ?? ''),
                 'estado' => $this->normalizeValue($convenio['estado'] ?? ''),
                 'fecha_fin' => $this->normalizeDate($convenio['fecha_fin'] ?? ''),
             ];
-            
+
             $conveniosFiltered[] = $convenioFiltered;
         }
 
@@ -807,30 +807,30 @@ class AfiliadoService
 
         // Common AFP names
         $afpPatterns = ['PORVENIR', 'COLPENSION', 'COLFONDOS', 'NINGUNA'];
-        
+
         // Common ARL names
         $arlPatterns = ['COLMENA'];
-        
+
         // Common Caja de Compensacion names
         $cajaPatterns = ['COMFENALC'];
-        
+
         // Common EPS patterns (might be multi-word)
         $text = $concatenated;
-        
+
         // Try to find patterns from end to beginning (Caja, ARL, AFP, then EPS is what's left)
-        
+
         // Find Caja de Compensacion (usually ends with "COMFENALC 3" or "COMFENALC 4")
         if (preg_match('/\b(COMFENALC\s+\d+)\b/i', $text, $matches)) {
             $cajaCompensacion = trim($matches[1]);
             $text = preg_replace('/\b' . preg_quote($matches[1], '/') . '\b/i', '', $text);
         }
-        
+
         // Find ARL (usually "COLMENA")
         if (preg_match('/\b(COLMENA)\b/i', $text, $matches)) {
             $arl = trim($matches[1]);
             $text = preg_replace('/\b' . preg_quote($matches[1], '/') . '\b/i', '', $text);
         }
-        
+
         // Find AFP (PORVENIR, COLPENSION, COLFONDOS, or NINGUNA)
         foreach ($afpPatterns as $pattern) {
             if (preg_match('/\b(' . preg_quote($pattern, '/') . ')\b/i', $text, $matches)) {
@@ -839,10 +839,10 @@ class AfiliadoService
                 break;
             }
         }
-        
+
         // What's left should be EPS
         $eps = trim(preg_replace('/\s+/', ' ', $text));
-        
+
         // If we successfully extracted at least ARL or AFP, return parsed values
         if (!empty($arl) || !empty($afp) || !empty($cajaCompensacion)) {
             return [
@@ -852,7 +852,7 @@ class AfiliadoService
                 'caja_compensacion' => $cajaCompensacion ?: null,
             ];
         }
-        
+
         return null;
     }
 
