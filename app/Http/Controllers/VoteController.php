@@ -202,4 +202,184 @@ class VoteController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get detailed audit trail of all votes for legal compliance and transparency
+     */
+    public function auditTrail(Request $request): JsonResponse
+    {
+        try {
+            // Validate optional filters
+            $request->validate([
+                'start_date' => 'nullable|date',
+                'end_date' => 'nullable|date|after_or_equal:start_date',
+                'candidate_id' => 'nullable|string',
+                'voter_hospital' => 'nullable|string',
+                'voter_document_type' => 'nullable|string',
+                'voter_document_number' => 'nullable|string',
+                'page' => 'nullable|integer|min:1',
+                'per_page' => 'nullable|integer|min:1|max:1000',
+            ]);
+
+            $query = Vote::query();
+
+            // Apply filters
+            if ($request->has('start_date')) {
+                $query->where('vote_timestamp', '>=', $request->input('start_date'));
+            }
+
+            if ($request->has('end_date')) {
+                $query->where('vote_timestamp', '<=', $request->input('end_date'));
+            }
+
+            if ($request->has('candidate_id')) {
+                $query->where('candidate_id', $request->input('candidate_id'));
+            }
+
+            if ($request->has('voter_hospital')) {
+                $query->where('voter_hospital', $request->input('voter_hospital'));
+            }
+
+            if ($request->has('voter_document_type')) {
+                $query->where('voter_document_type', $request->input('voter_document_type'));
+            }
+
+            if ($request->has('voter_document_number')) {
+                $query->where('voter_document_number', $request->input('voter_document_number'));
+            }
+
+            // Pagination
+            $perPage = $request->input('per_page', 100);
+            $page = $request->input('page', 1);
+
+            // Get total count before pagination
+            $totalVotes = $query->count();
+
+            // Apply pagination
+            $votes = $query->orderBy('vote_timestamp', 'desc')
+                          ->skip(($page - 1) * $perPage)
+                          ->take($perPage)
+                          ->get();
+
+            // Transform votes for response
+            $votesData = $votes->map(function ($vote) {
+                return [
+                    'vote_id' => $vote->id,
+                    'voter' => [
+                        'document_type' => $vote->voter_document_type,
+                        'document_number' => $vote->voter_document_number,
+                        'hospital' => $vote->voter_hospital,
+                        'position' => $vote->voter_position,
+                    ],
+                    'candidate' => [
+                        'id' => $vote->candidate_id,
+                        'name' => $vote->candidate_name,
+                        'position' => $vote->candidate_position,
+                        'hospital' => $vote->candidate_hospital,
+                    ],
+                    'vote_timestamp' => $vote->vote_timestamp->toISOString(),
+                    'ip_address' => $vote->ip_address,
+                    'user_agent' => $vote->user_agent,
+                    'created_at' => $vote->created_at->toISOString(),
+                ];
+            });
+
+            // Get summary statistics
+            $summaryStats = [
+                'total_votes_in_period' => $totalVotes,
+                'votes_by_candidate' => Vote::selectRaw('candidate_id, candidate_name, COUNT(*) as vote_count')
+                    ->when($request->has('start_date'), function ($q) use ($request) {
+                        return $q->where('vote_timestamp', '>=', $request->input('start_date'));
+                    })
+                    ->when($request->has('end_date'), function ($q) use ($request) {
+                        return $q->where('vote_timestamp', '<=', $request->input('end_date'));
+                    })
+                    ->when($request->has('voter_hospital'), function ($q) use ($request) {
+                        return $q->where('voter_hospital', $request->input('voter_hospital'));
+                    })
+                    ->groupBy('candidate_id', 'candidate_name')
+                    ->orderBy('vote_count', 'desc')
+                    ->get(),
+                'votes_by_hospital' => Vote::selectRaw('voter_hospital, COUNT(*) as vote_count')
+                    ->when($request->has('start_date'), function ($q) use ($request) {
+                        return $q->where('vote_timestamp', '>=', $request->input('start_date'));
+                    })
+                    ->when($request->has('end_date'), function ($q) use ($request) {
+                        return $q->where('vote_timestamp', '<=', $request->input('end_date'));
+                    })
+                    ->when($request->has('candidate_id'), function ($q) use ($request) {
+                        return $q->where('candidate_id', $request->input('candidate_id'));
+                    })
+                    ->groupBy('voter_hospital')
+                    ->orderBy('vote_count', 'desc')
+                    ->get(),
+                'votes_by_date' => Vote::selectRaw('DATE(vote_timestamp) as vote_date, COUNT(*) as vote_count')
+                    ->when($request->has('start_date'), function ($q) use ($request) {
+                        return $q->where('vote_timestamp', '>=', $request->input('start_date'));
+                    })
+                    ->when($request->has('end_date'), function ($q) use ($request) {
+                        return $q->where('vote_timestamp', '<=', $request->input('end_date'));
+                    })
+                    ->groupBy('vote_date')
+                    ->orderBy('vote_date', 'desc')
+                    ->get(),
+            ];
+
+            // Log the audit request
+            Log::info('Auditoría de votos solicitada', [
+                'filters' => $request->only([
+                    'start_date', 'end_date', 'candidate_id', 
+                    'voter_hospital', 'voter_document_type', 'voter_document_number'
+                ]),
+                'total_results' => $totalVotes,
+                'page' => $page,
+                'per_page' => $perPage,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'pagination' => [
+                    'current_page' => $page,
+                    'per_page' => $perPage,
+                    'total_votes' => $totalVotes,
+                    'total_pages' => ceil($totalVotes / $perPage),
+                    'has_next_page' => $page < ceil($totalVotes / $perPage),
+                    'has_prev_page' => $page > 1,
+                ],
+                'summary_statistics' => $summaryStats,
+                'votes' => $votesData,
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Validación fallida en auditoría de votos', [
+                'errors' => $e->errors(),
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Datos de entrada inválidos',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (\Exception $e) {
+            Log::error('Error al obtener auditoría de votos', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'filters' => $request->all(),
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor',
+                'error_code' => 'AUDIT_TRAIL_ERROR'
+            ], 500);
+        }
+    }
 }

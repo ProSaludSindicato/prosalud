@@ -113,6 +113,7 @@ Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospit
 Route::post('/votes', [VoteController::class, 'store']);
 Route::get('/votes/statistics', [VoteController::class, 'statistics']);
 Route::get('/votes/check', [VoteController::class, 'checkVote']);
+Route::get('/votes/audit-trail', [VoteController::class, 'auditTrail']);
 
 // Delegados routes (public endpoints for delegates consultation)
 Route::get('/delegados', [DelegadosController::class, 'index']);
