@@ -4,6 +4,7 @@ namespace App\Services;
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use Illuminate\Support\Facades\Log;
 
 class AfiliadoService
@@ -66,7 +67,7 @@ class AfiliadoService
     private const COL_CONV_NOTAS = 9;
 
     /**
-     * Authenticate and get affiliate information
+     * Authenticate and get affiliate information (optimized - reads only necessary rows)
      */
     public function authenticateAndGetAfiliado(
         string $tipoDocumento,
@@ -78,6 +79,106 @@ class AfiliadoService
 
             if (!file_exists($excelPath)) {
                 Log::error('Archivo de afiliados no encontrado', ['path' => $excelPath]);
+                return null;
+            }
+
+            if (!is_readable($excelPath)) {
+                Log::error('Archivo de afiliados no es legible', ['path' => $excelPath]);
+                return null;
+            }
+
+            // Load the Excel file with read-only mode for better performance
+            $spreadsheet = IOFactory::load($excelPath);
+            
+            // Get INFORMACIÓN GENERAL sheet
+            $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+            if (!$informacionSheet) {
+                Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                return null;
+            }
+
+            // Optimized: Find and read only the matching row without loading all data
+            $afiliadoRow = $this->findAfiliadoRowOptimized(
+                $informacionSheet,
+                $tipoDocumento,
+                $documento,
+                $fechaExpedicion
+            );
+
+            if ($afiliadoRow === null) {
+                Log::info('Afiliado no encontrado', [
+                    'tipo_documento' => $tipoDocumento,
+                    'documento' => $documento,
+                    'fecha_expedicion' => $fechaExpedicion,
+                    'normalized' => [
+                        'tipo_documento' => $this->normalizeValue($tipoDocumento),
+                        'documento' => $this->normalizeValue($documento),
+                        'fecha_expedicion' => $this->normalizeDate($fechaExpedicion),
+                    ]
+                ]);
+                return null;
+            }
+
+            // Extract affiliate information
+            $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
+
+            // Get convenios for this affiliate (optimized - only matching rows)
+            $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+            if ($conveniosSheet) {
+                $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
+            } else {
+                $conveniosFull = [];
+            }
+
+            // Filter to return only required fields
+            return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+
+        } catch (SpreadsheetException $e) {
+            Log::error('Error al procesar archivo Excel de afiliados', [
+                'error' => $e->getMessage(),
+                'file_path' => public_path(self::EXCEL_FILE_PATH),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('Error inesperado al leer archivo Excel de afiliados', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Authenticate and get affiliate information (reads entire file - kept for future use)
+     * This method loads the entire Excel file into memory.
+     * Use authenticateAndGetAfiliado() for better performance with large files.
+     */
+    public function authenticateAndGetAfiliadoFull(
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion
+    ): ?array {
+        try {
+            // Increase memory limit temporarily for large Excel files
+            $originalMemoryLimit = ini_get('memory_limit');
+            ini_set('memory_limit', '512M');
+            
+            // Increase execution time for large files
+            $originalMaxExecutionTime = ini_get('max_execution_time');
+            set_time_limit(60);
+
+            $excelPath = public_path(self::EXCEL_FILE_PATH);
+
+            if (!file_exists($excelPath)) {
+                Log::error('Archivo de afiliados no encontrado', ['path' => $excelPath]);
+                return null;
+            }
+
+            if (!is_readable($excelPath)) {
+                Log::error('Archivo de afiliados no es legible', ['path' => $excelPath]);
                 return null;
             }
 
@@ -126,19 +227,42 @@ class AfiliadoService
             }
 
             // Filter to return only required fields
-            return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+            $result = $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+            
+            // Restore original settings
+            ini_set('memory_limit', $originalMemoryLimit);
+            set_time_limit($originalMaxExecutionTime);
+            
+            return $result;
 
         } catch (SpreadsheetException $e) {
             Log::error('Error al procesar archivo Excel de afiliados', [
                 'error' => $e->getMessage(),
-                'file_path' => public_path(self::EXCEL_FILE_PATH)
-            ]);
-            return null;
-        } catch (\Exception $e) {
-            Log::error('Error inesperado al leer archivo Excel de afiliados', [
-                'error' => $e->getMessage(),
+                'file_path' => public_path(self::EXCEL_FILE_PATH),
                 'trace' => $e->getTraceAsString()
             ]);
+            // Restore original settings on error
+            if (isset($originalMemoryLimit)) {
+                ini_set('memory_limit', $originalMemoryLimit);
+            }
+            if (isset($originalMaxExecutionTime)) {
+                set_time_limit($originalMaxExecutionTime);
+            }
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('Error inesperado al leer archivo Excel de afiliados', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            // Restore original settings on error
+            if (isset($originalMemoryLimit)) {
+                ini_set('memory_limit', $originalMemoryLimit);
+            }
+            if (isset($originalMaxExecutionTime)) {
+                set_time_limit($originalMaxExecutionTime);
+            }
             return null;
         }
     }
@@ -194,6 +318,157 @@ class AfiliadoService
         }
 
         return null;
+    }
+
+    /**
+     * Find affiliate row using optimized iteration (reads only necessary rows)
+     */
+    private function findAfiliadoRowOptimized(
+        $sheet,
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion
+    ): ?array {
+        // Normalize input values once
+        $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
+        $normalizedDocumento = $this->normalizeValue($documento);
+        $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
+
+        // Get highest row to know when to stop
+        $highestRow = $sheet->getHighestRow();
+        
+        // Iterate through rows (skip header row at row 1)
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+            // Read only necessary columns first for matching (optimization)
+            $colLetter = Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1);
+            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $rowTipoDocumentoRaw = $this->getCellValue($cell);
+            
+            $colLetter = Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1);
+            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $rowDocumentoRaw = $this->getCellValue($cell);
+            
+            $colLetter = Coordinate::stringFromColumnIndex(self::COL_FECHA_EXPEDICION + 1);
+            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $rowFechaExpedicionRaw = $this->getCellValue($cell);
+            
+            // Normalize values for comparison
+            $rowTipoDocumento = $this->normalizeValue($rowTipoDocumentoRaw);
+            $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
+            $rowFechaExpedicion = $this->normalizeDate($rowFechaExpedicionRaw);
+
+            // Skip if row appears empty
+            if (empty($rowTipoDocumento) && empty($rowDocumento) && empty($rowFechaExpedicion)) {
+                continue;
+            }
+
+            // Check if this looks like a header row
+            if ($rowTipoDocumento && (
+                stripos($rowTipoDocumento, 'tipo documento') !== false ||
+                stripos($rowTipoDocumento, 'documento') === 0 ||
+                stripos($rowTipoDocumento, 'nuip') !== false
+            )) {
+                continue;
+            }
+
+            // Match authentication criteria
+            if ($rowTipoDocumento === $normalizedTipoDocumento &&
+                $rowDocumento === $normalizedDocumento &&
+                $rowFechaExpedicion === $normalizedFechaExpedicion) {
+                
+                // Match found! Now read the complete row
+                $rowData = [];
+                for ($colIndex = 0; $colIndex < 39; $colIndex++) {
+                    $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $rowData[] = $this->getCellValue($cell);
+                }
+                return $rowData;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get cell value handling different data types (dates, numbers, strings)
+     */
+    private function getCellValue($cell)
+    {
+        $value = $cell->getCalculatedValue();
+        
+        // Handle DateTime objects from Excel dates
+        if ($value instanceof \DateTime) {
+            return $value->format('Y-m-d');
+        }
+        
+        // Handle numeric values (convert to string to maintain consistency)
+        if (is_numeric($value) && !is_string($value)) {
+            return (string) $value;
+        }
+        
+        return $value;
+    }
+
+    /**
+     * Get convenios by documento using optimized iteration (reads only matching rows)
+     */
+    private function getConveniosByDocumentoOptimized($sheet, string $documento): array
+    {
+        $convenios = [];
+        $normalizedDocumento = $this->normalizeValue($documento);
+
+        // Get highest row
+        $highestRow = $sheet->getHighestRow();
+        
+        // Iterate through rows (skip header row at row 1)
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+            // Read only necessary columns for matching
+            $colLetter = Coordinate::stringFromColumnIndex(self::COL_CONV_DOCUMENTO_AFILIADO + 1);
+            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $rowDocumentoRaw = $this->getCellValue($cell);
+            $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
+
+            // If document matches, read the full row
+            if ($rowDocumento === $normalizedDocumento) {
+                // Read all columns for this row
+                $row = [];
+                for ($colIndex = 0; $colIndex < 10; $colIndex++) {
+                    $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $row[] = $this->getCellValue($cell);
+                }
+
+                // Skip if row appears empty
+                if (empty(array_filter($row))) {
+                    continue;
+                }
+
+                // Check if this looks like a header row
+                $firstCol = $this->normalizeValue($row[0] ?? '');
+                if ($firstCol && (
+                    stripos($firstCol, 'documento afiliado') !== false ||
+                    stripos($firstCol, 'documento') === 0
+                )) {
+                    continue;
+                }
+
+                $convenios[] = [
+                    'documento_afiliado' => $rowDocumento,
+                    'nombre_afiliado' => $this->normalizeValue($row[self::COL_CONV_NOMBRE_AFILIADO] ?? ''),
+                    'apellidos_afiliado' => $this->normalizeValue($row[self::COL_CONV_APELLIDOS_AFILIADO] ?? ''),
+                    'cliente' => $this->normalizeValue($row[self::COL_CONV_CLIENTE] ?? ''),
+                    'sucursal' => $this->normalizeValue($row[self::COL_CONV_SUCURSAL] ?? ''),
+                    'proceso' => $this->normalizeValue($row[self::COL_CONV_PROCESO] ?? ''),
+                    'estado' => $this->normalizeValue($row[self::COL_CONV_ESTADO] ?? ''),
+                    'fecha_ingreso' => $this->normalizeDate($row[self::COL_CONV_FECHA_INGRESO] ?? ''),
+                    'fecha_fin' => $this->normalizeDate($row[self::COL_CONV_FECHA_FIN] ?? ''),
+                    'notas' => $this->normalizeValue($row[self::COL_CONV_NOTAS] ?? ''),
+                ];
+            }
+        }
+
+        return $convenios;
     }
 
     /**
