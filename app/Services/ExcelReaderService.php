@@ -5,13 +5,18 @@ namespace App\Services;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class ExcelReaderService
 {
     private const EXCEL_FILE_PATH = 'data/_RELACION INCAPACIDADES 2025.xlsx';
     private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES PENDIENTES.xlsx';
-    private const ACTIVOS_FILE_PATH = 'data/ACTIVOS2.xlsx';
+    private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
     private const DELEGADOS_FILE_PATH = 'data/DELEGADOS_2025_2.xlsx';
+    
+    // Disk configuration for ACTIVOS2 file (stored in S3)
+    private const ACTIVOS_S3_DISK = 'prosalud-public';
+    private const ACTIVOS_FALLBACK_DISK = 'public';
 
     /**
      * Read the incapacidades Excel file
@@ -141,29 +146,48 @@ class ExcelReaderService
     }
 
     /**
-     * Read the activos Excel file
+     * Read the activos Excel file from S3 (or fallback to local storage)
      */
     public function readActivosFile(): array
     {
         try {
-            $excelPath = public_path(self::ACTIVOS_FILE_PATH);
-
-            // Check if file exists
-            if (!file_exists($excelPath)) {
-                Log::error('Archivo de activos no encontrado', [
-                    'path' => $excelPath
-                ]);
-                return [];
+            $disk = self::ACTIVOS_S3_DISK;
+            $filePath = self::ACTIVOS_FILE_PATH;
+            
+            // Check if file exists in S3
+            if (!Storage::disk($disk)->exists($filePath)) {
+                // Fallback to local disk (useful for development)
+                $disk = self::ACTIVOS_FALLBACK_DISK;
+                if (!Storage::disk($disk)->exists($filePath)) {
+                    Log::error('Archivo de activos no encontrado en S3 ni en disco local', [
+                        's3_path' => $filePath,
+                        's3_disk' => self::ACTIVOS_S3_DISK,
+                        'fallback_disk' => $disk
+                    ]);
+                    return [];
+                }
             }
-
+            
+            // Get the file content from storage
+            $fileContent = Storage::disk($disk)->get($filePath);
+            
+            // Create a temporary file to load with PhpSpreadsheet
+            $tempFile = tmpfile();
+            $tempPath = stream_get_meta_data($tempFile)['uri'];
+            file_put_contents($tempPath, $fileContent);
+            
             // Load the Excel file
-            $spreadsheet = IOFactory::load($excelPath);
+            $spreadsheet = IOFactory::load($tempPath);
             $worksheet = $spreadsheet->getActiveSheet();
             $data = $worksheet->toArray();
+            
+            // Clean up temporary file
+            fclose($tempFile);
 
-            Log::info('Archivo de activos leído exitosamente', [
+            Log::info('Archivo de activos leído exitosamente desde S3', [
                 'rows_count' => count($data),
-                'file_path' => $excelPath
+                'file_path' => $filePath,
+                'disk' => $disk
             ]);
 
             return $data;
@@ -171,25 +195,37 @@ class ExcelReaderService
         } catch (SpreadsheetException $e) {
             Log::error('Error al procesar archivo Excel de activos', [
                 'error' => $e->getMessage(),
-                'file_path' => public_path(self::ACTIVOS_FILE_PATH)
+                'file_path' => self::ACTIVOS_FILE_PATH
             ]);
             return [];
         } catch (\Exception $e) {
             Log::error('Error inesperado al leer archivo Excel de activos', [
                 'error' => $e->getMessage(),
-                'file_path' => public_path(self::ACTIVOS_FILE_PATH)
+                'file_path' => self::ACTIVOS_FILE_PATH,
+                'trace' => $e->getTraceAsString()
             ]);
             return [];
         }
     }
 
     /**
-     * Check if the activos Excel file exists and is readable
+     * Check if the activos Excel file exists and is readable in S3 or local disk
      */
     public function isActivosFileAvailable(): bool
     {
-        $excelPath = public_path(self::ACTIVOS_FILE_PATH);
-        return file_exists($excelPath) && is_readable($excelPath);
+        $filePath = self::ACTIVOS_FILE_PATH;
+        
+        // Check S3 first
+        if (Storage::disk(self::ACTIVOS_S3_DISK)->exists($filePath)) {
+            return true;
+        }
+        
+        // Fallback to local disk
+        if (Storage::disk(self::ACTIVOS_FALLBACK_DISK)->exists($filePath)) {
+            return true;
+        }
+        
+        return false;
     }
 
     /**

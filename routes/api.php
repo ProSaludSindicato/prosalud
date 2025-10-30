@@ -8,6 +8,7 @@ use App\Http\Controllers\ChatbotConversationController;
 use App\Http\Controllers\IncapacidadesController;
 use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\ActivosController;
+use App\Http\Controllers\ActivosFileController;
 use App\Http\Controllers\VoteController;
 use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\AfiliadoController;
@@ -109,6 +110,10 @@ Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search'])
 
 // Activos routes (public endpoint for hospital search)
 Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital']);
+
+// Activos file management routes (for uploading ACTIVOS2.xlsx)
+Route::post('/activos-file/upload', [ActivosFileController::class, 'upload']);
+Route::get('/activos-file/info', [ActivosFileController::class, 'info']);
 
 // Vote routes (public endpoints for assembly voting)
 Route::post('/votes', [VoteController::class, 'store']);
