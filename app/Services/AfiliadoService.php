@@ -636,13 +636,14 @@ class AfiliadoService
             $afiliadoFiltered[$field] = $afiliadoFull[$field] ?? null;
         }
 
-        // Filter convenios data with transformation
+        // Filter convenios data with required cliente handling (no transformation)
         $conveniosFiltered = [];
         foreach ($conveniosFull as $convenio) {
-            $clienteOriginal = $this->normalizeValue($convenio['cliente'] ?? '');
+            $clienteValue = $convenio['cliente'] ?? null;
+            $clienteFinal = ($clienteValue === null || $clienteValue === '') ? 'SIN ASIGNAR' : $clienteValue;
 
             $convenioFiltered = [
-                'cliente' => $this->transformCliente($clienteOriginal),
+                'cliente' => $clienteFinal,
                 'proceso' => $this->normalizeValue($convenio['proceso'] ?? ''),
                 'estado' => $this->normalizeValue($convenio['estado'] ?? ''),
                 'fecha_fin' => $this->normalizeDate($convenio['fecha_fin'] ?? ''),
@@ -651,7 +652,37 @@ class AfiliadoService
             $conveniosFiltered[] = $convenioFiltered;
         }
 
-        $afiliadoFiltered['convenios'] = $conveniosFiltered;
+        // Elegir un solo convenio según reglas:
+        // 1) Si existe alguno con estado "Activo" (insensible a mayúsculas), devolver ese (el primero encontrado)
+        // 2) Si no hay "Activo", devolver el de mayor fecha_fin (YYYY-MM-DD). En empate, el primero
+        $selectedConvenio = null;
+
+        // Regla 1: buscar "Activo"
+        foreach ($conveniosFiltered as $conv) {
+            $estado = $conv['estado'] ?? null;
+            if ($estado !== null && strcasecmp($estado, 'Activo') === 0) {
+                $selectedConvenio = $conv;
+                break;
+            }
+        }
+
+        // Regla 2: si no hay Activo, escoger por fecha_fin más reciente
+        if ($selectedConvenio === null && !empty($conveniosFiltered)) {
+            $selectedConvenio = $conveniosFiltered[0];
+            $bestTs = $selectedConvenio['fecha_fin'] ? strtotime($selectedConvenio['fecha_fin']) : null;
+            foreach ($conveniosFiltered as $conv) {
+                $ts = $conv['fecha_fin'] ? strtotime($conv['fecha_fin']) : null;
+                if ($ts !== false && $ts !== null) {
+                    if ($bestTs === null || $ts > $bestTs) {
+                        $bestTs = $ts;
+                        $selectedConvenio = $conv;
+                    }
+                }
+            }
+        }
+
+        // Devolver arreglo con un solo convenio (o vacío si no hay)
+        $afiliadoFiltered['convenios'] = $selectedConvenio ? [$selectedConvenio] : [];
 
         return $afiliadoFiltered;
     }
