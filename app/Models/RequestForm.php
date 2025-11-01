@@ -372,9 +372,11 @@ class RequestForm extends Model
 
     /**
      * Get all responses for this request form
+     * Ordered by creation date (newest first)
      */
     public function responses(): HasMany
     {
-        return $this->hasMany(RequestResponse::class, 'request_form_id', 'id');
+        return $this->hasMany(RequestResponse::class, 'request_form_id', 'id')
+                    ->orderBy('created_at', 'desc');
     }
 }

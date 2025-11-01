@@ -133,7 +133,8 @@ class RequestController extends Controller
         // Order by created_at desc by default
         $query->orderBy('created_at', 'desc');
 
-        $requests = $query->get();
+        // Eager load responses for better performance
+        $requests = $query->with('responses')->get();
 
         Log::info('Lista de solicitudes consultada', [
             'total_requests' => $requests->count(),
@@ -159,6 +160,16 @@ class RequestController extends Controller
                     'formatted_created_at' => $request->formatted_created_at,
                     'processed_at' => $request->processed_at,
                     'formatted_processed_at' => $request->formatted_processed_at,
+                    'responses' => $request->responses->map(function ($response) {
+                        return [
+                            'id' => $response->id,
+                            'status' => $response->status,
+                            'email_subject' => $response->email_subject,
+                            'email_body' => $response->email_body,
+                            'created_at' => $response->created_at,
+                        ];
+                    }),
+                    'responses_count' => $request->responses->count(),
                 ];
             })
         ]);
@@ -169,10 +180,14 @@ class RequestController extends Controller
      */
     public function show(RequestForm $request): JsonResponse
     {
+        // Load responses relationship
+        $request->load('responses');
+
         Log::info('Solicitud consultada', [
             'request_id' => $request->id,
             'request_type' => $request->request_type,
             'status' => $request->status,
+            'responses_count' => $request->responses->count(),
             'affiliate_info' => [
                 'document_type' => $request->document_type,
                 'document_number' => $request->document_number,
@@ -200,6 +215,16 @@ class RequestController extends Controller
                 'formatted_created_at' => $request->formatted_created_at,
                 'processed_at' => $request->processed_at,
                 'formatted_processed_at' => $request->formatted_processed_at,
+                'responses' => $request->responses->map(function ($response) {
+                    return [
+                        'id' => $response->id,
+                        'status' => $response->status,
+                        'email_subject' => $response->email_subject,
+                        'email_body' => $response->email_body,
+                        'created_at' => $response->created_at,
+                    ];
+                }),
+                'responses_count' => $request->responses->count(),
             ]
         ]);
     }
