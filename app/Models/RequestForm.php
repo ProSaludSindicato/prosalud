@@ -46,6 +46,7 @@ class RequestForm extends Model
     protected $casts = [
         'id' => 'string',
         'payload' => 'array',
+        'created_at' => 'datetime',
         'processed_at' => 'datetime',
     ];
 
@@ -110,7 +111,15 @@ class RequestForm extends Model
      */
     public function getFormattedCreatedAtAttribute(): string
     {
-        return $this->created_at ? date('d/m/Y H:i:s', strtotime($this->created_at)) : '';
+        if (!$this->created_at) {
+            return '';
+        }
+
+        if (is_string($this->created_at)) {
+            return date('d/m/Y H:i:s', strtotime($this->created_at));
+        }
+
+        return $this->created_at->format('d/m/Y H:i:s');
     }
 
     /**

@@ -213,8 +213,7 @@ class RequestController extends Controller
 
         $updateData = ['status' => $status];
 
-        // If changing to completed, set processed_at timestamp
-        if ($status === RequestStatuses::COMPLETED) {
+        if ($status === RequestStatuses::COMPLETED || $status === RequestStatuses::REJECTED) {
             $updateData['processed_at'] = now();
         } else {
             // For other statuses, clear processed_at
@@ -285,25 +284,25 @@ class RequestController extends Controller
         if (!$requestId) {
             $requestId = $request->route('request');
         }
-        
+
         // Ensure requestId is a string
         $requestId = (string) $requestId;
-        
+
         Log::info('Respond to request - buscando RequestForm', [
             'route_id' => $requestId,
             'route_id_length' => strlen($requestId),
         ]);
-        
+
         // Find the request form manually to ensure it works with string IDs with leading zeros
         $requestForm = RequestForm::where('id', $requestId)->first();
-        
+
         if (!$requestForm) {
             Log::error('RequestForm no encontrado en respond', [
                 'route_id' => $requestId,
                 'searched_id' => $requestId,
                 'searched_id_type' => gettype($requestId),
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Solicitud no encontrada',
@@ -412,8 +411,7 @@ class RequestController extends Controller
         // Email was sent successfully, now update the request status
         $updateData = ['status' => $status];
 
-        // If changing to completed, set processed_at timestamp
-        if ($status === RequestStatuses::COMPLETED) {
+        if ($status === RequestStatuses::COMPLETED || $status === RequestStatuses::REJECTED) {
             $updateData['processed_at'] = now();
         } else {
             // For other statuses, clear processed_at
