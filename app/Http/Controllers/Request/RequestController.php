@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Request;
 use App\Constants\RequestStatuses;
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\RespondToRequestRequest;
 use App\Models\RequestForm;
+use App\Models\RequestResponse;
 use App\Mail\RequestFormReceived;
+use App\Mail\RequestFormResponse;
 use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -271,5 +274,208 @@ class RequestController extends Controller
             RequestStatuses::COMPLETED => 'completada',
             default => 'desconocido',
         };
+    }
+
+    /**
+     * Respond to a request with email and status update
+     */
+    public function respond(RespondToRequestRequest $request, $requestId = null): JsonResponse
+    {
+        // Get the ID from the route parameter (route model binding may not work with string IDs with leading zeros)
+        if (!$requestId) {
+            $requestId = $request->route('request');
+        }
+        
+        // Ensure requestId is a string
+        $requestId = (string) $requestId;
+        
+        Log::info('Respond to request - buscando RequestForm', [
+            'route_id' => $requestId,
+            'route_id_length' => strlen($requestId),
+        ]);
+        
+        // Find the request form manually to ensure it works with string IDs with leading zeros
+        $requestForm = RequestForm::where('id', $requestId)->first();
+        
+        if (!$requestForm) {
+            Log::error('RequestForm no encontrado en respond', [
+                'route_id' => $requestId,
+                'searched_id' => $requestId,
+                'searched_id_type' => gettype($requestId),
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Solicitud no encontrada',
+            ], 404);
+        }
+
+        Log::info('Respond to request - RequestForm encontrado', [
+            'request_form_id' => $requestForm->id,
+            'request_form_exists' => $requestForm->exists,
+        ]);
+
+        $validated = $request->validated();
+        $status = $validated['status'];
+        $emailSubject = $validated['email_subject'];
+        $emailBody = $validated['email_body'];
+
+        // Get attachments if provided
+        // Laravel automatically handles attachments as array when sent as attachments[0], attachments[1], etc.
+        $attachments = [];
+        if ($request->hasFile('attachments')) {
+            $files = $request->file('attachments');
+            if (is_array($files)) {
+                foreach ($files as $file) {
+                    if ($file && $file->isValid()) {
+                        $attachments[] = $file;
+                    }
+                }
+            } else {
+                // Single file
+                if ($files && $files->isValid()) {
+                    $attachments[] = $files;
+                }
+            }
+        }
+
+        // Prepare data for logging
+        $oldStatus = $requestForm->status;
+        $requestFormId = (string) $requestForm->id;
+
+        Log::info('Iniciando proceso de respuesta a solicitud', [
+            'request_id' => $requestFormId,
+            'request_type' => $requestForm->request_type,
+            'old_status' => $oldStatus,
+            'new_status' => $status,
+            'email' => $requestForm->email,
+            'has_attachments' => !empty($attachments),
+            'attachments_count' => count($attachments),
+        ]);
+
+        // IMPORTANT: Send email FIRST, before updating status or creating response record
+        // This ensures that if email fails, we don't update the request status
+        try {
+            Log::info('Intentando enviar correo de respuesta', [
+                'request_id' => $requestFormId,
+                'email_to' => $requestForm->email,
+                'email_cc' => 'juanpapabon@gmail.com',
+                'email_subject' => $emailSubject,
+                'email_body_length' => strlen($emailBody),
+                'attachments_count' => count($attachments),
+            ]);
+
+            Mail::to($requestForm->email)
+                ->cc('juanpapabon@gmail.com') // Hardcoded as per requirements
+                ->send(new RequestFormResponse(
+                    $requestForm,
+                    $emailSubject,
+                    $emailBody,
+                    $status,
+                    $attachments // This parameter is renamed to $uploadedFiles in RequestFormResponse constructor
+                ));
+
+            Log::info('Correo de respuesta enviado exitosamente', [
+                'request_id' => $requestFormId,
+                'email' => $requestForm->email,
+                'status' => $status,
+                'has_attachments' => !empty($attachments),
+                'attachments_count' => count($attachments),
+            ]);
+
+        } catch (\Throwable $e) {
+            // Log detailed error information
+            Log::error('FALLO AL ENVIAR CORREO DE RESPUESTA - NO SE ACTUALIZARÁ EL ESTADO', [
+                'request_id' => $requestFormId,
+                'request_type' => $requestForm->request_type,
+                'email' => $requestForm->email,
+                'email_subject' => $emailSubject,
+                'old_status' => $oldStatus,
+                'intended_new_status' => $status,
+                'error_message' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'error_trace' => $e->getTraceAsString(),
+                'has_attachments' => !empty($attachments),
+                'attachments_count' => count($attachments),
+            ]);
+
+            // Return error - do NOT update status or create response record
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al enviar el correo de respuesta. La solicitud no fue actualizada.',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error al enviar el correo electrónico',
+            ], 500);
+        }
+
+        // Email was sent successfully, now update the request status
+        $updateData = ['status' => $status];
+
+        // If changing to completed, set processed_at timestamp
+        if ($status === RequestStatuses::COMPLETED) {
+            $updateData['processed_at'] = now();
+        } else {
+            // For other statuses, clear processed_at
+            $updateData['processed_at'] = null;
+        }
+
+        $requestForm->update($updateData);
+        $requestForm->refresh(); // Refresh to ensure we have the latest data
+
+        // Store the response for traceability (only after email is sent successfully)
+        $requestResponse = RequestResponse::create([
+            'request_form_id' => $requestFormId,
+            'status' => $status,
+            'email_subject' => $emailSubject,
+            'email_body' => $emailBody,
+            'created_at' => now(),
+        ]);
+
+        Log::info('Respuesta de solicitud procesada exitosamente', [
+            'request_id' => $requestFormId,
+            'response_id' => $requestResponse->id,
+            'request_type' => $requestForm->request_type,
+            'affiliate_info' => [
+                'document_type' => $requestForm->document_type,
+                'document_number' => $requestForm->document_number,
+                'full_name' => $requestForm->full_name,
+                'email' => $requestForm->email,
+            ],
+            'old_status' => $oldStatus,
+            'new_status' => $status,
+            'has_attachments' => !empty($attachments),
+            'attachments_count' => count($attachments),
+        ]);
+
+        $this->auditLogService->logBusinessProcess('request_form', 'responded', $this->auditLogService->addRequestContext($request, [
+            'request_id' => $requestForm->id,
+            'response_id' => $requestResponse->id,
+            'request_type' => $requestForm->request_type,
+            'old_status' => $oldStatus,
+            'new_status' => $status,
+            'affiliate_document' => $requestForm->document_number,
+            'affiliate_email' => $requestForm->email,
+            'has_attachments' => !empty($attachments),
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Respuesta enviada exitosamente',
+            'data' => [
+                'id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+                'document_type' => $requestForm->document_type,
+                'document_number' => $requestForm->document_number,
+                'name' => $requestForm->name,
+                'last_name' => $requestForm->last_name,
+                'full_name' => $requestForm->full_name,
+                'email' => $requestForm->email,
+                'status' => $requestForm->status,
+                'created_at' => $requestForm->created_at,
+                'processed_at' => $requestForm->processed_at,
+                'formatted_processed_at' => $requestForm->formatted_processed_at,
+            ]
+        ]);
     }
 }

@@ -5,8 +5,8 @@ namespace App\Models;
 use App\Constants\RequestStatuses;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property string $id
@@ -68,6 +68,15 @@ class RequestForm extends Model
     }
 
     /**
+     * Retrieve the model for route model binding.
+     * This ensures IDs with leading zeros are handled correctly.
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return static::where('id', (string) $value)->firstOrFail();
+    }
+
+    /**
      * Generate a unique 10-digit number
      */
     private function generateUnique10DigitId(): string
@@ -76,15 +85,15 @@ class RequestForm extends Model
             // Generate a 10-digit number using timestamp + random component
             $timestamp = time(); // 10 digits, but we'll use last 6
             $random = mt_rand(1000, 9999); // 4 digits
-            
+
             // Combine to create exactly 10 digits
             $idString = substr($timestamp, -6) . $random; // 6 + 4 = 10 digits
-            
+
             // Ensure it's exactly 10 digits by padding if needed
             $idString = str_pad($idString, 10, '0', STR_PAD_LEFT);
-            
+
         } while (static::where('id', $idString)->exists());
-        
+
         return $idString;
     }
 
@@ -350,5 +359,13 @@ class RequestForm extends Model
         $payload = $this->payload ?? [];
         $payload[$key] = $value;
         $this->payload = $payload;
+    }
+
+    /**
+     * Get all responses for this request form
+     */
+    public function responses(): HasMany
+    {
+        return $this->hasMany(RequestResponse::class, 'request_form_id', 'id');
     }
 }

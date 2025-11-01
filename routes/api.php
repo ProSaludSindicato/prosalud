@@ -81,6 +81,8 @@ Route::get('/requests', [RequestController::class, 'index']);
 Route::post('/requests', [RequestController::class, 'store']);
 Route::get('/requests/{request}', [RequestController::class, 'show']);
 Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus']);
+Route::post('/requests/{request}/respond', [RequestController::class, 'respond']);
+Route::patch('/requests/{request}/respond', [RequestController::class, 'respond']);
 
 // User management routes
 Route::apiResource('users', UserController::class);
