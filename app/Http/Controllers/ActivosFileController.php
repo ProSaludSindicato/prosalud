@@ -14,11 +14,11 @@ class ActivosFileController extends Controller
 {
     private const ACTIVOS_FILE_NAME = 'ACTIVOS.xlsx';
     private const ACTIVOS_FILE_PATH = 'data/' . self::ACTIVOS_FILE_NAME;
-    private const S3_DISK = 'prosalud-public';
-    private const FALLBACK_DISK = 'public';
+    private const S3_DISK = 'prosalud-private';
+    private const FALLBACK_DISK = 'local';
 
     /**
-     * Upload and replace the ACTIVOS2.xlsx file to S3
+     * Upload and replace the ACTIVOS.xlsx file to private bucket
      */
     public function upload(UploadActivosFileRequest $request): JsonResponse
     {
@@ -58,36 +58,36 @@ class ActivosFileController extends Controller
             $storedPath = null;
             
             try {
-                // Intentar subir a S3 público
+                // Intentar subir a bucket privado
                 $storedPath = Storage::disk($disk)->putFileAs('data', $file, self::ACTIVOS_FILE_NAME);
                 
                 if ($storedPath === false) {
-                    throw new \Exception('Failed to upload to S3');
+                    throw new \Exception('Failed to upload to private bucket');
                 }
                 
-                Log::info('Archivo ACTIVOS2.xlsx subido a S3 exitosamente', [
+                Log::info('Archivo ACTIVOS.xlsx subido a bucket privado exitosamente', [
                     'file_path' => $storedPath,
                     'file_size' => $file->getSize(),
                     'original_filename' => $file->getClientOriginalName(),
-                    's3_disk' => $disk,
+                    'disk' => $disk,
                     'uploaded_by' => Auth::check() ? Auth::id() : 'anonymous',
                     'ip_address' => $request->ip(),
                     'timestamp' => now()->toISOString()
                 ]);
                 
             } catch (\Exception $e) {
-                Log::warning('Error al subir a S3, intentando disco local como fallback', [
-                    's3_error' => $e->getMessage(),
+                Log::warning('Error al subir a bucket privado, intentando disco local como fallback', [
+                    'bucket_error' => $e->getMessage(),
                     'fallback_disk' => self::FALLBACK_DISK,
                     'ip_address' => $request->ip(),
                 ]);
                 
-                // Fallback a disco local si S3 falla (útil para desarrollo)
+                // Fallback a disco local si bucket privado falla (útil para desarrollo)
                 try {
                     $disk = self::FALLBACK_DISK;
                     $storedPath = Storage::disk($disk)->putFileAs('data', $file, self::ACTIVOS_FILE_NAME);
                     
-                    Log::info('Archivo ACTIVOS2.xlsx guardado en disco local (fallback)', [
+                    Log::info('Archivo ACTIVOS.xlsx guardado en disco local (fallback)', [
                         'file_path' => $storedPath,
                         'disk' => $disk,
                     ]);
@@ -106,7 +106,7 @@ class ActivosFileController extends Controller
             
             return response()->json([
                 'success' => true,
-                'message' => 'Archivo ACTIVOS2.xlsx actualizado exitosamente',
+                'message' => 'Archivo ACTIVOS.xlsx actualizado exitosamente',
                 'file_path' => $storedPath,
                 'file_size' => $file->getSize(),
                 'rows_count' => count($data),
@@ -114,7 +114,7 @@ class ActivosFileController extends Controller
             ], 200);
             
         } catch (\Exception $e) {
-            Log::error('Error al subir archivo ACTIVOS2.xlsx', [
+            Log::error('Error al subir archivo ACTIVOS.xlsx', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'ip_address' => $request->ip(),
@@ -130,7 +130,7 @@ class ActivosFileController extends Controller
     }
     
     /**
-     * Get information about the current ACTIVOS2.xlsx file
+     * Get information about the current ACTIVOS.xlsx file
      */
     public function info(): JsonResponse
     {
@@ -138,15 +138,15 @@ class ActivosFileController extends Controller
             $filePath = self::ACTIVOS_FILE_PATH;
             $disk = self::S3_DISK;
             
-            // Intentar leer desde S3 primero
+            // Intentar leer desde bucket privado primero
             if (!Storage::disk($disk)->exists($filePath)) {
-                // Si no existe en S3, intentar disco local (desarrollo)
+                // Si no existe en bucket privado, intentar disco local (desarrollo)
                 $disk = self::FALLBACK_DISK;
                 if (!Storage::disk($disk)->exists($filePath)) {
                     return response()->json([
                         'success' => true,
                         'exists' => false,
-                        'message' => 'El archivo ACTIVOS2.xlsx no existe'
+                        'message' => 'El archivo ACTIVOS.xlsx no existe'
                     ]);
                 }
             }
@@ -158,23 +158,21 @@ class ActivosFileController extends Controller
                 'disk' => $disk,
             ];
             
-            // Try to get URL if available (prefer Laravel Cloud File Server if configured)
+            // For private bucket, generate temporary URL if available
             try {
                 if ($disk === self::S3_DISK) {
-                    $cloudFileServerBase = env('LARAVEL_CLOUD_FILE_SERVER_URL');
-                    if (!empty($cloudFileServerBase)) {
-                        $fileInfo['url'] = rtrim($cloudFileServerBase, '/') . '/' . ltrim($filePath, '/');
-                        $fileInfo['url_source'] = 'laravel_cloud_file_server';
-                    } else {
-                        /** @var \Illuminate\Filesystem\FilesystemAdapter $storageDisk */
-                        $storageDisk = Storage::disk($disk);
-                        $fileInfo['url'] = $storageDisk->url($filePath);
-                        $fileInfo['url_source'] = 'storage_driver';
+                    $storageDisk = Storage::disk($disk);
+                    // Generate temporary URL for private bucket files (valid for 1 hour)
+                    if (method_exists($storageDisk, 'temporaryUrl')) {
+                        /** @phpstan-ignore-next-line - temporaryUrl() exists on S3-compatible drivers */
+                        $fileInfo['temporary_url'] = $storageDisk->temporaryUrl($filePath, now()->addHours(1));
+                        $fileInfo['url_expires_at'] = now()->addHours(1)->toIso8601String();
+                        $fileInfo['url_source'] = 'temporary_url';
                     }
                 }
             } catch (\Exception $e) {
                 // URL not available for this disk type
-                Log::debug('URL no disponible para el disco', [
+                Log::debug('URL temporal no disponible para el disco', [
                     'disk' => $disk,
                     'error' => $e->getMessage()
                 ]);
@@ -199,7 +197,7 @@ class ActivosFileController extends Controller
             return response()->json($fileInfo);
             
         } catch (\Exception $e) {
-            Log::error('Error al obtener información del archivo ACTIVOS2', [
+            Log::error('Error al obtener información del archivo ACTIVOS', [
                 'error' => $e->getMessage()
             ]);
             

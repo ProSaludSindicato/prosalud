@@ -14,9 +14,9 @@ class ExcelReaderService
     private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
     private const DELEGADOS_FILE_PATH = 'data/DELEGADOS_2025_2.xlsx';
     
-    // Disk configuration for ACTIVOS2 file (stored in S3)
-    private const ACTIVOS_S3_DISK = 'prosalud-public';
-    private const ACTIVOS_FALLBACK_DISK = 'public';
+    // Disk configuration for ACTIVOS file (stored in private bucket)
+    private const ACTIVOS_S3_DISK = 'prosalud-private';
+    private const ACTIVOS_FALLBACK_DISK = 'local';
 
     /**
      * Read the incapacidades Excel file
@@ -146,7 +146,7 @@ class ExcelReaderService
     }
 
     /**
-     * Read the activos Excel file from S3 (or fallback to local storage)
+     * Read the activos Excel file from private bucket (or fallback to local storage)
      */
     public function readActivosFile(): array
     {
@@ -154,14 +154,14 @@ class ExcelReaderService
             $disk = self::ACTIVOS_S3_DISK;
             $filePath = self::ACTIVOS_FILE_PATH;
             
-            // Check if file exists in S3
+            // Check if file exists in private bucket
             if (!Storage::disk($disk)->exists($filePath)) {
                 // Fallback to local disk (useful for development)
                 $disk = self::ACTIVOS_FALLBACK_DISK;
                 if (!Storage::disk($disk)->exists($filePath)) {
-                    Log::error('Archivo de activos no encontrado en S3 ni en disco local', [
-                        's3_path' => $filePath,
-                        's3_disk' => self::ACTIVOS_S3_DISK,
+                    Log::error('Archivo de activos no encontrado en bucket privado ni en disco local', [
+                        'bucket_path' => $filePath,
+                        'bucket_disk' => self::ACTIVOS_S3_DISK,
                         'fallback_disk' => $disk
                     ]);
                     return [];
@@ -184,7 +184,7 @@ class ExcelReaderService
             // Clean up temporary file
             fclose($tempFile);
 
-            Log::info('Archivo de activos leído exitosamente desde S3', [
+            Log::info('Archivo de activos leído exitosamente desde bucket privado', [
                 'rows_count' => count($data),
                 'file_path' => $filePath,
                 'disk' => $disk
@@ -209,13 +209,13 @@ class ExcelReaderService
     }
 
     /**
-     * Check if the activos Excel file exists and is readable in S3 or local disk
+     * Check if the activos Excel file exists and is readable in private bucket or local disk
      */
     public function isActivosFileAvailable(): bool
     {
         $filePath = self::ACTIVOS_FILE_PATH;
         
-        // Check S3 first
+        // Check private bucket first
         if (Storage::disk(self::ACTIVOS_S3_DISK)->exists($filePath)) {
             return true;
         }
