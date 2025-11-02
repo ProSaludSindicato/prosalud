@@ -83,6 +83,7 @@ Route::get('/requests/{request}', [RequestController::class, 'show']);
 Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus']);
 Route::post('/requests/{request}/respond', [RequestController::class, 'respond']);
 Route::patch('/requests/{request}/respond', [RequestController::class, 'respond']);
+Route::get('/requests/{request}/files/{fileKey}', [RequestController::class, 'downloadFile']);
 
 // User management routes
 Route::apiResource('users', UserController::class);

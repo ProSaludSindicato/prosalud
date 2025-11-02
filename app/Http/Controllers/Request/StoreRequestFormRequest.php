@@ -32,6 +32,7 @@ class StoreRequestFormRequest extends FormRequest
             'phone_number' => 'required|string|max:255',
             'payload' => 'nullable|array',
             'files' => 'nullable|array',
+            'files.*' => 'nullable|file|max:10240',
         ];
     }
 

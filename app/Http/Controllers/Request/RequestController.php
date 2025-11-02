@@ -15,6 +15,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class RequestController extends Controller
 {
@@ -28,15 +30,21 @@ class RequestController extends Controller
 
         $requestData['status'] = RequestStatuses::PENDING;
 
+        $originalFilesForEmail = $this->extractOriginalFiles($request);
+
+        $filesMetadata = $this->processAndStoreFiles($request);
+
+        if (!empty($filesMetadata)) {
+            $requestData['files'] = $filesMetadata;
+        }
+
         $requestForm = new RequestForm($requestData);
         $requestForm->created_at = now();
         $requestForm->save();
 
         try {
             Mail::to($requestForm->email)
-                ->cc('comunicaciones-prosalud@yopmail.com')
-                // ->cc('comunicaciones@sindicatoprosalud.com')
-                ->send(new RequestFormReceived($requestForm));
+                ->send(new RequestFormReceived($requestForm, $originalFilesForEmail));
         } catch (\Throwable $e) {
             Log::error('Error enviando correo de confirmación de solicitud', [
                 'request_id' => $requestForm->id,
@@ -58,6 +66,8 @@ class RequestController extends Controller
             'timestamp' => $requestForm->formatted_created_at,
             'status' => $requestForm->status,
             'payload' => $this->getPayloadSummary($requestForm->payload),
+            'files_count' => is_array($requestForm->files) ? count($requestForm->files) : 0,
+            'files_keys' => is_array($requestForm->files) ? array_keys($requestForm->files) : [],
             'ip_address' => $request->ip(),
             'user_agent' => $request->userAgent(),
         ]);
@@ -76,8 +86,268 @@ class RequestController extends Controller
                 'request_type' => $requestForm->request_type,
                 'status' => $requestForm->status,
                 'created_at' => $requestForm->formatted_created_at,
+                'files' => $this->formatFilesMetadata($requestForm->files, $requestForm->id),
+                'files_count' => is_array($requestForm->files) ? count($requestForm->files) : 0,
             ]
         ], 201);
+    }
+
+    /**
+     * Extract original files from request for email attachment
+     * Only extracts multipart files, not base64 (which can't be attached)
+     */
+    private function extractOriginalFiles(Request $request): array
+    {
+        $originalFiles = [];
+        $allFiles = $request->allFiles();
+
+        foreach ($allFiles as $key => $file) {
+            if (is_array($file)) {
+                foreach ($file as $singleFile) {
+                    if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
+                        $originalFiles[] = $singleFile;
+                    }
+                }
+            }
+            // Handle single file upload
+            elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                $originalFiles[] = $file;
+            }
+        }
+
+        return $originalFiles;
+    }
+
+    /**
+     * Process and store files to private bucket
+     * Handles files from JSON array or multipart form-data
+     */
+    private function processAndStoreFiles(Request $request): array
+    {
+        $disk = 'prosalud-private';
+        $fallbackDisk = 'local';
+        $filesMetadata = [];
+
+        $allFiles = $request->allFiles();
+
+        foreach ($allFiles as $key => $file) {
+            if (!is_array($file) && !($file instanceof \Illuminate\Http\UploadedFile)) {
+                continue;
+            }
+
+            if (is_array($file)) {
+                foreach ($file as $fileKey => $singleFile) {
+                    if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
+                        $metadata = $this->storeUploadedFile($singleFile, $fileKey, $disk, $fallbackDisk);
+                        if ($metadata) {
+                            $filesMetadata[$fileKey] = $metadata;
+                        }
+                    }
+                }
+            }
+            // Handle single file upload
+            elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
+                if ($metadata) {
+                    $filesMetadata[$key] = $metadata;
+                }
+            }
+        }
+
+        // Then, handle files from JSON array (base64 encoded)
+        $jsonFiles = $request->input('files', []);
+        if (is_array($jsonFiles) && !empty($jsonFiles)) {
+            foreach ($jsonFiles as $key => $fileData) {
+                // Skip if we already processed this file from multipart
+                if (isset($filesMetadata[$key])) {
+                    continue;
+                }
+
+                try {
+                // Handle base64 encoded files from API
+                if (is_string($fileData) && preg_match('/^data:([a-zA-Z0-9\/]+);base64,/', $fileData, $matches)) {
+                    $mimeType = $matches[1];
+                    $base64Data = substr($fileData, strpos($fileData, ',') + 1);
+                    $fileContent = base64_decode($base64Data, true);
+
+                    if ($fileContent === false) {
+                        Log::warning('Failed to decode base64 file', [
+                            'key' => $key,
+                            'mime_type' => $mimeType,
+                        ]);
+                        continue;
+                    }
+
+                    // Determine file extension from mime type
+                    $extension = $this->getExtensionFromMimeType($mimeType);
+                    $filename = Str::uuid() . '.' . $extension;
+                    $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+
+                    // Store file
+                    $stored = Storage::disk($disk)->put($storagePath, $fileContent);
+
+                    if ($stored === false) {
+                        Log::warning('Failed to store file in private bucket, trying fallback', [
+                            'key' => $key,
+                            'path' => $storagePath,
+                        ]);
+                        $stored = Storage::disk($fallbackDisk)->put($storagePath, $fileContent);
+                        if ($stored) {
+                            $disk = $fallbackDisk;
+                        }
+                    }
+
+                    if ($stored) {
+                        $filesMetadata[$key] = [
+                            'path' => $storagePath,
+                            'disk' => $disk,
+                            'mime_type' => $mimeType,
+                            'size' => strlen($fileContent),
+                            'original_key' => $key,
+                        ];
+                    }
+                }
+                // Handle file upload objects
+                elseif (is_array($fileData) && isset($fileData['name']) && isset($fileData['content'])) {
+                    // File data structure: {name: string, content: base64 string, mime_type?: string}
+                    $fileName = $fileData['name'];
+                    $content = $fileData['content'];
+                    $mimeType = $fileData['mime_type'] ?? 'application/octet-stream';
+
+                    // If content is base64, decode it
+                    if (preg_match('/^data:([a-zA-Z0-9\/]+);base64,/', $content, $matches)) {
+                        $mimeType = $matches[1];
+                        $base64Data = substr($content, strpos($content, ',') + 1);
+                        $fileContent = base64_decode($base64Data, true);
+                    } else {
+                        // Assume it's already base64 without prefix
+                        $fileContent = base64_decode($content, true);
+                    }
+
+                    if ($fileContent === false) {
+                        Log::warning('Failed to decode file content', ['key' => $key]);
+                        continue;
+                    }
+
+                    $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: $this->getExtensionFromMimeType($mimeType);
+                    $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+                    $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+
+                    // Store file
+                    $stored = Storage::disk($disk)->put($storagePath, $fileContent);
+
+                    if ($stored === false) {
+                        Log::warning('Failed to store file in private bucket, trying fallback', [
+                            'key' => $key,
+                            'path' => $storagePath,
+                        ]);
+                        $stored = Storage::disk($fallbackDisk)->put($storagePath, $fileContent);
+                        if ($stored) {
+                            $disk = $fallbackDisk;
+                        }
+                    }
+
+                    if ($stored) {
+                        $filesMetadata[$key] = [
+                            'path' => $storagePath,
+                            'disk' => $disk,
+                            'original_name' => $fileName,
+                            'mime_type' => $mimeType,
+                            'size' => strlen($fileContent),
+                            'original_key' => $key,
+                        ];
+                    }
+                }
+                } catch (\Exception $e) {
+                    Log::error('Error processing file for request form', [
+                        'key' => $key,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                    ]);
+                    // Continue with next file instead of failing completely
+                }
+            }
+        }
+
+        return $filesMetadata;
+    }
+
+    /**
+     * Store an uploaded file to private bucket
+     */
+    private function storeUploadedFile(
+        \Illuminate\Http\UploadedFile $file,
+        string $key,
+        string &$disk,
+        string $fallbackDisk
+    ): ?array {
+        try {
+            $extension = $file->getClientOriginalExtension();
+            $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+            $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+
+            // Store file
+            $storedPath = Storage::disk($disk)->putFileAs(
+                'request-forms/' . date('Y/m'),
+                $file,
+                $filename
+            );
+
+            $finalDisk = $disk;
+            if ($storedPath === false) {
+                Log::warning('Failed to store file in private bucket, trying fallback', [
+                    'key' => $key,
+                    'path' => $storagePath,
+                ]);
+                $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                    'request-forms/' . date('Y/m'),
+                    $file,
+                    $filename
+                );
+                if ($storedPath) {
+                    $finalDisk = $fallbackDisk;
+                } else {
+                    return null;
+                }
+            }
+
+            return [
+                'path' => $storedPath,
+                'disk' => $finalDisk,
+                'original_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getMimeType(),
+                'size' => $file->getSize(),
+                'original_key' => $key,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error storing uploaded file', [
+                'key' => $key,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Get file extension from MIME type
+     */
+    private function getExtensionFromMimeType(string $mimeType): string
+    {
+        $mimeToExt = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'text/plain' => 'txt',
+            'text/csv' => 'csv',
+        ];
+
+        return $mimeToExt[$mimeType] ?? 'bin';
     }
 
     /**
@@ -170,6 +440,8 @@ class RequestController extends Controller
                         ];
                     }),
                     'responses_count' => $request->responses->count(),
+                    'files' => $this->formatFilesMetadata($request->files, $request->id),
+                    'files_count' => is_array($request->files) ? count($request->files) : 0,
                 ];
             })
         ]);
@@ -225,8 +497,94 @@ class RequestController extends Controller
                     ];
                 }),
                 'responses_count' => $request->responses->count(),
+                'files' => $this->formatFilesMetadata($request->files, $request->id),
+                'files_count' => is_array($request->files) ? count($request->files) : 0,
             ]
         ]);
+    }
+
+    /**
+     * Download a file from a request form
+     */
+    public function downloadFile(RequestForm $request, string $fileKey): \Symfony\Component\HttpFoundation\StreamedResponse|\Illuminate\Http\JsonResponse
+    {
+        $files = $request->files ?? [];
+
+        if (!isset($files[$fileKey])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Archivo no encontrado',
+            ], 404);
+        }
+
+        $fileMetadata = $files[$fileKey];
+        $disk = $fileMetadata['disk'] ?? 'prosalud-private';
+        $path = $fileMetadata['path'] ?? null;
+
+        if (!$path || !Storage::disk($disk)->exists($path)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Archivo no existe en el almacenamiento',
+            ], 404);
+        }
+
+        try {
+            $fileContent = Storage::disk($disk)->get($path);
+            $originalName = $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? 'file';
+            $mimeType = $fileMetadata['mime_type'] ?? 'application/octet-stream';
+
+            Log::info('Archivo descargado de solicitud', [
+                'request_id' => $request->id,
+                'file_key' => $fileKey,
+                'path' => $path,
+                'disk' => $disk,
+            ]);
+
+            return response()->streamDownload(function () use ($fileContent) {
+                echo $fileContent;
+            }, $originalName, [
+                'Content-Type' => $mimeType,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al descargar archivo de solicitud', [
+                'request_id' => $request->id,
+                'file_key' => $fileKey,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al descargar el archivo',
+            ], 500);
+        }
+    }
+
+    /**
+     * Format files metadata for API response (without exposing sensitive data)
+     */
+    private function formatFilesMetadata(?array $files, ?string $requestId = null): array
+    {
+        if (!is_array($files) || empty($files)) {
+            return [];
+        }
+
+        $formatted = [];
+        foreach ($files as $key => $fileMetadata) {
+            $fileKey = $fileMetadata['original_key'] ?? $key;
+            $formatted[$key] = [
+                'original_name' => $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? $key,
+                'mime_type' => $fileMetadata['mime_type'] ?? 'application/octet-stream',
+                'size' => $fileMetadata['size'] ?? 0,
+                'original_key' => $fileKey,
+                'download_url' => $requestId
+                    ? url("/api/requests/{$requestId}/files/{$fileKey}")
+                    : null,
+                // Don't expose path or disk information for security
+            ];
+        }
+
+        return $formatted;
     }
 
     /**

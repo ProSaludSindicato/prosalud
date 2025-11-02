@@ -4,7 +4,7 @@ namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Config;
-use Log;
+use Illuminate\Support\Facades\Log;
 
 class LaravelCloudStorageServiceProvider extends ServiceProvider
 {
@@ -47,7 +47,6 @@ class LaravelCloudStorageServiceProvider extends ServiceProvider
             }
 
         } catch (\Exception $e) {
-            // Silently fail if configuration is invalid
             Log::warning('Invalid LARAVEL_CLOUD_DISK_CONFIG: ' . $e->getMessage());
         }
     }
@@ -59,7 +58,6 @@ class LaravelCloudStorageServiceProvider extends ServiceProvider
     {
         $diskName = $diskConfig['disk'];
 
-        // Configure prosalud-public disk using the public disk configuration
         if ($diskName === 'public') {
             Config::set("filesystems.disks.prosalud-public", [
                 'driver' => 's3',
@@ -71,6 +69,22 @@ class LaravelCloudStorageServiceProvider extends ServiceProvider
                 'endpoint' => $diskConfig['endpoint'],
                 'use_path_style_endpoint' => $diskConfig['use_path_style_endpoint'],
                 'visibility' => 'public',
+                'throw' => false,
+                'report' => false,
+            ]);
+        }
+
+        if ($diskName === 'private') {
+            Config::set("filesystems.disks.prosalud-private", [
+                'driver' => 's3',
+                'key' => $diskConfig['access_key_id'],
+                'secret' => $diskConfig['access_key_secret'],
+                'region' => $diskConfig['default_region'],
+                'bucket' => $diskConfig['bucket'],
+                'url' => $diskConfig['url'],
+                'endpoint' => $diskConfig['endpoint'],
+                'use_path_style_endpoint' => $diskConfig['use_path_style_endpoint'],
+                'visibility' => 'private',
                 'throw' => false,
                 'report' => false,
             ]);

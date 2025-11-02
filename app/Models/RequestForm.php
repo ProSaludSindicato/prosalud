@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $email
  * @property string $phone_number
  * @property array|null $payload
+ * @property array|null $files
  * @property string $status
  * @property string $created_at
  * @property string|null $processed_at
@@ -39,6 +40,7 @@ class RequestForm extends Model
         'email',
         'phone_number',
         'payload',
+        'files',
         'status',
         'processed_at',
     ];
@@ -46,6 +48,7 @@ class RequestForm extends Model
     protected $casts = [
         'id' => 'string',
         'payload' => 'array',
+        'files' => 'array',
         'created_at' => 'datetime',
         'processed_at' => 'datetime',
     ];
