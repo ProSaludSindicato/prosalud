@@ -562,6 +562,7 @@ class RequestController extends Controller
 
     /**
      * Format files metadata for API response (without exposing sensitive data)
+     * Generates temporary URLs for private bucket files
      */
     private function formatFilesMetadata(?array $files, ?string $requestId = null): array
     {
@@ -572,15 +573,43 @@ class RequestController extends Controller
         $formatted = [];
         foreach ($files as $key => $fileMetadata) {
             $fileKey = $fileMetadata['original_key'] ?? $key;
+            $disk = $fileMetadata['disk'] ?? 'prosalud-private';
+            $path = $fileMetadata['path'] ?? null;
+
+            $downloadUrl = null;
+            $urlExpiresAt = null;
+
+            if ($path && $disk === 'prosalud-private') {
+                try {
+                    $storage = Storage::disk($disk);
+                    $downloadUrl = $storage->temporaryUrl($path, now()->addHours(1));
+                    $urlExpiresAt = now()->addHours(1)->toIso8601String();
+                } catch (\Exception $e) {
+                    // If temporary URL generation fails (e.g., local disk doesn't support it),
+                    // fallback to the download endpoint
+                    Log::warning('Failed to generate temporary URL, using download endpoint', [
+                        'disk' => $disk,
+                        'path' => $path,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $downloadUrl = $requestId
+                        ? url("/api/requests/{$requestId}/files/{$fileKey}")
+                        : null;
+                }
+            } else {
+                // For non-private disks or if path is missing, use download endpoint
+                $downloadUrl = $requestId
+                    ? url("/api/requests/{$requestId}/files/{$fileKey}")
+                    : null;
+            }
+
             $formatted[$key] = [
                 'original_name' => $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? $key,
                 'mime_type' => $fileMetadata['mime_type'] ?? 'application/octet-stream',
                 'size' => $fileMetadata['size'] ?? 0,
                 'original_key' => $fileKey,
-                'download_url' => $requestId
-                    ? url("/api/requests/{$requestId}/files/{$fileKey}")
-                    : null,
-                // Don't expose path or disk information for security
+                'download_url' => $downloadUrl,
+                'url_expires_at' => $urlExpiresAt,
             ];
         }
 
