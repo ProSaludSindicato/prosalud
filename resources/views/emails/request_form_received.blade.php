@@ -45,17 +45,17 @@
                 <!-- Main Container -->
                 <table class="container" role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width: 600px; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow: 0 10px 40px rgba(0,82,155,0.12);">
 
-                    <!-- Header with gradient -->
+                    <!-- Header -->
                     <tr>
-                        <td style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding:32px 32px 28px;">
+                        <td style="background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); padding:32px 32px 0; border-bottom: 1px solid #e5e7eb;">
                             <table width="100%" cellspacing="0" cellpadding="0" border="0" class="header-content">
                                 <tr>
                                     <td class="logo-cell" style="vertical-align:middle; width:120px;">
                                         <img src="https://prosalud-spa.lovable.app/images/logo_prosalud_fondo.png" alt="ProSalud" width="108" height="80" style="display:block; border:0; border-radius:12px;" />
                                     </td>
                                     <td class="text-cell" style="vertical-align:middle; padding-left:16px;">
-                                        <h1 style="margin:0; font-size:24px; color:#ffffff; font-weight:700; letter-spacing:-0.5px;">ProSalud</h1>
-                                        <p style="margin:6px 0 0; color:#cbd5e1; font-size:14px; font-weight:500;">Confirmación de solicitud recibida</p>
+                                        <h1 style="margin:0; font-size:24px; color:#00529B; font-weight:700; letter-spacing:-0.5px;">ProSalud</h1>
+                                        <p style="margin:6px 0 0; color:#64748b; font-size:14px; font-weight:500;">Confirmación de solicitud recibida</p>
                                     </td>
                                 </tr>
                             </table>
@@ -64,10 +64,20 @@
 
                     <!-- Success Badge -->
                     <tr>
-                        <td style="padding:0 32px; transform: translateY(-16px);">
-                            <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding:12px 20px; border-radius:12px; text-align:center; box-shadow: 0 4px 12px rgba(16,185,129,0.25);">
-                                <span style="color:#ffffff; font-size:14px; font-weight:600;">✓ Solicitud registrada exitosamente</span>
-                            </div>
+                        <td style="padding:16px 32px 16px 32px; background:#ffffff;">
+                            <table width="100%" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td>
+                                        <table width="100%" cellspacing="0" cellpadding="0" border="0" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius:12px; box-shadow: 0 4px 12px rgba(16,185,129,0.25);">
+                                            <tr>
+                                                <td style="padding:12px 20px; text-align:center;">
+                                                    <span style="color:#ffffff; font-size:14px; font-weight:600;">✓ Solicitud registrada exitosamente</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
 
@@ -88,7 +98,7 @@
                                 <table width="100%" cellspacing="0" cellpadding="0" border="0">
                                     <tr>
                                         <td style="font-size:13px; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">ID de Solicitud</td>
-                                        <td style="text-align:right; font-size:24px; color:#00529B; font-weight:700;">#{{ $requestForm->id }}</td>
+                                        <td style="text-align:right; font-size:20px; color:#00529B; font-weight:700;">#{{ $requestForm->id }}</td>
                                     </tr>
                                 </table>
                             </div>
