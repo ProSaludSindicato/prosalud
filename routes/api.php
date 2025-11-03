@@ -14,6 +14,7 @@ use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\AfiliadoController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\WellnessRequestController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -94,6 +95,12 @@ Route::apiResource('wellness-events', WellnessEventController::class);
 Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility']);
 Route::post('/wellness-events/{wellness_event}/images', [WellnessEventController::class, 'addImages']);
 Route::delete('/wellness-events/{wellness_event}/images/{image}', [WellnessEventController::class, 'removeImage']);
+
+// Wellness Requests management routes
+Route::get('/wellness-requests', [WellnessRequestController::class, 'index']);
+Route::post('/wellness-requests', [WellnessRequestController::class, 'store']);
+Route::put('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update']);
+Route::patch('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update']);
 
 // Comfenalco Events management routes
 Route::apiResource('comfenalco-events', ComfenalcoEventController::class);

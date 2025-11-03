@@ -47,7 +47,7 @@
 
                     <!-- Header -->
                     <tr>
-                        <td style="background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); padding:32px 32px 0; border-bottom: 1px solid #e5e7eb;">
+                        <td style="background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); padding:32px 32px 24px; border-bottom: 1px solid #e5e7eb;">
                             <table width="100%" cellspacing="0" cellpadding="0" border="0" class="header-content">
                                 <tr>
                                     <td class="logo-cell" style="vertical-align:middle; width:120px;">
