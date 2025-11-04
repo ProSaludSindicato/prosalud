@@ -79,7 +79,8 @@ class RequestController extends Controller
             'affiliate_email' => $requestForm->email,
         ]));
 
-        return response()->json([
+        $response = [
+            'success' => true,
             'message' => 'Solicitud recibida exitosamente',
             'data' => [
                 'id' => $requestForm->id,
@@ -89,12 +90,26 @@ class RequestController extends Controller
                 'files' => $this->formatFilesMetadata($requestForm->files, $requestForm->id),
                 'files_count' => is_array($requestForm->files) ? count($requestForm->files) : 0,
             ]
-        ], 201);
+        ];
+
+        // For 'actualizar-datos-personales' requests, also include 'request' key for backward compatibility
+        if ($requestForm->request_type === 'actualizar-datos-personales') {
+            $response['request'] = [
+                'id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+                'status' => $requestForm->status,
+                'created_at' => $requestForm->created_at->toIso8601String(),
+            ];
+            $response['message'] = 'Solicitud de actualización de datos personales recibida correctamente';
+        }
+
+        return response()->json($response, 201);
     }
 
     /**
      * Extract original files from request for email attachment
      * Only extracts multipart files, not base64 (which can't be attached)
+     * Supports both files[certificacionBancaria] (FormData) and files.certificacionBancaria notation
      */
     private function extractOriginalFiles(Request $request): array
     {
@@ -102,11 +117,18 @@ class RequestController extends Controller
         $allFiles = $request->allFiles();
 
         foreach ($allFiles as $key => $file) {
+            // Handle nested files array (files[certificacionBancaria] from FormData)
             if (is_array($file)) {
                 foreach ($file as $singleFile) {
                     if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
                         $originalFiles[] = $singleFile;
                     }
+                }
+            }
+            // Handle files with dot notation (files.certificacionBancaria)
+            elseif (strpos($key, 'files.') === 0) {
+                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                    $originalFiles[] = $file;
                 }
             }
             // Handle single file upload
@@ -121,6 +143,7 @@ class RequestController extends Controller
     /**
      * Process and store files to private bucket
      * Handles files from JSON array or multipart form-data
+     * Supports both files[certificacionBancaria] (FormData) and files.certificacionBancaria notation
      */
     private function processAndStoreFiles(Request $request): array
     {
@@ -135,6 +158,7 @@ class RequestController extends Controller
                 continue;
             }
 
+            // Handle nested files array (files[certificacionBancaria] from FormData)
             if (is_array($file)) {
                 foreach ($file as $fileKey => $singleFile) {
                     if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
@@ -145,11 +169,41 @@ class RequestController extends Controller
                     }
                 }
             }
-            // Handle single file upload
+            // Handle files with dot notation (files.certificacionBancaria)
+            elseif ($key === 'files' && $file instanceof \Illuminate\Http\UploadedFile) {
+                // This shouldn't happen, but handle it just in case
+                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
+                if ($metadata) {
+                    $filesMetadata[$key] = $metadata;
+                }
+            }
+            // Handle direct file keys (certificacionBancaria directly)
             elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
                 $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
                 if ($metadata) {
                     $filesMetadata[$key] = $metadata;
+                }
+            }
+        }
+
+        // Also check for files with dot notation (files.certificacionBancaria)
+        // Laravel converts files[certificacionBancaria] to files.certificacionBancaria
+        $dotNotationFiles = [];
+        foreach ($allFiles as $key => $value) {
+            if (strpos($key, 'files.') === 0) {
+                $fileKey = substr($key, 6); // Remove 'files.' prefix
+                if ($value instanceof \Illuminate\Http\UploadedFile && $value->isValid()) {
+                    $dotNotationFiles[$fileKey] = $value;
+                }
+            }
+        }
+        
+        // Process dot notation files
+        foreach ($dotNotationFiles as $fileKey => $file) {
+            if (!isset($filesMetadata[$fileKey])) {
+                $metadata = $this->storeUploadedFile($file, $fileKey, $disk, $fallbackDisk);
+                if ($metadata) {
+                    $filesMetadata[$fileKey] = $metadata;
                 }
             }
         }

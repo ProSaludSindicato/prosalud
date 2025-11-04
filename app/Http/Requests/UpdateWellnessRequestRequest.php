@@ -34,7 +34,7 @@ class UpdateWellnessRequestRequest extends FormRequest
         $rules = [
             'nombreActividad' => 'sometimes|required|string|max:200',
             'descripcionActividad' => 'nullable|string|max:300',
-            'centroCostos' => 'sometimes|required|string|in:Bello,Rionegro,La Maria,Admon',
+            'centroCostos' => 'sometimes|required|string|in:Bello,Rionegro,La Maria asistencial,La Maria VIH,La Maria Cosalud,La Maria Enterritorio,Admon',
             'fechaPropuesta' => [
                 'sometimes',
                 'required',
@@ -218,8 +218,11 @@ class UpdateWellnessRequestRequest extends FormRequest
     {
         return match($centroCostos) {
             'Bello' => ['Niquia', 'Autopista'],
-            'Rionegro' => ['Principal'],
-            'La Maria' => ['Castilla', 'Transmisibles', 'Sede la 33'],
+            'Rionegro' => ['Jorge Humberto', 'Gilberto Mejía'],
+            'La Maria asistencial' => ['Castilla', 'La 33'],
+            'La Maria VIH' => ['Castilla', 'La 33'],
+            'La Maria Cosalud' => ['Castilla', 'La 33'],
+            'La Maria Enterritorio' => ['Castilla', 'La 33'],
             'Admon' => ['Principal'],
             default => null,
         };
