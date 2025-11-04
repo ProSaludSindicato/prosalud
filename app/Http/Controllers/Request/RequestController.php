@@ -41,6 +41,7 @@ class RequestController extends Controller
         $requestForm = new RequestForm($requestData);
         $requestForm->created_at = now();
         $requestForm->save();
+        $requestForm->refresh(); // Ensure files metadata is loaded
 
         try {
             Mail::to($requestForm->email)

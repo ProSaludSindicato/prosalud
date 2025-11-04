@@ -88,6 +88,7 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.celular' => 'nullable|string|max:20',
                 'payload.correo' => 'nullable|email|max:255',
                 'payload.tallaUniforme' => 'nullable|string|in:xs,s,m,l,xl,xxl,xxxl,4xl,5xl',
+                'payload.tallaCalzado' => 'nullable|string|max:10',
                 
                 // Campos condicionales - Nivel educativo
                 'payload.nivelEducativo' => 'nullable|string|in:primaria,secundaria,tecnico,tecnologo,pregrado,especializacion,maestria,doctorado',

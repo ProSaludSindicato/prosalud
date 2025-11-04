@@ -246,12 +246,129 @@ class RequestForm extends Model
             return $this->formatCertificadoInfo($value);
         }
 
+        // Format enum values for update data fields
+        $enumFormatters = [
+            'estadoCivil' => fn($v) => $this->formatEstadoCivil($v),
+            'tipoCuenta' => fn($v) => $this->formatTipoCuenta($v),
+            'banco' => fn($v) => $this->formatBanco($v),
+            'eps' => fn($v) => $this->formatEps($v),
+            'afp' => fn($v) => $this->formatAfp($v),
+            'nivelEducativo' => fn($v) => $this->formatNivelEducativo($v),
+            'tallaUniforme' => fn($v) => strtoupper($v),
+        ];
+
+        if (isset($enumFormatters[$key])) {
+            return $enumFormatters[$key]($value);
+        }
+
         // Handle other arrays or objects
         if (is_array($value) || is_object($value)) {
             return $this->formatArrayValue($value);
         }
 
         return (string) $value;
+    }
+
+    /**
+     * Format estado civil enum value
+     */
+    private function formatEstadoCivil(string $value): string
+    {
+        return match($value) {
+            'soltero' => 'Soltero(a)',
+            'casado' => 'Casado(a)',
+            'union_libre' => 'Unión libre',
+            'divorciado' => 'Divorciado(a)',
+            'viudo' => 'Viudo(a)',
+            default => ucfirst(str_replace('_', ' ', $value)),
+        };
+    }
+
+    /**
+     * Format tipo cuenta enum value
+     */
+    private function formatTipoCuenta(string $value): string
+    {
+        return match($value) {
+            'ahorros' => 'Ahorros',
+            'corriente' => 'Corriente',
+            default => ucfirst($value),
+        };
+    }
+
+    /**
+     * Format banco enum value
+     */
+    private function formatBanco(string $value): string
+    {
+        return match($value) {
+            'bancolombia' => 'Bancolombia',
+            'davivienda' => 'Davivienda',
+            'bbva' => 'BBVA',
+            'bogota' => 'Banco de Bogotá',
+            'occidente' => 'Banco de Occidente',
+            'popular' => 'Banco Popular',
+            'av_villas' => 'AV Villas',
+            'caja_social' => 'Caja Social',
+            'colpatria' => 'Colpatria',
+            'agrario' => 'Banco Agrario',
+            'cooperativo' => 'Cooperativo',
+            'otros' => 'Otros',
+            default => ucfirst(str_replace('_', ' ', $value)),
+        };
+    }
+
+    /**
+     * Format EPS enum value
+     */
+    private function formatEps(string $value): string
+    {
+        return match($value) {
+            'sura' => 'SURA',
+            'nueva_eps' => 'Nueva EPS',
+            'sanitas' => 'Sanitas',
+            'coomeva' => 'Coomeva',
+            'compensar' => 'Compensar',
+            'famisanar' => 'Famisanar',
+            'savia' => 'Savia',
+            'aliansalud' => 'Aliansalud',
+            'otros' => 'Otros',
+            default => ucfirst(str_replace('_', ' ', $value)),
+        };
+    }
+
+    /**
+     * Format AFP enum value
+     */
+    private function formatAfp(string $value): string
+    {
+        return match($value) {
+            'proteccion' => 'Protección',
+            'porvenir' => 'Porvenir',
+            'colfondos' => 'Colfondos',
+            'old_mutual' => 'Old Mutual',
+            'skandia' => 'Skandia',
+            'otros' => 'Otros',
+            default => ucfirst(str_replace('_', ' ', $value)),
+        };
+    }
+
+    /**
+     * Format nivel educativo enum value
+     */
+    private function formatNivelEducativo(string $value): string
+    {
+        return match($value) {
+            'primaria' => 'Primaria',
+            'secundaria' => 'Bachiller',
+            'tecnico' => 'Tecnico',
+            'tecnologo' => 'Tecnologo',
+            'pregrado' => 'Profesional',
+            'especializacion' => 'Especialista',
+            'maestria' => 'Maestría',
+            'doctorado' => 'Doctorado',
+            default => ucfirst($value),
+        };
     }
 
     /**
@@ -326,6 +443,21 @@ class RequestForm extends Model
             'adicionarActividades' => 'Adicionar actividades',
             'dirigidoTransitoPicoPlaca' => 'Dirigido a tránsito pico y placa',
             'dirigidoBancolombia' => 'Dirigido a Bancolombia',
+            // Update data fields
+            'dondeRealizaProceso' => 'Donde realiza el proceso',
+            'estadoCivil' => 'Estado civil',
+            'direccion' => 'Dirección',
+            'municipio' => 'Municipio',
+            'telefonoFijo' => 'Teléfono fijo',
+            'celular' => 'Celular',
+            'correo' => 'Correo electrónico',
+            'tallaUniforme' => 'Talla de uniforme',
+            'nivelEducativo' => 'Nivel educativo',
+            'numeroCuenta' => 'Número de cuenta',
+            'tipoCuenta' => 'Tipo de cuenta',
+            'banco' => 'Banco',
+            'eps' => 'EPS',
+            'afp' => 'AFP',
         ];
 
         if (isset($specialCases[$field])) {

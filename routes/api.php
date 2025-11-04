@@ -140,6 +140,8 @@ Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupe
 
 // Afiliados routes (public endpoint for affiliate authentication and information)
 Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
+Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp']);
+Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
 
 // Roles and Permissions management routes
 Route::apiResource('roles', RoleController::class);

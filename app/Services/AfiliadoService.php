@@ -543,7 +543,7 @@ class AfiliadoService
             'fecha_liquidacion' => $this->normalizeDate($row[self::COL_FECHA_LIQUIDACION] ?? ''),
             'talla_uniforme' => $this->normalizeValue($row[self::COL_TALLA_UNIFORME] ?? ''),
             'talla_calzado' => $this->normalizeValue($row[self::COL_TALLA_CALZADO] ?? ''),
-            'nivel_educacion' => $this->normalizeValue($row[self::COL_NIVEL_EDUCACION] ?? ''),
+            'nivel_educacion' => $this->normalizeNivelEducacion($this->normalizeValue($row[self::COL_NIVEL_EDUCACION] ?? '')),
             'otros_estudios' => $this->normalizeValue($row[self::COL_OTROS_ESTUDIOS] ?? ''),
             'numero_cuenta' => $this->normalizeValue($row[self::COL_NUMERO_CUENTA] ?? ''),
             'tipo_cuenta' => $this->normalizeValue($row[self::COL_TIPO_CUENTA] ?? ''),
@@ -820,6 +820,56 @@ class AfiliadoService
     }
 
     /**
+     * Normalize nivel educativo value
+     * Replaces: Secundaria -> Bachiller, Pregrado -> Profesional, Especialización -> Especialista
+     * Keeps: Tecnico and Tecnologo without accents (as they come from Excel)
+     */
+    private function normalizeNivelEducacion(?string $value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        
+        if ($normalized === '') {
+            return null;
+        }
+
+        // Case-insensitive replacements
+        $replacements = [
+            'Secundaria' => 'Bachiller',
+            'secundaria' => 'Bachiller',
+            'SECUNDARIA' => 'Bachiller',
+            'Pregrado' => 'Profesional',
+            'pregrado' => 'Profesional',
+            'PREGrado' => 'Profesional',
+            'Especialización' => 'Especialista',
+            'especialización' => 'Especialista',
+            'Especializacion' => 'Especialista',
+            'especializacion' => 'Especialista',
+            'ESPECIALIZACIÓN' => 'Especialista',
+        ];
+
+        // Check for exact match (case-insensitive)
+        foreach ($replacements as $old => $new) {
+            if (strcasecmp($normalized, $old) === 0) {
+                return $new;
+            }
+        }
+
+        // If contains the word, try to replace
+        foreach ($replacements as $old => $new) {
+            if (stripos($normalized, $old) !== false) {
+                return str_ireplace($old, $new, $normalized);
+            }
+        }
+
+        // Tecnico and Tecnologo come without accents from Excel, so keep as is
+        return $normalized;
+    }
+
+    /**
      * Parse concatenated values from EPS column (if EPS, AFP, ARL, Caja are in one cell)
      * Examples: "NUEVA E.P.S PORVENIR COLMENA COMFENALC 3"
      *           "EPS SURA (A COLPENSION COLMENA COMFENALC 3"
@@ -896,6 +946,171 @@ class AfiliadoService
             return $matches[1];
         }
         return null;
+    }
+
+    /**
+     * Validate credentials and get email for OTP (lightweight validation)
+     * Returns array with email and nombre if valid, null otherwise
+     */
+    public function validateCredentialsAndGetEmail(
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion
+    ): ?array {
+        try {
+            $excelPath = public_path(self::EXCEL_FILE_PATH);
+
+            if (!file_exists($excelPath) || !is_readable($excelPath)) {
+                Log::error('Archivo de afiliados no disponible para validación', ['path' => $excelPath]);
+                return null;
+            }
+
+            $spreadsheet = IOFactory::load($excelPath);
+            $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+            
+            if (!$informacionSheet) {
+                Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                return null;
+            }
+
+            // Find the affiliate row
+            $afiliadoRow = $this->findAfiliadoRowOptimized(
+                $informacionSheet,
+                $tipoDocumento,
+                $documento,
+                $fechaExpedicion
+            );
+
+            if ($afiliadoRow === null) {
+                return null;
+            }
+
+            // Extract only necessary fields
+            $correo = $this->normalizeValue($afiliadoRow[self::COL_CORREO_PERSONAL] ?? '');
+            $nombres = $this->normalizeValue($afiliadoRow[self::COL_NOMBRES] ?? '');
+            $apellidos = $this->normalizeValue($afiliadoRow[self::COL_APELLIDOS] ?? '');
+
+            // Check if email exists
+            if (empty($correo)) {
+                Log::warning('Afiliado encontrado pero sin correo electrónico', [
+                    'documento' => $documento,
+                ]);
+                return null;
+            }
+
+            return [
+                'correo' => $correo,
+                'nombre' => trim(($nombres ?? '') . ' ' . ($apellidos ?? '')),
+                'documento' => $this->normalizeValue($documento),
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('Error al validar credenciales de afiliado', [
+                'error' => $e->getMessage(),
+                'tipo_documento' => $tipoDocumento,
+                'documento' => $documento,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Get complete affiliate information including all details and convenios
+     * This method returns full information without filtering
+     */
+    public function getCompleteAfiliadoInfo(
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion
+    ): ?array {
+        try {
+            $excelPath = public_path(self::EXCEL_FILE_PATH);
+
+            if (!file_exists($excelPath) || !is_readable($excelPath)) {
+                Log::error('Archivo de afiliados no disponible', ['path' => $excelPath]);
+                return null;
+            }
+
+            $spreadsheet = IOFactory::load($excelPath);
+            $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+            
+            if (!$informacionSheet) {
+                Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                return null;
+            }
+
+            // Find the affiliate row
+            $afiliadoRow = $this->findAfiliadoRowOptimized(
+                $informacionSheet,
+                $tipoDocumento,
+                $documento,
+                $fechaExpedicion
+            );
+
+            if ($afiliadoRow === null) {
+                return null;
+            }
+
+            // Extract complete affiliate information
+            $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
+
+            // Get convenios for this affiliate
+            $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+            $conveniosFull = [];
+            
+            if ($conveniosSheet) {
+                $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
+            }
+
+            // Check for beneficiarios sheet (if exists in future)
+            $beneficiarios = $this->getBeneficiariosByDocumento($spreadsheet, $documento);
+
+            // Return complete information
+            return [
+                'afiliado' => $afiliadoFull,
+                'convenios' => $conveniosFull,
+                'beneficiarios' => $beneficiarios,
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('Error al obtener información completa de afiliado', [
+                'error' => $e->getMessage(),
+                'tipo_documento' => $tipoDocumento,
+                'documento' => $documento,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Get beneficiarios for a specific documento (if sheet exists)
+     * This method is prepared for future implementation if beneficiarios sheet is added
+     */
+    private function getBeneficiariosByDocumento($spreadsheet, string $documento): array
+    {
+        try {
+            // Check if BENEFICIARIOS sheet exists
+            $beneficiariosSheet = $spreadsheet->getSheetByName('BENEFICIARIOS');
+            
+            if (!$beneficiariosSheet) {
+                // Sheet doesn't exist, return empty array
+                return [];
+            }
+
+            // If sheet exists, implement the logic to read beneficiarios
+            // For now, return empty array as placeholder
+            // TODO: Implement beneficiarios reading logic when sheet structure is known
+            return [];
+
+        } catch (\Throwable $e) {
+            Log::warning('Error al obtener beneficiarios', [
+                'error' => $e->getMessage(),
+                'documento' => $documento,
+            ]);
+            return [];
+        }
     }
 
     /**

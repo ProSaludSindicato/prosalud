@@ -148,25 +148,45 @@
                             @php
                             $payload = is_array($requestForm->payload ?? null) ? $requestForm->payload : [];
                             $payloadSummary = [];
-                            $preferredKeys = [
-                                'proceso', 'dondeRealizaProceso', 'motivoSolicitud',
-                                'dirigidoAQuien', 'tipoVehiculo', 'placaVehiculo',
-                                'infoCertificado', 'otrosDescripcion'
-                            ];
-                            foreach ($preferredKeys as $key) {
-                                if (isset($payload[$key]) && $payload[$key] !== '') {
-                                    $payloadSummary[$key] = $payload[$key];
+                            
+                            // Si es actualizar-datos-personales, mostrar campos específicos de actualización
+                            if ($requestForm->request_type === 'actualizar-datos-personales') {
+                                $updateDataKeys = [
+                                    'proceso', 'dondeRealizaProceso',
+                                    'estadoCivil', 'direccion', 'municipio', 'telefonoFijo', 'celular', 'correo',
+                                    'tallaUniforme', 'nivelEducativo',
+                                    'numeroCuenta', 'tipoCuenta', 'banco',
+                                    'eps', 'afp'
+                                ];
+                                foreach ($updateDataKeys as $key) {
+                                    if (isset($payload[$key]) && $payload[$key] !== '' && $payload[$key] !== null) {
+                                        $payloadSummary[$key] = $payload[$key];
+                                    }
                                 }
-                            }
-                            if (empty($payloadSummary)) {
-                                // fallback: take first 5 entries
-                                $payloadSummary = array_slice($payload, 0, 5, true);
+                            } else {
+                                // Para otros tipos de solicitud, usar las claves preferidas originales
+                                $preferredKeys = [
+                                    'proceso', 'dondeRealizaProceso', 'motivoSolicitud',
+                                    'dirigidoAQuien', 'tipoVehiculo', 'placaVehiculo',
+                                    'infoCertificado', 'otrosDescripcion'
+                                ];
+                                foreach ($preferredKeys as $key) {
+                                    if (isset($payload[$key]) && $payload[$key] !== '') {
+                                        $payloadSummary[$key] = $payload[$key];
+                                    }
+                                }
+                                if (empty($payloadSummary)) {
+                                    // fallback: take first 5 entries
+                                    $payloadSummary = array_slice($payload, 0, 5, true);
+                                }
                             }
                             @endphp
 
                             @if(!empty($payloadSummary))
                             <!-- Process Details -->
-                            <h3 style="margin:0 0 16px; font-size:16px; color:#1f2937; font-weight:700;">Detalles del proceso</h3>
+                            <h3 style="margin:0 0 16px; font-size:16px; color:#1f2937; font-weight:700;">
+                                {{ $requestForm->request_type === 'actualizar-datos-personales' ? 'Datos solicitados para actualizar' : 'Detalles del proceso' }}
+                            </h3>
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 28px; background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
                                 @foreach($payloadSummary as $k => $v)
                                 <tr>
