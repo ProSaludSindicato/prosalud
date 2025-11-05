@@ -1078,11 +1078,17 @@ class AfiliadoService
             // Check for beneficiarios sheet (if exists in future)
             $beneficiarios = $this->getBeneficiariosByDocumento($spreadsheet, $documento);
 
+            // Filter out sensitive/unnecessary fields from afiliado
+            $afiliadoFiltered = $this->filterAfiliadoCompleteInfo($afiliadoFull);
+
+            // Filter out sensitive fields from beneficiarios
+            $beneficiariosFiltered = $this->filterBeneficiariosInfo($beneficiarios);
+
             // Return complete information
             return [
-                'afiliado' => $afiliadoFull,
+                'afiliado' => $afiliadoFiltered,
                 'convenios' => $conveniosFull,
-                'beneficiarios' => $beneficiarios,
+                'beneficiarios' => $beneficiariosFiltered,
             ];
 
         } catch (\Throwable $e) {
@@ -1181,6 +1187,65 @@ class AfiliadoService
         }
 
         return $beneficiarios;
+    }
+
+    /**
+     * Filter affiliate information to exclude sensitive/unnecessary fields
+     */
+    private function filterAfiliadoCompleteInfo(array $afiliadoFull): array
+    {
+        // Fields to exclude from response
+        $excludedFields = [
+            'fecha_nacimiento',
+            'lugar_nacimiento',
+            'sexo',
+            'rh',
+            'fecha_ingreso',
+            'carnet',
+            'departamento',
+            'archivo_liquidado',
+            'fecha_liquidacion',
+            'otros_estudios',
+            'fecha_rethus',
+            'compensacion_basica',
+            'tipo_afiliacion',
+            'arl',
+            'caja_compensacion',
+            'nivel_riesgo',
+            'fecha_vencimiento_poliza',
+            'emisor_poliza',
+            'detalles',
+        ];
+
+        $filtered = [];
+        foreach ($afiliadoFull as $key => $value) {
+            if (!in_array($key, $excludedFields)) {
+                $filtered[$key] = $value;
+            }
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * Filter beneficiarios information to exclude sensitive fields
+     */
+    private function filterBeneficiariosInfo(array $beneficiarios): array
+    {
+        $excludedFields = ['fecha_nacimiento'];
+
+        $filtered = [];
+        foreach ($beneficiarios as $beneficiario) {
+            $beneficiarioFiltered = [];
+            foreach ($beneficiario as $key => $value) {
+                if (!in_array($key, $excludedFields)) {
+                    $beneficiarioFiltered[$key] = $value;
+                }
+            }
+            $filtered[] = $beneficiarioFiltered;
+        }
+
+        return $filtered;
     }
 
     /**
