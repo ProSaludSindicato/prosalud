@@ -154,9 +154,9 @@
                                 $updateDataKeys = [
                                     'proceso', 'dondeRealizaProceso',
                                     'estadoCivil', 'direccion', 'municipio', 'telefonoFijo', 'celular', 'correo',
-                                    'tallaUniforme', 'nivelEducativo',
+                                    'tallaUniforme', 'tallaCalzado', 'nivelEducativo',
                                     'numeroCuenta', 'tipoCuenta', 'banco',
-                                    'eps', 'afp'
+                                    'eps', 'afp', 'beneficiariosNuevos'
                                 ];
                                 foreach ($updateDataKeys as $key) {
                                     if (isset($payload[$key]) && $payload[$key] !== '' && $payload[$key] !== null) {

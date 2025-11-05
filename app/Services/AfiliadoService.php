@@ -12,6 +12,7 @@ class AfiliadoService
     private const EXCEL_FILE_PATH = 'data/SIMPLE_PROSANET_INFORMACION_AFILIADOS.xlsx';
     private const SHEET_INFORMACION_GENERAL = 'INFORMACIÓN GENERAL';
     private const SHEET_CONVENIOS = 'CONVENIOS';
+    private const SHEET_BENEFICIARIOS = 'BENEFICIARIOS';
 
     // Column indexes for INFORMACIÓN GENERAL sheet
     private const COL_TIPO_DOCUMENTO = 0;
@@ -65,6 +66,17 @@ class AfiliadoService
     private const COL_CONV_FECHA_INGRESO = 7;
     private const COL_CONV_FECHA_FIN = 8;
     private const COL_CONV_NOTAS = 9;
+
+    // Column indexes for BENEFICIARIOS sheet
+    // Order: Documento afiliado, Tipo documento, Documento, Nombres, Apellidos, Fecha nacimiento, Sexo, Notas (parentesco)
+    private const COL_BEN_DOCUMENTO_AFILIADO = 0;
+    private const COL_BEN_TIPO_DOCUMENTO = 1;
+    private const COL_BEN_DOCUMENTO = 2;
+    private const COL_BEN_NOMBRES = 3;
+    private const COL_BEN_APELLIDOS = 4;
+    private const COL_BEN_FECHA_NACIMIENTO = 5;
+    private const COL_BEN_SEXO = 6;
+    private const COL_BEN_NOTAS_PARENTESCO = 7;
 
     /**
      * Authenticate and get affiliate information (optimized - reads only necessary rows)
@@ -1086,31 +1098,89 @@ class AfiliadoService
 
     /**
      * Get beneficiarios for a specific documento (if sheet exists)
-     * This method is prepared for future implementation if beneficiarios sheet is added
      */
     private function getBeneficiariosByDocumento($spreadsheet, string $documento): array
     {
         try {
             // Check if BENEFICIARIOS sheet exists
-            $beneficiariosSheet = $spreadsheet->getSheetByName('BENEFICIARIOS');
+            $beneficiariosSheet = $spreadsheet->getSheetByName(self::SHEET_BENEFICIARIOS);
             
             if (!$beneficiariosSheet) {
-                // Sheet doesn't exist, return empty array
+                Log::info('Pestaña BENEFICIARIOS no encontrada en el archivo Excel');
                 return [];
             }
 
-            // If sheet exists, implement the logic to read beneficiarios
-            // For now, return empty array as placeholder
-            // TODO: Implement beneficiarios reading logic when sheet structure is known
-            return [];
+            // Get beneficiarios using optimized method
+            return $this->getBeneficiariosByDocumentoOptimized($beneficiariosSheet, $documento);
 
         } catch (\Throwable $e) {
             Log::warning('Error al obtener beneficiarios', [
                 'error' => $e->getMessage(),
                 'documento' => $documento,
+                'trace' => $e->getTraceAsString()
             ]);
             return [];
         }
+    }
+
+    /**
+     * Get beneficiarios by documento using optimized iteration (reads only matching rows)
+     */
+    private function getBeneficiariosByDocumentoOptimized($sheet, string $documento): array
+    {
+        $beneficiarios = [];
+        $normalizedDocumento = $this->normalizeValue($documento);
+
+        // Get highest row
+        $highestRow = $sheet->getHighestRow();
+
+        // Iterate through rows (skip header row at row 1)
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+            // Read only necessary columns for matching
+            $colLetter = Coordinate::stringFromColumnIndex(self::COL_BEN_DOCUMENTO_AFILIADO + 1);
+            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $rowDocumentoRaw = $this->getCellValue($cell);
+            $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
+
+            // If document matches, read the full row
+            if ($rowDocumento === $normalizedDocumento) {
+                // Read all columns for this row (8 columns: Documento afiliado, Tipo documento, Documento, Nombres, Apellidos, Fecha nacimiento, Sexo, Notas)
+                $row = [];
+                for ($colIndex = 0; $colIndex < 8; $colIndex++) {
+                    $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $row[] = $this->getCellValue($cell);
+                }
+
+                // Skip if row appears empty
+                if (empty(array_filter($row))) {
+                    continue;
+                }
+
+                // Check if this looks like a header row
+                $firstCol = $this->normalizeValue($row[0] ?? '');
+                if ($firstCol && (
+                    stripos($firstCol, 'documento afiliado') !== false ||
+                    stripos($firstCol, 'documento') === 0 ||
+                    stripos($firstCol, 'tipo documento') !== false
+                )) {
+                    continue;
+                }
+
+                $beneficiarios[] = [
+                    'documento_afiliado' => $rowDocumento,
+                    'tipo_documento' => $this->normalizeValue($row[self::COL_BEN_TIPO_DOCUMENTO] ?? ''),
+                    'documento' => $this->normalizeValue($row[self::COL_BEN_DOCUMENTO] ?? ''),
+                    'nombres' => $this->normalizeValue($row[self::COL_BEN_NOMBRES] ?? ''),
+                    'apellidos' => $this->normalizeValue($row[self::COL_BEN_APELLIDOS] ?? ''),
+                    'fecha_nacimiento' => $this->normalizeDate($row[self::COL_BEN_FECHA_NACIMIENTO] ?? ''),
+                    'sexo' => $this->normalizeValue($row[self::COL_BEN_SEXO] ?? ''),
+                    'parentesco' => $this->normalizeValue($row[self::COL_BEN_NOTAS_PARENTESCO] ?? ''),
+                ];
+            }
+        }
+
+        return $beneficiarios;
     }
 
     /**

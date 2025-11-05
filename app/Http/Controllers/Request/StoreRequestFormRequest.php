@@ -102,6 +102,17 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.eps' => 'nullable|string|in:sura,nueva_eps,sanitas,coomeva,compensar,famisanar,savia,aliansalud,otros',
                 'payload.afp' => 'nullable|string|in:proteccion,porvenir,colfondos,old_mutual,skandia,otros',
                 
+                // Beneficiarios nuevos
+                'payload.beneficiariosNuevos' => 'nullable|array',
+                'payload.beneficiariosNuevos.*' => 'required|array',
+                'payload.beneficiariosNuevos.*.tipo_documento' => 'required|string|max:50',
+                'payload.beneficiariosNuevos.*.documento' => 'required|string|max:50',
+                'payload.beneficiariosNuevos.*.nombres' => 'required|string|max:255',
+                'payload.beneficiariosNuevos.*.apellidos' => 'required|string|max:255',
+                'payload.beneficiariosNuevos.*.fecha_nacimiento' => 'required|date|date_format:Y-m-d',
+                'payload.beneficiariosNuevos.*.parentesco' => 'nullable|string|max:100',
+                'payload.beneficiariosNuevos.*.sexo' => 'nullable|string|max:10',
+                
                 // Archivos condicionales
                 'files.certificacionBancaria' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',
                 'files.diplomaEducativo' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',

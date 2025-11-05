@@ -246,6 +246,11 @@ class RequestForm extends Model
             return $this->formatCertificadoInfo($value);
         }
 
+        // Special handling for beneficiarios nuevos
+        if ($key === 'beneficiariosNuevos' && is_array($value)) {
+            return $this->formatBeneficiariosNuevos($value);
+        }
+
         // Format enum values for update data fields
         $enumFormatters = [
             'estadoCivil' => fn($v) => $this->formatEstadoCivil($v),
@@ -255,6 +260,7 @@ class RequestForm extends Model
             'afp' => fn($v) => $this->formatAfp($v),
             'nivelEducativo' => fn($v) => $this->formatNivelEducativo($v),
             'tallaUniforme' => fn($v) => strtoupper($v),
+            'tallaCalzado' => fn($v) => $v,
         ];
 
         if (isset($enumFormatters[$key])) {
@@ -372,6 +378,43 @@ class RequestForm extends Model
     }
 
     /**
+     * Format beneficiarios nuevos for display
+     */
+    private function formatBeneficiariosNuevos(array $beneficiarios): string
+    {
+        if (empty($beneficiarios)) {
+            return 'Ninguno';
+        }
+
+        $formatted = [];
+        foreach ($beneficiarios as $index => $beneficiario) {
+            $numero = $index + 1;
+            $info = [];
+            
+            $info[] = "<strong>Beneficiario {$numero}:</strong>";
+            $info[] = "• Nombre completo: " . ($beneficiario['nombres'] ?? '') . ' ' . ($beneficiario['apellidos'] ?? '');
+            $info[] = "• Tipo documento: " . ($beneficiario['tipo_documento'] ?? '');
+            $info[] = "• Documento: " . ($beneficiario['documento'] ?? '');
+            
+            if (!empty($beneficiario['fecha_nacimiento'])) {
+                $info[] = "• Fecha de nacimiento: " . $beneficiario['fecha_nacimiento'];
+            }
+            
+            if (!empty($beneficiario['parentesco'])) {
+                $info[] = "• Parentesco: " . $beneficiario['parentesco'];
+            }
+            
+            if (!empty($beneficiario['sexo'])) {
+                $info[] = "• Sexo: " . $beneficiario['sexo'];
+            }
+            
+            $formatted[] = implode('<br>', $info);
+        }
+
+        return implode('<br><br>', $formatted);
+    }
+
+    /**
      * Format certificado info in a user-friendly way
      */
     private function formatCertificadoInfo(array $certificadoData): string
@@ -452,12 +495,14 @@ class RequestForm extends Model
             'celular' => 'Celular',
             'correo' => 'Correo electrónico',
             'tallaUniforme' => 'Talla de uniforme',
+            'tallaCalzado' => 'Talla de calzado',
             'nivelEducativo' => 'Nivel educativo',
             'numeroCuenta' => 'Número de cuenta',
             'tipoCuenta' => 'Tipo de cuenta',
             'banco' => 'Banco',
             'eps' => 'EPS',
             'afp' => 'AFP',
+            'beneficiariosNuevos' => 'Beneficiarios nuevos',
         ];
 
         if (isset($specialCases[$field])) {
