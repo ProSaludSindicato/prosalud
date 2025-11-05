@@ -134,10 +134,18 @@ class VoteController extends Controller
             $totalVotes = $query->count();
 
             // Get votes by candidate
-            $votesByCandidate = Vote::selectRaw('candidate_id, candidate_name, COUNT(*) as vote_count')
-                ->groupBy('candidate_id', 'candidate_name')
+            $votesByCandidate = Vote::selectRaw('candidate_id, candidate_name, candidate_hospital, COUNT(*) as vote_count')
+                ->groupBy('candidate_id', 'candidate_name', 'candidate_hospital')
                 ->orderBy('vote_count', 'desc')
-                ->get();
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'candidate_id' => $item->candidate_id,
+                        'candidate_name' => $item->candidate_name,
+                        'hospital' => $item->candidate_hospital,
+                        'vote_count' => $item->vote_count,
+                    ];
+                });
 
             // Get votes by hospital
             $votesByHospital = Vote::selectRaw('voter_hospital, COUNT(*) as vote_count')
@@ -189,8 +197,8 @@ class VoteController extends Controller
             $totalVotes = $baseQuery->count();
 
             // Get votes by candidate (apply hospital filter if provided)
-            $votesByCandidateQuery = Vote::selectRaw('candidate_id, candidate_name, COUNT(*) as vote_count')
-                ->groupBy('candidate_id', 'candidate_name');
+            $votesByCandidateQuery = Vote::selectRaw('candidate_id, candidate_name, candidate_hospital, COUNT(*) as vote_count')
+                ->groupBy('candidate_id', 'candidate_name', 'candidate_hospital');
             
             if ($hospital) {
                 $votesByCandidateQuery->byHospital($hospital);
@@ -198,7 +206,15 @@ class VoteController extends Controller
             
             $votesByCandidate = $votesByCandidateQuery
                 ->orderBy('vote_count', 'desc')
-                ->get();
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'candidate_id' => $item->candidate_id,
+                        'candidate_name' => $item->candidate_name,
+                        'hospital' => $item->candidate_hospital,
+                        'vote_count' => $item->vote_count,
+                    ];
+                });
 
             // Get votes by hospital
             // If hospital filter is applied, this will only show that hospital
@@ -405,7 +421,7 @@ class VoteController extends Controller
             // Get summary statistics
             $summaryStats = [
                 'total_votes_in_period' => $totalVotes,
-                'votes_by_candidate' => Vote::selectRaw('candidate_id, candidate_name, COUNT(*) as vote_count')
+                'votes_by_candidate' => Vote::selectRaw('candidate_id, candidate_name, candidate_hospital, COUNT(*) as vote_count')
                     ->when($request->has('start_date'), function ($q) use ($request) {
                         return $q->where('vote_timestamp', '>=', $request->input('start_date'));
                     })
@@ -415,9 +431,17 @@ class VoteController extends Controller
                     ->when($request->has('voter_hospital'), function ($q) use ($request) {
                         return $q->where('voter_hospital', $request->input('voter_hospital'));
                     })
-                    ->groupBy('candidate_id', 'candidate_name')
+                    ->groupBy('candidate_id', 'candidate_name', 'candidate_hospital')
                     ->orderBy('vote_count', 'desc')
-                    ->get(),
+                    ->get()
+                    ->map(function ($item) {
+                        return [
+                            'candidate_id' => $item->candidate_id,
+                            'candidate_name' => $item->candidate_name,
+                            'hospital' => $item->candidate_hospital,
+                            'vote_count' => $item->vote_count,
+                        ];
+                    }),
                 'votes_by_hospital' => Vote::selectRaw('voter_hospital, COUNT(*) as vote_count')
                     ->when($request->has('start_date'), function ($q) use ($request) {
                         return $q->where('vote_timestamp', '>=', $request->input('start_date'));
