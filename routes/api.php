@@ -15,6 +15,7 @@ use App\Http\Controllers\AfiliadoController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\WellnessRequestController;
+use App\Http\Controllers\WellnessActivityRealizedController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -99,8 +100,15 @@ Route::delete('/wellness-events/{wellness_event}/images/{image}', [WellnessEvent
 // Wellness Requests management routes
 Route::get('/wellness-requests', [WellnessRequestController::class, 'index']);
 Route::post('/wellness-requests', [WellnessRequestController::class, 'store']);
+Route::get('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'show']);
 Route::put('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update']);
 Route::patch('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update']);
+
+// Wellness Activity Realized routes
+Route::post('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'store']);
+Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show']);
+Route::put('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'update']);
+Route::post('/wellness-requests/{wellness_request_id}/publish-to-gallery', [WellnessActivityRealizedController::class, 'publishToGallery']);
 
 // Comfenalco Events management routes
 Route::apiResource('comfenalco-events', ComfenalcoEventController::class);

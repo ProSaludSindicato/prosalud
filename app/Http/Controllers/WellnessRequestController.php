@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 class WellnessRequestController extends Controller
 {
@@ -184,6 +185,19 @@ class WellnessRequestController extends Controller
                 'error' => config('app.debug') ? $e->getMessage() : 'Ocurrió un error al procesar la solicitud',
             ], 500);
         }
+    }
+
+    /**
+     * Display the specified wellness request.
+     */
+    public function show(WellnessRequest $wellnessRequest): JsonResponse
+    {
+        $wellnessRequest->load(['requester', 'details', 'activityRealized.evidences']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatWellnessRequestResponse($wellnessRequest),
+        ], 200);
     }
 
     /**
@@ -468,6 +482,94 @@ class WellnessRequestController extends Controller
             'estado' => $wellnessRequest->status,
             'created_at' => $wellnessRequest->created_at->toIso8601String(),
             'updated_at' => $wellnessRequest->updated_at->toIso8601String(),
+            'actividad_realizada' => $wellnessRequest->activityRealized ? $this->formatActivityRealizedForRequest($wellnessRequest->activityRealized) : null,
         ];
+    }
+
+    /**
+     * Format activity realized for wellness request response
+     */
+    private function formatActivityRealizedForRequest(\App\Models\WellnessActivityRealized $activityRealized): array
+    {
+        $response = [
+            'id' => $activityRealized->id,
+            'wellness_request_id' => $activityRealized->wellness_request_id,
+            'fecha_realizada' => $activityRealized->realized_date->format('Y-m-d'),
+            'ubicacion_real' => $activityRealized->real_location,
+            'numero_asistentes_real' => $activityRealized->real_attendees_count,
+            'descripcion_realizada' => $activityRealized->realized_description,
+            'obsequio_entregado' => $activityRealized->gift_delivered,
+            'evidencias' => $this->formatEvidenciasForRequest($activityRealized),
+            'publicado_en_galeria' => $activityRealized->published_to_gallery,
+            'evento_galeria_id' => $activityRealized->gallery_event_id,
+            'created_at' => $activityRealized->created_at->toIso8601String(),
+            'updated_at' => $activityRealized->updated_at->toIso8601String(),
+        ];
+
+        // Add listado_asistencia if exists
+        if ($activityRealized->listado_asistencia_path) {
+            $fileUrl = null;
+            $urlExpiresAt = null;
+
+            try {
+                // Generate temporary signed URL for private bucket file (valid for 1 hour)
+                $storage = Storage::disk('prosalud-private');
+                $fileUrl = $storage->temporaryUrl($activityRealized->listado_asistencia_path, now()->addHours(1));
+                $urlExpiresAt = now()->addHours(1)->toIso8601String();
+            } catch (\Exception $e) {
+                Log::warning('Failed to generate temporary URL for listado_asistencia', [
+                    'activity_realized_id' => $activityRealized->id,
+                    'path' => $activityRealized->listado_asistencia_path,
+                    'error' => $e->getMessage(),
+                ]);
+                // If temporary URL generation fails, try fallback disk
+                try {
+                    $storage = Storage::disk('local');
+                    if (method_exists($storage, 'temporaryUrl')) {
+                        $fileUrl = $storage->temporaryUrl($activityRealized->listado_asistencia_path, now()->addHours(1));
+                        $urlExpiresAt = now()->addHours(1)->toIso8601String();
+                    }
+                } catch (\Exception $fallbackError) {
+                    Log::error('Failed to generate temporary URL from fallback disk', [
+                        'error' => $fallbackError->getMessage(),
+                    ]);
+                }
+            }
+
+            $response['listado_asistencia'] = [
+                'id' => $activityRealized->id,
+                'file_url' => $fileUrl,
+                'url_expires_at' => $urlExpiresAt,
+            ];
+        }
+
+        return $response;
+    }
+
+    /**
+     * Format evidencias with main image information for wellness request
+     */
+    private function formatEvidenciasForRequest(\App\Models\WellnessActivityRealized $activityRealized): array
+    {
+        // Get main image URL from gallery event if published
+        $mainImageUrl = null;
+        if ($activityRealized->published_to_gallery && $activityRealized->gallery_event_id) {
+            $mainImage = \App\Models\WellnessEventImage::where('event_id', $activityRealized->gallery_event_id)
+                ->where('is_main', true)
+                ->first();
+            if ($mainImage) {
+                $mainImageUrl = $mainImage->image_url;
+            }
+        }
+
+        return $activityRealized->evidences->map(function ($evidence) use ($mainImageUrl) {
+            return [
+                'id' => $evidence->id,
+                'image_url' => $evidence->image_url,
+                'is_selected_for_gallery' => $evidence->is_selected_for_gallery,
+                'order' => $evidence->order,
+                'is_main' => $mainImageUrl && $evidence->image_url === $mainImageUrl,
+            ];
+        })->sortBy('order')->values()->toArray();
     }
 }

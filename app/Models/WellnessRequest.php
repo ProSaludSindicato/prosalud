@@ -71,6 +71,14 @@ class WellnessRequest extends Model
     }
 
     /**
+     * Relación con la actividad realizada (si existe)
+     */
+    public function activityRealized(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(WellnessActivityRealized::class, 'wellness_request_id');
+    }
+
+    /**
      * Get status translated text
      */
     public function getStatusTextAttribute(): string

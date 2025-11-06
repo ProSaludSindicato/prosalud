@@ -27,4 +27,12 @@ class WellnessEvent extends Model
     {
         return $this->hasMany(WellnessEventImage::class, 'event_id');
     }
+
+    /**
+     * Relación con la actividad realizada (si este evento fue creado desde una actividad)
+     */
+    public function activityRealized(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(WellnessActivityRealized::class, 'gallery_event_id');
+    }
 }
