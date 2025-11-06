@@ -139,6 +139,7 @@ Route::get('/votes/statistics', [VoteController::class, 'statistics']);
 Route::get('/votes/hospital-statistics', [VoteController::class, 'hospitalStatistics']);
 Route::get('/votes/check', [VoteController::class, 'checkVote']);
 Route::get('/votes/audit-trail', [VoteController::class, 'auditTrail']);
+Route::put('/votes/change-candidate', [VoteController::class, 'changeVoteCandidate']);
 
 // Delegados routes (public endpoints for delegates consultation)
 Route::get('/delegados', [DelegadosController::class, 'index']);

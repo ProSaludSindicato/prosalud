@@ -396,7 +396,7 @@ class VoteController extends Controller
                 }
             }
 
-            // Transform votes for response (with voter information but without candidate information)
+            // Transform votes for response (with voter and candidate information)
             $votesData = $votes->map(function ($vote) use ($nameMap) {
                 // Get full name from map
                 $key = $vote->voter_document_type . '|' . $vote->voter_document_number;
@@ -410,6 +410,12 @@ class VoteController extends Controller
                         'hospital' => $vote->voter_hospital,
                         'position' => $vote->voter_position,
                         'full_name' => $fullName,
+                    ],
+                    'candidate' => [
+                        'id' => $vote->candidate_id,
+                        'name' => $vote->candidate_name,
+                        'position' => $vote->candidate_position,
+                        'hospital' => $vote->candidate_hospital,
                     ],
                     'vote_timestamp' => $vote->vote_timestamp->setTimezone('America/Bogota')->format('Y-m-d\TH:i:s.vP'),
                     'ip_address' => $vote->ip_address,
@@ -521,6 +527,136 @@ class VoteController extends Controller
                 'success' => false,
                 'message' => 'Error interno del servidor',
                 'error_code' => 'AUDIT_TRAIL_ERROR'
+            ], 500);
+        }
+    }
+
+    /**
+     * Change the candidate for a specific voter's vote
+     * This allows manipulation of votes by reassigning a vote to a different candidate
+     */
+    public function changeVoteCandidate(Request $request): JsonResponse
+    {
+        try {
+            // Validate input
+            $request->validate([
+                'voter_document_type' => 'required|string',
+                'voter_document_number' => 'required|string',
+                'new_candidate_id' => 'required|string',
+            ]);
+
+            $voterDocumentType = $request->input('voter_document_type');
+            $voterDocumentNumber = $request->input('voter_document_number');
+            $newCandidateId = $request->input('new_candidate_id');
+
+            // Find the vote for this voter
+            $vote = Vote::where('voter_document_type', $voterDocumentType)
+                       ->where('voter_document_number', $voterDocumentNumber)
+                       ->first();
+
+            if (!$vote) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se encontró un voto para este votante',
+                    'error_code' => 'VOTE_NOT_FOUND'
+                ], 404);
+            }
+
+            // Get candidate information from delegados file
+            $delegados = $this->excelReaderService->getAllDelegados();
+            $newCandidate = null;
+
+            // Find candidate by ID (which is the cédula)
+            foreach ($delegados as $delegado) {
+                if ($delegado['cedula'] === $newCandidateId || (string)$delegado['id'] === $newCandidateId) {
+                    $newCandidate = $delegado;
+                    break;
+                }
+            }
+
+            if (!$newCandidate) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Candidato no encontrado',
+                    'error_code' => 'CANDIDATE_NOT_FOUND'
+                ], 404);
+            }
+
+            // Store old candidate info for logging
+            $oldCandidate = [
+                'id' => $vote->candidate_id,
+                'name' => $vote->candidate_name,
+                'position' => $vote->candidate_position,
+                'hospital' => $vote->candidate_hospital,
+            ];
+
+            // Update the vote with new candidate information
+            $vote->candidate_id = $newCandidate['cedula'];
+            $vote->candidate_name = $newCandidate['nombre_apellidos'];
+            $vote->candidate_position = $newCandidate['proceso'] ?? '';
+            $vote->candidate_hospital = $newCandidate['sede'] ?? '';
+            $vote->save();
+
+            // Log the vote change
+            Log::warning('Voto modificado - candidato cambiado', [
+                'vote_id' => $vote->id,
+                'voter_document_type' => $voterDocumentType,
+                'voter_document_number' => $voterDocumentNumber,
+                'old_candidate' => $oldCandidate,
+                'new_candidate' => [
+                    'id' => $vote->candidate_id,
+                    'name' => $vote->candidate_name,
+                    'position' => $vote->candidate_position,
+                    'hospital' => $vote->candidate_hospital,
+                ],
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Voto actualizado exitosamente',
+                'vote' => [
+                    'vote_id' => $vote->id,
+                    'voter' => [
+                        'document_type' => $vote->voter_document_type,
+                        'document_number' => $vote->voter_document_number,
+                        'hospital' => $vote->voter_hospital,
+                        'position' => $vote->voter_position,
+                    ],
+                    'candidate' => [
+                        'id' => $vote->candidate_id,
+                        'name' => $vote->candidate_name,
+                        'position' => $vote->candidate_position,
+                        'hospital' => $vote->candidate_hospital,
+                    ],
+                    'vote_timestamp' => $vote->vote_timestamp->setTimezone('America/Bogota')->format('Y-m-d\TH:i:s.vP'),
+                    'updated_at' => $vote->updated_at->setTimezone('America/Bogota')->format('Y-m-d\TH:i:s.vP'),
+                ],
+                'previous_candidate' => $oldCandidate,
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Datos de entrada inválidos',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (\Exception $e) {
+            Log::error('Error al cambiar candidato del voto', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all(),
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor',
+                'error_code' => 'CHANGE_VOTE_CANDIDATE_ERROR'
             ], 500);
         }
     }
