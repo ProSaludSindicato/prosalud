@@ -9,56 +9,49 @@ use Illuminate\Support\Facades\Storage;
 
 class ExcelReaderService
 {
-    private const EXCEL_FILE_PATH = 'data/_RELACION INCAPACIDADES 2025.xlsx';
-    private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES PENDIENTES.xlsx';
+    private const INCAPACIDADES_FILE_PATH = 'data/RELACION_INCAPACIDADES.xlsx';
+    private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES_PENDIENTES.xlsx';
     private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
-    private const DELEGADOS_FILE_PATH = 'data/DELEGADOS_2025_2.xlsx';
+    private const DELEGADOS_FILE_PATH = 'data/DELEGADOS.xlsx';
     
-    // Disk configuration for ACTIVOS file (stored in private bucket)
-    private const ACTIVOS_S3_DISK = 'prosalud-private';
-    private const ACTIVOS_FALLBACK_DISK = 'local';
+    private const PRIMARY_STORAGE_DISK = 'prosalud-private';
+    private const FALLBACK_STORAGE_DISK = 'local';
 
     /**
      * Read the incapacidades Excel file
      */
     public function readIncapacidadesFile(): array
     {
-        try {
-            $excelPath = public_path(self::EXCEL_FILE_PATH);
+        return $this->withStoredExcel(self::INCAPACIDADES_FILE_PATH, function (string $localPath, string $disk) {
+            try {
+                $spreadsheet = IOFactory::load($localPath);
+                $worksheet = $spreadsheet->getActiveSheet();
+                $data = $worksheet->toArray();
 
-            // Check if file exists
-            if (!file_exists($excelPath)) {
-                Log::error('Archivo de incapacidades no encontrado', [
-                    'path' => $excelPath
+                Log::info('Archivo de incapacidades leído exitosamente', [
+                    'rows_count' => count($data),
+                    'file_path' => self::INCAPACIDADES_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+
+                return $data;
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de incapacidades', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::INCAPACIDADES_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo de incapacidades', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::INCAPACIDADES_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString(),
                 ]);
                 return [];
             }
-
-            // Load the Excel file
-            $spreadsheet = IOFactory::load($excelPath);
-            $worksheet = $spreadsheet->getActiveSheet();
-            $data = $worksheet->toArray();
-
-            Log::info('Archivo de incapacidades leído exitosamente', [
-                'rows_count' => count($data),
-                'file_path' => $excelPath
-            ]);
-
-            return $data;
-
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de incapacidades', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::EXCEL_FILE_PATH)
-            ]);
-            return [];
-        } catch (\Exception $e) {
-            Log::error('Error inesperado al leer archivo Excel', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::EXCEL_FILE_PATH)
-            ]);
-            return [];
-        }
+        }, []);
     }
 
     /**
@@ -66,8 +59,7 @@ class ExcelReaderService
      */
     public function isFileAvailable(): bool
     {
-        $excelPath = public_path(self::EXCEL_FILE_PATH);
-        return file_exists($excelPath) && is_readable($excelPath);
+        return $this->storedExcelExists(self::INCAPACIDADES_FILE_PATH);
     }
 
     /**
@@ -75,42 +67,36 @@ class ExcelReaderService
      */
     public function readLiquidacionesFile(): array
     {
-        try {
-            $excelPath = public_path(self::LIQUIDACIONES_FILE_PATH);
+        return $this->withStoredExcel(self::LIQUIDACIONES_FILE_PATH, function (string $localPath, string $disk) {
+            try {
+                $spreadsheet = IOFactory::load($localPath);
+                $worksheet = $spreadsheet->getActiveSheet();
+                $data = $worksheet->toArray();
 
-            // Check if file exists
-            if (!file_exists($excelPath)) {
-                Log::error('Archivo de liquidaciones no encontrado', [
-                    'path' => $excelPath
+                Log::info('Archivo de liquidaciones leído exitosamente', [
+                    'rows_count' => count($data),
+                    'file_path' => self::LIQUIDACIONES_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+
+                return $data;
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de liquidaciones', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::LIQUIDACIONES_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo de liquidaciones', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::LIQUIDACIONES_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString(),
                 ]);
                 return [];
             }
-
-            // Load the Excel file
-            $spreadsheet = IOFactory::load($excelPath);
-            $worksheet = $spreadsheet->getActiveSheet();
-            $data = $worksheet->toArray();
-
-            Log::info('Archivo de liquidaciones leído exitosamente', [
-                'rows_count' => count($data),
-                'file_path' => $excelPath
-            ]);
-
-            return $data;
-
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de liquidaciones', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::LIQUIDACIONES_FILE_PATH)
-            ]);
-            return [];
-        } catch (\Exception $e) {
-            Log::error('Error inesperado al leer archivo Excel de liquidaciones', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::LIQUIDACIONES_FILE_PATH)
-            ]);
-            return [];
-        }
+        }, []);
     }
 
     /**
@@ -118,8 +104,7 @@ class ExcelReaderService
      */
     public function isLiquidacionesFileAvailable(): bool
     {
-        $excelPath = public_path(self::LIQUIDACIONES_FILE_PATH);
-        return file_exists($excelPath) && is_readable($excelPath);
+        return $this->storedExcelExists(self::LIQUIDACIONES_FILE_PATH);
     }
 
     /**
@@ -127,21 +112,32 @@ class ExcelReaderService
      */
     public function getFileInfo(): array
     {
-        $excelPath = public_path(self::EXCEL_FILE_PATH);
+        foreach ([self::PRIMARY_STORAGE_DISK, self::FALLBACK_STORAGE_DISK] as $disk) {
+            try {
+                if (!Storage::disk($disk)->exists(self::INCAPACIDADES_FILE_PATH)) {
+                    continue;
+                }
 
-        if (!file_exists($excelPath)) {
-            return [
-                'exists' => false,
-                'path' => $excelPath
-            ];
+                return [
+                    'exists' => true,
+                    'path' => self::INCAPACIDADES_FILE_PATH,
+                    'disk' => $disk,
+                    'size' => Storage::disk($disk)->size(self::INCAPACIDADES_FILE_PATH),
+                    'modified' => Storage::disk($disk)->lastModified(self::INCAPACIDADES_FILE_PATH),
+                    'readable' => true,
+                ];
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo obtener información del archivo de incapacidades', [
+                    'disk' => $disk,
+                    'file_path' => self::INCAPACIDADES_FILE_PATH,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         return [
-            'exists' => true,
-            'path' => $excelPath,
-            'size' => filesize($excelPath),
-            'modified' => filemtime($excelPath),
-            'readable' => is_readable($excelPath)
+            'exists' => false,
+            'path' => self::INCAPACIDADES_FILE_PATH,
         ];
     }
 
@@ -150,62 +146,36 @@ class ExcelReaderService
      */
     public function readActivosFile(): array
     {
-        try {
-            $disk = self::ACTIVOS_S3_DISK;
-            $filePath = self::ACTIVOS_FILE_PATH;
-            
-            // Check if file exists in private bucket
-            if (!Storage::disk($disk)->exists($filePath)) {
-                // Fallback to local disk (useful for development)
-                $disk = self::ACTIVOS_FALLBACK_DISK;
-                if (!Storage::disk($disk)->exists($filePath)) {
-                    Log::error('Archivo de activos no encontrado en bucket privado ni en disco local', [
-                        'bucket_path' => $filePath,
-                        'bucket_disk' => self::ACTIVOS_S3_DISK,
-                        'fallback_disk' => $disk
-                    ]);
-                    return [];
-                }
+        return $this->withStoredExcel(self::ACTIVOS_FILE_PATH, function (string $localPath, string $disk) {
+            try {
+                $spreadsheet = IOFactory::load($localPath);
+                $worksheet = $spreadsheet->getActiveSheet();
+                $data = $worksheet->toArray();
+
+                Log::info('Archivo de activos leído exitosamente', [
+                    'rows_count' => count($data),
+                    'file_path' => self::ACTIVOS_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+
+                return $data;
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de activos', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::ACTIVOS_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo de activos', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::ACTIVOS_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                return [];
             }
-            
-            // Get the file content from storage
-            $fileContent = Storage::disk($disk)->get($filePath);
-            
-            // Create a temporary file to load with PhpSpreadsheet
-            $tempFile = tmpfile();
-            $tempPath = stream_get_meta_data($tempFile)['uri'];
-            file_put_contents($tempPath, $fileContent);
-            
-            // Load the Excel file
-            $spreadsheet = IOFactory::load($tempPath);
-            $worksheet = $spreadsheet->getActiveSheet();
-            $data = $worksheet->toArray();
-            
-            // Clean up temporary file
-            fclose($tempFile);
-
-            Log::info('Archivo de activos leído exitosamente desde bucket privado', [
-                'rows_count' => count($data),
-                'file_path' => $filePath,
-                'disk' => $disk
-            ]);
-
-            return $data;
-
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de activos', [
-                'error' => $e->getMessage(),
-                'file_path' => self::ACTIVOS_FILE_PATH
-            ]);
-            return [];
-        } catch (\Exception $e) {
-            Log::error('Error inesperado al leer archivo Excel de activos', [
-                'error' => $e->getMessage(),
-                'file_path' => self::ACTIVOS_FILE_PATH,
-                'trace' => $e->getTraceAsString()
-            ]);
-            return [];
-        }
+        }, []);
     }
 
     /**
@@ -213,19 +183,7 @@ class ExcelReaderService
      */
     public function isActivosFileAvailable(): bool
     {
-        $filePath = self::ACTIVOS_FILE_PATH;
-        
-        // Check private bucket first
-        if (Storage::disk(self::ACTIVOS_S3_DISK)->exists($filePath)) {
-            return true;
-        }
-        
-        // Fallback to local disk
-        if (Storage::disk(self::ACTIVOS_FALLBACK_DISK)->exists($filePath)) {
-            return true;
-        }
-        
-        return false;
+        return $this->storedExcelExists(self::ACTIVOS_FILE_PATH);
     }
 
     /**
@@ -373,42 +331,36 @@ class ExcelReaderService
      */
     public function readDelegadosFile(): array
     {
-        try {
-            $excelPath = public_path(self::DELEGADOS_FILE_PATH);
+        return $this->withStoredExcel(self::DELEGADOS_FILE_PATH, function (string $localPath, string $disk) {
+            try {
+                $spreadsheet = IOFactory::load($localPath);
+                $worksheet = $spreadsheet->getActiveSheet();
+                $data = $worksheet->toArray();
 
-            // Check if file exists
-            if (!file_exists($excelPath)) {
-                Log::error('Archivo de delegados no encontrado', [
-                    'path' => $excelPath
+                Log::info('Archivo de delegados leído exitosamente', [
+                    'rows_count' => count($data),
+                    'file_path' => self::DELEGADOS_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+
+                return $data;
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de delegados', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::DELEGADOS_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo de delegados', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::DELEGADOS_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString(),
                 ]);
                 return [];
             }
-
-            // Load the Excel file
-            $spreadsheet = IOFactory::load($excelPath);
-            $worksheet = $spreadsheet->getActiveSheet();
-            $data = $worksheet->toArray();
-
-            Log::info('Archivo de delegados leído exitosamente', [
-                'rows_count' => count($data),
-                'file_path' => $excelPath
-            ]);
-
-            return $data;
-
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de delegados', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::DELEGADOS_FILE_PATH)
-            ]);
-            return [];
-        } catch (\Exception $e) {
-            Log::error('Error inesperado al leer archivo Excel de delegados', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::DELEGADOS_FILE_PATH)
-            ]);
-            return [];
-        }
+        }, []);
     }
 
     /**
@@ -416,8 +368,116 @@ class ExcelReaderService
      */
     public function isDelegadosFileAvailable(): bool
     {
-        $excelPath = public_path(self::DELEGADOS_FILE_PATH);
-        return file_exists($excelPath) && is_readable($excelPath);
+        return $this->storedExcelExists(self::DELEGADOS_FILE_PATH);
+    }
+
+    /**
+     * Execute callback with a temporary local copy of the stored Excel file.
+     *
+     * @template T
+     * @param string $filePath
+     * @param callable(string, string):T $callback
+     * @param T|null $default
+     * @return T|null
+     */
+    private function withStoredExcel(string $filePath, callable $callback, $default = null)
+    {
+        $localCopy = $this->getStoredExcelLocalCopy($filePath);
+        if ($localCopy === null) {
+            return $default;
+        }
+
+        try {
+            return $callback($localCopy['path'], $localCopy['disk']);
+        } finally {
+            if (!empty($localCopy['path']) && file_exists($localCopy['path'])) {
+                @unlink($localCopy['path']);
+            }
+        }
+    }
+
+    /**
+     * Create a temporary local copy of an Excel file stored in configured disks.
+     *
+     * @return array{path: string, disk: string}|null
+     */
+    private function getStoredExcelLocalCopy(string $filePath): ?array
+    {
+        $disks = [self::PRIMARY_STORAGE_DISK, self::FALLBACK_STORAGE_DISK];
+
+        foreach ($disks as $disk) {
+            try {
+                if (!Storage::disk($disk)->exists($filePath)) {
+                    continue;
+                }
+
+                $stream = Storage::disk($disk)->readStream($filePath);
+                if ($stream === false) {
+                    Log::warning('No se pudo abrir stream del archivo Excel', [
+                        'disk' => $disk,
+                        'file_path' => $filePath,
+                    ]);
+                    continue;
+                }
+
+                $tempBasePath = tempnam(sys_get_temp_dir(), 'prosalud_excel_');
+                if ($tempBasePath === false) {
+                    fclose($stream);
+                    Log::error('No se pudo crear archivo temporal para Excel');
+                    return null;
+                }
+
+                $tempPath = $tempBasePath . '.xlsx';
+                if (@rename($tempBasePath, $tempPath) === false) {
+                    $tempPath = $tempBasePath;
+                }
+
+                $destination = fopen($tempPath, 'w+b');
+                if ($destination === false) {
+                    fclose($stream);
+                    @unlink($tempPath);
+                    Log::error('No se pudo abrir archivo temporal para escribir Excel', [
+                        'file_path' => $tempPath,
+                    ]);
+                    continue;
+                }
+
+                stream_copy_to_stream($stream, $destination);
+                fclose($stream);
+                fclose($destination);
+
+                return [
+                    'path' => $tempPath,
+                    'disk' => $disk,
+                ];
+            } catch (\Throwable $e) {
+                Log::error('Error al crear copia local del archivo Excel', [
+                    'error' => $e->getMessage(),
+                    'disk' => $disk,
+                    'file_path' => $filePath,
+                ]);
+            }
+        }
+
+        Log::error('Archivo Excel no encontrado en los discos configurados', [
+            'file_path' => $filePath,
+            'disks' => $disks,
+        ]);
+
+        return null;
+    }
+
+    private function storedExcelExists(string $filePath): bool
+    {
+        if (Storage::disk(self::PRIMARY_STORAGE_DISK)->exists($filePath)) {
+            return true;
+        }
+
+        if (Storage::disk(self::FALLBACK_STORAGE_DISK)->exists($filePath)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

@@ -8,10 +8,13 @@ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class AfiliadoService
 {
-    private const EXCEL_FILE_PATH = 'data/SIMPLE_PROSANET_INFORMACION_AFILIADOS.xlsx';
+    private const EXCEL_FILE_PATH = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
+    private const STORAGE_PRIMARY_DISK = 'prosalud-private';
+    private const STORAGE_FALLBACK_DISK = 'local';
     private const SHEET_INFORMACION_GENERAL = 'INFORMACIÓN GENERAL';
     private const SHEET_CONVENIOS = 'CONVENIOS';
     private const SHEET_BENEFICIARIOS = 'BENEFICIARIOS';
@@ -81,6 +84,102 @@ class AfiliadoService
     private const COL_BEN_NOTAS_PARENTESCO = 7;
 
     /**
+     * Execute a callback with a local temporary copy of the afiliados Excel file.
+     *
+     * @template T
+     * @param callable(string, string):T $callback
+     * @param T|null $default
+     * @return T|null
+     */
+    private function withExcelFile(callable $callback, $default = null)
+    {
+        $localCopy = $this->getExcelLocalCopy();
+        if ($localCopy === null) {
+            return $default;
+        }
+
+        try {
+            return $callback($localCopy['path'], $localCopy['disk']);
+        } finally {
+            if (!empty($localCopy['path']) && file_exists($localCopy['path'])) {
+                @unlink($localCopy['path']);
+            }
+        }
+    }
+
+    /**
+     * Create a local temporary copy of the afiliados Excel file from configured storage disks.
+     *
+     * @return array{path: string, disk: string}|null
+     */
+    private function getExcelLocalCopy(): ?array
+    {
+        $filePath = self::EXCEL_FILE_PATH;
+        $disks = [self::STORAGE_PRIMARY_DISK, self::STORAGE_FALLBACK_DISK];
+
+        foreach ($disks as $disk) {
+            try {
+                if (!Storage::disk($disk)->exists($filePath)) {
+                    continue;
+                }
+
+                $stream = Storage::disk($disk)->readStream($filePath);
+                if ($stream === false) {
+                    Log::warning('No se pudo abrir stream del archivo de afiliados', [
+                        'disk' => $disk,
+                        'file_path' => $filePath,
+                    ]);
+                    continue;
+                }
+
+                $tempBasePath = tempnam(sys_get_temp_dir(), 'prosanet_afiliados_');
+                if ($tempBasePath === false) {
+                    fclose($stream);
+                    Log::error('No se pudo crear archivo temporal para afiliados');
+                    return null;
+                }
+
+                $tempPath = $tempBasePath . '.xlsx';
+                if (@rename($tempBasePath, $tempPath) === false) {
+                    $tempPath = $tempBasePath;
+                }
+
+                $destination = fopen($tempPath, 'w+b');
+                if ($destination === false) {
+                    fclose($stream);
+                    @unlink($tempPath);
+                    Log::error('No se pudo abrir archivo temporal para escribir afiliados', [
+                        'file_path' => $tempPath,
+                    ]);
+                    return null;
+                }
+
+                stream_copy_to_stream($stream, $destination);
+                fclose($stream);
+                fclose($destination);
+
+                return [
+                    'path' => $tempPath,
+                    'disk' => $disk,
+                ];
+            } catch (\Throwable $e) {
+                Log::error('Error al crear copia local del archivo de afiliados', [
+                    'error' => $e->getMessage(),
+                    'disk' => $disk,
+                    'file_path' => $filePath,
+                ]);
+            }
+        }
+
+        Log::error('Archivo de afiliados no encontrado en los discos configurados', [
+            'file_path' => $filePath,
+            'disks' => $disks,
+        ]);
+
+        return null;
+    }
+
+    /**
      * Authenticate and get affiliate information (optimized - reads only necessary rows)
      */
     public function authenticateAndGetAfiliado(
@@ -88,81 +187,65 @@ class AfiliadoService
         string $documento,
         string $fechaExpedicion
     ): ?array {
-        try {
-            $excelPath = public_path(self::EXCEL_FILE_PATH);
+        return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+            try {
+                $spreadsheet = IOFactory::load($excelPath);
 
-            if (!file_exists($excelPath)) {
-                Log::error('Archivo de afiliados no encontrado', ['path' => $excelPath]);
+                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+                if (!$informacionSheet) {
+                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    return null;
+                }
+
+                $afiliadoRow = $this->findAfiliadoRowOptimized(
+                    $informacionSheet,
+                    $tipoDocumento,
+                    $documento,
+                    $fechaExpedicion
+                );
+
+                if ($afiliadoRow === null) {
+                    Log::info('Afiliado no encontrado', [
+                        'tipo_documento' => $tipoDocumento,
+                        'documento' => $documento,
+                        'fecha_expedicion' => $fechaExpedicion,
+                        'normalized' => [
+                            'tipo_documento' => $this->normalizeValue($tipoDocumento),
+                            'documento' => $this->normalizeValue($documento),
+                            'fecha_expedicion' => $this->normalizeDate($fechaExpedicion),
+                        ]
+                    ]);
+                    return null;
+                }
+
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
+
+                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                $conveniosFull = $conveniosSheet
+                    ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
+                    : [];
+
+                return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de afiliados', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::EXCEL_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString()
+                ]);
                 return null;
-            }
-
-            if (!is_readable($excelPath)) {
-                Log::error('Archivo de afiliados no es legible', ['path' => $excelPath]);
-                return null;
-            }
-
-            // Load the Excel file with read-only mode for better performance
-            $spreadsheet = IOFactory::load($excelPath);
-
-            // Get INFORMACIÓN GENERAL sheet
-            $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-            if (!$informacionSheet) {
-                Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                return null;
-            }
-
-            // Optimized: Find and read only the matching row without loading all data
-            $afiliadoRow = $this->findAfiliadoRowOptimized(
-                $informacionSheet,
-                $tipoDocumento,
-                $documento,
-                $fechaExpedicion
-            );
-
-            if ($afiliadoRow === null) {
-                Log::info('Afiliado no encontrado', [
-                    'tipo_documento' => $tipoDocumento,
-                    'documento' => $documento,
-                    'fecha_expedicion' => $fechaExpedicion,
-                    'normalized' => [
-                        'tipo_documento' => $this->normalizeValue($tipoDocumento),
-                        'documento' => $this->normalizeValue($documento),
-                        'fecha_expedicion' => $this->normalizeDate($fechaExpedicion),
-                    ]
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo Excel de afiliados', [
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'disk' => $disk,
+                    'file_path' => self::EXCEL_FILE_PATH,
+                    'trace' => $e->getTraceAsString()
                 ]);
                 return null;
             }
-
-            // Extract affiliate information
-            $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
-
-            // Get convenios for this affiliate (optimized - only matching rows)
-            $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
-            if ($conveniosSheet) {
-                $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
-            } else {
-                $conveniosFull = [];
-            }
-
-            // Filter to return only required fields
-            return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
-
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de afiliados', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::EXCEL_FILE_PATH),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return null;
-        } catch (\Throwable $e) {
-            Log::error('Error inesperado al leer archivo Excel de afiliados', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return null;
-        }
+        }, null);
     }
 
     /**
@@ -175,110 +258,78 @@ class AfiliadoService
         string $documento,
         string $fechaExpedicion
     ): ?array {
-        try {
-            // Increase memory limit temporarily for large Excel files
+        return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
             $originalMemoryLimit = ini_get('memory_limit');
-            ini_set('memory_limit', '512M');
-
-            // Increase execution time for large files
             $originalMaxExecutionTime = ini_get('max_execution_time');
-            set_time_limit(60);
 
-            $excelPath = public_path(self::EXCEL_FILE_PATH);
+            try {
+                ini_set('memory_limit', '512M');
+                set_time_limit(60);
 
-            if (!file_exists($excelPath)) {
-                Log::error('Archivo de afiliados no encontrado', ['path' => $excelPath]);
-                return null;
-            }
+                $spreadsheet = IOFactory::load($excelPath);
 
-            if (!is_readable($excelPath)) {
-                Log::error('Archivo de afiliados no es legible', ['path' => $excelPath]);
-                return null;
-            }
+                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+                if (!$informacionSheet) {
+                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    return null;
+                }
 
-            // Load the Excel file
-            $spreadsheet = IOFactory::load($excelPath);
+                $informacionData = $informacionSheet->toArray();
 
-            // Get INFORMACIÓN GENERAL sheet
-            $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-            if (!$informacionSheet) {
-                Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                return null;
-            }
+                $afiliadoRowIndex = $this->findAfiliadoRow(
+                    $informacionData,
+                    $tipoDocumento,
+                    $documento,
+                    $fechaExpedicion
+                );
 
-            $informacionData = $informacionSheet->toArray();
+                if ($afiliadoRowIndex === null) {
+                    Log::info('Afiliado no encontrado', [
+                        'tipo_documento' => $tipoDocumento,
+                        'documento' => $documento,
+                        'fecha_expedicion' => $fechaExpedicion
+                    ]);
+                    return null;
+                }
 
-            // Find the affiliate row index
-            $afiliadoRowIndex = $this->findAfiliadoRow(
-                $informacionData,
-                $tipoDocumento,
-                $documento,
-                $fechaExpedicion
-            );
+                $afiliadoRow = $informacionData[$afiliadoRowIndex];
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
 
-            if ($afiliadoRowIndex === null) {
-                Log::info('Afiliado no encontrado', [
-                    'tipo_documento' => $tipoDocumento,
-                    'documento' => $documento,
-                    'fecha_expedicion' => $fechaExpedicion
+                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                $conveniosFull = [];
+                if ($conveniosSheet) {
+                    $conveniosData = $conveniosSheet->toArray();
+                    $conveniosFull = $this->getConveniosByDocumento($conveniosData, $documento);
+                }
+
+                return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de afiliados', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::EXCEL_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString()
                 ]);
                 return null;
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo Excel de afiliados', [
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'disk' => $disk,
+                    'file_path' => self::EXCEL_FILE_PATH,
+                    'trace' => $e->getTraceAsString()
+                ]);
+                return null;
+            } finally {
+                if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
+                    ini_set('memory_limit', (string) $originalMemoryLimit);
+                }
+                if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
+                    set_time_limit((int) $originalMaxExecutionTime);
+                }
             }
-
-            // Get the actual row data
-            $afiliadoRow = $informacionData[$afiliadoRowIndex];
-
-            // Extract affiliate information
-            $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
-
-            // Get convenios for this affiliate
-            $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
-            if ($conveniosSheet) {
-                $conveniosData = $conveniosSheet->toArray();
-                $conveniosFull = $this->getConveniosByDocumento($conveniosData, $documento);
-            } else {
-                $conveniosFull = [];
-            }
-
-            // Filter to return only required fields
-            $result = $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
-
-            // Restore original settings
-            ini_set('memory_limit', $originalMemoryLimit);
-            set_time_limit($originalMaxExecutionTime);
-
-            return $result;
-
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de afiliados', [
-                'error' => $e->getMessage(),
-                'file_path' => public_path(self::EXCEL_FILE_PATH),
-                'trace' => $e->getTraceAsString()
-            ]);
-            // Restore original settings on error
-            if (isset($originalMemoryLimit)) {
-                ini_set('memory_limit', $originalMemoryLimit);
-            }
-            if (isset($originalMaxExecutionTime)) {
-                set_time_limit($originalMaxExecutionTime);
-            }
-            return null;
-        } catch (\Throwable $e) {
-            Log::error('Error inesperado al leer archivo Excel de afiliados', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            // Restore original settings on error
-            if (isset($originalMemoryLimit)) {
-                ini_set('memory_limit', $originalMemoryLimit);
-            }
-            if (isset($originalMaxExecutionTime)) {
-                set_time_limit($originalMaxExecutionTime);
-            }
-            return null;
-        }
+        }, null);
     }
 
     /**
@@ -971,62 +1022,55 @@ class AfiliadoService
         string $documento,
         string $fechaExpedicion
     ): ?array {
-        try {
-            $excelPath = public_path(self::EXCEL_FILE_PATH);
+        return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+            try {
+                $spreadsheet = IOFactory::load($excelPath);
+                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
 
-            if (!file_exists($excelPath) || !is_readable($excelPath)) {
-                Log::error('Archivo de afiliados no disponible para validación', ['path' => $excelPath]);
-                return null;
-            }
+                if (!$informacionSheet) {
+                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    return null;
+                }
 
-            $spreadsheet = IOFactory::load($excelPath);
-            $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-            
-            if (!$informacionSheet) {
-                Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                return null;
-            }
+                $afiliadoRow = $this->findAfiliadoRowOptimized(
+                    $informacionSheet,
+                    $tipoDocumento,
+                    $documento,
+                    $fechaExpedicion
+                );
 
-            // Find the affiliate row
-            $afiliadoRow = $this->findAfiliadoRowOptimized(
-                $informacionSheet,
-                $tipoDocumento,
-                $documento,
-                $fechaExpedicion
-            );
+                if ($afiliadoRow === null) {
+                    return null;
+                }
 
-            if ($afiliadoRow === null) {
-                return null;
-            }
+                $correo = $this->normalizeValue($afiliadoRow[self::COL_CORREO_PERSONAL] ?? '');
+                $nombres = $this->normalizeValue($afiliadoRow[self::COL_NOMBRES] ?? '');
+                $apellidos = $this->normalizeValue($afiliadoRow[self::COL_APELLIDOS] ?? '');
 
-            // Extract only necessary fields
-            $correo = $this->normalizeValue($afiliadoRow[self::COL_CORREO_PERSONAL] ?? '');
-            $nombres = $this->normalizeValue($afiliadoRow[self::COL_NOMBRES] ?? '');
-            $apellidos = $this->normalizeValue($afiliadoRow[self::COL_APELLIDOS] ?? '');
+                if (empty($correo)) {
+                    Log::warning('Afiliado encontrado pero sin correo electrónico', [
+                        'documento' => $documento,
+                    ]);
+                    return null;
+                }
 
-            // Check if email exists
-            if (empty($correo)) {
-                Log::warning('Afiliado encontrado pero sin correo electrónico', [
+                return [
+                    'correo' => $correo,
+                    'nombre' => trim(($nombres ?? '') . ' ' . ($apellidos ?? '')),
+                    'documento' => $this->normalizeValue($documento),
+                ];
+            } catch (\Throwable $e) {
+                Log::error('Error al validar credenciales de afiliado', [
+                    'error' => $e->getMessage(),
+                    'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
+                    'disk' => $disk,
+                    'file_path' => self::EXCEL_FILE_PATH,
+                    'trace' => $e->getTraceAsString()
                 ]);
                 return null;
             }
-
-            return [
-                'correo' => $correo,
-                'nombre' => trim(($nombres ?? '') . ' ' . ($apellidos ?? '')),
-                'documento' => $this->normalizeValue($documento),
-            ];
-
-        } catch (\Throwable $e) {
-            Log::error('Error al validar credenciales de afiliado', [
-                'error' => $e->getMessage(),
-                'tipo_documento' => $tipoDocumento,
-                'documento' => $documento,
-                'trace' => $e->getTraceAsString()
-            ]);
-            return null;
-        }
+        }, null);
     }
 
     /**
@@ -1038,70 +1082,56 @@ class AfiliadoService
         string $documento,
         string $fechaExpedicion
     ): ?array {
-        try {
-            $excelPath = public_path(self::EXCEL_FILE_PATH);
+        return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+            try {
+                $spreadsheet = IOFactory::load($excelPath);
+                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
 
-            if (!file_exists($excelPath) || !is_readable($excelPath)) {
-                Log::error('Archivo de afiliados no disponible', ['path' => $excelPath]);
+                if (!$informacionSheet) {
+                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    return null;
+                }
+
+                $afiliadoRow = $this->findAfiliadoRowOptimized(
+                    $informacionSheet,
+                    $tipoDocumento,
+                    $documento,
+                    $fechaExpedicion
+                );
+
+                if ($afiliadoRow === null) {
+                    return null;
+                }
+
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
+
+                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                $conveniosFull = $conveniosSheet
+                    ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
+                    : [];
+
+                $beneficiarios = $this->getBeneficiariosByDocumento($spreadsheet, $documento);
+
+                $afiliadoFiltered = $this->filterAfiliadoCompleteInfo($afiliadoFull);
+                $beneficiariosFiltered = $this->filterBeneficiariosInfo($beneficiarios);
+
+                return [
+                    'afiliado' => $afiliadoFiltered,
+                    'convenios' => $conveniosFull,
+                    'beneficiarios' => $beneficiariosFiltered,
+                ];
+            } catch (\Throwable $e) {
+                Log::error('Error al obtener información completa de afiliado', [
+                    'error' => $e->getMessage(),
+                    'tipo_documento' => $tipoDocumento,
+                    'documento' => $documento,
+                    'disk' => $disk,
+                    'file_path' => self::EXCEL_FILE_PATH,
+                    'trace' => $e->getTraceAsString()
+                ]);
                 return null;
             }
-
-            $spreadsheet = IOFactory::load($excelPath);
-            $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-            
-            if (!$informacionSheet) {
-                Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                return null;
-            }
-
-            // Find the affiliate row
-            $afiliadoRow = $this->findAfiliadoRowOptimized(
-                $informacionSheet,
-                $tipoDocumento,
-                $documento,
-                $fechaExpedicion
-            );
-
-            if ($afiliadoRow === null) {
-                return null;
-            }
-
-            // Extract complete affiliate information
-            $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
-
-            // Get convenios for this affiliate
-            $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
-            $conveniosFull = [];
-            
-            if ($conveniosSheet) {
-                $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
-            }
-
-            // Check for beneficiarios sheet (if exists in future)
-            $beneficiarios = $this->getBeneficiariosByDocumento($spreadsheet, $documento);
-
-            // Filter out sensitive/unnecessary fields from afiliado
-            $afiliadoFiltered = $this->filterAfiliadoCompleteInfo($afiliadoFull);
-
-            // Filter out sensitive fields from beneficiarios
-            $beneficiariosFiltered = $this->filterBeneficiariosInfo($beneficiarios);
-
-            // Return complete information
-            return [
-                'afiliado' => $afiliadoFiltered,
-                'convenios' => $conveniosFull,
-                'beneficiarios' => $beneficiariosFiltered,
-            ];
-
-        } catch (\Throwable $e) {
-            Log::error('Error al obtener información completa de afiliado', [
-                'error' => $e->getMessage(),
-                'tipo_documento' => $tipoDocumento,
-                'documento' => $documento,
-                'trace' => $e->getTraceAsString()
-            ]);
-            return null;
-        }
+        }, null);
     }
 
     /**
@@ -1255,8 +1285,15 @@ class AfiliadoService
      */
     public function isFileAvailable(): bool
     {
-        $excelPath = public_path(self::EXCEL_FILE_PATH);
-        return file_exists($excelPath) && is_readable($excelPath);
+        if (Storage::disk(self::STORAGE_PRIMARY_DISK)->exists(self::EXCEL_FILE_PATH)) {
+            return true;
+        }
+
+        if (Storage::disk(self::STORAGE_FALLBACK_DISK)->exists(self::EXCEL_FILE_PATH)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -1265,134 +1302,131 @@ class AfiliadoService
     public function getAllAfiliadosBasic(): array
     {
         return Cache::remember('afiliado_service.all_basic', now()->addMinutes(30), function () {
-            try {
-                $excelPath = public_path(self::EXCEL_FILE_PATH);
+            return $this->withExcelFile(function (string $excelPath, string $disk) {
+                try {
+                    $reader = IOFactory::createReader('Xlsx');
+                    if (method_exists($reader, 'setReadDataOnly')) {
+                        $reader->setReadDataOnly(true);
+                    }
 
-                if (!file_exists($excelPath) || !is_readable($excelPath)) {
-                    Log::error('Archivo de afiliados no disponible para listado general', ['path' => $excelPath]);
-                    return [];
-                }
+                    if (method_exists($reader, 'setLoadSheetsOnly')) {
+                        $reader->setLoadSheetsOnly([
+                            self::SHEET_INFORMACION_GENERAL,
+                            self::SHEET_CONVENIOS,
+                        ]);
+                    }
 
-                $reader = IOFactory::createReaderForFile($excelPath);
-                if (method_exists($reader, 'setReadDataOnly')) {
-                    $reader->setReadDataOnly(true);
-                }
+                    if (method_exists($reader, 'setReadFilter')) {
+                        $reader->setReadFilter(new class implements IReadFilter {
+                            private const ALLOWED_COLUMNS = [
+                                'A', 'B', 'C', 'D', 'E',
+                                'F', 'G', 'H', 'I', 'J'
+                            ];
 
-                if (method_exists($reader, 'setLoadSheetsOnly')) {
-                    $reader->setLoadSheetsOnly([
-                        self::SHEET_INFORMACION_GENERAL,
-                        self::SHEET_CONVENIOS,
-                    ]);
-                }
+                            public function readCell($column, $row, $worksheetName = ''): bool
+                            {
+                                if ($row === 1) {
+                                    return true;
+                                }
 
-                if (method_exists($reader, 'setReadFilter')) {
-                    $reader->setReadFilter(new class implements IReadFilter {
-                        private const ALLOWED_COLUMNS = [
-                            'A', 'B', 'C', 'D', 'E', // Información general necesaria
-                            'F', 'G', 'H', 'I', 'J'  // Convenios necesaria
-                        ];
-
-                        public function readCell($column, $row, $worksheetName = ''): bool
-                        {
-                            // Permitir siempre la primera fila (encabezados)
-                            if ($row === 1) {
-                                return true;
+                                return in_array($column, self::ALLOWED_COLUMNS, true);
                             }
-
-                            return in_array($column, self::ALLOWED_COLUMNS, true);
-                        }
-                    });
-                }
-
-                $spreadsheet = $reader->load($excelPath);
-
-                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-                if (!$informacionSheet) {
-                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para listado general');
-                    return [];
-                }
-
-                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
-                $conveniosMap = $conveniosSheet ? $this->buildConveniosSummaryMap($conveniosSheet) : [];
-
-                $highestRow = $informacionSheet->getHighestRow();
-                $affiliates = [];
-
-                for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
-                    $tipoDocumento = $this->normalizeValue(
-                        $this->getCellValue(
-                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1) . $rowIndex)
-                        )
-                    );
-                    $documento = $this->normalizeValue(
-                        $this->getCellValue(
-                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1) . $rowIndex)
-                        )
-                    );
-
-                    if (empty($tipoDocumento) || empty($documento)) {
-                        continue;
+                        });
                     }
 
-                    $nombres = $this->normalizeValue(
-                        $this->getCellValue(
-                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_NOMBRES + 1) . $rowIndex)
-                        )
-                    );
-                    $apellidos = $this->normalizeValue(
-                        $this->getCellValue(
-                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_APELLIDOS + 1) . $rowIndex)
-                        )
-                    );
-                    $estado = $this->normalizeValue(
-                        $this->getCellValue(
-                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_ESTADO + 1) . $rowIndex)
-                        )
-                    );
+                    $spreadsheet = $reader->load($excelPath);
 
-                    $documentKey = $documento;
-                    $convenioSummary = $conveniosMap[$documentKey] ?? null;
+                    $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+                    if (!$informacionSheet) {
+                        Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para listado general');
+                        return [];
+                    }
 
-                    $convenios = [];
-                    if ($convenioSummary) {
-                        $convenios[] = [
-                            'cliente' => $convenioSummary['cliente'] ?? 'SIN ASIGNAR',
-                            'proceso' => $convenioSummary['proceso'] ?? null,
-                            'estado' => $convenioSummary['estado'] ?? null,
-                            'fecha_fin' => $convenioSummary['fecha_fin'] ?? null,
+                    $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                    $conveniosMap = $conveniosSheet ? $this->buildConveniosSummaryMap($conveniosSheet) : [];
+
+                    $highestRow = $informacionSheet->getHighestRow();
+                    $affiliates = [];
+
+                    for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+                        $tipoDocumento = $this->normalizeValue(
+                            $this->getCellValue(
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1) . $rowIndex)
+                            )
+                        );
+                        $documento = $this->normalizeValue(
+                            $this->getCellValue(
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1) . $rowIndex)
+                            )
+                        );
+
+                        if (empty($tipoDocumento) || empty($documento)) {
+                            continue;
+                        }
+
+                        $nombres = $this->normalizeValue(
+                            $this->getCellValue(
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_NOMBRES + 1) . $rowIndex)
+                            )
+                        );
+                        $apellidos = $this->normalizeValue(
+                            $this->getCellValue(
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_APELLIDOS + 1) . $rowIndex)
+                            )
+                        );
+                        $estado = $this->normalizeValue(
+                            $this->getCellValue(
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_ESTADO + 1) . $rowIndex)
+                            )
+                        );
+
+                        $documentKey = $documento;
+                        $convenioSummary = $conveniosMap[$documentKey] ?? null;
+
+                        $convenios = [];
+                        if ($convenioSummary) {
+                            $convenios[] = [
+                                'cliente' => $convenioSummary['cliente'] ?? 'SIN ASIGNAR',
+                                'proceso' => $convenioSummary['proceso'] ?? null,
+                                'estado' => $convenioSummary['estado'] ?? null,
+                                'fecha_fin' => $convenioSummary['fecha_fin'] ?? null,
+                            ];
+                        }
+
+                        $affiliates[] = [
+                            'tipo_documento' => $tipoDocumento,
+                            'documento' => $documento,
+                            'nombres' => $nombres,
+                            'apellidos' => $apellidos,
+                            'estado' => $estado,
+                            'convenios' => $convenios,
                         ];
                     }
 
-                    $affiliates[] = [
-                        'tipo_documento' => $tipoDocumento,
-                        'documento' => $documento,
-                        'nombres' => $nombres,
-                        'apellidos' => $apellidos,
-                        'estado' => $estado,
-                        'convenios' => $convenios,
-                    ];
+                    Log::info('Listado general de afiliados generado para dotación/EPP', [
+                        'count' => count($affiliates),
+                        'disk' => $disk,
+                    ]);
+
+                    return $affiliates;
+                } catch (SpreadsheetException $e) {
+                    Log::error('Error al procesar archivo Excel de afiliados (listado general)', [
+                        'error' => $e->getMessage(),
+                        'file_path' => self::EXCEL_FILE_PATH,
+                        'disk' => $disk,
+                    ]);
+                    return [];
+                } catch (\Throwable $e) {
+                    Log::error('Error inesperado al generar listado general de afiliados', [
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                        'disk' => $disk,
+                        'file_path' => self::EXCEL_FILE_PATH,
+                    ]);
+                    return [];
                 }
-
-                Log::info('Listado general de afiliados generado para dotación/EPP', [
-                    'count' => count($affiliates),
-                ]);
-
-                return $affiliates;
-
-            } catch (SpreadsheetException $e) {
-                Log::error('Error al procesar archivo Excel de afiliados (listado general)', [
-                    'error' => $e->getMessage(),
-                    'file_path' => public_path(self::EXCEL_FILE_PATH),
-                ]);
-                return [];
-            } catch (\Throwable $e) {
-                Log::error('Error inesperado al generar listado general de afiliados', [
-                    'error' => $e->getMessage(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                ]);
-                return [];
-            }
+            }, []);
         });
     }
 

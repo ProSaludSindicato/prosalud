@@ -10,6 +10,10 @@ use App\Http\Controllers\IncapacidadesController;
 use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\ActivosController;
 use App\Http\Controllers\ActivosFileController;
+use App\Http\Controllers\AfiliadosFileController;
+use App\Http\Controllers\DelegadosFileController;
+use App\Http\Controllers\IncapacidadesFileController;
+use App\Http\Controllers\LiquidacionesFileController;
 use App\Http\Controllers\VoteController;
 use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\AfiliadoController;
@@ -133,6 +137,14 @@ Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospit
 // Activos file management routes (for uploading ACTIVOS2.xlsx)
 Route::post('/activos-file/upload', [ActivosFileController::class, 'upload']);
 Route::get('/activos-file/info', [ActivosFileController::class, 'info']);
+
+// Afiliados file management routes (for uploading PROSANET afiliados file)
+Route::post('/afiliados-file/upload', [AfiliadosFileController::class, 'upload']);
+
+// Incapacidades, Liquidaciones y Delegados file management routes
+Route::post('/incapacidades-file/upload', [IncapacidadesFileController::class, 'upload']);
+Route::post('/liquidaciones-file/upload', [LiquidacionesFileController::class, 'upload']);
+Route::post('/delegados-file/upload', [DelegadosFileController::class, 'upload']);
 
 // Vote routes (public endpoints for assembly voting)
 Route::post('/votes', [VoteController::class, 'store']);
