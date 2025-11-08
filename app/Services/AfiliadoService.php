@@ -5,6 +5,8 @@ namespace App\Services;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class AfiliadoService
@@ -1255,5 +1257,230 @@ class AfiliadoService
     {
         $excelPath = public_path(self::EXCEL_FILE_PATH);
         return file_exists($excelPath) && is_readable($excelPath);
+    }
+
+    /**
+     * Get a cached list of affiliates with basic information for dotación/EPP management
+     */
+    public function getAllAfiliadosBasic(): array
+    {
+        return Cache::remember('afiliado_service.all_basic', now()->addMinutes(30), function () {
+            try {
+                $excelPath = public_path(self::EXCEL_FILE_PATH);
+
+                if (!file_exists($excelPath) || !is_readable($excelPath)) {
+                    Log::error('Archivo de afiliados no disponible para listado general', ['path' => $excelPath]);
+                    return [];
+                }
+
+                $reader = IOFactory::createReaderForFile($excelPath);
+                if (method_exists($reader, 'setReadDataOnly')) {
+                    $reader->setReadDataOnly(true);
+                }
+
+                if (method_exists($reader, 'setLoadSheetsOnly')) {
+                    $reader->setLoadSheetsOnly([
+                        self::SHEET_INFORMACION_GENERAL,
+                        self::SHEET_CONVENIOS,
+                    ]);
+                }
+
+                if (method_exists($reader, 'setReadFilter')) {
+                    $reader->setReadFilter(new class implements IReadFilter {
+                        private const ALLOWED_COLUMNS = [
+                            'A', 'B', 'C', 'D', 'E', // Información general necesaria
+                            'F', 'G', 'H', 'I', 'J'  // Convenios necesaria
+                        ];
+
+                        public function readCell($column, $row, $worksheetName = ''): bool
+                        {
+                            // Permitir siempre la primera fila (encabezados)
+                            if ($row === 1) {
+                                return true;
+                            }
+
+                            return in_array($column, self::ALLOWED_COLUMNS, true);
+                        }
+                    });
+                }
+
+                $spreadsheet = $reader->load($excelPath);
+
+                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+                if (!$informacionSheet) {
+                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para listado general');
+                    return [];
+                }
+
+                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                $conveniosMap = $conveniosSheet ? $this->buildConveniosSummaryMap($conveniosSheet) : [];
+
+                $highestRow = $informacionSheet->getHighestRow();
+                $affiliates = [];
+
+                for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+                    $tipoDocumento = $this->normalizeValue(
+                        $this->getCellValue(
+                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1) . $rowIndex)
+                        )
+                    );
+                    $documento = $this->normalizeValue(
+                        $this->getCellValue(
+                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1) . $rowIndex)
+                        )
+                    );
+
+                    if (empty($tipoDocumento) || empty($documento)) {
+                        continue;
+                    }
+
+                    $nombres = $this->normalizeValue(
+                        $this->getCellValue(
+                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_NOMBRES + 1) . $rowIndex)
+                        )
+                    );
+                    $apellidos = $this->normalizeValue(
+                        $this->getCellValue(
+                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_APELLIDOS + 1) . $rowIndex)
+                        )
+                    );
+                    $estado = $this->normalizeValue(
+                        $this->getCellValue(
+                            $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_ESTADO + 1) . $rowIndex)
+                        )
+                    );
+
+                    $documentKey = $documento;
+                    $convenioSummary = $conveniosMap[$documentKey] ?? null;
+
+                    $convenios = [];
+                    if ($convenioSummary) {
+                        $convenios[] = [
+                            'cliente' => $convenioSummary['cliente'] ?? 'SIN ASIGNAR',
+                            'proceso' => $convenioSummary['proceso'] ?? null,
+                            'estado' => $convenioSummary['estado'] ?? null,
+                            'fecha_fin' => $convenioSummary['fecha_fin'] ?? null,
+                        ];
+                    }
+
+                    $affiliates[] = [
+                        'tipo_documento' => $tipoDocumento,
+                        'documento' => $documento,
+                        'nombres' => $nombres,
+                        'apellidos' => $apellidos,
+                        'estado' => $estado,
+                        'convenios' => $convenios,
+                    ];
+                }
+
+                Log::info('Listado general de afiliados generado para dotación/EPP', [
+                    'count' => count($affiliates),
+                ]);
+
+                return $affiliates;
+
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de afiliados (listado general)', [
+                    'error' => $e->getMessage(),
+                    'file_path' => public_path(self::EXCEL_FILE_PATH),
+                ]);
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al generar listado general de afiliados', [
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ]);
+                return [];
+            }
+        });
+    }
+
+    /**
+     * Clear cached affiliate listing
+     */
+    public function forgetAllAfiliadosBasicCache(): void
+    {
+        Cache::forget('afiliado_service.all_basic');
+    }
+
+    private function buildConveniosSummaryMap($sheet): array
+    {
+        $summary = [];
+        $highestRow = $sheet->getHighestRow();
+
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+            $documento = $this->normalizeValue(
+                $this->getCellValue(
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_DOCUMENTO_AFILIADO + 1) . $rowIndex)
+                )
+            );
+
+            if (empty($documento)) {
+                continue;
+            }
+
+            $cliente = $this->normalizeValue(
+                $this->getCellValue(
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_CLIENTE + 1) . $rowIndex)
+                )
+            );
+            $proceso = $this->normalizeValue(
+                $this->getCellValue(
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_PROCESO + 1) . $rowIndex)
+                )
+            );
+            $estado = $this->normalizeValue(
+                $this->getCellValue(
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_ESTADO + 1) . $rowIndex)
+                )
+            );
+            $fechaFin = $this->normalizeDate(
+                $this->getCellValue(
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_FECHA_FIN + 1) . $rowIndex)
+                )
+            );
+
+            $candidate = [
+                'cliente' => $cliente ?? 'SIN ASIGNAR',
+                'proceso' => $proceso,
+                'estado' => $estado,
+                'fecha_fin' => $fechaFin,
+            ];
+
+            $existing = $summary[$documento] ?? null;
+            $summary[$documento] = $this->pickBetterConvenioSummary($existing, $candidate);
+        }
+
+        return $summary;
+    }
+
+    private function pickBetterConvenioSummary(?array $current, array $candidate): array
+    {
+        if ($current === null) {
+            return $candidate;
+        }
+
+        $currentActive = isset($current['estado']) && strcasecmp($current['estado'], 'Activo') === 0;
+        $candidateActive = isset($candidate['estado']) && strcasecmp($candidate['estado'], 'Activo') === 0;
+
+        if ($currentActive && !$candidateActive) {
+            return $current;
+        }
+
+        if (!$currentActive && $candidateActive) {
+            return $candidate;
+        }
+
+        $currentTs = isset($current['fecha_fin']) ? strtotime($current['fecha_fin']) : null;
+        $candidateTs = isset($candidate['fecha_fin']) ? strtotime($candidate['fecha_fin']) : null;
+
+        if ($candidateTs !== false && $candidateTs !== null) {
+            if ($currentTs === false || $currentTs === null || $candidateTs > $currentTs) {
+                return $candidate;
+            }
+        }
+
+        return $current;
     }
 }

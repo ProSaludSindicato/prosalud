@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DotacionEppController;
 use App\Http\Controllers\Request\RequestController;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\WellnessEventController;
@@ -157,3 +158,12 @@ Route::apiResource('roles', RoleController::class);
 Route::get('/permissions', [PermissionController::class, 'index']);
 Route::get('/permissions/{permission}', [PermissionController::class, 'show']);
 Route::put('/permissions/{permission}', [PermissionController::class, 'update']);
+
+// Dotación y EPP routes
+Route::prefix('dotacion-epp')->group(function () {
+    Route::get('/affiliates', [DotacionEppController::class, 'affiliates']);
+    Route::get('/affiliates/{documentType}/{documentNumber}', [DotacionEppController::class, 'showAffiliate']);
+    Route::get('/inventory', [DotacionEppController::class, 'inventory']);
+    Route::get('/deliveries', [DotacionEppController::class, 'deliveries']);
+    Route::post('/deliveries', [DotacionEppController::class, 'storeDelivery']);
+});
