@@ -91,7 +91,7 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.tallaCalzado' => 'nullable|string|max:10',
                 
                 // Campos condicionales - Nivel educativo
-                'payload.nivelEducativo' => 'nullable|string|in:primaria,secundaria,tecnico,tecnologo,pregrado,especializacion,maestria,doctorado',
+                'payload.nivelEducativo' => 'nullable|string|in:primaria,bachiller,tecnico,tecnologo,profesional,especialista,maestria,doctorado',
                 
                 // Campos condicionales - Cuenta bancaria (si se envía numeroCuenta, los demás son requeridos)
                 'payload.numeroCuenta' => 'nullable|string|max:255',

@@ -181,6 +181,7 @@ class SstDotacionService
             'signed_document_type' => strtoupper($data['signedDocumentType']),
             'signed_document_number' => $data['signedDocumentNumber'],
             'notes' => $data['notes'] ?? null,
+            'delivery_type' => $data['deliveryType'],
         ]);
 
         $itemsPayload = $data['items'] ?? [];
@@ -321,6 +322,7 @@ class SstDotacionService
             'affiliateId' => $record->affiliate_id,
             'deliveredAt' => $record->delivered_at?->setTimezone('America/Bogota')->toISOString(),
             'deliveredBy' => $record->delivered_by_name,
+            'deliveryType' => $record->delivery_type,
             'items' => $record->items->map(fn (SstDeliveryItem $item) => [
                 'itemId' => $item->item_id,
                 'variant' => array_filter([
@@ -362,28 +364,8 @@ class SstDotacionService
 
         self::$inventoryCache = [
             [
-                'id' => 'epp-boquilla-alcohol',
-                'name' => 'Boquilla Alcohol',
-                'category' => 'EPP',
-            ],
-            [
-                'id' => 'epp-boquilla-jabon-pequeno',
-                'name' => 'Boquilla Jabón Pequeño',
-                'category' => 'EPP',
-            ],
-            [
                 'id' => 'epp-gorros-quirurgicos',
                 'name' => 'Gorros Quirúrgicos',
-                'category' => 'EPP',
-            ],
-            [
-                'id' => 'epp-guardian-grande',
-                'name' => 'Guardián Grande',
-                'category' => 'EPP',
-            ],
-            [
-                'id' => 'epp-guardian-pequeno',
-                'name' => 'Guardián Pequeño',
                 'category' => 'EPP',
             ],
             [

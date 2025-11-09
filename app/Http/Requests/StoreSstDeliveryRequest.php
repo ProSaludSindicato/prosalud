@@ -37,6 +37,7 @@ class StoreSstDeliveryRequest extends FormRequest
             'deliveredBy' => 'nullable|string|max:255',
             'deliveredByName' => 'nullable|string|max:255',
             'notes' => 'nullable|string|max:1000',
+            'deliveryType' => 'required|string|in:first_time,periodic',
         ];
     }
 
@@ -45,6 +46,7 @@ class StoreSstDeliveryRequest extends FormRequest
         $this->merge([
             'affiliateDocumentType' => strtoupper((string) $this->input('affiliateDocumentType')),
             'signedDocumentType' => strtoupper((string) $this->input('signedDocumentType')),
+            'deliveryType' => strtolower((string) $this->input('deliveryType')),
         ]);
     }
 }

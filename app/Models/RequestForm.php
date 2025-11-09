@@ -366,11 +366,11 @@ class RequestForm extends Model
     {
         return match($value) {
             'primaria' => 'Primaria',
-            'secundaria' => 'Bachiller',
+            'bachiller' => 'Bachiller',
             'tecnico' => 'Tecnico',
             'tecnologo' => 'Tecnologo',
-            'pregrado' => 'Profesional',
-            'especializacion' => 'Especialista',
+            'profesional' => 'Profesional',
+            'especialista' => 'Especialista',
             'maestria' => 'Maestría',
             'doctorado' => 'Doctorado',
             default => ucfirst($value),

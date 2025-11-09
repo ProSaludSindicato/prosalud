@@ -35,6 +35,7 @@ class SstDeliveryRecord extends Model
         'signed_document_type',
         'signed_document_number',
         'notes',
+        'delivery_type',
     ];
 
     protected $casts = [
