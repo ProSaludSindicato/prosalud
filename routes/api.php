@@ -21,6 +21,11 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\WellnessRequestController;
 use App\Http\Controllers\WellnessActivityRealizedController;
+use App\Http\Controllers\Inventory\InventoryDashboardController;
+use App\Http\Controllers\Inventory\InventoryCategoryController;
+use App\Http\Controllers\Inventory\InventoryProductController;
+use App\Http\Controllers\Inventory\HospitalRequestController;
+use App\Http\Controllers\Inventory\InventoryColorController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -178,4 +183,39 @@ Route::prefix('dotacion-epp')->group(function () {
     Route::get('/inventory', [DotacionEppController::class, 'inventory']);
     Route::get('/deliveries', [DotacionEppController::class, 'deliveries']);
     Route::post('/deliveries', [DotacionEppController::class, 'storeDelivery']);
+});
+
+// Inventory Management routes
+Route::prefix('inventory')->group(function () {
+    // Dashboard / Overview
+    Route::get('/dashboard', [InventoryDashboardController::class, 'index']);
+
+    // Categories
+    Route::get('/categories', [InventoryCategoryController::class, 'index']);
+    Route::post('/categories', [InventoryCategoryController::class, 'store']);
+    Route::get('/categories/{category}', [InventoryCategoryController::class, 'show']);
+    Route::put('/categories/{category}', [InventoryCategoryController::class, 'update']);
+    Route::delete('/categories/{category}', [InventoryCategoryController::class, 'destroy']);
+
+    // Subcategories
+    Route::post('/categories/{category}/subcategories', [InventoryCategoryController::class, 'storeSubcategory']);
+    Route::put('/categories/{category}/subcategories/{subcategory}', [InventoryCategoryController::class, 'updateSubcategory']);
+    Route::delete('/categories/{category}/subcategories/{subcategory}', [InventoryCategoryController::class, 'destroySubcategory']);
+
+    // Products
+    Route::get('/products', [InventoryProductController::class, 'index']);
+    Route::post('/products', [InventoryProductController::class, 'store']);
+    Route::get('/products/{product}', [InventoryProductController::class, 'show']);
+    Route::put('/products/{product}', [InventoryProductController::class, 'update']);
+    Route::delete('/products/{product}', [InventoryProductController::class, 'destroy']);
+
+    // Colors catalog
+    Route::get('/colors', [InventoryColorController::class, 'index']);
+
+    // Hospital Requests
+    Route::get('/hospital-requests', [HospitalRequestController::class, 'index']);
+    Route::post('/hospital-requests', [HospitalRequestController::class, 'store']);
+    Route::get('/hospital-requests/{hospital_request}', [HospitalRequestController::class, 'show']);
+    Route::put('/hospital-requests/{hospital_request}/status', [HospitalRequestController::class, 'updateStatus']);
+    Route::delete('/hospital-requests/{hospital_request}', [HospitalRequestController::class, 'destroy']);
 });
