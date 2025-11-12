@@ -92,6 +92,7 @@ class InventoryProductController extends Controller
                 'subcategory_id' => $request->subcategory_id,
                 'description' => $request->description,
                 'variant_mode' => $request->variant_mode,
+                'gender' => $request->gender,
             ]);
 
             // Create variants
@@ -184,6 +185,7 @@ class InventoryProductController extends Controller
                 'category_id',
                 'subcategory_id',
                 'description',
+                'gender',
                 'variant_mode',
             ]));
 

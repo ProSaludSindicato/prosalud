@@ -24,6 +24,7 @@ class InventoryProductResource extends JsonResource
             'category' => new InventoryCategoryResource($this->whenLoaded('category')),
             'subcategory' => new InventorySubcategoryResource($this->whenLoaded('subcategory')),
             'variants' => InventoryVariantResource::collection($this->whenLoaded('variants')),
+            'gender' => $this->gender,
             'total_stock' => $this->when(
                 $this->relationLoaded('variants'),
                 fn() => $this->total_stock

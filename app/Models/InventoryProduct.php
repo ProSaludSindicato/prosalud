@@ -24,6 +24,7 @@ class InventoryProduct extends Model
         'subcategory_id',
         'description',
         'variant_mode',
+        'gender',
     ];
 
     /**
