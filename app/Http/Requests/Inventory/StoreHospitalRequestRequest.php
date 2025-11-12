@@ -59,24 +59,7 @@ class StoreHospitalRequestRequest extends FormRequest
      */
     public function withValidator($validator): void
     {
-        $validator->after(function ($validator) {
-            // Validate stock availability for each item
-            $items = $this->input('items', []);
-
-            foreach ($items as $index => $item) {
-                if (!isset($item['variant_id']) || !isset($item['quantity'])) {
-                    continue;
-                }
-
-                $variant = \App\Models\InventoryVariant::find($item['variant_id']);
-
-                if ($variant && $variant->stock < $item['quantity']) {
-                    $validator->errors()->add(
-                        "items.{$index}.quantity",
-                        "Stock insuficiente. Disponible: {$variant->stock}, solicitado: {$item['quantity']}"
-                    );
-                }
-            }
-        });
+        // Se permite solicitar cantidades mayores al stock disponible;
+        // la aprobación o rechazo se maneja en el flujo de negocio.
     }
 }

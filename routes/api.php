@@ -26,6 +26,7 @@ use App\Http\Controllers\Inventory\InventoryCategoryController;
 use App\Http\Controllers\Inventory\InventoryProductController;
 use App\Http\Controllers\Inventory\HospitalRequestController;
 use App\Http\Controllers\Inventory\InventoryColorController;
+use App\Http\Controllers\Inventory\InventoryEntryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -218,4 +219,9 @@ Route::prefix('inventory')->group(function () {
     Route::get('/hospital-requests/{hospital_request}', [HospitalRequestController::class, 'show']);
     Route::put('/hospital-requests/{hospital_request}/status', [HospitalRequestController::class, 'updateStatus']);
     Route::delete('/hospital-requests/{hospital_request}', [HospitalRequestController::class, 'destroy']);
+
+    // Inventory Entries (Deliveries)
+    Route::get('/entries', [InventoryEntryController::class, 'index']);
+    Route::post('/entries', [InventoryEntryController::class, 'store']);
+    Route::get('/entries/{entry}', [InventoryEntryController::class, 'show']);
 });

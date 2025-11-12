@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\InventoryCategory;
 use App\Models\SstDeliveryItem;
 use App\Models\SstDeliveryRecord;
 use App\Models\User;
@@ -349,183 +350,50 @@ class SstDotacionService
         return null;
     }
 
-    private static function sizesWithColor(string $color): array
-    {
-        $sizes = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
-
-        return array_map(fn ($size) => ['color' => $color, 'size' => $size], $sizes);
-    }
-
     private static function inventoryItems(): array
     {
         if (self::$inventoryCache !== null) {
             return self::$inventoryCache;
         }
 
-        self::$inventoryCache = [
-            [
-                'id' => 'epp-gorros-quirurgicos',
-                'name' => 'Gorros Quirúrgicos',
-                'category' => 'EPP',
-            ],
-            [
-                'id' => 'epp-tapabocas-n95',
-                'name' => 'Tapabocas N95',
-                'category' => 'EPP',
-            ],
-            [
-                'id' => 'epp-tapabocas-quirurgico',
-                'name' => 'Tapabocas Quirúrgico',
-                'category' => 'EPP',
-            ],
-            [
-                'id' => 'dotacion-bata-aguamarina',
-                'name' => 'Bata (Aguamarina)',
-                'category' => 'Dotación',
-                'defaultColor' => 'AGUAMA',
-                'variants' => [
-                    ['color' => 'AGUAMA', 'size' => 'XS'],
-                    ['color' => 'AGUAMA', 'size' => 'S'],
-                    ['color' => 'AGUAMA', 'size' => 'M'],
-                    ['color' => 'AGUAMA', 'size' => 'L'],
-                    ['color' => 'AGUAMA', 'size' => 'XL'],
-                    ['color' => 'AGUAMA', 'size' => '2XL'],
-                    ['color' => 'AGUAMA', 'size' => '3XL'],
-                    ['color' => 'AGUAMA', 'size' => '4XL'],
-                    ['color' => 'AGUAMA', 'size' => '5XL'],
-                ],
-            ],
-            [
-                'id' => 'dotacion-bata-blanca',
-                'name' => 'Bata (Blanca)',
-                'category' => 'Dotación',
-                'defaultColor' => 'BLANCO',
-                'variants' => self::sizesWithColor('BLANCO'),
-            ],
-            [
-                'id' => 'dotacion-bata-larga-boton',
-                'name' => 'Bata Larga Botón (Blanca)',
-                'category' => 'Dotación',
-                'defaultColor' => 'BLANCO',
-                'variants' => self::sizesWithColor('BLANCO'),
-            ],
-            [
-                'id' => 'dotacion-bata-larga-cierre',
-                'name' => 'Bata Larga Cierre (Blanca)',
-                'category' => 'Dotación',
-                'defaultColor' => 'BLANCO',
-                'variants' => self::sizesWithColor('BLANCO'),
-            ],
-            [
-                'id' => 'dotacion-buzo-azul',
-                'name' => 'Buzo (Azul)',
-                'category' => 'Dotación',
-                'defaultColor' => 'AZUL',
-                'variants' => self::sizesWithColor('AZUL'),
-            ],
-            [
-                'id' => 'dotacion-camiseta-polo-hombre-gris',
-                'name' => 'Camiseta Polo Hombre (Gris)',
-                'category' => 'Dotación',
-                'defaultColor' => 'GRIS',
-                'variants' => self::sizesWithColor('GRIS'),
-            ],
-            [
-                'id' => 'dotacion-camiseta-polo-mujer-blanca',
-                'name' => 'Camiseta Polo Mujer (Blanca)',
-                'category' => 'Dotación',
-                'defaultColor' => 'BLANCO',
-                'variants' => self::sizesWithColor('BLANCO'),
-            ],
-            [
-                'id' => 'dotacion-camiseta-polo-mujer-gris',
-                'name' => 'Camiseta Polo Mujer (Gris)',
-                'category' => 'Dotación',
-                'defaultColor' => 'GRIS',
-                'variants' => self::sizesWithColor('GRIS'),
-            ],
-            [
-                'id' => 'dotacion-conjunto-cierre-azul',
-                'name' => 'Conjunto Cierre (Azul)',
-                'category' => 'Dotación',
-                'defaultColor' => 'AZUL',
-                'variants' => [
-                    ['color' => 'AZUL', 'size' => 'XS'],
-                    ['color' => 'AZUL', 'size' => 'S'],
-                    ['color' => 'AZUL', 'size' => 'XL'],
-                ],
-            ],
-            [
-                'id' => 'dotacion-pijama-azul-claro',
-                'name' => 'Pijama (Azul Claro)',
-                'category' => 'Dotación',
-                'defaultColor' => 'AZUL CLARO',
-                'variants' => self::sizesWithColor('AZUL CLARO'),
-            ],
-            [
-                'id' => 'dotacion-pijama-azul-oscuro',
-                'name' => 'Pijama (Azul Oscuro)',
-                'category' => 'Dotación',
-                'defaultColor' => 'AZUL OSCURO',
-                'variants' => self::sizesWithColor('AZUL OSCURO'),
-            ],
-            [
-                'id' => 'dotacion-pijama-azul-rey',
-                'name' => 'Pijama (Azul Rey)',
-                'category' => 'Dotación',
-                'defaultColor' => 'AZUL REY',
-                'variants' => self::sizesWithColor('AZUL REY'),
-            ],
-            [
-                'id' => 'dotacion-pijama-gris-raton',
-                'name' => 'Pijama (Gris Ratón)',
-                'category' => 'Dotación',
-                'defaultColor' => 'GRIS RATÓN',
-                'variants' => self::sizesWithColor('GRIS RATÓN'),
-            ],
-            [
-                'id' => 'dotacion-pijama-gris-reflectivo',
-                'name' => 'Pijama (Gris Reflectivo)',
-                'category' => 'Dotación',
-                'defaultColor' => 'GRIS REFLECTIVO',
-                'variants' => self::sizesWithColor('GRIS REFLECTIVO'),
-            ],
-            [
-                'id' => 'dotacion-pijama-negra',
-                'name' => 'Pijama (Negra)',
-                'category' => 'Dotación',
-                'defaultColor' => 'NEGRA',
-                'variants' => self::sizesWithColor('NEGRA'),
-            ],
-            [
-                'id' => 'dotacion-pijama-petroleo',
-                'name' => 'Pijama (Petróleo)',
-                'category' => 'Dotación',
-                'defaultColor' => 'PETRÓLEO',
-                'variants' => self::sizesWithColor('PETRÓLEO'),
-            ],
-            [
-                'id' => 'dotacion-pijama-verde',
-                'name' => 'Pijama (Verde)',
-                'category' => 'Dotación',
-                'defaultColor' => 'VERDE',
-                'variants' => self::sizesWithColor('VERDE'),
-            ],
-            [
-                'id' => 'dotacion-pijama-auxiliar-blanca',
-                'name' => 'Pijama Auxiliar (Blanca)',
-                'category' => 'Dotación',
-                'defaultColor' => 'BLANCO',
-                'variants' => self::sizesWithColor('BLANCO'),
-            ],
-            [
-                'id' => 'dotacion-pijama-jefe-blanca',
-                'name' => 'Pijama Jefe (Blanca)',
-                'category' => 'Dotación',
-                'defaultColor' => 'BLANCO',
-                'variants' => self::sizesWithColor('BLANCO'),
-            ],
-        ];
+        $categories = InventoryCategory::query()
+            ->with(['products.variants.color'])
+            ->get()
+            ->filter(function (InventoryCategory $category) {
+                $normalized = Str::slug($category->name);
+                return in_array($normalized, ['dotacion', 'dotación', 'epp'], true);
+            });
+
+        $items = [];
+
+        foreach ($categories as $category) {
+            $categoryLabel = $category->name;
+
+            foreach ($category->products as $product) {
+                $variants = $product->variants->map(function ($variant) {
+                    $payload = array_filter([
+                        'color' => $variant->color_id,
+                        'size' => $variant->size,
+                    ], fn ($value) => $value !== null && $value !== '');
+
+                    return $payload ?: null;
+                })->filter()->values()->all();
+
+                $defaultColor = $product->variants->firstWhere('color_id')?->color_id;
+
+                $items[] = array_filter([
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'category' => $categoryLabel,
+                    'variants' => !empty($variants) ? $variants : null,
+                    'defaultColor' => $defaultColor,
+                    'description' => $product->description,
+                    'unit' => 'unidad',
+                ], fn ($value) => $value !== null);
+            }
+        }
+
+        self::$inventoryCache = $items;
 
         return self::$inventoryCache;
     }
