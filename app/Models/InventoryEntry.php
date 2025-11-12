@@ -29,6 +29,7 @@ class InventoryEntry extends Model
         'created_by_user_id',
         'total_items',
         'total_quantity',
+        'location_id',
     ];
 
     protected $casts = [
@@ -40,6 +41,11 @@ class InventoryEntry extends Model
     public function items(): HasMany
     {
         return $this->hasMany(InventoryEntryItem::class, 'entry_id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(InventoryLocation::class, 'location_id');
     }
 
     public function creator(): BelongsTo

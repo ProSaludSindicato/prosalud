@@ -66,6 +66,16 @@ class InventoryVariant extends Model
         return $this->hasMany(SupplierDeliveryItem::class, 'variant_id');
     }
 
+    public function stocks(): HasMany
+    {
+        return $this->hasMany(InventoryVariantStock::class, 'variant_id');
+    }
+
+    public function stockMovements(): HasMany
+    {
+        return $this->hasMany(InventoryStockMovement::class, 'variant_id');
+    }
+
     /**
      * Check if this variant is low on stock
      */

@@ -18,6 +18,17 @@ class HospitalRequestResource extends JsonResource
             'id' => $this->id,
             'hospital_id' => $this->hospital_id,
             'hospital_name' => $this->hospital_name,
+            'hospital_uuid' => $this->hospital_uuid,
+            'hospital' => $this->when($this->relationLoaded('hospital'), fn () => [
+                'id' => $this->hospital?->id,
+                'name' => $this->hospital?->name,
+            ]),
+            'target_location_id' => $this->target_location_id,
+            'target_location' => $this->when($this->relationLoaded('targetLocation'), fn () => [
+                'id' => $this->targetLocation?->id,
+                'name' => $this->targetLocation?->name,
+                'type' => $this->targetLocation?->type,
+            ]),
             'requested_by' => $this->requested_by,
             'status' => $this->status,
             'observations' => $this->observations,

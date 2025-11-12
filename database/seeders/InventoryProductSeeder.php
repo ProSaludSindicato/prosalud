@@ -3,9 +3,11 @@
 namespace Database\Seeders;
 
 use App\Models\InventoryCategory;
+use App\Models\InventoryLocation;
 use App\Models\InventoryProduct;
 use App\Models\InventorySubcategory;
 use App\Models\InventoryVariant;
+use App\Models\InventoryVariantStock;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
@@ -434,6 +436,13 @@ DATA;
             }
         }
 
+        $primaryLocation = InventoryLocation::query()->where('is_primary', true)->first()
+            ?? InventoryLocation::query()->first();
+
+        if (!$primaryLocation) {
+            throw new \RuntimeException('Debe existir al menos una ubicación de inventario para sembrar productos.');
+        }
+
         foreach ($products as $productData) {
             $category = $categoryRecords[$productData['type']] ?? $categoryRecords['OTROS'];
 
@@ -475,7 +484,7 @@ DATA;
             foreach ($productData['variants'] as $variantData) {
                 $currentSkus[] = $variantData['sku'];
 
-                InventoryVariant::query()->updateOrCreate(
+                $variant = InventoryVariant::query()->updateOrCreate(
                     ['sku' => $variantData['sku']],
                     [
                         'product_id' => $product->id,
@@ -484,6 +493,19 @@ DATA;
                         'stock' => $variantData['stock'],
                         'min_stock' => 0,
                         'max_stock' => null,
+                    ]
+                );
+
+                InventoryVariantStock::query()->updateOrCreate(
+                    [
+                        'variant_id' => $variant->id,
+                        'location_id' => $primaryLocation->id,
+                    ],
+                    [
+                        'stock' => max(0, (int) $variantData['stock']),
+                        'reserved' => 0,
+                        'min_stock' => $variant->min_stock ?? 0,
+                        'max_stock' => $variant->max_stock,
                     ]
                 );
             }

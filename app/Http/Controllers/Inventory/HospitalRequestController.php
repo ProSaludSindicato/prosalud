@@ -6,22 +6,30 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\StoreHospitalRequestRequest;
 use App\Http\Requests\Inventory\UpdateHospitalRequestStatusRequest;
 use App\Http\Resources\HospitalRequestResource;
+use App\Models\Hospital;
 use App\Models\HospitalRequest;
+use App\Models\InventoryLocation;
 use App\Models\InventoryVariant;
+use App\Services\InventoryStockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class HospitalRequestController extends Controller
 {
+    public function __construct(private readonly InventoryStockService $stockService)
+    {
+    }
+
     /**
      * Get all hospital requests with optional filters
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = HospitalRequest::with(['items.product', 'items.variant.color']);
+            $query = HospitalRequest::with(['items.product', 'items.variant.color', 'hospital', 'targetLocation']);
 
             // Hospital filter
             if ($request->has('hospitalId') && $request->hospitalId) {
@@ -111,9 +119,31 @@ class HospitalRequestController extends Controller
         try {
             DB::beginTransaction();
 
+            $hospital = Hospital::query()->firstOrCreate(
+                ['name' => $request->hospital_name ?? Str::headline($request->hospital_id)],
+                [
+                    'id' => (string) Str::uuid(),
+                    'type' => 'hospital',
+                ]
+            );
+
+            $location = $hospital->locations()->first();
+
+            if (!$location) {
+                $location = InventoryLocation::query()->create([
+                    'id' => (string) Str::uuid(),
+                    'hospital_id' => $hospital->id,
+                    'name' => $hospital->name,
+                    'type' => $hospital->type === 'warehouse' ? 'warehouse' : 'hospital',
+                    'is_primary' => false,
+                ]);
+            }
+
             $hospitalRequest = HospitalRequest::create([
                 'hospital_id' => $request->hospital_id,
                 'hospital_name' => $request->hospital_name,
+                'hospital_uuid' => $hospital->id,
+                'target_location_id' => $location->id,
                 'requested_by' => $request->requested_by,
                 'observations' => $request->observations,
                 'status' => 'pending',
@@ -156,7 +186,7 @@ class HospitalRequestController extends Controller
 
             DB::commit();
 
-            $hospitalRequest->load(['items.product', 'items.variant.color', 'timeline']);
+            $hospitalRequest->load(['items.product', 'items.variant.color', 'timeline', 'hospital', 'targetLocation']);
 
             Log::info('Hospital request created', [
                 'request_id' => $hospitalRequest->id,
@@ -197,6 +227,8 @@ class HospitalRequestController extends Controller
                 'items.product.subcategory',
                 'items.variant.color',
                 'timeline',
+                'hospital',
+                'targetLocation',
             ])->findOrFail($id);
 
             return response()->json([
@@ -229,26 +261,142 @@ class HospitalRequestController extends Controller
         try {
             DB::beginTransaction();
 
-            $hospitalRequest = HospitalRequest::with('items')->findOrFail($id);
+            $hospitalRequest = HospitalRequest::with(['items.product', 'hospital', 'targetLocation'])->findOrFail($id);
             $newStatus = $request->status;
+            $previousStatus = $hospitalRequest->status;
 
-            // If status is being changed to 'shipped' or 'delivered', deduct stock
-            if (in_array($newStatus, ['shipped', 'delivered']) && !in_array($hospitalRequest->status, ['shipped', 'delivered'])) {
+            $reserveStatuses = ['preparing', 'shipped'];
+            $wasReserved = in_array($previousStatus, $reserveStatuses, true);
+            $isReserved = in_array($newStatus, $reserveStatuses, true);
+
+            // If status is being changed to 'shipped' or 'delivered', transfer stock to hospital location
+            $primaryLocation = $this->stockService->getPrimaryLocation();
+            $hospitalLocation = $hospitalRequest->target_location_id
+                ? InventoryLocation::query()->find($hospitalRequest->target_location_id)
+                : null;
+
+            if (!$hospitalLocation) {
+                $hospitalIdentifier = $hospitalRequest->hospital_uuid ?? $hospitalRequest->hospital_name ?? $hospitalRequest->hospital_id;
+                $hospitalLocation = $this->stockService->ensureHospitalLocation($hospitalIdentifier);
+                $hospitalRequest->update([
+                    'target_location_id' => $hospitalLocation->id,
+                    'hospital_uuid' => $hospitalLocation->hospital_id,
+                ]);
+            }
+
+            if ($isReserved && !$wasReserved) {
                 foreach ($hospitalRequest->items as $item) {
-                    if ($item->variant_id) {
-                        $variant = InventoryVariant::find($item->variant_id);
+                    if (!$item->variant_id) {
+                        continue;
+                    }
 
-                        if ($variant) {
-                            if ($variant->stock < $item->quantity) {
-                                DB::rollBack();
+                    $variant = InventoryVariant::find($item->variant_id);
+                    if (!$variant) {
+                        continue;
+                    }
 
-                                return response()->json([
-                                    'success' => false,
-                                    'message' => "Stock insuficiente para {$item->product->name} - {$variant->label}",
-                                ], 409);
+                    $primaryStock = $this->stockService->findOrCreateStock($variant, $primaryLocation);
+                    $available = $primaryStock->stock - $primaryStock->reserved;
+
+                    if ($available < $item->quantity) {
+                                    DB::rollBack();
+
+                                    Log::warning('Reserva de stock insuficiente', [
+                                        'request_id' => $hospitalRequest->id,
+                                        'variant_id' => $variant->id,
+                                        'variant_label' => $variant->label,
+                                        'location' => $primaryLocation->name,
+                                        'requested_quantity' => $item->quantity,
+                                        'stock' => $primaryStock->stock,
+                                        'reserved' => $primaryStock->reserved,
+                                        'available' => $available,
+                                    ]);
+
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Stock insuficiente en bodega principal para {$item->product->name} - {$variant->label}",
+                        ], 409);
+                    }
+
+                    $this->stockService->adjustReserved($variant, $primaryLocation, $item->quantity);
+
+                    if ($hospitalLocation && $hospitalLocation->id !== $primaryLocation->id) {
+                        $this->stockService->adjustReserved($variant, $hospitalLocation, $item->quantity);
+                    }
+                }
+            }
+
+            if (!$isReserved && $wasReserved) {
+                foreach ($hospitalRequest->items as $item) {
+                    if (!$item->variant_id) {
+                        continue;
+                    }
+
+                    $variant = InventoryVariant::find($item->variant_id);
+                    if (!$variant) {
+                        continue;
+                    }
+
+                    $this->stockService->adjustReserved($variant, $primaryLocation, -$item->quantity);
+
+                    if ($hospitalLocation && $hospitalLocation->id !== $primaryLocation->id) {
+                        $this->stockService->adjustReserved($variant, $hospitalLocation, -$item->quantity);
+                    }
+                }
+            }
+
+            if ($newStatus === 'delivered' && $previousStatus !== 'delivered') {
+                $primaryLocation = $this->stockService->getPrimaryLocation();
+                $shouldTransfer = true;
+
+                if ($hospitalLocation->id === $primaryLocation->id) {
+                    $shouldTransfer = false;
+                }
+
+                if ($shouldTransfer) {
+                    foreach ($hospitalRequest->items as $item) {
+                        if ($item->variant_id) {
+                            $variant = InventoryVariant::find($item->variant_id);
+
+                            if ($variant) {
+                                try {
+                                    $this->stockService->transferStock(
+                                        variant: $variant,
+                                        from: $primaryLocation,
+                                        to: $hospitalLocation,
+                                        quantity: $item->quantity,
+                                        reason: 'hospital_request',
+                                        referenceType: HospitalRequest::class,
+                                        referenceId: $hospitalRequest->id,
+                                        notes: "Traslado por solicitud hospitalaria #{$hospitalRequest->id}"
+                                    );
+                        } catch (\RuntimeException $movementException) {
+                            $primaryStock = $this->stockService->findOrCreateStock($variant, $primaryLocation);
+                            $hospitalStock = $this->stockService->findOrCreateStock($variant, $hospitalLocation);
+
+                                    DB::rollBack();
+
+                                    Log::warning('Transferencia de stock fallida', [
+                                        'request_id' => $hospitalRequest->id,
+                                        'variant_id' => $variant->id,
+                                        'variant_label' => $variant->label,
+                                        'from_location' => $primaryLocation->name,
+                                        'to_location' => $hospitalLocation->name,
+                                        'quantity' => $item->quantity,
+                                'from_stock' => $primaryStock->stock,
+                                'from_reserved' => $primaryStock->reserved,
+                                'from_available' => $primaryStock->stock - $primaryStock->reserved,
+                                'to_stock' => $hospitalStock->stock,
+                                'to_reserved' => $hospitalStock->reserved,
+                                        'message' => $movementException->getMessage(),
+                                    ]);
+
+                                    return response()->json([
+                                        'success' => false,
+                                        'message' => $movementException->getMessage(),
+                                    ], 409);
+                                }
                             }
-
-                            $variant->decrement('stock', $item->quantity);
                         }
                     }
                 }
@@ -272,11 +420,11 @@ class HospitalRequestController extends Controller
 
             DB::commit();
 
-            $hospitalRequest->load(['items.product', 'items.variant.color', 'timeline']);
+            $hospitalRequest->load(['items.product', 'items.variant.color', 'timeline', 'hospital', 'targetLocation']);
 
             Log::info('Hospital request status updated', [
                 'request_id' => $hospitalRequest->id,
-                'old_status' => $hospitalRequest->getOriginal('status'),
+                'old_status' => $previousStatus,
                 'new_status' => $newStatus,
                 'actor' => $request->actor,
             ]);

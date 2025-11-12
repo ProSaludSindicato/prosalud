@@ -8,6 +8,7 @@ use App\Http\Requests\Inventory\UpdateProductRequest;
 use App\Http\Resources\InventoryProductResource;
 use App\Models\InventoryProduct;
 use App\Models\InventoryVariant;
+use App\Services\InventoryStockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,10 @@ use Illuminate\Support\Facades\Log;
 
 class InventoryProductController extends Controller
 {
+    public function __construct(private readonly InventoryStockService $stockService)
+    {
+    }
+
     /**
      * Get all products with optional filters
      */
@@ -97,7 +102,7 @@ class InventoryProductController extends Controller
 
             // Create variants
             foreach ($request->variants as $variantData) {
-                $product->variants()->create([
+                $newVariant = $product->variants()->create([
                     'size' => $variantData['size'] ?? null,
                     'color_id' => $variantData['color_id'] ?? null,
                     'stock' => $variantData['stock'],
@@ -105,6 +110,23 @@ class InventoryProductController extends Controller
                     'max_stock' => $variantData['max_stock'] ?? null,
                     'sku' => $variantData['sku'],
                 ]);
+
+                try {
+                    $this->stockService->setVariantTotalStock($newVariant, $variantData['stock']);
+                } catch (\RuntimeException $e) {
+                    DB::rollBack();
+
+                    Log::warning('Error al sincronizar stock inicial de variante', [
+                        'product_id' => $product->id,
+                        'variant_id' => $newVariant->id,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => $e->getMessage(),
+                    ], 409);
+                }
             }
 
             DB::commit();
@@ -196,7 +218,7 @@ class InventoryProductController extends Controller
                 foreach ($request->variants as $variantData) {
                     if (isset($variantData['id'])) {
                         // Update existing variant
-                        $variant = InventoryVariant::find($variantData['id']);
+                    $variant = InventoryVariant::find($variantData['id']);
 
                         if ($variant && $variant->product_id === $product->id) {
                             // Check if marked for deletion
@@ -205,7 +227,7 @@ class InventoryProductController extends Controller
                                 continue;
                             }
 
-                            $variant->update([
+                        $variant->update([
                                 'size' => $variantData['size'] ?? null,
                                 'color_id' => $variantData['color_id'] ?? null,
                                 'stock' => $variantData['stock'],
@@ -214,6 +236,22 @@ class InventoryProductController extends Controller
                                 'sku' => $variantData['sku'],
                             ]);
 
+                        try {
+                            $this->stockService->setVariantTotalStock($variant, $variantData['stock']);
+                        } catch (\RuntimeException $e) {
+                            DB::rollBack();
+
+                            Log::warning('Error al sincronizar stock de variante en actualización', [
+                                'product_id' => $product->id,
+                                'variant_id' => $variant->id,
+                                'error' => $e->getMessage(),
+                            ]);
+
+                            return response()->json([
+                                'success' => false,
+                                'message' => $e->getMessage(),
+                            ], 409);
+                        }
                             $existingVariantIds[] = $variant->id;
                         }
                     } else {
@@ -227,6 +265,22 @@ class InventoryProductController extends Controller
                             'sku' => $variantData['sku'],
                         ]);
 
+                    try {
+                        $this->stockService->setVariantTotalStock($newVariant, $variantData['stock']);
+                    } catch (\RuntimeException $e) {
+                        DB::rollBack();
+
+                        Log::warning('Error al sincronizar stock de nueva variante en actualización', [
+                            'product_id' => $product->id,
+                            'variant_id' => $newVariant->id,
+                            'error' => $e->getMessage(),
+                        ]);
+
+                        return response()->json([
+                            'success' => false,
+                            'message' => $e->getMessage(),
+                        ], 409);
+                    }
                         $existingVariantIds[] = $newVariant->id;
                     }
                 }

@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\StoreInventoryEntryRequest;
 use App\Http\Resources\InventoryEntryResource;
 use App\Models\InventoryEntry;
+use App\Models\InventoryLocation;
 use App\Models\InventoryProduct;
 use App\Models\InventoryVariant;
+use App\Services\InventoryStockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +18,10 @@ use Illuminate\Support\Str;
 
 class InventoryEntryController extends Controller
 {
+    public function __construct(private readonly InventoryStockService $stockService)
+    {
+    }
+
     /**
      * List inventory entries with pagination and optional filters.
      */
@@ -23,7 +29,7 @@ class InventoryEntryController extends Controller
     {
         try {
             $query = InventoryEntry::query()
-                ->with(['items.variant.color', 'items.product'])
+                ->with(['items.variant.color', 'items.product', 'location'])
                 ->orderByDesc('received_at');
 
             if ($request->filled('supplierId')) {
@@ -78,6 +84,10 @@ class InventoryEntryController extends Controller
         try {
             $user = $request->user();
 
+            $location = isset($payload['location_id'])
+                ? InventoryLocation::query()->findOrFail($payload['location_id'])
+                : $this->stockService->getPrimaryLocation();
+
             $entry = InventoryEntry::query()->create([
                 'id' => (string) Str::uuid(),
                 'supplier_id' => $payload['supplier_id'],
@@ -89,6 +99,7 @@ class InventoryEntryController extends Controller
                 'created_by_user_id' => $user?->id,
                 'total_items' => 0,
                 'total_quantity' => 0,
+                'location_id' => $location->id,
             ]);
 
             $totalQuantity = 0;
@@ -122,11 +133,19 @@ class InventoryEntryController extends Controller
                 }
 
                 $quantity = (int) $itemData['quantity'];
-                $previousStock = $variant->stock ?? 0;
-                $newStock = $previousStock + $quantity;
 
-                $variant->increment('stock', $quantity);
-                $variant->stock = $newStock;
+                $locationStock = $this->stockService->findOrCreateStock($variant, $location);
+                $previousStock = $locationStock->stock;
+
+                $updatedStock = $this->stockService->adjustStock(
+                    variant: $variant,
+                    location: $location,
+                    quantity: $quantity,
+                    reason: 'entry',
+                    referenceType: InventoryEntry::class,
+                    referenceId: $entry->id
+                );
+                $newStock = $updatedStock->stock;
 
                 $variantLabel = $variant->label ?? (
                     implode(' · ', array_filter([
@@ -157,7 +176,7 @@ class InventoryEntryController extends Controller
 
             DB::commit();
 
-            $entry->load(['items.variant.color', 'items.product']);
+            $entry->load(['items.variant.color', 'items.product', 'location']);
 
             return response()->json([
                 'success' => true,
@@ -189,7 +208,7 @@ class InventoryEntryController extends Controller
     {
         try {
             $entry = InventoryEntry::query()
-                ->with(['items.variant.color', 'items.product'])
+                ->with(['items.variant.color', 'items.product', 'location'])
                 ->findOrFail($id);
 
             return response()->json([

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class HospitalRequest extends Model
@@ -20,10 +21,22 @@ class HospitalRequest extends Model
     protected $fillable = [
         'hospital_id',
         'hospital_name',
+        'hospital_uuid',
+        'target_location_id',
         'requested_by',
         'status',
         'observations',
     ];
+
+    public function hospital(): BelongsTo
+    {
+        return $this->belongsTo(Hospital::class, 'hospital_uuid');
+    }
+
+    public function targetLocation(): BelongsTo
+    {
+        return $this->belongsTo(InventoryLocation::class, 'target_location_id');
+    }
 
     /**
      * Get all items for this request

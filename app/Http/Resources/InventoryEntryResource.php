@@ -25,6 +25,15 @@ class InventoryEntryResource extends JsonResource
             'created_by_user_id' => $this->created_by_user_id,
             'total_items' => $this->total_items,
             'total_quantity' => $this->total_quantity,
+            'location_id' => $this->location_id,
+            'location' => $this->whenLoaded('location', function () {
+                return array_filter([
+                    'id' => $this->location->id,
+                    'name' => $this->location->name,
+                    'type' => $this->location->type,
+                    'hospital_id' => $this->location->hospital_id,
+                ], fn ($value) => $value !== null);
+            }),
             'items' => InventoryEntryItemResource::collection($this->whenLoaded('items')),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

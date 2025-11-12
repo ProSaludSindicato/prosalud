@@ -27,6 +27,8 @@ use App\Http\Controllers\Inventory\InventoryProductController;
 use App\Http\Controllers\Inventory\HospitalRequestController;
 use App\Http\Controllers\Inventory\InventoryColorController;
 use App\Http\Controllers\Inventory\InventoryEntryController;
+use App\Http\Controllers\Inventory\InventoryLocationController;
+use App\Http\Controllers\Inventory\InventoryStockMovementController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -224,4 +226,11 @@ Route::prefix('inventory')->group(function () {
     Route::get('/entries', [InventoryEntryController::class, 'index']);
     Route::post('/entries', [InventoryEntryController::class, 'store']);
     Route::get('/entries/{entry}', [InventoryEntryController::class, 'show']);
+
+    // Inventory locations
+    Route::get('/locations', [InventoryLocationController::class, 'index']);
+    Route::get('/locations/{location}', [InventoryLocationController::class, 'show']);
+
+    // Stock movements
+    Route::get('/stock-movements', [InventoryStockMovementController::class, 'index']);
 });
