@@ -28,8 +28,6 @@ class SecurityHeaders
         $response->headers->remove('Server');
         $response->headers->remove('X-Powered-By');
 
-        $response->headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' fonts.bunny.net; font-src 'self' fonts.bunny.net; img-src 'self' data:; connect-src 'self'");
-
         return $response;
     }
 }
