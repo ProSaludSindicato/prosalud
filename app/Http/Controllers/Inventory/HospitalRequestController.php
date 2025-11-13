@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\StoreHospitalRequestRequest;
 use App\Http\Requests\Inventory\UpdateHospitalRequestStatusRequest;
 use App\Http\Resources\HospitalRequestResource;
+use App\Mail\HospitalRequestStatusUpdated;
 use App\Models\Hospital;
 use App\Models\HospitalRequest;
+use App\Models\User;
 use App\Models\InventoryLocation;
 use App\Models\InventoryVariant;
 use App\Services\InventoryStockService;
@@ -15,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class HospitalRequestController extends Controller
@@ -66,7 +69,6 @@ class HospitalRequestController extends Controller
                     'pending' => HospitalRequest::where('status', 'pending')->count(),
                     'approved' => HospitalRequest::where('status', 'approved')->count(),
                     'preparing' => HospitalRequest::where('status', 'preparing')->count(),
-                    'shipped' => HospitalRequest::where('status', 'shipped')->count(),
                     'delivered' => HospitalRequest::where('status', 'delivered')->count(),
                     'rejected' => HospitalRequest::where('status', 'rejected')->count(),
                 ];
@@ -265,11 +267,11 @@ class HospitalRequestController extends Controller
             $newStatus = $request->status;
             $previousStatus = $hospitalRequest->status;
 
-            $reserveStatuses = ['preparing', 'shipped'];
+            $reserveStatuses = ['preparing'];
             $wasReserved = in_array($previousStatus, $reserveStatuses, true);
             $isReserved = in_array($newStatus, $reserveStatuses, true);
 
-            // If status is being changed to 'shipped' or 'delivered', transfer stock to hospital location
+            // Ensure hospital location exists before attempting stock operations
             $primaryLocation = $this->stockService->getPrimaryLocation();
             $hospitalLocation = $hospitalRequest->target_location_id
                 ? InventoryLocation::query()->find($hospitalRequest->target_location_id)
@@ -422,6 +424,8 @@ class HospitalRequestController extends Controller
 
             $hospitalRequest->load(['items.product', 'items.variant.color', 'timeline', 'hospital', 'targetLocation']);
 
+            $this->notifyStatusChange($hospitalRequest, $previousStatus, $newStatus);
+
             Log::info('Hospital request status updated', [
                 'request_id' => $hospitalRequest->id,
                 'old_status' => $previousStatus,
@@ -499,5 +503,74 @@ class HospitalRequestController extends Controller
                 'message' => 'Error al eliminar la solicitud',
             ], 500);
         }
+    }
+
+    private function notifyStatusChange(HospitalRequest $hospitalRequest, string $previousStatus, string $newStatus): void
+    {
+        try {
+            $requesterEmail = $this->resolveRequesterEmail($hospitalRequest->requested_by);
+
+            $mail = Mail::to($requesterEmail ?? 'juanpapabon@gmail.com');
+
+            if ($requesterEmail && $requesterEmail !== 'juanpapabon@gmail.com') {
+                $mail->cc('juanpapabon@gmail.com');
+            }
+
+            $mail->send(new HospitalRequestStatusUpdated(
+                $hospitalRequest,
+                $previousStatus,
+                $newStatus
+            ));
+
+            Log::info('Hospital request status email sent', [
+                'request_id' => $hospitalRequest->id,
+                'previous_status' => $previousStatus,
+                'new_status' => $newStatus,
+                'requester_email' => $requesterEmail,
+                'fallback_only' => $requesterEmail === null,
+            ]);
+
+            if (!$requesterEmail) {
+                Log::warning('Hospital request requester email not provided, email sent only to fallback recipient', [
+                    'request_id' => $hospitalRequest->id,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('Error sending hospital request status email', [
+                'request_id' => $hospitalRequest->id,
+                'previous_status' => $previousStatus,
+                'new_status' => $newStatus,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function resolveRequesterEmail(?string $requestedBy): ?string
+    {
+        if (!$requestedBy) {
+            return null;
+        }
+
+        $requestedBy = trim($requestedBy);
+
+        if (filter_var($requestedBy, FILTER_VALIDATE_EMAIL)) {
+            return $requestedBy;
+        }
+
+        $user = null;
+
+        if (is_numeric($requestedBy)) {
+            $user = User::find((int) $requestedBy);
+        }
+
+        if (!$user) {
+            $user = User::where('email', $requestedBy)->first();
+        }
+
+        if (!$user) {
+            $user = User::whereRaw('LOWER(name) = ?', [strtolower($requestedBy)])->first();
+        }
+
+        return $user?->email;
     }
 }

@@ -63,8 +63,7 @@ class HospitalRequest extends Model
         return [
             'pending' => ['approved', 'rejected'],
             'approved' => ['preparing', 'rejected'],
-            'preparing' => ['shipped'],
-            'shipped' => ['delivered'],
+            'preparing' => ['delivered'],
             'delivered' => [],
             'rejected' => [],
         ];

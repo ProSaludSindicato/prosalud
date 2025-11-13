@@ -22,7 +22,7 @@ class UpdateHospitalRequestStatusRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => 'required|in:pending,approved,preparing,shipped,delivered,rejected',
+            'status' => 'required|in:pending,approved,preparing,delivered,rejected',
             'actor' => 'nullable|string|max:255',
             'description' => 'nullable|string',
         ];

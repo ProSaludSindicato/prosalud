@@ -80,7 +80,7 @@ class InventoryDashboardController extends Controller
             'pending' => HospitalRequest::where('status', 'pending')->count(),
             'approved' => HospitalRequest::where('status', 'approved')->count(),
             'preparing' => HospitalRequest::where('status', 'preparing')->count(),
-            'shipped' => HospitalRequest::where('status', 'shipped')->count(),
+            'delivered' => HospitalRequest::where('status', 'delivered')->count(),
         ];
 
         return response()->json([
