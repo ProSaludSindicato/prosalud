@@ -22,6 +22,7 @@ class SstDeliveryItem extends Model
         'item_id',
         'item_name',
         'item_category',
+        'item_gender',
         'unit',
         'variant_color',
         'variant_size',

@@ -189,23 +189,47 @@ class SstDotacionService
         $itemsPayload = $data['items'] ?? [];
 
         foreach ($itemsPayload as $itemPayload) {
-            $inventoryItem = $this->findInventoryItem($itemPayload['itemId']);
-            if (!$inventoryItem) {
-                throw new \RuntimeException('Ítem de inventario no reconocido: ' . $itemPayload['itemId']);
-            }
+            $itemId = $itemPayload['itemId'];
+            
+            // Carnet es un ítem especial que no requiere validación de inventario
+            $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
+            
+            if ($isCarnet) {
+                // Crear registro para Carnet sin validación de inventario
+                SstDeliveryItem::create([
+                    'id' => (string) Str::uuid(),
+                    'delivery_id' => $record->id,
+                    'item_id' => '__carnet__',
+                    'item_name' => 'Carnet',
+                    'item_category' => 'Documentación',
+                    'item_gender' => null,
+                    'unit' => 'unidad',
+                    'variant_color' => null,
+                    'variant_size' => null,
+                    'variant_payload' => null,
+                    'quantity' => (int) ($itemPayload['quantity'] ?? 1),
+                ]);
+            } else {
+                // Validar y crear registro para ítems de inventario normales
+                $inventoryItem = $this->findInventoryItem($itemId);
+                if (!$inventoryItem) {
+                    throw new \RuntimeException('Ítem de inventario no reconocido: ' . $itemId);
+                }
 
-            SstDeliveryItem::create([
-                'id' => (string) Str::uuid(),
-                'delivery_id' => $record->id,
-                'item_id' => $inventoryItem['id'],
-                'item_name' => $inventoryItem['name'],
-                'item_category' => $inventoryItem['category'],
-                'unit' => $inventoryItem['unit'] ?? 'unidad',
-                'variant_color' => $itemPayload['variant']['color'] ?? null,
-                'variant_size' => $itemPayload['variant']['size'] ?? null,
-                'variant_payload' => $itemPayload['variant'] ?? null,
-                'quantity' => (int) $itemPayload['quantity'],
-            ]);
+                SstDeliveryItem::create([
+                    'id' => (string) Str::uuid(),
+                    'delivery_id' => $record->id,
+                    'item_id' => $inventoryItem['id'],
+                    'item_name' => $inventoryItem['name'],
+                    'item_category' => $inventoryItem['category'],
+                    'item_gender' => $inventoryItem['gender'] ?? null,
+                    'unit' => $inventoryItem['unit'] ?? 'unidad',
+                    'variant_color' => $itemPayload['variant']['color'] ?? null,
+                    'variant_size' => $itemPayload['variant']['size'] ?? null,
+                    'variant_payload' => $itemPayload['variant'] ?? null,
+                    'quantity' => (int) $itemPayload['quantity'],
+                ]);
+            }
         }
 
         return $this->transformDeliveryRecord($record->load('items', 'deliveredBy'));
@@ -325,14 +349,34 @@ class SstDotacionService
             'deliveredAt' => $record->delivered_at?->setTimezone('America/Bogota')->toISOString(),
             'deliveredBy' => $record->delivered_by_name,
             'deliveryType' => $record->delivery_type,
-            'items' => $record->items->map(fn (SstDeliveryItem $item) => [
-                'itemId' => $item->item_id,
-                'variant' => array_filter([
-                    'color' => $item->variant_color,
-                    'size' => $item->variant_size,
-                ], fn ($value) => $value !== null),
-                'quantity' => $item->quantity,
-            ])->all(),
+            'items' => $record->items->map(function (SstDeliveryItem $item) {
+                // Si es carnet, no buscar en inventario
+                $isCarnet = in_array(strtolower($item->item_id), ['__carnet__', 'carnet'], true);
+                
+                if ($isCarnet) {
+                    return [
+                        'itemId' => $item->item_id,
+                        'name' => $item->item_name,
+                        'gender' => null,
+                        'variant' => [],
+                        'quantity' => $item->quantity,
+                    ];
+                }
+                
+                $inventoryItem = $this->findInventoryItem($item->item_id);
+                $inventoryGender = is_array($inventoryItem) ? ($inventoryItem['gender'] ?? null) : null;
+
+                return [
+                    'itemId' => $item->item_id,
+                    'name' => $item->item_name,
+                    'gender' => $item->item_gender ?? $inventoryGender,
+                    'variant' => array_filter([
+                        'color' => $item->variant_color,
+                        'size' => $item->variant_size,
+                    ], fn ($value) => $value !== null),
+                    'quantity' => $item->quantity,
+                ];
+            })->all(),
             'signedDocumentUrl' => $signatureUrl,
             'signedDocumentType' => $record->signed_document_type,
             'signedDocumentNumber' => $record->signed_document_number,
