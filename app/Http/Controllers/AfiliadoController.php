@@ -6,6 +6,7 @@ use App\Http\Requests\AfiliadoRequestOtpRequest;
 use App\Http\Requests\AfiliadoVerifyOtpRequest;
 use App\Mail\AfiliadoOtpCode;
 use App\Services\AfiliadoService;
+use App\Services\ObfuscationService;
 use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,11 +17,16 @@ class AfiliadoController extends Controller
 {
     private AfiliadoService $afiliadoService;
     private OtpService $otpService;
+    private ObfuscationService $obfuscationService;
 
-    public function __construct(AfiliadoService $afiliadoService, OtpService $otpService)
-    {
+    public function __construct(
+        AfiliadoService $afiliadoService,
+        OtpService $otpService,
+        ObfuscationService $obfuscationService
+    ) {
         $this->afiliadoService = $afiliadoService;
         $this->otpService = $otpService;
+        $this->obfuscationService = $obfuscationService;
     }
 
     /**
@@ -323,6 +329,11 @@ class AfiliadoController extends Controller
 
             // Invalidate OTP session after successful verification
             $this->otpService->invalidateOtp($documento, $sessionId);
+
+            // Obfuscate sensitive data in afiliado information
+            if (isset($afiliadoInfo['afiliado']) && is_array($afiliadoInfo['afiliado'])) {
+                $afiliadoInfo['afiliado'] = $this->obfuscationService->obfuscateAfiliadoData($afiliadoInfo['afiliado']);
+            }
 
             // Log successful verification
             Log::info('Verificación OTP exitosa y datos del afiliado obtenidos', [
