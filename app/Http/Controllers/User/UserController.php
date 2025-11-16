@@ -5,15 +5,17 @@ namespace App\Http\Controllers\User;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AuditLogService;
+use App\Services\UserInvitationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
     public function __construct(
-        private AuditLogService $auditLogService
+        private AuditLogService $auditLogService,
+        private UserInvitationService $userInvitationService,
     ) {}
     /**
      * Display a listing of users
@@ -70,11 +72,18 @@ class UserController extends Controller
 
         unset($userData['role']);
 
-        $userData['password'] = Hash::make($userData['password']);
+        // El usuario se crea con una contraseña aleatoria que el usuario no conoce
+        // y en estado inactivo. Luego definirá su propia contraseña mediante el enlace
+        // enviado por correo.
+        $userData['password'] = Str::random(40);
+        $userData['is_active'] = false;
 
         $user = User::create($userData);
 
         $user->assignRole($role);
+
+        // Enviar invitación para que el usuario defina su contraseña y active su cuenta.
+        $this->userInvitationService->sendInvitation($user);
 
         Log::info('Usuario creado exitosamente', [
             'user_id' => $user->id,

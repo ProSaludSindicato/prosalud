@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Resources\Auth\UserAuthResource;
 use App\Models\ApiToken;
+use App\Services\UserInvitationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -12,6 +13,11 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private UserInvitationService $userInvitationService,
+    ) {
+    }
+
     /**
      * Handle user login and issue an API token.
      */
@@ -102,6 +108,37 @@ class AuthController extends Controller
 
         return response()->json([
             'user' => new UserAuthResource($user),
+        ]);
+    }
+
+    /**
+     * Define la contraseña de un usuario a partir de un token de invitación y activa su cuenta.
+     */
+    public function setPasswordFromInvitation(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'token' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        try {
+            $result = $this->userInvitationService->validateToken($data['token']);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        /** @var \App\Models\User $user */
+        $user = $result['user'];
+
+        // Asignamos la nueva contraseña; el cast "hashed" del modelo se encarga de encriptarla.
+        $user->password = $data['password'];
+        $user->is_active = true;
+        $user->save();
+
+        return response()->json([
+            'message' => 'Contraseña definida correctamente. Ya puedes iniciar sesión.',
         ]);
     }
 }

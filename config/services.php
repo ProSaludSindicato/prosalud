@@ -33,4 +33,22 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Frontend Application
+    |--------------------------------------------------------------------------
+    |
+    | Configuración de la aplicación frontend (SPA / panel de administración)
+    | que se usa para construir enlaces que se envían por correo.
+    |
+    */
+
+    'frontend' => [
+        // URL base del frontend, por ejemplo: https://panel.prosalud.com
+        'url' => env('FRONTEND_URL', env('APP_URL')),
+
+        // Ruta donde el usuario define su contraseña inicial
+        'password_setup_path' => env('FRONTEND_PASSWORD_SETUP_PATH', '/auth/definir-contraseña'),
+    ],
 ];

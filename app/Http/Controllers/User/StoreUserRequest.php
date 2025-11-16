@@ -25,7 +25,7 @@ class StoreUserRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email|max:255',
-            'password' => 'required|string|min:8|confirmed',
+            // La contraseña no se define en la creación; el usuario la configurará mediante un flujo de invitación
             'is_active' => 'boolean',
             'role' => 'required|string|exists:roles,name',
         ];
@@ -44,10 +44,6 @@ class StoreUserRequest extends FormRequest
             'email.email' => 'El correo electrónico debe tener un formato válido.',
             'email.unique' => 'Este usuario ya está registrado.',
             'email.max' => 'El correo electrónico no puede exceder los 255 caracteres.',
-            'password.required' => 'La contraseña es obligatoria.',
-            'password.string' => 'La contraseña debe ser una cadena de texto.',
-            'password.min' => 'La contraseña debe tener al menos 8 caracteres.',
-            'password.confirmed' => 'La confirmación de contraseña no coincide.',
             'is_active.boolean' => 'El estado activo debe ser verdadero o falso.',
             'role.required' => 'El rol es obligatorio.',
             'role.string' => 'El rol debe ser una cadena de texto.',
