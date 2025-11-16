@@ -11,8 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('sst_delivery_items', function (Blueprint $table) {
-            $table->string('item_gender')->nullable()->after('item_category');
+        Schema::table('roles', function (Blueprint $table) {
+            $table->text('description')->nullable()->after('guard_name');
         });
     }
 
@@ -21,8 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('sst_delivery_items', function (Blueprint $table) {
-            $table->dropColumn('item_gender');
+        Schema::table('roles', function (Blueprint $table) {
+            $table->dropColumn('description');
         });
     }
 };

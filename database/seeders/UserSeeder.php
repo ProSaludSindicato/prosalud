@@ -21,9 +21,7 @@ class UserSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-        if (!$admin->hasRole('admin')) {
-            $admin->assignRole('admin');
-        }
+        $admin->syncRoles(['admin']);
 
         $auxiliar = User::firstOrCreate(
             ['email' => 'auxiliar@prosalud.com'],

@@ -110,4 +110,15 @@ return [
     */
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
+
+    /*
+    |--------------------------------------------------------------------------
+    | API Token TTL
+    |--------------------------------------------------------------------------
+    |
+    | Define how many hours issued API tokens remain valid before expiring.
+    |
+    */
+
+    'api_token_ttl_hours' => env('API_TOKEN_TTL_HOURS', 12),
 ];

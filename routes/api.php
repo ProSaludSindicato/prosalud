@@ -1,236 +1,185 @@
 <?php
 
-use App\Http\Controllers\DotacionEppController;
-use App\Http\Controllers\Request\RequestController;
-use App\Http\Controllers\User\UserController;
-use App\Http\Controllers\WellnessEventController;
-use App\Http\Controllers\ComfenalcoEventController;
-use App\Http\Controllers\ChatbotConversationController;
-use App\Http\Controllers\IncapacidadesController;
-use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\ActivosController;
 use App\Http\Controllers\ActivosFileController;
-use App\Http\Controllers\AfiliadosFileController;
-use App\Http\Controllers\DelegadosFileController;
-use App\Http\Controllers\IncapacidadesFileController;
-use App\Http\Controllers\LiquidacionesFileController;
-use App\Http\Controllers\VoteController;
-use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\AfiliadoController;
-use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\AfiliadosFileController;
 use App\Http\Controllers\Api\PermissionController;
-use App\Http\Controllers\WellnessRequestController;
-use App\Http\Controllers\WellnessActivityRealizedController;
-use App\Http\Controllers\Inventory\InventoryDashboardController;
-use App\Http\Controllers\Inventory\InventoryCategoryController;
-use App\Http\Controllers\Inventory\InventoryProductController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\AuthController as ApiAuthController;
+use App\Http\Controllers\ChatbotConversationController;
+use App\Http\Controllers\ComfenalcoEventController;
+use App\Http\Controllers\DelegadosController;
+use App\Http\Controllers\DelegadosFileController;
+use App\Http\Controllers\DotacionEppController;
+use App\Http\Controllers\IncapacidadesController;
+use App\Http\Controllers\IncapacidadesFileController;
 use App\Http\Controllers\Inventory\HospitalRequestController;
+use App\Http\Controllers\Inventory\InventoryCategoryController;
 use App\Http\Controllers\Inventory\InventoryColorController;
+use App\Http\Controllers\Inventory\InventoryDashboardController;
 use App\Http\Controllers\Inventory\InventoryEntryController;
 use App\Http\Controllers\Inventory\InventoryLocationController;
+use App\Http\Controllers\Inventory\InventoryProductController;
 use App\Http\Controllers\Inventory\InventoryStockMovementController;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\LiquidacionesController;
+use App\Http\Controllers\LiquidacionesFileController;
+use App\Http\Controllers\Request\RequestController;
+use App\Http\Controllers\User\UserController;
+use App\Http\Controllers\VoteController;
+use App\Http\Controllers\WellnessActivityRealizedController;
+use App\Http\Controllers\WellnessEventController;
+use App\Http\Controllers\WellnessRequestController;
 use Illuminate\Support\Facades\Route;
 
-// Ruta para login
-Route::post('/login', function (Request $request) {
-    $credentials = $request->validate([
-        'email' => 'required|email',
-        'password' => 'required',
-    ]);
-
-    \Illuminate\Support\Facades\Log::info('Intento de login', [
-        'email' => $credentials['email'],
-        'ip_address' => $request->ip(),
-        'user_agent' => $request->userAgent(),
-        'timestamp' => now()->toISOString(),
-    ]);
-
-    if (!Auth::attempt($credentials)) {
-        \Illuminate\Support\Facades\Log::warning('Login fallido', [
-            'email' => $credentials['email'],
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-            'timestamp' => now()->toISOString(),
-        ]);
-
-        return response()->json(['message' => 'Credenciales incorrectas'], 401);
-    }
-
-    $user = Auth::user();
-
-    // Log successful login
-    \Illuminate\Support\Facades\Log::info('Login exitoso', [
-        'user_id' => $user->id,
-        'email' => $user->email,
-        'name' => $user->name,
-        'ip_address' => $request->ip(),
-        'user_agent' => $request->userAgent(),
-        'timestamp' => now()->toISOString(),
-    ]);
-
-    $request->session()->regenerate();
-
-    return response()->json([
-        'user' => $user,
-    ]);
+Route::prefix('auth')->group(function () {
+    Route::post('/login', [ApiAuthController::class, 'login']);
+    Route::middleware('auth.token')->group(function () {
+        Route::post('/logout', [ApiAuthController::class, 'logout']);
+        Route::get('/me', [ApiAuthController::class, 'me']);
+    });
 });
-
-// Ruta para logout
-Route::post('/logout', function (Request $request) {
-    Auth::guard('web')->logout();
-    $request->session()->invalidate();
-    $request->session()->regenerateToken();
-
-    return response()->json(['message' => 'Logout exitoso']);
-});
-
-// Ruta para obtener usuario autenticado
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware('auth:sanctum');
 
 // Request management routes
-Route::get('/requests', [RequestController::class, 'index']);
-Route::post('/requests', [RequestController::class, 'store']);
-Route::get('/requests/{request}', [RequestController::class, 'show']);
-Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus']);
-Route::post('/requests/{request}/respond', [RequestController::class, 'respond']);
-Route::patch('/requests/{request}/respond', [RequestController::class, 'respond']);
-Route::get('/requests/{request}/files/{fileKey}', [RequestController::class, 'downloadFile']);
-
-// User management routes
-Route::apiResource('users', UserController::class);
-Route::patch('/users/{user}/status', [UserController::class, 'changeStatus']);
-
-// Wellness Events management routes
-Route::apiResource('wellness-events', WellnessEventController::class);
-Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility']);
-Route::post('/wellness-events/{wellness_event}/images', [WellnessEventController::class, 'addImages']);
-Route::delete('/wellness-events/{wellness_event}/images/{image}', [WellnessEventController::class, 'removeImage']);
-
-// Wellness Requests management routes
-Route::get('/wellness-requests', [WellnessRequestController::class, 'index']);
-Route::post('/wellness-requests', [WellnessRequestController::class, 'store']);
-Route::get('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'show']);
-Route::put('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update']);
-Route::patch('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update']);
-
-// Wellness Activity Realized routes
-Route::post('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'store']);
-Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show']);
-Route::put('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'update']);
-Route::post('/wellness-requests/{wellness_request_id}/publish-to-gallery', [WellnessActivityRealizedController::class, 'publishToGallery']);
-
-// Comfenalco Events management routes
-Route::apiResource('comfenalco-events', ComfenalcoEventController::class);
-Route::patch('/comfenalco-events/{comfenalco_event}/visibility', [ComfenalcoEventController::class, 'changeVisibility']);
-
-// Chatbot Conversations routes
-Route::get('/chatbot-conversations', [ChatbotConversationController::class, 'index']);
 Route::post('/chatbot-conversations', [ChatbotConversationController::class, 'store']);
-Route::patch('/chatbot-conversations/{conversation}/feedback', [ChatbotConversationController::class, 'updateFeedback']);
-Route::patch('/chatbot-conversations/client/{client_turn_id}/feedback', [ChatbotConversationController::class, 'updateFeedbackByClientTurnId']);
-
-// Incapacidades routes (public endpoint for chatbot)
 Route::post('/incapacidades/search', [IncapacidadesController::class, 'search']);
-
-// Liquidaciones routes (public endpoint for chatbot)
 Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search']);
-
-// Activos routes (public endpoint for hospital search)
 Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital']);
 
-// Activos file management routes (for uploading ACTIVOS2.xlsx)
-Route::post('/activos-file/upload', [ActivosFileController::class, 'upload']);
-Route::get('/activos-file/info', [ActivosFileController::class, 'info']);
-
-// Afiliados file management routes (for uploading PROSANET afiliados file)
-Route::post('/afiliados-file/upload', [AfiliadosFileController::class, 'upload']);
-
-// Incapacidades, Liquidaciones y Delegados file management routes
-Route::post('/incapacidades-file/upload', [IncapacidadesFileController::class, 'upload']);
-Route::post('/liquidaciones-file/upload', [LiquidacionesFileController::class, 'upload']);
-Route::post('/delegados-file/upload', [DelegadosFileController::class, 'upload']);
-
-// Vote routes (public endpoints for assembly voting)
+// Public read-only endpoints
+Route::get('/comfenalco-events', [ComfenalcoEventController::class, 'index']);
+Route::get('/comfenalco-events/{comfenalco_event}', [ComfenalcoEventController::class, 'show']);
+Route::get('/wellness-events', [WellnessEventController::class, 'index']);
+Route::get('/wellness-events/{wellness_event}', [WellnessEventController::class, 'show']);
+Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show']);
 Route::post('/votes', [VoteController::class, 'store']);
-Route::get('/votes/statistics', [VoteController::class, 'statistics']);
-Route::get('/votes/hospital-statistics', [VoteController::class, 'hospitalStatistics']);
 Route::get('/votes/check', [VoteController::class, 'checkVote']);
-Route::get('/votes/audit-trail', [VoteController::class, 'auditTrail']);
-Route::put('/votes/change-candidate', [VoteController::class, 'changeVoteCandidate']);
-
-// Delegados routes (public endpoints for delegates consultation)
 Route::get('/delegados', [DelegadosController::class, 'index']);
 Route::get('/delegados/by-sede', [DelegadosController::class, 'getBySede']);
 Route::get('/delegados/by-cedula', [DelegadosController::class, 'getByCedula']);
 Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupedBySede']);
-
-// Afiliados routes (public endpoint for affiliate authentication and information)
 Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
 Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp']);
 Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
 
-// Roles and Permissions management routes
-Route::apiResource('roles', RoleController::class);
-Route::get('/permissions', [PermissionController::class, 'index']);
-Route::get('/permissions/{permission}', [PermissionController::class, 'show']);
-Route::put('/permissions/{permission}', [PermissionController::class, 'update']);
+Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
+    // Request management routes
+    Route::get('/requests', [RequestController::class, 'index'])->middleware('permission:requests.view');
+    Route::post('/requests', [RequestController::class, 'store'])->middleware('permission:requests.view'); // endpoint técnico, solicitudes vienen del sitio público
+    Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
+    Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus'])->middleware('permission:requests.respond');
+    Route::post('/requests/{request}/respond', [RequestController::class, 'respond'])->middleware('permission:requests.respond');
+    Route::patch('/requests/{request}/respond', [RequestController::class, 'respond'])->middleware('permission:requests.respond');
+    Route::get('/requests/{request}/files/{fileKey}', [RequestController::class, 'downloadFile'])->middleware('permission:requests.view');
 
-// Dotación y EPP routes
-Route::prefix('dotacion-epp')->group(function () {
-    Route::get('/affiliates', [DotacionEppController::class, 'affiliates']);
-    Route::get('/affiliates/{documentType}/{documentNumber}', [DotacionEppController::class, 'showAffiliate']);
-    Route::get('/inventory', [DotacionEppController::class, 'inventory']);
-    Route::get('/deliveries', [DotacionEppController::class, 'deliveries']);
-    Route::post('/deliveries', [DotacionEppController::class, 'storeDelivery']);
-});
+    // Votes admin reporting routes
+    Route::get('/votes/statistics', [VoteController::class, 'statistics'])->middleware('permission:votes.statistics.view');
+    Route::get('/votes/hospital-statistics', [VoteController::class, 'hospitalStatistics'])->middleware('permission:votes.statistics.view');
+    Route::get('/votes/audit-trail', [VoteController::class, 'auditTrail'])->middleware('permission:votes.audit.view');
+    Route::put('/votes/change-candidate', [VoteController::class, 'changeVoteCandidate'])->middleware('permission:votes.audit.view');
 
-// Inventory Management routes
-Route::prefix('inventory')->group(function () {
-    // Dashboard / Overview
-    Route::get('/dashboard', [InventoryDashboardController::class, 'index']);
+    // User management routes
+    Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
+    Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.create');
+    Route::get('/users/{user}', [UserController::class, 'show'])->middleware('permission:users.view');
+    Route::put('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
+    Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
+    Route::patch('/users/{user}/status', [UserController::class, 'changeStatus'])->middleware('permission:users.change_status');
 
-    // Categories
-    Route::get('/categories', [InventoryCategoryController::class, 'index']);
-    Route::post('/categories', [InventoryCategoryController::class, 'store']);
-    Route::get('/categories/{category}', [InventoryCategoryController::class, 'show']);
-    Route::put('/categories/{category}', [InventoryCategoryController::class, 'update']);
-    Route::delete('/categories/{category}', [InventoryCategoryController::class, 'destroy']);
+    // Wellness Events management routes
+    Route::post('/wellness-events', [WellnessEventController::class, 'store'])->middleware('permission:wellness_events.create');
+    Route::put('/wellness-events/{wellness_event}', [WellnessEventController::class, 'update'])->middleware('permission:wellness_events.edit');
+    Route::patch('/wellness-events/{wellness_event}', [WellnessEventController::class, 'update'])->middleware('permission:wellness_events.edit');
+    Route::delete('/wellness-events/{wellness_event}', [WellnessEventController::class, 'destroy'])->middleware('permission:wellness_events.edit');
+    Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility'])->middleware('permission:wellness_events.edit');
+    Route::post('/wellness-events/{wellness_event}/images', [WellnessEventController::class, 'addImages'])->middleware('permission:wellness_events.edit');
+    Route::delete('/wellness-events/{wellness_event}/images/{image}', [WellnessEventController::class, 'removeImage'])->middleware('permission:wellness_events.edit');
 
-    // Subcategories
-    Route::post('/categories/{category}/subcategories', [InventoryCategoryController::class, 'storeSubcategory']);
-    Route::put('/categories/{category}/subcategories/{subcategory}', [InventoryCategoryController::class, 'updateSubcategory']);
-    Route::delete('/categories/{category}/subcategories/{subcategory}', [InventoryCategoryController::class, 'destroySubcategory']);
+    // Wellness Requests management routes
+    Route::get('/wellness-requests', [WellnessRequestController::class, 'index'])->middleware('permission:wellness_requests.view');
+    Route::post('/wellness-requests', [WellnessRequestController::class, 'store'])->middleware('permission:wellness_requests.create');
+    Route::get('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'show'])->middleware('permission:wellness_requests.view');
+    Route::put('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update'])->middleware('permission:wellness_requests.edit');
+    Route::patch('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update'])->middleware('permission:wellness_requests.edit');
 
-    // Products
-    Route::get('/products', [InventoryProductController::class, 'index']);
-    Route::post('/products', [InventoryProductController::class, 'store']);
-    Route::get('/products/{product}', [InventoryProductController::class, 'show']);
-    Route::put('/products/{product}', [InventoryProductController::class, 'update']);
-    Route::delete('/products/{product}', [InventoryProductController::class, 'destroy']);
+    // Wellness Activity Realized routes
+    Route::post('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'store'])->middleware('permission:wellness_requests.edit');
+    Route::put('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'update'])->middleware('permission:wellness_requests.edit');
+    Route::post('/wellness-requests/{wellness_request_id}/publish-to-gallery', [WellnessActivityRealizedController::class, 'publishToGallery'])->middleware('permission:wellness_activity.publish');
 
-    // Colors catalog
-    Route::get('/colors', [InventoryColorController::class, 'index']);
+    // Comfenalco Events management routes (admin)
+    Route::post('/comfenalco-events', [ComfenalcoEventController::class, 'store'])->middleware('permission:comfenalco_events.create');
+    Route::put('/comfenalco-events/{comfenalco_event}', [ComfenalcoEventController::class, 'update'])->middleware('permission:comfenalco_events.edit');
+    Route::patch('/comfenalco-events/{comfenalco_event}', [ComfenalcoEventController::class, 'update'])->middleware('permission:comfenalco_events.edit');
+    Route::delete('/comfenalco-events/{comfenalco_event}', [ComfenalcoEventController::class, 'destroy'])->middleware('permission:comfenalco_events.delete');
+    Route::patch('/comfenalco-events/{comfenalco_event}/visibility', [ComfenalcoEventController::class, 'changeVisibility'])->middleware('permission:comfenalco_events.edit');
 
-    // Hospital Requests
-    Route::get('/hospital-requests', [HospitalRequestController::class, 'index']);
-    Route::post('/hospital-requests', [HospitalRequestController::class, 'store']);
-    Route::get('/hospital-requests/{hospital_request}', [HospitalRequestController::class, 'show']);
-    Route::put('/hospital-requests/{hospital_request}/status', [HospitalRequestController::class, 'updateStatus']);
-    Route::delete('/hospital-requests/{hospital_request}', [HospitalRequestController::class, 'destroy']);
+    // Chatbot Conversations admin routes
+    Route::get('/chatbot-conversations', [ChatbotConversationController::class, 'index'])->middleware('permission:chatbot.manage');
+    Route::patch('/chatbot-conversations/{conversation}/feedback', [ChatbotConversationController::class, 'updateFeedback'])->middleware('permission:chatbot.manage');
+    Route::patch('/chatbot-conversations/client/{client_turn_id}/feedback', [ChatbotConversationController::class, 'updateFeedbackByClientTurnId'])->middleware('permission:chatbot.manage');
 
-    // Inventory Entries (Deliveries)
-    Route::get('/entries', [InventoryEntryController::class, 'index']);
-    Route::post('/entries', [InventoryEntryController::class, 'store']);
-    Route::get('/entries/{entry}', [InventoryEntryController::class, 'show']);
+    // Activos file management routes (for uploading ACTIVOS2.xlsx)
+    Route::post('/activos-file/upload', [ActivosFileController::class, 'upload'])->middleware('permission:activos_files.manage');
+    Route::get('/activos-file/info', [ActivosFileController::class, 'info'])->middleware('permission:activos_files.manage');
 
-    // Inventory locations
-    Route::get('/locations', [InventoryLocationController::class, 'index']);
-    Route::get('/locations/{location}', [InventoryLocationController::class, 'show']);
+    // Afiliados file management routes (for uploading PROSANET afiliados file)
+    Route::post('/afiliados-file/upload', [AfiliadosFileController::class, 'upload'])->middleware('permission:afiliados_files.manage');
 
-    // Stock movements
-    Route::get('/stock-movements', [InventoryStockMovementController::class, 'index']);
+    // Incapacidades, Liquidaciones y Delegados file management routes
+    Route::post('/incapacidades-file/upload', [IncapacidadesFileController::class, 'upload'])->middleware('permission:incapacidades_files.manage');
+    Route::post('/liquidaciones-file/upload', [LiquidacionesFileController::class, 'upload'])->middleware('permission:liquidaciones_files.manage');
+    Route::post('/delegados-file/upload', [DelegadosFileController::class, 'upload'])->middleware('permission:delegados_files.manage');
+
+    // Roles and Permissions management routes
+    Route::apiResource('roles', RoleController::class)->middleware('permission:roles.manage');
+    Route::get('/permissions', [PermissionController::class, 'index'])->middleware('permission:roles.manage');
+    Route::get('/permissions/{permission}', [PermissionController::class, 'show'])->middleware('permission:roles.manage');
+    Route::put('/permissions/{permission}', [PermissionController::class, 'update'])->middleware('permission:roles.manage');
+
+    // Dotación y EPP routes
+    Route::prefix('dotacion-epp')->group(function () {
+        Route::get('/affiliates', [DotacionEppController::class, 'affiliates'])->middleware('permission:dotacion.view');
+        Route::get('/affiliates/{documentType}/{documentNumber}', [DotacionEppController::class, 'showAffiliate'])->middleware('permission:dotacion.view');
+        Route::get('/inventory', [DotacionEppController::class, 'inventory'])->middleware('permission:dotacion.view');
+        Route::get('/deliveries', [DotacionEppController::class, 'deliveries'])->middleware('permission:dotacion.view');
+        Route::post('/deliveries', [DotacionEppController::class, 'storeDelivery'])->middleware(['permission:dotacion.view', 'permission:dotacion.deliveries.create']);
+    });
+
+    // Inventory Management routes
+    Route::prefix('inventory')->group(function () {
+        Route::get('/dashboard', [InventoryDashboardController::class, 'index'])->middleware('permission:inventory.view_dashboard');
+
+        Route::get('/categories', [InventoryCategoryController::class, 'index'])->middleware('permission:inventory.categories.view');
+        Route::post('/categories', [InventoryCategoryController::class, 'store'])->middleware('permission:inventory.categories.manage');
+        Route::get('/categories/{category}', [InventoryCategoryController::class, 'show'])->middleware('permission:inventory.categories.view');
+        Route::put('/categories/{category}', [InventoryCategoryController::class, 'update'])->middleware('permission:inventory.categories.manage');
+        Route::delete('/categories/{category}', [InventoryCategoryController::class, 'destroy'])->middleware('permission:inventory.categories.manage');
+
+        Route::post('/categories/{category}/subcategories', [InventoryCategoryController::class, 'storeSubcategory'])->middleware('permission:inventory.categories.manage');
+        Route::put('/categories/{category}/subcategories/{subcategory}', [InventoryCategoryController::class, 'updateSubcategory'])->middleware('permission:inventory.categories.manage');
+        Route::delete('/categories/{category}/subcategories/{subcategory}', [InventoryCategoryController::class, 'destroySubcategory'])->middleware('permission:inventory.categories.manage');
+
+        Route::get('/products', [InventoryProductController::class, 'index'])->middleware('permission:inventory.products.view');
+        Route::post('/products', [InventoryProductController::class, 'store'])->middleware('permission:inventory.products.manage');
+        Route::get('/products/{product}', [InventoryProductController::class, 'show'])->middleware('permission:inventory.products.view');
+        Route::put('/products/{product}', [InventoryProductController::class, 'update'])->middleware('permission:inventory.products.manage');
+        Route::delete('/products/{product}', [InventoryProductController::class, 'destroy'])->middleware('permission:inventory.products.manage');
+
+        Route::get('/colors', [InventoryColorController::class, 'index'])->middleware('permission:inventory.products.view');
+
+        Route::get('/hospital-requests', [HospitalRequestController::class, 'index'])->middleware('permission:hospital_requests.view');
+        Route::post('/hospital-requests', [HospitalRequestController::class, 'store'])->middleware('permission:hospital_requests.create');
+        Route::get('/hospital-requests/{hospital_request}', [HospitalRequestController::class, 'show'])->middleware('permission:hospital_requests.view');
+        Route::put('/hospital-requests/{hospital_request}/status', [HospitalRequestController::class, 'updateStatus'])->middleware('permission:hospital_requests.update_status');
+
+        Route::get('/entries', [InventoryEntryController::class, 'index'])->middleware('permission:inventory.entries.view');
+        Route::post('/entries', [InventoryEntryController::class, 'store'])->middleware('permission:inventory.entries.manage');
+        Route::get('/entries/{entry}', [InventoryEntryController::class, 'show'])->middleware('permission:inventory.entries.view');
+
+        Route::get('/locations', [InventoryLocationController::class, 'index'])->middleware('permission:inventory.locations.view');
+        Route::get('/locations/{location}', [InventoryLocationController::class, 'show'])->middleware('permission:inventory.locations.view');
+
+        Route::get('/stock-movements', [InventoryStockMovementController::class, 'index'])->middleware('permission:inventory.stock_movements.view');
+    });
 });

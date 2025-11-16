@@ -22,6 +22,7 @@ class PermissionController extends Controller
                 return [
                     'id' => $permission->id,
                     'name' => $permission->name,
+                    'description' => $permission->description,
                     'guard_name' => $permission->guard_name,
                     'created_at' => $permission->created_at,
                     'updated_at' => $permission->updated_at,
@@ -40,6 +41,7 @@ class PermissionController extends Controller
             'data' => [
                 'id' => $permission->id,
                 'name' => $permission->name,
+                'description' => $permission->description,
                 'guard_name' => $permission->guard_name,
                 'created_at' => $permission->created_at,
                 'updated_at' => $permission->updated_at,
@@ -54,10 +56,12 @@ class PermissionController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255|unique:permissions,name,' . $permission->id,
+            'description' => 'nullable|string|max:500',
         ]);
 
         $permission->update([
             'name' => $request->name,
+            'description' => $request->description,
         ]);
 
         return response()->json([
@@ -66,6 +70,7 @@ class PermissionController extends Controller
             'data' => [
                 'id' => $permission->id,
                 'name' => $permission->name,
+                'description' => $permission->description,
                 'guard_name' => $permission->guard_name,
                 'created_at' => $permission->created_at,
                 'updated_at' => $permission->updated_at,

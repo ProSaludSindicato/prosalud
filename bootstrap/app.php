@@ -37,6 +37,8 @@ return Application::configure(basePath: dirname(__DIR__))
         
         $middleware->alias([
             'permission' => \App\Http\Middleware\CheckPermission::class,
+            'auth.token' => \App\Http\Middleware\AuthenticateWithApiToken::class,
+            'ensure.api.user' => \App\Http\Middleware\EnsureApiTokenIsValid::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
