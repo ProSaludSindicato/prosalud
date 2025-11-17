@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\User;
 
+use App\Rules\SecurePassword;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Contracts\Validation\Validator;
@@ -27,7 +28,7 @@ class UpdateUserRequest extends FormRequest
         return [
             'name' => 'sometimes|required|string|max:255',
             'email' => 'sometimes|required|email|unique:users,email,' . $userId . '|max:255',
-            'password' => 'sometimes|required|string|min:8|confirmed',
+            'password' => ['sometimes', 'required', 'string', 'max:128', 'confirmed', new SecurePassword()],
             'is_active' => 'sometimes|boolean',
         ];
     }
@@ -47,7 +48,7 @@ class UpdateUserRequest extends FormRequest
             'email.max' => 'El correo electrónico no puede exceder los 255 caracteres.',
             'password.required' => 'La contraseña es obligatoria.',
             'password.string' => 'La contraseña debe ser una cadena de texto.',
-            'password.min' => 'La contraseña debe tener al menos 8 caracteres.',
+            'password.max' => 'La contraseña es demasiado larga.',
             'password.confirmed' => 'La confirmación de contraseña no coincide.',
             'is_active.boolean' => 'El estado activo debe ser verdadero o falso.',
         ];

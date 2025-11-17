@@ -147,10 +147,6 @@ class UserController extends Controller
     {
         $userData = $request->validated();
 
-        if (isset($userData['password'])) {
-            $userData['password'] = Hash::make($userData['password']);
-        }
-
         $user->update($userData);
 
         Log::info('Usuario actualizado exitosamente', [

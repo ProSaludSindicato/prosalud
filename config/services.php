@@ -50,5 +50,8 @@ return [
 
         // Ruta donde el usuario define su contraseña inicial
         'password_setup_path' => env('FRONTEND_PASSWORD_SETUP_PATH', '/auth/definir-contraseña'),
+
+        // Ruta donde el usuario restablece su contraseña
+        'password_reset_path' => env('FRONTEND_PASSWORD_RESET_PATH', '/auth/restablecer-contraseña'),
     ],
 ];

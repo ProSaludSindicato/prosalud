@@ -121,4 +121,28 @@ return [
     */
 
     'api_token_ttl_hours' => env('API_TOKEN_TTL_HOURS', 12),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Password Setup TTL
+    |--------------------------------------------------------------------------
+    |
+    | Define how many minutes a password setup invitation token remains valid.
+    | Default is 24 hours (1440 minutes).
+    |
+    */
+
+    'password_setup_ttl_minutes' => env('PASSWORD_SETUP_TTL_MINUTES', 1440),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Password Reset TTL
+    |--------------------------------------------------------------------------
+    |
+    | Define how many minutes a password reset token remains valid.
+    | Default is 60 minutes (1 hour).
+    |
+    */
+
+    'password_reset_ttl_minutes' => env('PASSWORD_RESET_TTL_MINUTES', 60),
 ];

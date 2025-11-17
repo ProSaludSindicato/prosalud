@@ -36,6 +36,8 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('auth')->group(function () {
     Route::post('/login', [ApiAuthController::class, 'login']);
     Route::post('/set-password', [ApiAuthController::class, 'setPasswordFromInvitation']);
+    Route::post('/forgot-password', [ApiAuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [ApiAuthController::class, 'resetPassword']);
     Route::middleware('auth.token')->group(function () {
         Route::post('/logout', [ApiAuthController::class, 'logout']);
         Route::get('/me', [ApiAuthController::class, 'me']);
