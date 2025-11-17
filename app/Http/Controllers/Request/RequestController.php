@@ -3,14 +3,18 @@
 namespace App\Http\Controllers\Request;
 
 use App\Constants\RequestStatuses;
+use App\Constants\RequestTypes;
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\RespondToRequestRequest;
 use App\Models\RequestForm;
 use App\Models\RequestResponse;
+use App\Models\RequestSubtypeAssignment;
+use App\Models\RequestTypeAssignment;
 use App\Mail\RequestFormReceived;
 use App\Mail\RequestFormResponse;
 use App\Services\AuditLogService;
+use App\Services\RequestAssignmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +25,8 @@ use Illuminate\Support\Str;
 class RequestController extends Controller
 {
     public function __construct(
-        private AuditLogService $auditLogService
+        private AuditLogService $auditLogService,
+        private RequestAssignmentService $assignmentService
     ) {}
     public function store(StoreRequestFormRequest $request): JsonResponse
     {
@@ -516,7 +521,75 @@ class RequestController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
         $query = RequestForm::query();
+
+        // Filter by user assignments (unless user is admin)
+        if (!$user->hasRole('admin')) {
+            $userId = $user->id;
+
+            // Get all request types assigned to this user
+            $assignedTypes = RequestTypeAssignment::where('user_id', $userId)
+                ->pluck('request_type')
+                ->toArray();
+
+            // Get all subtypes assigned to this user, grouped by request type
+            $assignedSubtypes = RequestSubtypeAssignment::where('user_id', $userId)
+                ->get()
+                ->groupBy('request_type')
+                ->map(function ($assignments) {
+                    return $assignments->pluck('subtype')->toArray();
+                })
+                ->toArray();
+
+            // Build query conditions
+            $query->where(function ($q) use ($assignedTypes, $assignedSubtypes) {
+                // Handle types without subtypes
+                $typesWithoutSubtypes = array_filter($assignedTypes, function ($type) {
+                    return !RequestTypes::hasSubtypes($type);
+                });
+
+                if (!empty($typesWithoutSubtypes)) {
+                    $q->whereIn('request_type', $typesWithoutSubtypes);
+                }
+
+                // Handle types with subtypes
+                $typesWithSubtypes = array_filter($assignedTypes, function ($type) {
+                    return RequestTypes::hasSubtypes($type);
+                });
+
+                foreach ($typesWithSubtypes as $type) {
+                    $q->orWhere(function ($typeQ) use ($type, $assignedSubtypes) {
+                        $typeQ->where('request_type', $type);
+
+                        // If user has specific subtype assignments, filter by them
+                        if (isset($assignedSubtypes[$type]) && !empty($assignedSubtypes[$type])) {
+                            $typeQ->where(function ($subtypeQ) use ($assignedSubtypes, $type) {
+                                foreach ($assignedSubtypes[$type] as $subtype) {
+                                    $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
+                                }
+                            });
+                        }
+                        // If user has type assignment but no subtype assignments,
+                        // they can see all requests of that type (type assignment as fallback)
+                    });
+                }
+
+                // Handle cases where user only has subtype assignments (no type assignment)
+                foreach ($assignedSubtypes as $type => $subtypes) {
+                    if (!in_array($type, $assignedTypes)) {
+                        $q->orWhere(function ($typeQ) use ($type, $subtypes) {
+                            $typeQ->where('request_type', $type);
+                            $typeQ->where(function ($subtypeQ) use ($subtypes) {
+                                foreach ($subtypes as $subtype) {
+                                    $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
+                                }
+                            });
+                        });
+                    }
+                }
+            });
+        }
 
         // Search by name, email, or document number
         if ($request->has('search')) {

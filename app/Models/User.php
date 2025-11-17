@@ -54,4 +54,20 @@ class User extends Authenticatable
     {
         return $this->hasMany(ApiToken::class);
     }
+
+    /**
+     * Get all request type assignments for this user
+     */
+    public function requestTypeAssignments(): HasMany
+    {
+        return $this->hasMany(RequestTypeAssignment::class);
+    }
+
+    /**
+     * Get all request subtype assignments for this user
+     */
+    public function requestSubtypeAssignments(): HasMany
+    {
+        return $this->hasMany(RequestSubtypeAssignment::class);
+    }
 }

@@ -24,6 +24,7 @@ use App\Http\Controllers\Inventory\InventoryProductController;
 use App\Http\Controllers\Inventory\InventoryStockMovementController;
 use App\Http\Controllers\LiquidacionesController;
 use App\Http\Controllers\LiquidacionesFileController;
+use App\Http\Controllers\Request\RequestAssignmentController;
 use App\Http\Controllers\Request\RequestController;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\VoteController;
@@ -88,6 +89,11 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::put('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
     Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
     Route::patch('/users/{user}/status', [UserController::class, 'changeStatus'])->middleware('permission:users.change_status');
+
+    // Request assignment routes
+    Route::get('/request-assignments', [RequestAssignmentController::class, 'index'])->middleware('permission:users.view');
+    Route::put('/request-assignments', [RequestAssignmentController::class, 'update'])->middleware('permission:users.edit');
+    Route::post('/request-assignments', [RequestAssignmentController::class, 'store'])->middleware('permission:users.edit');
 
     // Wellness Events management routes
     Route::post('/wellness-events', [WellnessEventController::class, 'store'])->middleware('permission:wellness_events.create');
