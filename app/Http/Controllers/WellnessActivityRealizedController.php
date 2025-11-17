@@ -510,8 +510,8 @@ class WellnessActivityRealizedController extends Controller
 
         foreach ($evidencias as $index => $image) {
             try {
-                $extension = $image->getClientOriginalExtension();
-                $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+                $extension = $image->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($image->getMimeType());
+                $filename = $this->generateDescriptiveFilenameForEvidence($image, $activityRealized->id, $index, $extension);
                 $storagePath = 'wellness-activities/' . $activityRealized->id . '/' . $filename;
 
                 // Store file
@@ -574,8 +574,8 @@ class WellnessActivityRealizedController extends Controller
         $disk = 'prosalud-private';
         $fallbackDisk = 'local';
 
-        $extension = $file->getClientOriginalExtension();
-        $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+        $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
+        $filename = $this->generateDescriptiveFilenameForListado($file, $wellness_request_id, $extension);
 
         // Store file
         $storedPath = Storage::disk($disk)->putFileAs(
@@ -740,5 +740,73 @@ class WellnessActivityRealizedController extends Controller
                 'is_main' => $mainImageUrl && $evidence->image_url === $mainImageUrl,
             ];
         })->sortBy('order')->values()->toArray();
+    }
+
+    /**
+     * Generate a simple but descriptive filename for evidence images
+     * Format: Evid-Act[ID]-[UniqueId]-[Index].[ext]
+     */
+    private function generateDescriptiveFilenameForEvidence(
+        \Illuminate\Http\UploadedFile $image,
+        int $activityRealizedId,
+        int $index,
+        string $extension
+    ): string {
+        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
+        
+        // Build simple filename: Evid-Act[ID]-[UniqueId]-[Index].[ext]
+        $filename = sprintf(
+            'Evid-Act%d-%s-%d.%s',
+            $activityRealizedId,
+            $uniqueId,
+            $index + 1,
+            $extension
+        );
+
+        return $filename;
+    }
+
+    /**
+     * Generate a simple but descriptive filename for listado_asistencia
+     * Format: Listado-Req[ID]-[UniqueId].[ext]
+     */
+    private function generateDescriptiveFilenameForListado(
+        \Illuminate\Http\UploadedFile $file,
+        int $wellnessRequestId,
+        string $extension
+    ): string {
+        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
+        
+        // Build simple filename: Listado-Req[ID]-[UniqueId].[ext]
+        $filename = sprintf(
+            'Listado-Req%d-%s.%s',
+            $wellnessRequestId,
+            $uniqueId,
+            $extension
+        );
+
+        return $filename;
+    }
+
+    /**
+     * Get file extension from MIME type
+     */
+    private function getExtensionFromMimeType(string $mimeType): string
+    {
+        $mimeToExt = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'text/plain' => 'txt',
+            'text/csv' => 'csv',
+        ];
+
+        return $mimeToExt[$mimeType] ?? 'bin';
     }
 }

@@ -419,10 +419,9 @@ class WellnessEventController extends Controller
         $fallbackDisk = 'public';
 
         foreach ($images as $index => $image) {
-            // Generate unique filename with UUID to ensure uniqueness
-            $uniqueId = \Illuminate\Support\Str::uuid();
-            $extension = $image->getClientOriginalExtension();
-            $filename = $uniqueId . '.' . $extension;
+            // Generate unique filename with descriptive name
+            $extension = $image->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($image->getMimeType());
+            $filename = $this->generateDescriptiveFilenameForEventImage($image, $event->id, $index, $extension);
             $fullPath = 'wellness-events/' . $event->id . '/' . $filename;
 
             Log::info('Subiendo imagen para evento de bienestar', [
@@ -606,5 +605,51 @@ class WellnessEventController extends Controller
         $path = preg_replace('#^storage/#', '', $path);
 
         return $path;
+    }
+
+    /**
+     * Generate a simple but descriptive filename for event images
+     * Format: Evento[ID]-[UniqueId]-[Index].[ext]
+     */
+    private function generateDescriptiveFilenameForEventImage(
+        \Illuminate\Http\UploadedFile $image,
+        int $eventId,
+        int $index,
+        string $extension
+    ): string {
+        $uniqueId = substr(\Illuminate\Support\Str::uuid()->toString(), 0, 6);
+        
+        // Build simple filename: Evento[ID]-[UniqueId]-[Index].[ext]
+        $filename = sprintf(
+            'Evento%d-%s-%d.%s',
+            $eventId,
+            $uniqueId,
+            $index + 1,
+            $extension
+        );
+
+        return $filename;
+    }
+
+    /**
+     * Get file extension from MIME type
+     */
+    private function getExtensionFromMimeType(string $mimeType): string
+    {
+        $mimeToExt = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'text/plain' => 'txt',
+            'text/csv' => 'csv',
+        ];
+
+        return $mimeToExt[$mimeType] ?? 'bin';
     }
 }

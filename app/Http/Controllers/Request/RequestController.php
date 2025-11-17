@@ -235,7 +235,7 @@ class RequestController extends Controller
 
                     // Determine file extension from mime type
                     $extension = $this->getExtensionFromMimeType($mimeType);
-                    $filename = Str::uuid() . '.' . $extension;
+                    $filename = $this->generateDescriptiveFilenameForBase64($key, $extension);
                     $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
 
                     // Store file
@@ -337,8 +337,8 @@ class RequestController extends Controller
         string $fallbackDisk
     ): ?array {
         try {
-            $extension = $file->getClientOriginalExtension();
-            $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+            $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
+            $filename = $this->generateDescriptiveFilenameForUpload($file, $key, $extension);
             $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
 
             // Store file
@@ -384,6 +384,56 @@ class RequestController extends Controller
     }
 
     /**
+     * Generate a simple but descriptive filename for uploaded files
+     * Format: [Key]-[UniqueId].[ext]
+     * Example: CertBanc-abc123.pdf
+     */
+    private function generateDescriptiveFilenameForUpload(
+        \Illuminate\Http\UploadedFile $file,
+        string $key,
+        string $extension
+    ): string {
+        // Map common keys to short abbreviations
+        $keyAbbreviations = [
+            'certificacionBancaria' => 'CertBanc',
+            'diplomaEducativo' => 'Diploma',
+            'actaGrado' => 'ActaGrado',
+            'certificadoEps' => 'CertEPS',
+            'certificadoAfp' => 'CertAFP',
+            'cedula' => 'Cedula',
+            'carnet' => 'Carnet',
+            'foto' => 'Foto',
+            'documento' => 'Doc',
+        ];
+
+        // Get short name from key
+        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
+        
+        // Generate short unique identifier
+        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
+        
+        // Build simple filename: [ShortName]-[UniqueId].[ext]
+        $filename = sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
+
+        return $filename;
+    }
+
+    /**
+     * Format key name to readable format
+     */
+    private function formatKeyName(string $key): string
+    {
+        // Convert camelCase to PascalCase with spaces, then remove spaces
+        $formatted = preg_replace('/([a-z])([A-Z])/', '$1$2', $key);
+        $formatted = ucfirst($formatted);
+        
+        // Remove special characters
+        $formatted = preg_replace('/[^a-zA-Z0-9]/', '', $formatted);
+        
+        return $formatted ?: 'Archivo';
+    }
+
+    /**
      * Get file extension from MIME type
      */
     private function getExtensionFromMimeType(string $mimeType): string
@@ -403,6 +453,37 @@ class RequestController extends Controller
         ];
 
         return $mimeToExt[$mimeType] ?? 'bin';
+    }
+
+    /**
+     * Generate a simple but descriptive filename for base64 encoded files
+     * Format: [Key]-[UniqueId].[ext]
+     */
+    private function generateDescriptiveFilenameForBase64(string $key, string $extension): string
+    {
+        // Map common keys to short abbreviations
+        $keyAbbreviations = [
+            'certificacionBancaria' => 'CertBanc',
+            'diplomaEducativo' => 'Diploma',
+            'actaGrado' => 'ActaGrado',
+            'certificadoEps' => 'CertEPS',
+            'certificadoAfp' => 'CertAFP',
+            'cedula' => 'Cedula',
+            'carnet' => 'Carnet',
+            'foto' => 'Foto',
+            'documento' => 'Doc',
+        ];
+
+        // Get short name from key
+        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
+        
+        // Generate short unique identifier
+        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
+        
+        // Build simple filename: [ShortName]-[UniqueId].[ext]
+        $filename = sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
+
+        return $filename;
     }
 
     /**
@@ -429,6 +510,9 @@ class RequestController extends Controller
 
     /**
      * Display a listing of requests
+     * IMPORTANT: This is an administrative endpoint with authentication and permissions.
+     * Contact information (email, phone_number) should NOT be obfuscated for administrative processes.
+     * Obfuscation should only apply to public endpoints without authentication.
      */
     public function index(Request $request): JsonResponse
     {
@@ -466,9 +550,15 @@ class RequestController extends Controller
             'filters' => $request->only(['search', 'status', 'request_type'])
         ]);
 
+        // Return data WITHOUT obfuscation for administrative users
+        // This endpoint requires authentication and 'requests.view' permission
+        // IMPORTANT: Contact information (email, phone_number) should NOT be obfuscated for administrative processes
         return response()->json([
             'success' => true,
             'data' => $requests->map(function ($request) {
+                // Get raw attributes to avoid any accessor transformations
+                $attributes = $request->getAttributes();
+                
                 return [
                     'id' => $request->id,
                     'request_type' => $request->request_type,
@@ -477,8 +567,10 @@ class RequestController extends Controller
                     'name' => $request->name,
                     'last_name' => $request->last_name,
                     'full_name' => $request->full_name,
-                    'email' => $request->email,
-                    'phone_number' => $request->phone_number,
+                    // Contact information returned WITHOUT obfuscation for administrative processes
+                    // Use getRawOriginal() to get raw value directly from database, bypassing any accessors or transformations
+                    'email' => $request->getRawOriginal('email') ?? $request->getAttribute('email'),
+                    'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
                     'status' => $request->status,
                     'payload' => $request->payload,
                     'created_at' => $request->created_at,
@@ -504,6 +596,9 @@ class RequestController extends Controller
 
     /**
      * Display the specified request
+     * IMPORTANT: This is an administrative endpoint with authentication and permissions.
+     * Contact information (email, phone_number) should NOT be obfuscated for administrative processes.
+     * Obfuscation should only apply to public endpoints without authentication.
      */
     public function show(RequestForm $request): JsonResponse
     {
@@ -524,6 +619,9 @@ class RequestController extends Controller
             ]
         ]);
 
+        // Return data WITHOUT obfuscation for administrative users
+        // This endpoint requires authentication and 'requests.view' permission
+        // Use getAttribute() to get raw value from database, bypassing any accessors that might obfuscate
         return response()->json([
             'success' => true,
             'data' => [
@@ -534,8 +632,10 @@ class RequestController extends Controller
                 'name' => $request->name,
                 'last_name' => $request->last_name,
                 'full_name' => $request->full_name,
-                'email' => $request->email,
-                'phone_number' => $request->phone_number,
+                // Contact information returned WITHOUT obfuscation for administrative processes
+                // Use getRawOriginal() to get raw value directly from database, bypassing any accessors or transformations
+                'email' => $request->getRawOriginal('email') ?? $request->getAttribute('email'),
+                'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
                 'payload' => json_encode($request->payload ?? (object) [], JSON_UNESCAPED_UNICODE),
                 'status' => $request->status,
                 'created_at' => $request->created_at,

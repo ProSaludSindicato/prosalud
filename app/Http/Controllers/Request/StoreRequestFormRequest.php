@@ -132,10 +132,47 @@ class StoreRequestFormRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             $requestType = $this->input('request_type');
+            $allFiles = $this->allFiles();
+            
+            // Validar tamaño total de archivos (máximo 20MB = 20480 KB)
+            $totalSize = 0;
+            $maxTotalSizeKB = 20480; // 20MB en KB
+            $maxTotalSizeMB = 20;
+            
+            // Recopilar todos los archivos
+            $filesToCheck = [];
+            foreach ($allFiles as $key => $file) {
+                if (is_array($file)) {
+                    // Si es un array de archivos
+                    foreach ($file as $singleFile) {
+                        if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
+                            $filesToCheck[] = $singleFile;
+                        }
+                    }
+                } elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                    $filesToCheck[] = $file;
+                }
+            }
+            
+            // Calcular tamaño total
+            foreach ($filesToCheck as $file) {
+                $totalSize += $file->getSize(); // getSize() retorna bytes
+            }
+            
+            // Convertir bytes a KB
+            $totalSizeKB = $totalSize / 1024;
+            
+            // Validar tamaño total
+            if ($totalSizeKB > $maxTotalSizeKB) {
+                $totalSizeMB = round($totalSizeKB / 1024, 2);
+                $validator->errors()->add(
+                    'files',
+                    "El tamaño total de los archivos adjuntos ({$totalSizeMB}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB. Esto podría causar problemas al enviar el correo electrónico."
+                );
+            }
             
             if ($requestType === 'actualizar-datos-personales') {
                 $payload = $this->input('payload', []);
-                $allFiles = $this->allFiles();
                 
                 // Helper para verificar si existe un archivo
                 $hasFile = function($fileKey) use ($allFiles) {

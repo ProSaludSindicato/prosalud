@@ -32,7 +32,7 @@ class RespondToRequestRequest extends FormRequest
 
         if ($this->hasFile('attachments')) {
             $rules['attachments'] = 'nullable|array|max:4';
-            $rules['attachments.*'] = 'file|max:5120|mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png';
+            $rules['attachments.*'] = 'file|max:5120|mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png,webp';
         }
 
         return $rules;
@@ -54,7 +54,7 @@ class RespondToRequestRequest extends FormRequest
             'attachments.max' => 'No se pueden adjuntar más de 4 archivos.',
             'attachments.*.file' => 'Cada archivo adjunto debe ser un archivo válido.',
             'attachments.*.max' => 'Cada archivo adjunto no puede exceder 5MB.',
-            'attachments.*.mimes' => 'Los archivos adjuntos solo pueden ser: pdf, doc, docx, xls, xlsx, jpg, jpeg, png.',
+            'attachments.*.mimes' => 'Los archivos adjuntos solo pueden ser: pdf, doc, docx, xls, xlsx, jpg, jpeg, png, webp.',
         ];
     }
 
@@ -69,6 +69,46 @@ class RespondToRequestRequest extends FormRequest
             'email_body' => 'cuerpo del correo',
             'attachments' => 'archivos adjuntos',
         ];
+    }
+
+    /**
+     * Configure the validator instance.
+     */
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            // Validar tamaño total de archivos adjuntos (máximo 20MB = 20480 KB)
+            if ($this->hasFile('attachments')) {
+                $attachments = $this->file('attachments');
+                $totalSize = 0;
+                $maxTotalSizeKB = 20480; // 20MB en KB
+                $maxTotalSizeMB = 20;
+                
+                // Normalizar a array si es un solo archivo
+                if (!is_array($attachments)) {
+                    $attachments = [$attachments];
+                }
+                
+                // Calcular tamaño total
+                foreach ($attachments as $file) {
+                    if ($file && $file->isValid()) {
+                        $totalSize += $file->getSize(); // getSize() retorna bytes
+                    }
+                }
+                
+                // Convertir bytes a KB
+                $totalSizeKB = $totalSize / 1024;
+                
+                // Validar tamaño total
+                if ($totalSizeKB > $maxTotalSizeKB) {
+                    $totalSizeMB = round($totalSizeKB / 1024, 2);
+                    $validator->errors()->add(
+                        'attachments',
+                        "El tamaño total de los archivos adjuntos ({$totalSizeMB}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB. Esto podría causar problemas al enviar el correo electrónico."
+                    );
+                }
+            }
+        });
     }
 
     /**

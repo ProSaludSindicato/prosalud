@@ -63,10 +63,12 @@ Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate
 Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp']);
 Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
 
+// Public route for creating requests (used by affiliates from public site)
+Route::post('/requests', [RequestController::class, 'store']);
+
 Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     // Request management routes
     Route::get('/requests', [RequestController::class, 'index'])->middleware('permission:requests.view');
-    Route::post('/requests', [RequestController::class, 'store'])->middleware('permission:requests.view'); // endpoint técnico, solicitudes vienen del sitio público
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
     Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus'])->middleware('permission:requests.respond');
     Route::post('/requests/{request}/respond', [RequestController::class, 'respond'])->middleware('permission:requests.respond');
