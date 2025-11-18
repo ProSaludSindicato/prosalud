@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\InventoryCategory;
 use App\Models\SstDeliveryItem;
 use App\Models\SstDeliveryRecord;
+use App\Models\SstReturnItem;
+use App\Models\SstReturnRecord;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -442,6 +444,254 @@ class SstDotacionService
         self::$inventoryCache = $items;
 
         return self::$inventoryCache;
+    }
+
+    /**
+     * Create a return record with items and signature storage.
+     */
+    public function createReturn(array $data): array
+    {
+        $affiliate = $this->findAffiliate($data['affiliateDocumentType'], $data['affiliateDocumentNumber']);
+
+        if (!$affiliate) {
+            throw new \RuntimeException('No se encontró el afiliado solicitado.');
+        }
+
+        $signatureMeta = $this->storeSignature($data['signatureData']);
+
+        $userId = Auth::id();
+
+        if (!$userId && !empty($data['receivedBy'])) {
+            $userId = is_numeric($data['receivedBy']) ? (int) $data['receivedBy'] : null;
+        }
+
+        if (!$userId) {
+            $userId = 1; // fallback while auth is not enabled
+        }
+
+        $user = User::find($userId);
+
+        $recordId = (string) Str::uuid();
+
+        $record = SstReturnRecord::create([
+            'id' => $recordId,
+            'affiliate_id' => $affiliate['id'],
+            'affiliate_document_type' => $affiliate['documentType'],
+            'affiliate_document_number' => $affiliate['documentNumber'],
+            'affiliate_first_name' => $affiliate['firstName'],
+            'affiliate_last_name' => $affiliate['lastName'],
+            'affiliate_hospital' => $affiliate['hospital'],
+            'affiliate_role' => $affiliate['role'],
+            'received_by_user_id' => $user?->id,
+            'received_by_name' => $data['receivedByName'] ?? ($user?->name ?? ($user?->email ?? 'Usuario Sistema')),
+            'returned_at' => Carbon::now('America/Bogota'),
+            'signature_path' => $signatureMeta['path'] ?? null,
+            'signature_mime_type' => $signatureMeta['mime_type'] ?? null,
+            'signed_document_type' => strtoupper($data['signedDocumentType']),
+            'signed_document_number' => $data['signedDocumentNumber'],
+            'reason' => $data['reason'] ?? 'replacement',
+            'notes' => $data['notes'] ?? null,
+        ]);
+
+        $itemsPayload = $data['items'] ?? [];
+
+        foreach ($itemsPayload as $itemPayload) {
+            $itemId = $itemPayload['itemId'];
+            
+            // Carnet es un ítem especial que no requiere validación de inventario
+            $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
+            
+            if ($isCarnet) {
+                // Crear registro para Carnet sin validación de inventario
+                SstReturnItem::create([
+                    'id' => (string) Str::uuid(),
+                    'return_id' => $record->id,
+                    'item_id' => '__carnet__',
+                    'item_name' => 'Carnet',
+                    'item_category' => 'Documentación',
+                    'item_gender' => null,
+                    'unit' => 'unidad',
+                    'variant_color' => null,
+                    'variant_size' => null,
+                    'variant_payload' => null,
+                    'quantity' => (int) ($itemPayload['quantity'] ?? 1),
+                ]);
+            } else {
+                // Validar y crear registro para ítems de inventario normales
+                $inventoryItem = $this->findInventoryItem($itemId);
+                if (!$inventoryItem) {
+                    throw new \RuntimeException('Ítem de inventario no reconocido: ' . $itemId);
+                }
+
+                SstReturnItem::create([
+                    'id' => (string) Str::uuid(),
+                    'return_id' => $record->id,
+                    'item_id' => $inventoryItem['id'],
+                    'item_name' => $inventoryItem['name'],
+                    'item_category' => $inventoryItem['category'],
+                    'item_gender' => $inventoryItem['gender'] ?? null,
+                    'unit' => $inventoryItem['unit'] ?? 'unidad',
+                    'variant_color' => $itemPayload['variant']['color'] ?? null,
+                    'variant_size' => $itemPayload['variant']['size'] ?? null,
+                    'variant_payload' => $itemPayload['variant'] ?? null,
+                    'quantity' => (int) $itemPayload['quantity'],
+                ]);
+            }
+        }
+
+        return $this->transformReturnRecord($record->load('items', 'receivedBy'));
+    }
+
+    /**
+     * Retrieve return records with optional filters.
+     */
+    public function getReturns(array $filters): array
+    {
+        $affiliateId = $filters['affiliateId'] ?? null;
+        $receivedBy = $filters['receivedBy'] ?? null;
+        $hospital = $filters['hospital'] ?? null;
+        $startDate = $filters['startDate'] ?? null;
+        $endDate = $filters['endDate'] ?? null;
+        $documentNumber = $filters['documentNumber'] ?? null;
+        $searchTerm = $filters['searchTerm'] ?? null;
+        $page = max(1, (int) ($filters['page'] ?? 1));
+        $pageSize = max(1, min(200, (int) ($filters['pageSize'] ?? 25)));
+
+        $query = SstReturnRecord::query()
+            ->with('items')
+            ->orderByDesc('returned_at');
+
+        if ($affiliateId) {
+            $query->where('affiliate_id', $affiliateId);
+        }
+
+        if ($receivedBy) {
+            $query->where(function (Builder $builder) use ($receivedBy) {
+                $builder->where('received_by_user_id', $receivedBy)
+                    ->orWhere('received_by_name', 'like', '%' . $receivedBy . '%');
+            });
+        }
+
+        if ($hospital) {
+            $query->where('affiliate_hospital', 'like', '%' . $hospital . '%');
+        }
+
+        if ($startDate) {
+            try {
+                $start = Carbon::parse($startDate)->startOfDay();
+                $query->where('returned_at', '>=', $start);
+            } catch (\Exception $e) {
+                // Ignore invalid date
+            }
+        }
+
+        if ($endDate) {
+            try {
+                $end = Carbon::parse($endDate)->endOfDay();
+                $query->where('returned_at', '<=', $end);
+            } catch (\Exception $e) {
+                // Ignore invalid date
+            }
+        }
+
+        if ($documentNumber) {
+            $query->where('affiliate_document_number', 'like', '%' . $documentNumber . '%');
+        }
+
+        if ($searchTerm) {
+            $search = trim($searchTerm);
+            $query->where(function (Builder $builder) use ($search) {
+                $builder->where('affiliate_first_name', 'like', '%' . $search . '%')
+                    ->orWhere('affiliate_last_name', 'like', '%' . $search . '%')
+                    ->orWhere('affiliate_document_number', 'like', '%' . $search . '%')
+                    ->orWhere('affiliate_hospital', 'like', '%' . $search . '%')
+                    ->orWhere('received_by_name', 'like', '%' . $search . '%');
+            });
+        }
+
+        $total = (clone $query)->count();
+        $records = $query->skip(($page - 1) * $pageSize)
+            ->take($pageSize)
+            ->get();
+
+        $items = $records->map(fn (SstReturnRecord $record) => $this->transformReturnRecord($record))->all();
+
+        return [
+            'items' => $items,
+            'total' => $total,
+            'page' => $page,
+            'pageSize' => $pageSize,
+        ];
+    }
+
+    private function transformReturnRecord(SstReturnRecord $record): array
+    {
+        $signatureUrl = null;
+        if ($record->signature_path) {
+            try {
+                $disk = self::SIGNATURE_DISK;
+
+                $diskInstance = Storage::disk($disk);
+
+                if (method_exists($diskInstance, 'temporaryUrl')) {
+                    $signatureUrl = $diskInstance->temporaryUrl(
+                        $record->signature_path,
+                        now()->addMinutes(self::SIGNATURE_TEMP_URL_MINUTES)
+                    );
+                } else {
+                    $signatureUrl = $diskInstance->url($record->signature_path);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo generar URL para la firma de devolución', [
+                    'record_id' => $record->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return [
+            'id' => $record->id,
+            'affiliateId' => $record->affiliate_id,
+            'returnedAt' => $record->returned_at?->setTimezone('America/Bogota')->toISOString(),
+            'receivedBy' => $record->received_by_name,
+            'receivedByName' => $record->received_by_name,
+            'affiliateDocumentType' => $record->affiliate_document_type,
+            'affiliateDocumentNumber' => $record->affiliate_document_number,
+            'affiliateFirstName' => $record->affiliate_first_name,
+            'affiliateLastName' => $record->affiliate_last_name,
+            'affiliateFullName' => $record->affiliate_full_name,
+            'affiliateHospital' => $record->affiliate_hospital,
+            'affiliateRole' => $record->affiliate_role,
+            'items' => $record->items->map(function (SstReturnItem $item) {
+                // Si es carnet, no buscar en inventario
+                $isCarnet = in_array(strtolower($item->item_id), ['__carnet__', 'carnet'], true);
+                
+                if ($isCarnet) {
+                    return [
+                        'itemId' => $item->item_id,
+                        'variant' => null,
+                        'quantity' => $item->quantity,
+                    ];
+                }
+                
+                $inventoryItem = $this->findInventoryItem($item->item_id);
+                $inventoryGender = is_array($inventoryItem) ? ($inventoryItem['gender'] ?? null) : null;
+
+                return [
+                    'itemId' => $item->item_id,
+                    'variant' => array_filter([
+                        'color' => $item->variant_color,
+                        'size' => $item->variant_size,
+                    ], fn ($value) => $value !== null) ?: null,
+                    'quantity' => $item->quantity,
+                ];
+            })->all(),
+            'signedDocumentUrl' => $signatureUrl,
+            'signedDocumentType' => $record->signed_document_type,
+            'signedDocumentNumber' => $record->signed_document_number,
+            'reason' => $record->reason,
+            'notes' => $record->notes,
+        ];
     }
 
     private function storeSignature(string $dataUrl): array

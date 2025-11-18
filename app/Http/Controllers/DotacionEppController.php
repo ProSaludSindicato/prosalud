@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreSstDeliveryRequest;
+use App\Http\Requests\StoreSstReturnRequest;
 use App\Services\SstDotacionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -141,6 +142,73 @@ class DotacionEppController extends Controller
 
             return response()->json([
                 'message' => 'Error interno del servidor al registrar la entrega',
+            ], 500);
+        }
+    }
+
+    public function returns(Request $request): JsonResponse
+    {
+        try {
+            $filters = $request->only([
+                'affiliateId',
+                'receivedBy',
+                'hospital',
+                'startDate',
+                'endDate',
+                'documentNumber',
+                'searchTerm',
+                'page',
+                'pageSize',
+            ]);
+            $result = $this->dotacionService->getReturns($filters);
+
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Log::error('Error al obtener devoluciones de dotación/EPP', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al obtener el historial de devoluciones',
+            ], 500);
+        }
+    }
+
+    public function storeReturn(StoreSstReturnRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        $expectedId = sprintf('%s-%s', strtoupper($data['affiliateDocumentType']), $data['affiliateDocumentNumber']);
+
+        if ($expectedId !== $data['affiliateId']) {
+            return response()->json([
+                'message' => 'Los datos del afiliado no coinciden con el identificador proporcionado.',
+            ], 422);
+        }
+
+        try {
+            $record = $this->dotacionService->createReturn($data);
+
+            return response()->json([
+                'message' => 'Devolución registrada exitosamente',
+                'record' => $record,
+            ], 200);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 404);
+        } catch (\Throwable $e) {
+            Log::error('Error al registrar devolución de dotación/EPP', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error interno del servidor al registrar la devolución',
             ], 500);
         }
     }

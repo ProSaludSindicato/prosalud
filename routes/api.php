@@ -155,6 +155,8 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
         Route::get('/inventory', [DotacionEppController::class, 'inventory'])->middleware('permission:dotacion.view');
         Route::get('/deliveries', [DotacionEppController::class, 'deliveries'])->middleware('permission:dotacion.view');
         Route::post('/deliveries', [DotacionEppController::class, 'storeDelivery'])->middleware(['permission:dotacion.view', 'permission:dotacion.deliveries.create']);
+        Route::get('/returns', [DotacionEppController::class, 'returns'])->middleware('permission:dotacion.view');
+        Route::post('/returns', [DotacionEppController::class, 'storeReturn'])->middleware(['permission:dotacion.view', 'permission:dotacion.deliveries.create']);
     });
 
     // Inventory Management routes
