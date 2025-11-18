@@ -2,13 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\{StoreComfenalcoEventRequest, UpdateComfenalcoEventRequest};
 use App\Models\ComfenalcoEvent;
-use App\Http\Requests\StoreComfenalcoEventRequest;
-use App\Http\Requests\UpdateComfenalcoEventRequest;
-use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\{Request, Response};
+use Illuminate\Support\Facades\{Log, Storage};
 use Illuminate\Support\Str;
 
 class ComfenalcoEventController extends Controller
@@ -19,6 +16,7 @@ class ComfenalcoEventController extends Controller
     public function index(): \Illuminate\Http\JsonResponse
     {
         $events = ComfenalcoEvent::orderBy('created_at', 'desc')->get();
+
         return response()->json($events);
     }
 
@@ -50,7 +48,7 @@ class ComfenalcoEventController extends Controller
                     $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
 
                     // If S3 fails (returns false), try local disk
-                    if ($storedPath === false) {
+                    if (false === $storedPath) {
                         Log::warning('S3 upload failed, trying local disk', [
                             's3_disk' => $disk,
                             'fallback_disk' => $fallbackDisk,
@@ -113,7 +111,7 @@ class ComfenalcoEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al crear el evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
@@ -128,7 +126,7 @@ class ComfenalcoEventController extends Controller
 
             if (!$comfenalcoEvent) {
                 return response()->json([
-                    'message' => 'Evento no encontrado'
+                    'message' => 'Evento no encontrado',
                 ], 404);
             }
 
@@ -141,7 +139,7 @@ class ComfenalcoEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al obtener el evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
@@ -170,8 +168,9 @@ class ComfenalcoEventController extends Controller
                     'user_id' => $request->user()?->id,
                     'timestamp' => now()->toISOString(),
                 ]);
+
                 return response()->json([
-                    'message' => 'Evento no encontrado'
+                    'message' => 'Evento no encontrado',
                 ], 404);
             }
 
@@ -218,7 +217,7 @@ class ComfenalcoEventController extends Controller
                     $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
 
                     // If S3 fails (returns false), try local disk
-                    if ($storedPath === false) {
+                    if (false === $storedPath) {
                         Log::warning('S3 upload failed, trying local disk', [
                             's3_disk' => $disk,
                             'fallback_disk' => $fallbackDisk,
@@ -281,7 +280,7 @@ class ComfenalcoEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al actualizar el evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
@@ -310,8 +309,9 @@ class ComfenalcoEventController extends Controller
                     'user_id' => $request->user()?->id,
                     'timestamp' => now()->toISOString(),
                 ]);
+
                 return response()->json([
-                    'message' => 'Evento no encontrado'
+                    'message' => 'Evento no encontrado',
                 ], 404);
             }
 
@@ -352,7 +352,7 @@ class ComfenalcoEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al eliminar el evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
@@ -367,12 +367,12 @@ class ComfenalcoEventController extends Controller
 
             if (!$comfenalcoEvent) {
                 return response()->json([
-                    'message' => 'Evento no encontrado'
+                    'message' => 'Evento no encontrado',
                 ], 404);
             }
 
             $request->validate([
-                'is_visible' => 'required|boolean'
+                'is_visible' => 'required|boolean',
             ]);
 
             $comfenalcoEvent->update(['is_visible' => $request->is_visible]);
@@ -395,7 +395,7 @@ class ComfenalcoEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al cambiar la visibilidad del evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }

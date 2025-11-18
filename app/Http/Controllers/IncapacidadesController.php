@@ -2,21 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\JsonResponse;
 use App\Http\Requests\IncapacidadSearchRequest;
 use App\Services\IncapacidadService;
+use Illuminate\Http\JsonResponse;
 
 class IncapacidadesController extends Controller
 {
     public function __construct(
-        private IncapacidadService $incapacidadService
-    ) {}
+        private IncapacidadService $incapacidadService,
+    ) {
+    }
 
     /**
-     * Search for disability records by document type and number
-     *
-     * @param IncapacidadSearchRequest $request
-     * @return JsonResponse
+     * Search for disability records by document type and number.
      */
     public function search(IncapacidadSearchRequest $request): JsonResponse
     {
@@ -57,7 +55,7 @@ class IncapacidadesController extends Controller
     }
 
     /**
-     * Build HTTP response based on service result
+     * Build HTTP response based on service result.
      */
     private function buildResponse(array $result): JsonResponse
     {
@@ -69,8 +67,8 @@ class IncapacidadesController extends Controller
             'error' => response()->json($result, 500),
             default => response()->json([
                 'status' => 'error',
-                'message' => 'Respuesta inesperada del servicio'
-            ], 500)
+                'message' => 'Respuesta inesperada del servicio',
+            ], 500),
         };
     }
 }

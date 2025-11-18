@@ -2,14 +2,9 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
+use App\Services\{IncapacidadService, LiquidacionService};
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use App\Services\IncapacidadService;
-use App\Services\LiquidacionService;
-use App\Services\ExcelReaderService;
-use App\Services\DateFormatterService;
-use Mockery;
-use Illuminate\Support\Facades\Log;
+use Tests\TestCase;
 
 class ErrorHandlingTest extends TestCase
 {
@@ -20,12 +15,18 @@ class ErrorHandlingTest extends TestCase
         parent::setUp();
     }
 
-    /**
-     * Test incapacidades API handles service exceptions gracefully
-     */
-    public function test_incapacidades_api_handles_service_exceptions()
+    protected function tearDown(): void
     {
-        $mockService = Mockery::mock(IncapacidadService::class);
+        \Mockery::close();
+        parent::tearDown();
+    }
+
+    /**
+     * Test incapacidades API handles service exceptions gracefully.
+     */
+    public function testIncapacidadesApiHandlesServiceExceptions()
+    {
+        $mockService = \Mockery::mock(IncapacidadService::class);
         $mockService->shouldReceive('searchByDocument')
             ->once()
             ->andThrow(new \Exception('Service error'));
@@ -35,21 +36,21 @@ class ErrorHandlingTest extends TestCase
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(500)
                 ->assertJsonFragment([
-                    'message' => 'Service error'
+                    'message' => 'Service error',
                 ]);
     }
 
     /**
-     * Test liquidaciones API handles service exceptions gracefully
+     * Test liquidaciones API handles service exceptions gracefully.
      */
-    public function test_liquidaciones_api_handles_service_exceptions()
+    public function testLiquidacionesApiHandlesServiceExceptions()
     {
-        $mockService = Mockery::mock(LiquidacionService::class);
+        $mockService = \Mockery::mock(LiquidacionService::class);
         $mockService->shouldReceive('searchByDocument')
             ->once()
             ->andThrow(new \Exception('Service error'));
@@ -59,38 +60,38 @@ class ErrorHandlingTest extends TestCase
         $response = $this->postJson('/api/liquidaciones/search', [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(500)
                 ->assertJsonFragment([
-                    'message' => 'Service error'
+                    'message' => 'Service error',
                 ]);
     }
 
     /**
-     * Test API handles malformed JSON gracefully
+     * Test API handles malformed JSON gracefully.
      */
-    public function test_api_handles_malformed_json()
+    public function testApiHandlesMalformedJson()
     {
         $response = $this->post('/api/incapacidades/search', [], [
-            'Content-Type' => 'application/json'
+            'Content-Type' => 'application/json',
         ]);
 
         $response->assertStatus(422);
     }
 
     /**
-     * Test API handles oversized requests
+     * Test API handles oversized requests.
      */
-    public function test_api_handles_oversized_requests()
+    public function testApiHandlesOversizedRequests()
     {
         $largeString = str_repeat('A', 10000);
 
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => $largeString,
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(422)
@@ -98,14 +99,14 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles special characters in input
+     * Test API handles special characters in input.
      */
-    public function test_api_handles_special_characters()
+    public function testApiHandlesSpecialCharacters()
     {
         $specialChars = [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ];
 
         $response = $this->postJson('/api/incapacidades/search', $specialChars);
@@ -115,14 +116,14 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles null values
+     * Test API handles null values.
      */
-    public function test_api_handles_null_values()
+    public function testApiHandlesNullValues()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => null,
             'numero_documento' => null,
-            'fecha_expedicion' => null
+            'fecha_expedicion' => null,
         ]);
 
         $response->assertStatus(422)
@@ -130,14 +131,14 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles array values instead of strings
+     * Test API handles array values instead of strings.
      */
-    public function test_api_handles_array_values()
+    public function testApiHandlesArrayValues()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => ['CC'],
             'numero_documento' => ['123456789'],
-            'fecha_expedicion' => ['2025-01-01']
+            'fecha_expedicion' => ['2025-01-01'],
         ]);
 
         $response->assertStatus(422)
@@ -145,14 +146,14 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles numeric values for string fields
+     * Test API handles numeric values for string fields.
      */
-    public function test_api_handles_numeric_values_for_string_fields()
+    public function testApiHandlesNumericValuesForStringFields()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 123,
             'numero_documento' => 123456789,
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(422)
@@ -160,16 +161,16 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles extremely long field values
+     * Test API handles extremely long field values.
      */
-    public function test_api_handles_extremely_long_field_values()
+    public function testApiHandlesExtremelyLongFieldValues()
     {
         $longString = str_repeat('A', 1000);
 
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => $longString,
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(422)
@@ -177,9 +178,9 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles invalid HTTP methods
+     * Test API handles invalid HTTP methods.
      */
-    public function test_api_handles_invalid_http_methods()
+    public function testApiHandlesInvalidHttpMethods()
     {
         $response = $this->get('/api/incapacidades/search');
         $response->assertStatus(405); // Method Not Allowed
@@ -192,14 +193,14 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles missing Content-Type header
+     * Test API handles missing Content-Type header.
      */
-    public function test_api_handles_missing_content_type()
+    public function testApiHandlesMissingContentType()
     {
         $response = $this->post('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         // Should still process the request
@@ -207,16 +208,16 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles invalid Content-Type
+     * Test API handles invalid Content-Type.
      */
-    public function test_api_handles_invalid_content_type()
+    public function testApiHandlesInvalidContentType()
     {
         $response = $this->call('POST', '/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ], [], [], [
-            'CONTENT_TYPE' => 'text/plain'
+            'CONTENT_TYPE' => 'text/plain',
         ]);
 
         // Should still process the request
@@ -224,19 +225,19 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles concurrent requests with same data
+     * Test API handles concurrent requests with same data.
      */
-    public function test_api_handles_concurrent_identical_requests()
+    public function testApiHandlesConcurrentIdenticalRequests()
     {
         $requestData = [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ];
 
         // Simulate multiple identical requests
         $responses = [];
-        for ($i = 0; $i < 3; $i++) {
+        for ($i = 0; $i < 3; ++$i) {
             $responses[] = $this->postJson('/api/incapacidades/search', $requestData);
         }
 
@@ -247,16 +248,16 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles requests with extra fields
+     * Test API handles requests with extra fields.
      */
-    public function test_api_handles_extra_fields()
+    public function testApiHandlesExtraFields()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
             'fecha_expedicion' => '2025-01-01',
             'extra_field' => 'extra_value',
-            'another_field' => 'another_value'
+            'another_field' => 'another_value',
         ]);
 
         // Should ignore extra fields and process normally
@@ -264,9 +265,9 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles requests with nested data
+     * Test API handles requests with nested data.
      */
-    public function test_api_handles_nested_data()
+    public function testApiHandlesNestedData()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
@@ -274,8 +275,8 @@ class ErrorHandlingTest extends TestCase
             'fecha_expedicion' => '2025-01-01',
             'nested' => [
                 'field1' => 'value1',
-                'field2' => 'value2'
-            ]
+                'field2' => 'value2',
+            ],
         ]);
 
         // Should ignore nested data and process normally
@@ -283,14 +284,14 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles requests with boolean values
+     * Test API handles requests with boolean values.
      */
-    public function test_api_handles_boolean_values()
+    public function testApiHandlesBooleanValues()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => true,
             'numero_documento' => false,
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(422)
@@ -298,23 +299,17 @@ class ErrorHandlingTest extends TestCase
     }
 
     /**
-     * Test API handles requests with object values
+     * Test API handles requests with object values.
      */
-    public function test_api_handles_object_values()
+    public function testApiHandlesObjectValues()
     {
         $response = $this->postJson('/api/incapacidades/search', [
-            'tipo' => (object)['value' => 'CC'],
-            'numero_documento' => (object)['value' => '123456789'],
-            'fecha_expedicion' => '2025-01-01'
+            'tipo' => (object) ['value' => 'CC'],
+            'numero_documento' => (object) ['value' => '123456789'],
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(422)
                 ->assertJsonValidationErrors(['tipo', 'numero_documento']);
-    }
-
-    protected function tearDown(): void
-    {
-        Mockery::close();
-        parent::tearDown();
     }
 }

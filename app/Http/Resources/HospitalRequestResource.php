@@ -35,7 +35,7 @@ class HospitalRequestResource extends JsonResource
             'items' => HospitalRequestItemResource::collection($this->whenLoaded('items')),
             'timeline' => $this->when(
                 $this->relationLoaded('timeline'),
-                fn() => $this->timeline->map(fn($entry) => [
+                fn () => $this->timeline->map(fn ($entry) => [
                     'id' => $entry->id,
                     'status' => $entry->status,
                     'timestamp' => $entry->timestamp->toISOString(),

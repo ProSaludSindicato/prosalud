@@ -2,7 +2,6 @@
 
 namespace App\Http\Middleware;
 
-use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -11,15 +10,15 @@ class EnsureApiTokenIsValid
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param \Closure(Request): (Response) $next
      */
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, \Closure $next): Response
     {
         if (!$request->user()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Token de acceso inválido o expirado',
-                'error' => 'Unauthenticated'
+                'error' => 'Unauthenticated',
             ], 401);
         }
 
@@ -28,14 +27,10 @@ class EnsureApiTokenIsValid
             return response()->json([
                 'success' => false,
                 'message' => 'Tu cuenta está desactivada. Contacta al administrador.',
-                'error' => 'Account deactivated'
+                'error' => 'Account deactivated',
             ], 403);
         }
 
         return $next($request);
     }
 }
-
-
-
-

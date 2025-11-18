@@ -4,9 +4,7 @@ namespace App\Services;
 
 use App\Mail\UserPasswordSetupInvitation;
 use App\Models\User;
-use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\{Crypt, Log, Mail};
 
 class UserInvitationService
 {
@@ -107,5 +105,3 @@ class UserInvitationService
         return rtrim($baseUrl, '/') . '/' . $path . '?token=' . urlencode($token);
     }
 }
-
-

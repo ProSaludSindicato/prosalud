@@ -5,11 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UploadAfiliadosFileRequest;
 use App\Services\AfiliadoService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
-use PhpOffice\PhpSpreadsheet\IOFactory;
+use Illuminate\Support\Facades\{Auth, Log, Storage};
+use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
 
 class AfiliadosFileController extends Controller
 {
@@ -58,7 +55,7 @@ class AfiliadosFileController extends Controller
             try {
                 $storedPath = Storage::disk($disk)->putFileAs('data', $file, self::FILE_NAME);
 
-                if ($storedPath === false) {
+                if (false === $storedPath) {
                     throw new \Exception('Error al subir archivo al bucket privado');
                 }
 
@@ -82,7 +79,7 @@ class AfiliadosFileController extends Controller
                     $disk = self::FALLBACK_DISK;
                     $storedPath = Storage::disk($disk)->putFileAs('data', $file, self::FILE_NAME);
 
-                    if ($storedPath === false) {
+                    if (false === $storedPath) {
                         throw new \Exception('Error al subir archivo al disco de fallback');
                     }
 
@@ -128,4 +125,3 @@ class AfiliadosFileController extends Controller
         }
     }
 }
-

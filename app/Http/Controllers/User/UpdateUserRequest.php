@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\User;
 
 use App\Rules\SecurePassword;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Support\Facades\Log;
 
 class UpdateUserRequest extends FormRequest
@@ -74,16 +74,9 @@ class UpdateUserRequest extends FormRequest
     {
         Log::error('Errores de validación en UpdateUserRequest', [
             'input' => $this->all(),
-            'errors' => $validator->errors()->toArray()
+            'errors' => $validator->errors()->toArray(),
         ]);
 
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => 'Errores de validación',
-                'errors' => $validator->errors(),
-            ], 422)
-        );
+        throw new HttpResponseException(response()->json(['success' => false, 'message' => 'Errores de validación', 'errors' => $validator->errors()], 422));
     }
 }
-

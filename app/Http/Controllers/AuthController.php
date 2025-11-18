@@ -3,15 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Http\Resources\Auth\UserAuthResource;
-use App\Models\ApiToken;
-use App\Models\User;
+use App\Models\{ApiToken, User};
 use App\Rules\SecurePassword;
-use App\Services\PasswordResetService;
-use App\Services\UserInvitationService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
+use App\Services\{PasswordResetService, UserInvitationService};
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{Auth, Log};
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -39,12 +35,10 @@ class AuthController extends Controller
             'password' => $credentials['password'],
             'is_active' => true,
         ])) {
-            throw ValidationException::withMessages([
-                'email' => __('auth.failed'),
-            ]);
+            throw ValidationException::withMessages(['email' => __('auth.failed')]);
         }
 
-        /** @var \App\Models\User $user */
+        /** @var User $user */
         $user = Auth::user();
 
         $plainToken = Str::random(60);
@@ -102,7 +96,7 @@ class AuthController extends Controller
         $user->loadMissing('roles', 'permissions', 'roles.permissions');
 
         // Log para diagnóstico de permisos
-        \Illuminate\Support\Facades\Log::info('[AUTH ME] Información del usuario autenticado', [
+        Log::info('[AUTH ME] Información del usuario autenticado', [
             'user_id' => $user->id,
             'user_email' => $user->email,
             'is_active' => $user->is_active,
@@ -134,7 +128,7 @@ class AuthController extends Controller
             ], 422);
         }
 
-        /** @var \App\Models\User $user */
+        /** @var User $user */
         $user = $result['user'];
 
         // Asignamos la nueva contraseña; el cast "hashed" del modelo se encarga de encriptarla.
@@ -208,7 +202,7 @@ class AuthController extends Controller
             ], 422);
         }
 
-        /** @var \App\Models\User $user */
+        /** @var User $user */
         $user = $result['user'];
 
         // Asignamos la nueva contraseña; el cast "hashed" del modelo se encarga de encriptarla.
@@ -220,5 +214,3 @@ class AuthController extends Controller
         ]);
     }
 }
-
-

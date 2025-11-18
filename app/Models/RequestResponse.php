@@ -6,16 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * @property int $id
- * @property string $request_form_id
- * @property string $status
- * @property string $email_subject
- * @property string $email_body
- * @property string $created_at
- * @property-read RequestForm $requestForm
+ * @property int         $id
+ * @property string      $request_form_id
+ * @property string      $status
+ * @property string      $email_subject
+ * @property string      $email_body
+ * @property string      $created_at
+ * @property RequestForm $requestForm
  */
 class RequestResponse extends Model
 {
+    public $timestamps = false;
     protected $fillable = [
         'request_form_id',
         'status',
@@ -24,10 +25,8 @@ class RequestResponse extends Model
         'created_at',
     ];
 
-    public $timestamps = false;
-
     /**
-     * Get the request form that this response belongs to
+     * Get the request form that this response belongs to.
      */
     public function requestForm(): BelongsTo
     {

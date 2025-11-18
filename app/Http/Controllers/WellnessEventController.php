@@ -3,15 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Constants\Providers;
-use App\Http\Requests\ChangeWellnessEventVisibilityRequest;
-use App\Http\Requests\StoreWellnessEventRequest;
-use App\Http\Requests\UpdateWellnessEventRequest;
-use App\Models\WellnessEvent;
-use App\Models\WellnessEventImage;
-use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Log;
+use App\Http\Requests\{ChangeWellnessEventVisibilityRequest, StoreWellnessEventRequest, UpdateWellnessEventRequest};
+use App\Models\{WellnessEvent, WellnessEventImage};
+use Illuminate\Http\{Request, Response};
+use Illuminate\Support\Facades\{Log, Storage};
 
 class WellnessEventController extends Controller
 {
@@ -123,7 +118,7 @@ class WellnessEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al crear el evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
@@ -134,6 +129,7 @@ class WellnessEventController extends Controller
     public function show(WellnessEvent $wellnessEvent)
     {
         $wellnessEvent->load('images');
+
         return response()->json($wellnessEvent);
     }
 
@@ -225,7 +221,7 @@ class WellnessEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al actualizar el evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
@@ -289,7 +285,7 @@ class WellnessEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al eliminar el evento',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
@@ -310,7 +306,7 @@ class WellnessEventController extends Controller
 
         $wellnessEvent->save();
 
-        \Illuminate\Support\Facades\Log::info('Visibilidad de evento de bienestar cambiada', [
+        Log::info('Visibilidad de evento de bienestar cambiada', [
             'event_id' => $wellnessEvent->id,
             'title' => $wellnessEvent->title,
             'old_visibility' => $oldVisibility,
@@ -327,7 +323,7 @@ class WellnessEventController extends Controller
     }
 
     /**
-     * Add images to an existing event
+     * Add images to an existing event.
      */
     public function addImages(Request $request, WellnessEvent $wellnessEvent)
     {
@@ -353,13 +349,13 @@ class WellnessEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al agregar imágenes',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
 
     /**
-     * Remove a specific image from an event
+     * Remove a specific image from an event.
      */
     public function removeImage(WellnessEvent $wellnessEvent, WellnessEventImage $image)
     {
@@ -405,13 +401,13 @@ class WellnessEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al eliminar imagen',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }
 
     /**
-     * Handle image uploads for an event
+     * Handle image uploads for an event.
      */
     private function handleImageUploads(WellnessEvent $event, array $images)
     {
@@ -443,7 +439,7 @@ class WellnessEventController extends Controller
                 );
 
                 // If S3 fails (returns false), try local disk
-                if ($storedPath === false) {
+                if (false === $storedPath) {
                     Log::warning('S3 upload failed, trying local disk', [
                         's3_disk' => $disk,
                         'fallback_disk' => $fallbackDisk,
@@ -465,7 +461,6 @@ class WellnessEventController extends Controller
                     'final_disk' => $disk,
                     'timestamp' => now()->toISOString(),
                 ]);
-
             } catch (\Exception $e) {
                 Log::error('Error al guardar imagen en disco S3', [
                     'filename' => $filename,
@@ -503,7 +498,7 @@ class WellnessEventController extends Controller
 
             // Generate URL manually based on disk configuration
             // Use the actual stored path, not the expected path
-            if ($disk === 'prosalud-public') {
+            if ('prosalud-public' === $disk) {
                 $baseUrl = config('filesystems.disks.prosalud-public.url');
                 $imageUrl = rtrim($baseUrl, '/') . '/' . ltrim($storedPath, '/');
             } else {
@@ -522,7 +517,7 @@ class WellnessEventController extends Controller
             ]);
 
             // Verify URL uniqueness before saving to database
-            $existingImage = \App\Models\WellnessEventImage::where('image_url', $imageUrl)->first();
+            $existingImage = WellnessEventImage::where('image_url', $imageUrl)->first();
             if ($existingImage) {
                 Log::error('URL duplicada detectada', [
                     'event_id' => $event->id,
@@ -535,20 +530,20 @@ class WellnessEventController extends Controller
             WellnessEventImage::create([
                 'event_id' => $event->id,
                 'image_url' => $imageUrl,
-                'is_main' => $index === 0, // First image is main
+                'is_main' => 0 === $index, // First image is main
             ]);
 
             Log::info('Imagen guardada en base de datos', [
                 'event_id' => $event->id,
                 'image_url' => $imageUrl,
-                'is_main' => $index === 0,
+                'is_main' => 0 === $index,
                 'timestamp' => now()->toISOString(),
             ]);
         }
     }
 
     /**
-     * Delete all images for an event
+     * Delete all images for an event.
      */
     private function deleteEventImages(WellnessEvent $event)
     {
@@ -590,7 +585,7 @@ class WellnessEventController extends Controller
     }
 
     /**
-     * Extract path from CloudFront or S3 URL
+     * Extract path from CloudFront or S3 URL.
      */
     private function extractPathFromUrl(string $url): ?string
     {
@@ -602,37 +597,34 @@ class WellnessEventController extends Controller
 
         // Remove leading /storage/ or just /
         $path = ltrim($parsed['path'], '/');
-        $path = preg_replace('#^storage/#', '', $path);
 
-        return $path;
+        return preg_replace('#^storage/#', '', $path);
     }
 
     /**
      * Generate a simple but descriptive filename for event images
-     * Format: Evento[ID]-[UniqueId]-[Index].[ext]
+     * Format: Evento[ID]-[UniqueId]-[Index].[ext].
      */
     private function generateDescriptiveFilenameForEventImage(
         \Illuminate\Http\UploadedFile $image,
         int $eventId,
         int $index,
-        string $extension
+        string $extension,
     ): string {
         $uniqueId = substr(\Illuminate\Support\Str::uuid()->toString(), 0, 6);
-        
+
         // Build simple filename: Evento[ID]-[UniqueId]-[Index].[ext]
-        $filename = sprintf(
+        return sprintf(
             'Evento%d-%s-%d.%s',
             $eventId,
             $uniqueId,
             $index + 1,
             $extension
         );
-
-        return $filename;
     }
 
     /**
-     * Get file extension from MIME type
+     * Get file extension from MIME type.
      */
     private function getExtensionFromMimeType(string $mimeType): string
     {

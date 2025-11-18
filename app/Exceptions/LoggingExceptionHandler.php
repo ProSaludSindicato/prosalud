@@ -5,7 +5,6 @@ namespace App\Exceptions;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
-use Throwable;
 
 class LoggingExceptionHandler extends ExceptionHandler
 {
@@ -14,15 +13,15 @@ class LoggingExceptionHandler extends ExceptionHandler
      */
     public function register(): void
     {
-        $this->reportable(function (Throwable $e) {
+        $this->reportable(function (\Throwable $e) {
             $this->logException($e);
         });
     }
 
     /**
-     * Log exceptions with contextual information
+     * Log exceptions with contextual information.
      */
-    protected function logException(Throwable $e): void
+    protected function logException(\Throwable $e): void
     {
         $context = [
             'exception_class' => get_class($e),
@@ -51,7 +50,7 @@ class LoggingExceptionHandler extends ExceptionHandler
     }
 
     /**
-     * Log HTTP exceptions with appropriate level
+     * Log HTTP exceptions with appropriate level.
      */
     protected function logHttpException(HttpException $e, array $context): void
     {
@@ -67,9 +66,9 @@ class LoggingExceptionHandler extends ExceptionHandler
     }
 
     /**
-     * Log generic exceptions
+     * Log generic exceptions.
      */
-    protected function logGenericException(Throwable $e, array $context): void
+    protected function logGenericException(\Throwable $e, array $context): void
     {
         $logLevel = $this->getLogLevelForException($e);
 
@@ -77,9 +76,9 @@ class LoggingExceptionHandler extends ExceptionHandler
     }
 
     /**
-     * Determine appropriate log level for exception
+     * Determine appropriate log level for exception.
      */
-    protected function getLogLevelForException(Throwable $e): string
+    protected function getLogLevelForException(\Throwable $e): string
     {
         $exceptionClass = get_class($e);
 

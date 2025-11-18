@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Request;
 
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
 
 class StoreRequestFormRequest extends FormRequest
@@ -20,36 +20,6 @@ class StoreRequestFormRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
-    }
-
-    /**
-     * Prepare the data for validation.
-     * Laravel automatically converts FormData payload[campo] to payload.campo,
-     * and files[certificacionBancaria] to files.certificacionBancaria.
-     * This method ensures the data structure is consistent for validation.
-     */
-    protected function prepareForValidation(): void
-    {
-        // Laravel automatically handles FormData payload[campo] as payload.campo
-        // When we access $this->input('payload'), it should already be an array
-        // But we need to ensure it's properly structured for validation
-
-        $allInput = $this->all();
-
-        // Build payload array from payload.* keys if payload is not already an array
-        if (!isset($allInput['payload']) || !is_array($allInput['payload'])) {
-            $payload = [];
-            foreach ($allInput as $key => $value) {
-                // Laravel converts payload[campo] to 'payload.campo' in the input
-                if (strpos($key, 'payload.') === 0) {
-                    $payloadKey = substr($key, 8); // Remove 'payload.' prefix
-                    $payload[$payloadKey] = $value;
-                }
-            }
-            if (!empty($payload)) {
-                $this->merge(['payload' => $payload]);
-            }
-        }
     }
 
     /**
@@ -72,9 +42,9 @@ class StoreRequestFormRequest extends FormRequest
         ];
 
         // Validaciones específicas para actualizar-datos-personales
-        if ($requestType === 'actualizar-datos-personales') {
+        if ('actualizar-datos-personales' === $requestType) {
             $payload = $this->input('payload', []);
-            
+
             $rules = array_merge($rules, [
                 // Campos siempre requeridos
                 'payload.proceso' => 'required|string|max:255',
@@ -89,19 +59,19 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.correo' => 'nullable|email|max:255',
                 'payload.tallaUniforme' => 'nullable|string|in:xs,s,m,l,xl,xxl,xxxl,4xl,5xl',
                 'payload.tallaCalzado' => 'nullable|string|max:10',
-                
+
                 // Campos condicionales - Nivel educativo
                 'payload.nivelEducativo' => 'nullable|string|in:primaria,bachiller,tecnico,tecnologo,profesional,especialista,maestria,doctorado',
-                
+
                 // Campos condicionales - Cuenta bancaria (si se envía numeroCuenta, los demás son requeridos)
                 'payload.numeroCuenta' => 'nullable|string|max:255',
                 'payload.tipoCuenta' => 'nullable|string|in:ahorros,corriente',
                 'payload.banco' => 'nullable|string|in:bancolombia,davivienda,bbva,bogota,occidente,popular,av_villas,caja_social,colpatria,agrario,cooperativo,otros',
-                
+
                 // Campos condicionales - EPS y AFP
                 'payload.eps' => 'nullable|string|in:sura,nueva_eps,sanitas,coomeva,compensar,famisanar,savia,aliansalud,otros',
                 'payload.afp' => 'nullable|string|in:proteccion,porvenir,colfondos,old_mutual,skandia,otros',
-                
+
                 // Beneficiarios nuevos
                 'payload.beneficiariosNuevos' => 'nullable|array',
                 'payload.beneficiariosNuevos.*' => 'required|array',
@@ -112,7 +82,7 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.beneficiariosNuevos.*.fecha_nacimiento' => 'required|date|date_format:Y-m-d',
                 'payload.beneficiariosNuevos.*.parentesco' => 'nullable|string|max:100',
                 'payload.beneficiariosNuevos.*.sexo' => 'nullable|string|max:10',
-                
+
                 // Archivos condicionales
                 'files.certificacionBancaria' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',
                 'files.diplomaEducativo' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',
@@ -133,12 +103,12 @@ class StoreRequestFormRequest extends FormRequest
         $validator->after(function ($validator) {
             $requestType = $this->input('request_type');
             $allFiles = $this->allFiles();
-            
+
             // Validar tamaño total de archivos (máximo 20MB = 20480 KB)
             $totalSize = 0;
             $maxTotalSizeKB = 20480; // 20MB en KB
             $maxTotalSizeMB = 20;
-            
+
             // Recopilar todos los archivos
             $filesToCheck = [];
             foreach ($allFiles as $key => $file) {
@@ -153,15 +123,15 @@ class StoreRequestFormRequest extends FormRequest
                     $filesToCheck[] = $file;
                 }
             }
-            
+
             // Calcular tamaño total
             foreach ($filesToCheck as $file) {
                 $totalSize += $file->getSize(); // getSize() retorna bytes
             }
-            
+
             // Convertir bytes a KB
             $totalSizeKB = $totalSize / 1024;
-            
+
             // Validar tamaño total
             if ($totalSizeKB > $maxTotalSizeKB) {
                 $totalSizeMB = round($totalSizeKB / 1024, 2);
@@ -170,33 +140,33 @@ class StoreRequestFormRequest extends FormRequest
                     "El tamaño total de los archivos adjuntos ({$totalSizeMB}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB. Esto podría causar problemas al enviar el correo electrónico."
                 );
             }
-            
-            if ($requestType === 'actualizar-datos-personales') {
+
+            if ('actualizar-datos-personales' === $requestType) {
                 $payload = $this->input('payload', []);
-                
+
                 // Helper para verificar si existe un archivo
-                $hasFile = function($fileKey) use ($allFiles) {
+                $hasFile = function ($fileKey) use ($allFiles) {
                     // Extraer el nombre del archivo si viene con notación files.archivo
                     $actualKey = str_replace('files.', '', $fileKey);
-                    
+
                     // Verificar si está directamente en allFiles (files.certificacionBancaria)
                     if (isset($allFiles[$fileKey])) {
                         return true;
                     }
-                    
+
                     // Verificar si está en el array files (files[certificacionBancaria])
                     if (isset($allFiles['files']) && is_array($allFiles['files']) && isset($allFiles['files'][$actualKey])) {
                         return true;
                     }
-                    
+
                     // Verificar con el nombre del archivo directamente
                     if (isset($allFiles[$actualKey])) {
                         return true;
                     }
-                    
+
                     return false;
                 };
-                
+
                 // Validación condicional: Si se envía numeroCuenta, tipoCuenta, banco y certificacionBancaria son requeridos
                 if (!empty($payload['numeroCuenta'])) {
                     if (empty($payload['tipoCuenta'])) {
@@ -209,7 +179,7 @@ class StoreRequestFormRequest extends FormRequest
                         $validator->errors()->add('files.certificacionBancaria', 'La certificación bancaria es obligatoria cuando se actualiza el número de cuenta.');
                     }
                 }
-                
+
                 // Validación condicional: Si se actualiza nivelEducativo, diploma y acta son requeridos
                 if (!empty($payload['nivelEducativo'])) {
                     if (!$hasFile('files.diplomaEducativo') && !$hasFile('diplomaEducativo')) {
@@ -219,14 +189,14 @@ class StoreRequestFormRequest extends FormRequest
                         $validator->errors()->add('files.actaGrado', 'El acta de grado es obligatoria cuando se actualiza el nivel educativo.');
                     }
                 }
-                
+
                 // Validación condicional: Si se cambia EPS, certificadoEps es requerido
                 if (!empty($payload['eps'])) {
                     if (!$hasFile('files.certificadoEps') && !$hasFile('certificadoEps')) {
                         $validator->errors()->add('files.certificadoEps', 'El certificado de EPS es obligatorio cuando se actualiza la EPS.');
                     }
                 }
-                
+
                 // Validación condicional: Si se cambia AFP, certificadoAfp es requerido
                 if (!empty($payload['afp'])) {
                     if (!$hasFile('files.certificadoAfp') && !$hasFile('certificadoAfp')) {
@@ -256,7 +226,7 @@ class StoreRequestFormRequest extends FormRequest
         ];
 
         // Mensajes específicos para actualizar-datos-personales
-        if ($this->input('request_type') === 'actualizar-datos-personales') {
+        if ('actualizar-datos-personales' === $this->input('request_type')) {
             $messages = array_merge($messages, [
                 'payload.proceso.required' => 'El proceso es obligatorio.',
                 'payload.dondeRealizaProceso.required' => 'El campo donde realiza el proceso es obligatorio.',
@@ -308,7 +278,7 @@ class StoreRequestFormRequest extends FormRequest
             'files' => 'archivos',
         ];
 
-        if ($this->input('request_type') === 'actualizar-datos-personales') {
+        if ('actualizar-datos-personales' === $this->input('request_type')) {
             $attributes = array_merge($attributes, [
                 'payload.proceso' => 'proceso',
                 'payload.dondeRealizaProceso' => 'donde realiza el proceso',
@@ -337,21 +307,45 @@ class StoreRequestFormRequest extends FormRequest
     }
 
     /**
+     * Prepare the data for validation.
+     * Laravel automatically converts FormData payload[campo] to payload.campo,
+     * and files[certificacionBancaria] to files.certificacionBancaria.
+     * This method ensures the data structure is consistent for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        // Laravel automatically handles FormData payload[campo] as payload.campo
+        // When we access $this->input('payload'), it should already be an array
+        // But we need to ensure it's properly structured for validation
+
+        $allInput = $this->all();
+
+        // Build payload array from payload.* keys if payload is not already an array
+        if (!isset($allInput['payload']) || !is_array($allInput['payload'])) {
+            $payload = [];
+            foreach ($allInput as $key => $value) {
+                // Laravel converts payload[campo] to 'payload.campo' in the input
+                if (0 === strpos($key, 'payload.')) {
+                    $payloadKey = substr($key, 8); // Remove 'payload.' prefix
+                    $payload[$payloadKey] = $value;
+                }
+            }
+            if (!empty($payload)) {
+                $this->merge(['payload' => $payload]);
+            }
+        }
+    }
+
+    /**
      * @throws HttpResponseException
      */
     protected function failedValidation(Validator $validator)
     {
         Log::error('Errores de validación en StoreRequestFormRequest', [
             'input' => $this->all(),
-            'errors' => $validator->errors()->toArray()
+            'errors' => $validator->errors()->toArray(),
         ]);
 
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => 'Errores de validación',
-                'errors' => $validator->errors(),
-            ], 422)
-        );
+        throw new HttpResponseException(response()->json(['success' => false, 'message' => 'Errores de validación', 'errors' => $validator->errors()], 422));
     }
 }

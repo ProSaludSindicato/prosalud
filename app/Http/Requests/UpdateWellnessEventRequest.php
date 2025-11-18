@@ -2,41 +2,16 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
-use App\Constants\Providers;
 
 class UpdateWellnessEventRequest extends FormRequest
 {
     public function authorize(): bool
     {
         return true;
-    }
-
-    protected function prepareForValidation()
-    {
-        Log::info('UpdateWellnessEventRequest - Datos recibidos', [
-            'method' => $this->method(),
-            'content_type' => $this->header('Content-Type'),
-            'raw_data' => $this->all(),
-            'json_data' => $this->json()->all(),
-            'input_data' => $this->input(),
-            'has_files' => $this->hasFile('images'),
-            'files_count' => count($this->file('images', [])),
-            'ip_address' => $this->ip(),
-            'user_agent' => $this->userAgent(),
-            'timestamp' => now()->toISOString(),
-        ]);
-
-        // Parse is_visible from string to boolean if needed
-        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
-            $this->merge([
-                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
-            ]);
-        }
     }
 
     public function rules(): array
@@ -96,6 +71,29 @@ class UpdateWellnessEventRequest extends FormRequest
             // is_visible
             'is_visible.boolean' => 'El campo de visibilidad debe ser verdadero o falso.',
         ];
+    }
+
+    protected function prepareForValidation()
+    {
+        Log::info('UpdateWellnessEventRequest - Datos recibidos', [
+            'method' => $this->method(),
+            'content_type' => $this->header('Content-Type'),
+            'raw_data' => $this->all(),
+            'json_data' => $this->json()->all(),
+            'input_data' => $this->input(),
+            'has_files' => $this->hasFile('images'),
+            'files_count' => count($this->file('images', [])),
+            'ip_address' => $this->ip(),
+            'user_agent' => $this->userAgent(),
+            'timestamp' => now()->toISOString(),
+        ]);
+
+        // Parse is_visible from string to boolean if needed
+        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
+            $this->merge([
+                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
+            ]);
+        }
     }
 
     protected function failedValidation(Validator $validator)

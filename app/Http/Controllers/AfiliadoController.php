@@ -2,16 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\AfiliadoRequestOtpRequest;
-use App\Http\Requests\AfiliadoVerifyOtpRequest;
+use App\Http\Requests\{AfiliadoRequestOtpRequest, AfiliadoVerifyOtpRequest};
 use App\Mail\AfiliadoOtpCode;
-use App\Services\AfiliadoService;
-use App\Services\ObfuscationService;
-use App\Services\OtpService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
+use App\Services\{AfiliadoService, ObfuscationService, OtpService};
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{Log, Mail};
 
 class AfiliadoController extends Controller
 {
@@ -22,7 +17,7 @@ class AfiliadoController extends Controller
     public function __construct(
         AfiliadoService $afiliadoService,
         OtpService $otpService,
-        ObfuscationService $obfuscationService
+        ObfuscationService $obfuscationService,
     ) {
         $this->afiliadoService = $afiliadoService;
         $this->otpService = $otpService;
@@ -30,7 +25,7 @@ class AfiliadoController extends Controller
     }
 
     /**
-     * Authenticate and get affiliate information
+     * Authenticate and get affiliate information.
      */
     public function authenticate(Request $request): JsonResponse
     {
@@ -39,7 +34,7 @@ class AfiliadoController extends Controller
             $request->validate([
                 'tipo_documento' => 'required|string|max:50',
                 'documento' => 'required|string|max:50',
-                'fecha_expedicion' => 'required|string|max:50'
+                'fecha_expedicion' => 'required|string|max:50',
             ]);
 
             $tipoDocumento = trim($request->input('tipo_documento'));
@@ -53,16 +48,17 @@ class AfiliadoController extends Controller
                 'fecha_expedicion' => $fechaExpedicion,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             // Check if the file is available
             if (!$this->afiliadoService->isFileAvailable()) {
                 Log::error('Archivo de afiliados no disponible');
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Servicio temporalmente no disponible',
-                    'afiliado' => null
+                    'afiliado' => null,
                 ], 503);
             }
 
@@ -73,19 +69,19 @@ class AfiliadoController extends Controller
                 $fechaExpedicion
             );
 
-            if ($afiliado === null) {
+            if (null === $afiliado) {
                 Log::warning('Autenticación fallida - afiliado no encontrado', [
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
                     'fecha_expedicion' => $fechaExpedicion,
                     'ip_address' => $request->ip(),
-                    'timestamp' => now()->toISOString()
+                    'timestamp' => now()->toISOString(),
                 ]);
 
                 return response()->json([
                     'success' => false,
                     'message' => 'Credenciales incorrectas o afiliado no encontrado',
-                    'afiliado' => null
+                    'afiliado' => null,
                 ], 401);
             }
 
@@ -94,29 +90,27 @@ class AfiliadoController extends Controller
                 'documento' => $documento,
                 'ip_address' => $request->ip(),
                 'convenios_count' => count($afiliado['convenios'] ?? []),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Autenticación exitosa',
-                'afiliado' => $afiliado
+                'afiliado' => $afiliado,
             ]);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::warning('Validación fallida en autenticación de afiliado', [
                 'errors' => $e->errors(),
                 'ip_address' => $request->ip(),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Datos de entrada inválidos',
                 'errors' => $e->errors(),
-                'afiliado' => null
+                'afiliado' => null,
             ], 422);
-
         } catch (\Exception $e) {
             Log::error('Error inesperado en autenticación de afiliado', [
                 'error' => $e->getMessage(),
@@ -124,20 +118,20 @@ class AfiliadoController extends Controller
                 'tipo_documento' => $request->input('tipo_documento'),
                 'documento' => $request->input('documento'),
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error interno del servidor',
-                'afiliado' => null
+                'afiliado' => null,
             ], 500);
         }
     }
 
     /**
      * Request OTP code for affiliate authentication
-     * Validates credentials and sends OTP to registered email
+     * Validates credentials and sends OTP to registered email.
      */
     public function requestOtp(AfiliadoRequestOtpRequest $request): JsonResponse
     {
@@ -153,7 +147,7 @@ class AfiliadoController extends Controller
                 'fecha_expedicion' => $fechaExpedicion,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             // Check rate limiting
@@ -172,6 +166,7 @@ class AfiliadoController extends Controller
             // Check if the file is available
             if (!$this->afiliadoService->isFileAvailable()) {
                 Log::error('Archivo de afiliados no disponible para solicitud OTP');
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Servicio temporalmente no disponible',
@@ -185,13 +180,13 @@ class AfiliadoController extends Controller
                 $fechaExpedicion
             );
 
-            if ($afiliadoData === null) {
+            if (null === $afiliadoData) {
                 Log::warning('Solicitud OTP fallida - credenciales inválidas o sin correo', [
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
                     'fecha_expedicion' => $fechaExpedicion,
                     'ip_address' => $request->ip(),
-                    'timestamp' => now()->toISOString()
+                    'timestamp' => now()->toISOString(),
                 ]);
 
                 return response()->json([
@@ -215,7 +210,7 @@ class AfiliadoController extends Controller
                     'correo' => $afiliadoData['correo'],
                     'session_id' => $sessionId,
                     'ip_address' => $request->ip(),
-                    'timestamp' => now()->toISOString()
+                    'timestamp' => now()->toISOString(),
                 ]);
 
                 // Obfuscate email for frontend display
@@ -227,14 +222,13 @@ class AfiliadoController extends Controller
                     'session_id' => $sessionId,
                     'email_obfuscated' => $obfuscatedEmail,
                 ]);
-
             } catch (\Exception $e) {
                 Log::error('Error al enviar código OTP por correo', [
                     'error' => $e->getMessage(),
                     'documento' => $documento,
                     'correo' => $afiliadoData['correo'],
                     'trace' => $e->getTraceAsString(),
-                    'timestamp' => now()->toISOString()
+                    'timestamp' => now()->toISOString(),
                 ]);
 
                 return response()->json([
@@ -242,7 +236,6 @@ class AfiliadoController extends Controller
                     'message' => 'Error al enviar el código de verificación. Por favor, intenta nuevamente más tarde.',
                 ], 500);
             }
-
         } catch (\Exception $e) {
             Log::error('Error inesperado en solicitud de OTP', [
                 'error' => $e->getMessage(),
@@ -250,7 +243,7 @@ class AfiliadoController extends Controller
                 'tipo_documento' => $request->input('tipo_documento'),
                 'documento' => $request->input('documento'),
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json([
@@ -261,7 +254,7 @@ class AfiliadoController extends Controller
     }
 
     /**
-     * Verify OTP code and return complete affiliate information
+     * Verify OTP code and return complete affiliate information.
      */
     public function verifyOtp(AfiliadoVerifyOtpRequest $request): JsonResponse
     {
@@ -278,7 +271,7 @@ class AfiliadoController extends Controller
                 'session_id' => $sessionId,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             // Verify OTP
@@ -289,7 +282,7 @@ class AfiliadoController extends Controller
                     'documento' => $documento,
                     'session_id' => $sessionId,
                     'ip_address' => $request->ip(),
-                    'timestamp' => now()->toISOString()
+                    'timestamp' => now()->toISOString(),
                 ]);
 
                 return response()->json([
@@ -301,6 +294,7 @@ class AfiliadoController extends Controller
             // Check if the file is available
             if (!$this->afiliadoService->isFileAvailable()) {
                 Log::error('Archivo de afiliados no disponible para verificación OTP');
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Servicio temporalmente no disponible',
@@ -314,7 +308,7 @@ class AfiliadoController extends Controller
                 $fechaExpedicion
             );
 
-            if ($afiliadoInfo === null) {
+            if (null === $afiliadoInfo) {
                 Log::error('Error al obtener información completa del afiliado después de verificación OTP', [
                     'documento' => $documento,
                     'session_id' => $sessionId,
@@ -342,7 +336,7 @@ class AfiliadoController extends Controller
                 'ip_address' => $request->ip(),
                 'convenios_count' => count($afiliadoInfo['convenios'] ?? []),
                 'beneficiarios_count' => count($afiliadoInfo['beneficiarios'] ?? []),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json([
@@ -350,7 +344,6 @@ class AfiliadoController extends Controller
                 'message' => 'Autenticación exitosa',
                 'data' => $afiliadoInfo,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error inesperado en verificación de OTP', [
                 'error' => $e->getMessage(),
@@ -359,7 +352,7 @@ class AfiliadoController extends Controller
                 'documento' => $request->input('documento'),
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
                 'session_id' => $request->input('session_id'),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json([
@@ -372,7 +365,7 @@ class AfiliadoController extends Controller
     /**
      * Obfuscate email address for display (more restrictive)
      * Example: juan.perez@example.com -> j***z@example.com
-     * Example: juan@example.com -> j***n@example.com
+     * Example: juan@example.com -> j***n@example.com.
      */
     private function obfuscateEmail(string $email): string
     {
@@ -389,7 +382,7 @@ class AfiliadoController extends Controller
         // If very short (1-2 characters), show only asterisks
         if ($length <= 2) {
             $obfuscatedLocal = '***';
-        } elseif ($length === 3) {
+        } elseif (3 === $length) {
             // For 3 chars: show first and last
             $obfuscatedLocal = substr($localPartClean, 0, 1) . '***' . substr($localPartClean, -1);
         } else {

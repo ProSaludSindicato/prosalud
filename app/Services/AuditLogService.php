@@ -2,13 +2,13 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class AuditLogService
 {
     /**
-     * Log user authentication events
+     * Log user authentication events.
      */
     public function logAuthentication(string $action, array $context = []): void
     {
@@ -20,7 +20,7 @@ class AuditLogService
     }
 
     /**
-     * Log data access events
+     * Log data access events.
      */
     public function logDataAccess(string $resource, string $action, array $context = []): void
     {
@@ -33,11 +33,11 @@ class AuditLogService
     }
 
     /**
-     * Log administrative actions
+     * Log administrative actions.
      */
     public function logAdministrativeAction(string $action, array $context = []): void
     {
-        Log::info("Audit: Administrative Action", array_merge([
+        Log::info('Audit: Administrative Action', array_merge([
             'action' => $action,
             'type' => 'administrative',
             'timestamp' => now()->toISOString(),
@@ -45,13 +45,13 @@ class AuditLogService
     }
 
     /**
-     * Log system performance metrics
+     * Log system performance metrics.
      */
     public function logPerformance(string $operation, float $executionTime, array $context = []): void
     {
         $level = $executionTime > 5000 ? 'warning' : 'info'; // Log as warning if > 5 seconds
-        
-        Log::{$level}("Audit: Performance Metric", array_merge([
+
+        Log::{$level}('Audit: Performance Metric', array_merge([
             'operation' => $operation,
             'execution_time_ms' => $executionTime,
             'type' => 'performance',
@@ -60,11 +60,11 @@ class AuditLogService
     }
 
     /**
-     * Log security events
+     * Log security events.
      */
     public function logSecurityEvent(string $event, array $context = []): void
     {
-        Log::warning("Audit: Security Event", array_merge([
+        Log::warning('Audit: Security Event', array_merge([
             'event' => $event,
             'type' => 'security',
             'timestamp' => now()->toISOString(),
@@ -72,11 +72,11 @@ class AuditLogService
     }
 
     /**
-     * Log business process events
+     * Log business process events.
      */
     public function logBusinessProcess(string $process, string $action, array $context = []): void
     {
-        Log::info("Audit: Business Process", array_merge([
+        Log::info('Audit: Business Process', array_merge([
             'process' => $process,
             'action' => $action,
             'type' => 'business_process',
@@ -85,7 +85,7 @@ class AuditLogService
     }
 
     /**
-     * Add request context to audit log
+     * Add request context to audit log.
      */
     public function addRequestContext(Request $request, array $context = []): array
     {

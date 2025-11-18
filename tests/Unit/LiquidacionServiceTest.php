@@ -2,10 +2,8 @@
 
 namespace Tests\Unit;
 
+use App\Services\{DateFormatterService, ExcelReaderService, LiquidacionService};
 use Tests\TestCase;
-use App\Services\LiquidacionService;
-use App\Services\ExcelReaderService;
-use App\Services\DateFormatterService;
 
 class LiquidacionServiceTest extends TestCase
 {
@@ -22,11 +20,17 @@ class LiquidacionServiceTest extends TestCase
         $this->service = new LiquidacionService($this->excelReader, $this->dateFormatter);
     }
 
-    public function test_search_by_document_returns_success_when_records_found()
+    protected function tearDown(): void
+    {
+        \Mockery::close();
+        parent::tearDown();
+    }
+
+    public function testSearchByDocumentReturnsSuccessWhenRecordsFound()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'HOSPITAL', 'PROCESO', 'FECHA INGRESO', 'FECHA RETIRO', 'ESTADO BD', 'REVISION', 'FORMATO DE REVISION FISICO', 'CONVENIOS', 'N° CONVENIOS FIRMADOS', 'N° CONVENIOS PENDIENTES', 'SOLICITUD AFILIACION', 'ACTA DE ENTENDIMIENTO', 'ACTA DE COMPROMISO', 'MOTIVO DE RETIRO', 'CARTA RETIRO', 'DTOS PENDIENTES', 'OBSERVACIONES', 'FECHA DE ENTREGA A CAMILA', 'RESPONSABLE DE ENTREGA CONTABILIDAD'],
-            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID', 'HMFS - BELLO', 'ENFERMERO(A) PROFESIONAL - URGENCIAS', '7/1/2023', '7/31/2025', 'Retirado', 'SINDY', 'OK', '3', '3', '0', 'PT', 'PT', 'PT', 'RETIRO LIBRE Y VOLUNTARIO', 'OK', 'ACTAS - SOLICITUD DE AFILIACION', 'DOCUMENTOS PENDIENTES', '8/28/2025', 'SINDY']
+            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID', 'HMFS - BELLO', 'ENFERMERO(A) PROFESIONAL - URGENCIAS', '7/1/2023', '7/31/2025', 'Retirado', 'SINDY', 'OK', '3', '3', '0', 'PT', 'PT', 'PT', 'RETIRO LIBRE Y VOLUNTARIO', 'OK', 'ACTAS - SOLICITUD DE AFILIACION', 'DOCUMENTOS PENDIENTES', '8/28/2025', 'SINDY'],
         ];
 
         $this->excelReader
@@ -51,7 +55,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertArrayNotHasKey('FORMATO DE REVISION FISICO', $record);
     }
 
-    public function test_search_by_document_returns_not_found_when_no_records()
+    public function testSearchByDocumentReturnsNotFoundWhenNoRecords()
     {
         $this->excelReader
             ->shouldReceive('readLiquidacionesFile')
@@ -64,7 +68,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertStringContainsString('No se pudo leer', $result['message']);
     }
 
-    public function test_search_by_document_handles_excel_reader_exception()
+    public function testSearchByDocumentHandlesExcelReaderException()
     {
         $this->excelReader
             ->shouldReceive('readLiquidacionesFile')
@@ -77,11 +81,11 @@ class LiquidacionServiceTest extends TestCase
         $this->assertStringContainsString('Error interno', $result['message']);
     }
 
-    public function test_internal_fields_are_filtered_from_response()
+    public function testInternalFieldsAreFilteredFromResponse()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'HOSPITAL', 'PROCESO', 'FECHA INGRESO', 'FECHA RETIRO', 'ESTADO BD', 'REVISION', 'FORMATO DE REVISION FISICO', 'CONVENIOS', 'N° CONVENIOS FIRMADOS', 'N° CONVENIOS PENDIENTES', 'SOLICITUD AFILIACION', 'ACTA DE ENTENDIMIENTO', 'ACTA DE COMPROMISO', 'MOTIVO DE RETIRO', 'CARTA RETIRO', 'DTOS PENDIENTES', 'OBSERVACIONES', 'FECHA DE ENTREGA A CAMILA', 'RESPONSABLE DE ENTREGA CONTABILIDAD'],
-            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID', 'HMFS - BELLO', 'ENFERMERO(A) PROFESIONAL - URGENCIAS', '7/1/2023', '7/31/2025', 'Retirado', 'SINDY', 'OK', '3', '3', '0', 'PT', 'PT', 'PT', 'RETIRO LIBRE Y VOLUNTARIO', 'OK', 'ACTAS - SOLICITUD DE AFILIACION', 'DOCUMENTOS PENDIENTES', '8/28/2025', 'SINDY']
+            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID', 'HMFS - BELLO', 'ENFERMERO(A) PROFESIONAL - URGENCIAS', '7/1/2023', '7/31/2025', 'Retirado', 'SINDY', 'OK', '3', '3', '0', 'PT', 'PT', 'PT', 'RETIRO LIBRE Y VOLUNTARIO', 'OK', 'ACTAS - SOLICITUD DE AFILIACION', 'DOCUMENTOS PENDIENTES', '8/28/2025', 'SINDY'],
         ];
 
         $this->excelReader
@@ -112,11 +116,11 @@ class LiquidacionServiceTest extends TestCase
         $this->assertEquals('Retirado', $record['ESTADO BD']);
     }
 
-    public function test_date_conversion_with_liquidaciones_format()
+    public function testDateConversionWithLiquidacionesFormat()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'FECHA INGRESO', 'FECHA RETIRO'],
-            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID', '7/1/2023', '7/31/2025']
+            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID', '7/1/2023', '7/31/2025'],
         ];
 
         $this->excelReader
@@ -179,12 +183,12 @@ class LiquidacionServiceTest extends TestCase
         $this->assertEquals('31/07/2025', $record['FECHA RETIRO']);
     }
 
-    public function test_search_by_document_with_date_validation_filters_mismatched_dates()
+    public function testSearchByDocumentWithDateValidationFiltersMismatchedDates()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE'],
             ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID'],
-            ['CC', '1121949803', '2/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID OTRO']
+            ['CC', '1121949803', '2/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID OTRO'],
         ];
 
         $this->excelReader
@@ -204,11 +208,11 @@ class LiquidacionServiceTest extends TestCase
         $this->assertEquals('1/1/2020', $result['data'][0]['FECHA EXPEDICION']);
     }
 
-    public function test_search_by_document_with_date_validation_returns_not_found_when_no_matching_dates()
+    public function testSearchByDocumentWithDateValidationReturnsNotFoundWhenNoMatchingDates()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE'],
-            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID']
+            ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID'],
         ];
 
         $this->excelReader
@@ -225,11 +229,5 @@ class LiquidacionServiceTest extends TestCase
 
         $this->assertEquals('not_found', $result['status']);
         $this->assertStringContainsString('No se encontraron', $result['message']);
-    }
-
-    protected function tearDown(): void
-    {
-        \Mockery::close();
-        parent::tearDown();
     }
 }

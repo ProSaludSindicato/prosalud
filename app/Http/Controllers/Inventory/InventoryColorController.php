@@ -10,7 +10,7 @@ use Illuminate\Http\JsonResponse;
 class InventoryColorController extends Controller
 {
     /**
-     * Get all available colors
+     * Get all available colors.
      */
     public function index(): JsonResponse
     {

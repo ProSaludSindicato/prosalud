@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
 
@@ -12,15 +12,6 @@ class UpdateComfenalcoEventRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
-    }
-
-    protected function prepareForValidation(): void
-    {
-        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
-            $this->merge([
-                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
-            ]);
-        }
     }
 
     public function rules(): array
@@ -65,6 +56,15 @@ class UpdateComfenalcoEventRequest extends FormRequest
         ];
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
+            $this->merge([
+                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
+            ]);
+        }
+    }
+
     protected function failedValidation(Validator $validator)
     {
         Log::warning('Validación fallida para actualización de evento Comfenalco', [
@@ -74,11 +74,6 @@ class UpdateComfenalcoEventRequest extends FormRequest
             'timestamp' => now()->toISOString(),
         ]);
 
-        throw new HttpResponseException(
-            response()->json([
-                'message' => 'Los datos proporcionados no son válidos.',
-                'errors' => $validator->errors()
-            ], 422)
-        );
+        throw new HttpResponseException(response()->json(['message' => 'Los datos proporcionados no son válidos.', 'errors' => $validator->errors()], 422));
     }
 }

@@ -5,12 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
 
 class InventoryVariant extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -35,7 +35,7 @@ class InventoryVariant extends Model
     ];
 
     /**
-     * Get the product that owns this variant
+     * Get the product that owns this variant.
      */
     public function product(): BelongsTo
     {
@@ -43,7 +43,7 @@ class InventoryVariant extends Model
     }
 
     /**
-     * Get the color for this variant
+     * Get the color for this variant.
      */
     public function color(): BelongsTo
     {
@@ -51,7 +51,7 @@ class InventoryVariant extends Model
     }
 
     /**
-     * Get all hospital request items for this variant
+     * Get all hospital request items for this variant.
      */
     public function hospitalRequestItems(): HasMany
     {
@@ -59,7 +59,7 @@ class InventoryVariant extends Model
     }
 
     /**
-     * Get all supplier delivery items for this variant
+     * Get all supplier delivery items for this variant.
      */
     public function supplierDeliveryItems(): HasMany
     {
@@ -77,7 +77,7 @@ class InventoryVariant extends Model
     }
 
     /**
-     * Check if this variant is low on stock
+     * Check if this variant is low on stock.
      */
     public function getIsLowStockAttribute(): bool
     {
@@ -85,7 +85,7 @@ class InventoryVariant extends Model
     }
 
     /**
-     * Get variant label (e.g., "M - Azul Rey")
+     * Get variant label (e.g., "M - Azul Rey").
      */
     public function getLabelAttribute(): string
     {

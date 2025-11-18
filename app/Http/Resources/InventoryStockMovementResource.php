@@ -29,9 +29,9 @@ class InventoryStockMovementResource extends JsonResource
                     'id' => $this->variant->color?->id,
                     'label' => $this->variant->color?->label,
                     'hex' => $this->variant->color?->hex,
-                ], fn ($value) => $value !== null) : null,
+                ], fn ($value) => null !== $value) : null,
                 'gender' => $this->variant->product?->gender,
-            ], fn ($value) => $value !== null)),
+            ], fn ($value) => null !== $value)),
             'quantity' => (int) $this->quantity,
             'reason' => $this->reason,
             'from_location' => $this->whenLoaded('fromLocation', fn () => [
@@ -40,7 +40,7 @@ class InventoryStockMovementResource extends JsonResource
                 'type' => $this->fromLocation?->type,
             ]),
             'from_supplier' => $this->when(
-                $this->reason === 'entry'
+                'entry' === $this->reason
                 && $this->relationLoaded('reference')
                 && $this->reference instanceof InventoryEntry,
                 fn () => array_filter([
@@ -48,7 +48,7 @@ class InventoryStockMovementResource extends JsonResource
                     'supplier_id' => $this->reference->supplier_id,
                     'supplier_name' => $this->reference->supplier_name,
                     'document_number' => $this->reference->document_number,
-                ], fn ($value) => $value !== null)
+                ], fn ($value) => null !== $value)
             ),
             'to_location' => $this->whenLoaded('toLocation', fn () => [
                 'id' => $this->toLocation?->id,

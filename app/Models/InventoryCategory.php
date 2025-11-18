@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InventoryCategory extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -24,7 +25,7 @@ class InventoryCategory extends Model
     ];
 
     /**
-     * Get all subcategories for this category
+     * Get all subcategories for this category.
      */
     public function subcategories(): HasMany
     {
@@ -32,7 +33,7 @@ class InventoryCategory extends Model
     }
 
     /**
-     * Get all products for this category
+     * Get all products for this category.
      */
     public function products(): HasMany
     {

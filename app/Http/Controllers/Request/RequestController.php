@@ -2,32 +2,25 @@
 
 namespace App\Http\Controllers\Request;
 
-use App\Constants\RequestStatuses;
-use App\Constants\RequestTypes;
+use App\Constants\{RequestStatuses, RequestTypes};
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\RespondToRequestRequest;
-use App\Models\RequestForm;
-use App\Models\RequestResponse;
-use App\Models\RequestSubtypeAssignment;
-use App\Models\RequestTypeAssignment;
-use App\Mail\RequestFormReceived;
-use App\Mail\RequestFormResponse;
-use App\Services\AuditLogService;
-use App\Services\RequestAssignmentService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
+use App\Mail\{RequestFormReceived, RequestFormResponse};
+use App\Models\{RequestForm, RequestResponse, RequestSubtypeAssignment, RequestTypeAssignment};
+use App\Services\{AuditLogService, RequestAssignmentService};
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{Log, Mail, Storage};
 use Illuminate\Support\Str;
 
 class RequestController extends Controller
 {
     public function __construct(
         private AuditLogService $auditLogService,
-        private RequestAssignmentService $assignmentService
-    ) {}
+        private RequestAssignmentService $assignmentService,
+    ) {
+    }
+
     public function store(StoreRequestFormRequest $request): JsonResponse
     {
         $dto = RequestFormDTO::fromArray($request->validated());
@@ -95,11 +88,11 @@ class RequestController extends Controller
                 'created_at' => $requestForm->formatted_created_at,
                 'files' => $this->formatFilesMetadata($requestForm->files, $requestForm->id),
                 'files_count' => is_array($requestForm->files) ? count($requestForm->files) : 0,
-            ]
+            ],
         ];
 
         // For 'actualizar-datos-personales' requests, also include 'request' key for backward compatibility
-        if ($requestForm->request_type === 'actualizar-datos-personales') {
+        if ('actualizar-datos-personales' === $requestForm->request_type) {
             $response['request'] = [
                 'id' => $requestForm->id,
                 'request_type' => $requestForm->request_type,
@@ -110,407 +103,6 @@ class RequestController extends Controller
         }
 
         return response()->json($response, 201);
-    }
-
-    /**
-     * Extract original files from request for email attachment
-     * Only extracts multipart files, not base64 (which can't be attached)
-     * Supports both files[certificacionBancaria] (FormData) and files.certificacionBancaria notation
-     */
-    private function extractOriginalFiles(Request $request): array
-    {
-        $originalFiles = [];
-        $allFiles = $request->allFiles();
-
-        foreach ($allFiles as $key => $file) {
-            // Handle nested files array (files[certificacionBancaria] from FormData)
-            if (is_array($file)) {
-                foreach ($file as $singleFile) {
-                    if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
-                        $originalFiles[] = $singleFile;
-                    }
-                }
-            }
-            // Handle files with dot notation (files.certificacionBancaria)
-            elseif (strpos($key, 'files.') === 0) {
-                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                    $originalFiles[] = $file;
-                }
-            }
-            // Handle single file upload
-            elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                $originalFiles[] = $file;
-            }
-        }
-
-        return $originalFiles;
-    }
-
-    /**
-     * Process and store files to private bucket
-     * Handles files from JSON array or multipart form-data
-     * Supports both files[certificacionBancaria] (FormData) and files.certificacionBancaria notation
-     */
-    private function processAndStoreFiles(Request $request): array
-    {
-        $disk = 'prosalud-private';
-        $fallbackDisk = 'local';
-        $filesMetadata = [];
-
-        $allFiles = $request->allFiles();
-
-        foreach ($allFiles as $key => $file) {
-            if (!is_array($file) && !($file instanceof \Illuminate\Http\UploadedFile)) {
-                continue;
-            }
-
-            // Handle nested files array (files[certificacionBancaria] from FormData)
-            if (is_array($file)) {
-                foreach ($file as $fileKey => $singleFile) {
-                    if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
-                        $metadata = $this->storeUploadedFile($singleFile, $fileKey, $disk, $fallbackDisk);
-                        if ($metadata) {
-                            $filesMetadata[$fileKey] = $metadata;
-                        }
-                    }
-                }
-            }
-            // Handle files with dot notation (files.certificacionBancaria)
-            elseif ($key === 'files' && $file instanceof \Illuminate\Http\UploadedFile) {
-                // This shouldn't happen, but handle it just in case
-                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
-                if ($metadata) {
-                    $filesMetadata[$key] = $metadata;
-                }
-            }
-            // Handle direct file keys (certificacionBancaria directly)
-            elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
-                if ($metadata) {
-                    $filesMetadata[$key] = $metadata;
-                }
-            }
-        }
-
-        // Also check for files with dot notation (files.certificacionBancaria)
-        // Laravel converts files[certificacionBancaria] to files.certificacionBancaria
-        $dotNotationFiles = [];
-        foreach ($allFiles as $key => $value) {
-            if (strpos($key, 'files.') === 0) {
-                $fileKey = substr($key, 6); // Remove 'files.' prefix
-                if ($value instanceof \Illuminate\Http\UploadedFile && $value->isValid()) {
-                    $dotNotationFiles[$fileKey] = $value;
-                }
-            }
-        }
-        
-        // Process dot notation files
-        foreach ($dotNotationFiles as $fileKey => $file) {
-            if (!isset($filesMetadata[$fileKey])) {
-                $metadata = $this->storeUploadedFile($file, $fileKey, $disk, $fallbackDisk);
-                if ($metadata) {
-                    $filesMetadata[$fileKey] = $metadata;
-                }
-            }
-        }
-
-        // Then, handle files from JSON array (base64 encoded)
-        $jsonFiles = $request->input('files', []);
-        if (is_array($jsonFiles) && !empty($jsonFiles)) {
-            foreach ($jsonFiles as $key => $fileData) {
-                // Skip if we already processed this file from multipart
-                if (isset($filesMetadata[$key])) {
-                    continue;
-                }
-
-                try {
-                // Handle base64 encoded files from API
-                if (is_string($fileData) && preg_match('/^data:([a-zA-Z0-9\/]+);base64,/', $fileData, $matches)) {
-                    $mimeType = $matches[1];
-                    $base64Data = substr($fileData, strpos($fileData, ',') + 1);
-                    $fileContent = base64_decode($base64Data, true);
-
-                    if ($fileContent === false) {
-                        Log::warning('Failed to decode base64 file', [
-                            'key' => $key,
-                            'mime_type' => $mimeType,
-                        ]);
-                        continue;
-                    }
-
-                    // Determine file extension from mime type
-                    $extension = $this->getExtensionFromMimeType($mimeType);
-                    $filename = $this->generateDescriptiveFilenameForBase64($key, $extension);
-                    $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
-
-                    // Store file
-                    $stored = Storage::disk($disk)->put($storagePath, $fileContent);
-
-                    if ($stored === false) {
-                        Log::warning('Failed to store file in private bucket, trying fallback', [
-                            'key' => $key,
-                            'path' => $storagePath,
-                        ]);
-                        $stored = Storage::disk($fallbackDisk)->put($storagePath, $fileContent);
-                        if ($stored) {
-                            $disk = $fallbackDisk;
-                        }
-                    }
-
-                    if ($stored) {
-                        $filesMetadata[$key] = [
-                            'path' => $storagePath,
-                            'disk' => $disk,
-                            'mime_type' => $mimeType,
-                            'size' => strlen($fileContent),
-                            'original_key' => $key,
-                        ];
-                    }
-                }
-                // Handle file upload objects
-                elseif (is_array($fileData) && isset($fileData['name']) && isset($fileData['content'])) {
-                    // File data structure: {name: string, content: base64 string, mime_type?: string}
-                    $fileName = $fileData['name'];
-                    $content = $fileData['content'];
-                    $mimeType = $fileData['mime_type'] ?? 'application/octet-stream';
-
-                    // If content is base64, decode it
-                    if (preg_match('/^data:([a-zA-Z0-9\/]+);base64,/', $content, $matches)) {
-                        $mimeType = $matches[1];
-                        $base64Data = substr($content, strpos($content, ',') + 1);
-                        $fileContent = base64_decode($base64Data, true);
-                    } else {
-                        // Assume it's already base64 without prefix
-                        $fileContent = base64_decode($content, true);
-                    }
-
-                    if ($fileContent === false) {
-                        Log::warning('Failed to decode file content', ['key' => $key]);
-                        continue;
-                    }
-
-                    $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: $this->getExtensionFromMimeType($mimeType);
-                    $filename = Str::uuid() . ($extension ? '.' . $extension : '');
-                    $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
-
-                    // Store file
-                    $stored = Storage::disk($disk)->put($storagePath, $fileContent);
-
-                    if ($stored === false) {
-                        Log::warning('Failed to store file in private bucket, trying fallback', [
-                            'key' => $key,
-                            'path' => $storagePath,
-                        ]);
-                        $stored = Storage::disk($fallbackDisk)->put($storagePath, $fileContent);
-                        if ($stored) {
-                            $disk = $fallbackDisk;
-                        }
-                    }
-
-                    if ($stored) {
-                        $filesMetadata[$key] = [
-                            'path' => $storagePath,
-                            'disk' => $disk,
-                            'original_name' => $fileName,
-                            'mime_type' => $mimeType,
-                            'size' => strlen($fileContent),
-                            'original_key' => $key,
-                        ];
-                    }
-                }
-                } catch (\Exception $e) {
-                    Log::error('Error processing file for request form', [
-                        'key' => $key,
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
-                    ]);
-                    // Continue with next file instead of failing completely
-                }
-            }
-        }
-
-        return $filesMetadata;
-    }
-
-    /**
-     * Store an uploaded file to private bucket
-     */
-    private function storeUploadedFile(
-        \Illuminate\Http\UploadedFile $file,
-        string $key,
-        string &$disk,
-        string $fallbackDisk
-    ): ?array {
-        try {
-            $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
-            $filename = $this->generateDescriptiveFilenameForUpload($file, $key, $extension);
-            $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
-
-            // Store file
-            $storedPath = Storage::disk($disk)->putFileAs(
-                'request-forms/' . date('Y/m'),
-                $file,
-                $filename
-            );
-
-            $finalDisk = $disk;
-            if ($storedPath === false) {
-                Log::warning('Failed to store file in private bucket, trying fallback', [
-                    'key' => $key,
-                    'path' => $storagePath,
-                ]);
-                $storedPath = Storage::disk($fallbackDisk)->putFileAs(
-                    'request-forms/' . date('Y/m'),
-                    $file,
-                    $filename
-                );
-                if ($storedPath) {
-                    $finalDisk = $fallbackDisk;
-                } else {
-                    return null;
-                }
-            }
-
-            return [
-                'path' => $storedPath,
-                'disk' => $finalDisk,
-                'original_name' => $file->getClientOriginalName(),
-                'mime_type' => $file->getMimeType(),
-                'size' => $file->getSize(),
-                'original_key' => $key,
-            ];
-        } catch (\Exception $e) {
-            Log::error('Error storing uploaded file', [
-                'key' => $key,
-                'error' => $e->getMessage(),
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Generate a simple but descriptive filename for uploaded files
-     * Format: [Key]-[UniqueId].[ext]
-     * Example: CertBanc-abc123.pdf
-     */
-    private function generateDescriptiveFilenameForUpload(
-        \Illuminate\Http\UploadedFile $file,
-        string $key,
-        string $extension
-    ): string {
-        // Map common keys to short abbreviations
-        $keyAbbreviations = [
-            'certificacionBancaria' => 'CertBanc',
-            'diplomaEducativo' => 'Diploma',
-            'actaGrado' => 'ActaGrado',
-            'certificadoEps' => 'CertEPS',
-            'certificadoAfp' => 'CertAFP',
-            'cedula' => 'Cedula',
-            'carnet' => 'Carnet',
-            'foto' => 'Foto',
-            'documento' => 'Doc',
-        ];
-
-        // Get short name from key
-        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
-        
-        // Generate short unique identifier
-        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
-        
-        // Build simple filename: [ShortName]-[UniqueId].[ext]
-        $filename = sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
-
-        return $filename;
-    }
-
-    /**
-     * Format key name to readable format
-     */
-    private function formatKeyName(string $key): string
-    {
-        // Convert camelCase to PascalCase with spaces, then remove spaces
-        $formatted = preg_replace('/([a-z])([A-Z])/', '$1$2', $key);
-        $formatted = ucfirst($formatted);
-        
-        // Remove special characters
-        $formatted = preg_replace('/[^a-zA-Z0-9]/', '', $formatted);
-        
-        return $formatted ?: 'Archivo';
-    }
-
-    /**
-     * Get file extension from MIME type
-     */
-    private function getExtensionFromMimeType(string $mimeType): string
-    {
-        $mimeToExt = [
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            'application/pdf' => 'pdf',
-            'application/msword' => 'doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
-            'application/vnd.ms-excel' => 'xls',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
-            'text/plain' => 'txt',
-            'text/csv' => 'csv',
-        ];
-
-        return $mimeToExt[$mimeType] ?? 'bin';
-    }
-
-    /**
-     * Generate a simple but descriptive filename for base64 encoded files
-     * Format: [Key]-[UniqueId].[ext]
-     */
-    private function generateDescriptiveFilenameForBase64(string $key, string $extension): string
-    {
-        // Map common keys to short abbreviations
-        $keyAbbreviations = [
-            'certificacionBancaria' => 'CertBanc',
-            'diplomaEducativo' => 'Diploma',
-            'actaGrado' => 'ActaGrado',
-            'certificadoEps' => 'CertEPS',
-            'certificadoAfp' => 'CertAFP',
-            'cedula' => 'Cedula',
-            'carnet' => 'Carnet',
-            'foto' => 'Foto',
-            'documento' => 'Doc',
-        ];
-
-        // Get short name from key
-        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
-        
-        // Generate short unique identifier
-        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
-        
-        // Build simple filename: [ShortName]-[UniqueId].[ext]
-        $filename = sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
-
-        return $filename;
-    }
-
-    /**
-     * Get a summary of payload data for logging
-     */
-    private function getPayloadSummary(array $payload): array
-    {
-        $summary = [];
-
-        $commonFields = [
-            'proceso', 'dondeRealizaProceso', 'motivoSolicitud',
-            'dirigidoAQuien', 'tipoVehiculo', 'placaVehiculo',
-            'infoCertificado', 'otrosDescripcion'
-        ];
-
-        foreach ($commonFields as $field) {
-            if (isset($payload[$field])) {
-                $summary[$field] = $payload[$field];
-            }
-        }
-
-        return $summary;
     }
 
     /**
@@ -620,7 +212,7 @@ class RequestController extends Controller
 
         Log::info('Lista de solicitudes consultada', [
             'total_requests' => $requests->count(),
-            'filters' => $request->only(['search', 'status', 'request_type'])
+            'filters' => $request->only(['search', 'status', 'request_type']),
         ]);
 
         // Return data WITHOUT obfuscation for administrative users
@@ -631,7 +223,7 @@ class RequestController extends Controller
             'data' => $requests->map(function ($request) {
                 // Get raw attributes to avoid any accessor transformations
                 $attributes = $request->getAttributes();
-                
+
                 return [
                     'id' => $request->id,
                     'request_type' => $request->request_type,
@@ -663,7 +255,7 @@ class RequestController extends Controller
                     'files' => $this->formatFilesMetadata($request->files, $request->id),
                     'files_count' => is_array($request->files) ? count($request->files) : 0,
                 ];
-            })
+            }),
         ]);
     }
 
@@ -689,7 +281,7 @@ class RequestController extends Controller
                 'full_name' => $request->full_name,
                 'email' => $request->email,
                 'phone_number' => $request->phone_number,
-            ]
+            ],
         ]);
 
         // Return data WITHOUT obfuscation for administrative users
@@ -727,14 +319,14 @@ class RequestController extends Controller
                 'responses_count' => $request->responses->count(),
                 'files' => $this->formatFilesMetadata($request->files, $request->id),
                 'files_count' => is_array($request->files) ? count($request->files) : 0,
-            ]
+            ],
         ]);
     }
 
     /**
-     * Download a file from a request form
+     * Download a file from a request form.
      */
-    public function downloadFile(RequestForm $request, string $fileKey): \Symfony\Component\HttpFoundation\StreamedResponse|\Illuminate\Http\JsonResponse
+    public function downloadFile(RequestForm $request, string $fileKey): \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
     {
         $files = $request->files ?? [];
 
@@ -773,7 +365,6 @@ class RequestController extends Controller
             }, $originalName, [
                 'Content-Type' => $mimeType,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error al descargar archivo de solicitud', [
                 'request_id' => $request->id,
@@ -789,63 +380,7 @@ class RequestController extends Controller
     }
 
     /**
-     * Format files metadata for API response (without exposing sensitive data)
-     * Generates temporary URLs for private bucket files
-     */
-    private function formatFilesMetadata(?array $files, ?string $requestId = null): array
-    {
-        if (!is_array($files) || empty($files)) {
-            return [];
-        }
-
-        $formatted = [];
-        foreach ($files as $key => $fileMetadata) {
-            $fileKey = $fileMetadata['original_key'] ?? $key;
-            $disk = $fileMetadata['disk'] ?? 'prosalud-private';
-            $path = $fileMetadata['path'] ?? null;
-
-            $downloadUrl = null;
-            $urlExpiresAt = null;
-
-            if ($path && $disk === 'prosalud-private') {
-                try {
-                    $storage = Storage::disk($disk);
-                    $downloadUrl = $storage->temporaryUrl($path, now()->addHours(1));
-                    $urlExpiresAt = now()->addHours(1)->toIso8601String();
-                } catch (\Exception $e) {
-                    // If temporary URL generation fails (e.g., local disk doesn't support it),
-                    // fallback to the download endpoint
-                    Log::warning('Failed to generate temporary URL, using download endpoint', [
-                        'disk' => $disk,
-                        'path' => $path,
-                        'error' => $e->getMessage(),
-                    ]);
-                    $downloadUrl = $requestId
-                        ? url("/api/requests/{$requestId}/files/{$fileKey}")
-                        : null;
-                }
-            } else {
-                // For non-private disks or if path is missing, use download endpoint
-                $downloadUrl = $requestId
-                    ? url("/api/requests/{$requestId}/files/{$fileKey}")
-                    : null;
-            }
-
-            $formatted[$key] = [
-                'original_name' => $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? $key,
-                'mime_type' => $fileMetadata['mime_type'] ?? 'application/octet-stream',
-                'size' => $fileMetadata['size'] ?? 0,
-                'original_key' => $fileKey,
-                'download_url' => $downloadUrl,
-                'url_expires_at' => $urlExpiresAt,
-            ];
-        }
-
-        return $formatted;
-    }
-
-    /**
-     * Change request status
+     * Change request status.
      */
     public function changeStatus(ChangeRequestStatusRequest $statusRequest, RequestForm $request): JsonResponse
     {
@@ -853,7 +388,7 @@ class RequestController extends Controller
 
         $updateData = ['status' => $status];
 
-        if ($status === RequestStatuses::COMPLETED || $status === RequestStatuses::REJECTED) {
+        if (RequestStatuses::COMPLETED === $status || RequestStatuses::REJECTED === $status) {
             $updateData['processed_at'] = now();
         } else {
             // For other statuses, clear processed_at
@@ -897,26 +432,12 @@ class RequestController extends Controller
                 'status' => $request->status,
                 'processed_at' => $request->processed_at,
                 'formatted_processed_at' => $request->formatted_processed_at,
-            ]
+            ],
         ]);
     }
 
     /**
-     * Get human-readable status text
-     */
-    private function getStatusText(string $status): string
-    {
-        return match ($status) {
-            RequestStatuses::PENDING => 'pendiente',
-            RequestStatuses::IN_REVIEW => 'en revisión',
-            RequestStatuses::REJECTED => 'rechazada',
-            RequestStatuses::COMPLETED => 'completada',
-            default => 'desconocido',
-        };
-    }
-
-    /**
-     * Respond to a request with email and status update
+     * Respond to a request with email and status update.
      */
     public function respond(RespondToRequestRequest $request, $requestId = null): JsonResponse
     {
@@ -1021,7 +542,6 @@ class RequestController extends Controller
                 'has_attachments' => !empty($attachments),
                 'attachments_count' => count($attachments),
             ]);
-
         } catch (\Throwable $e) {
             // Log detailed error information
             Log::error('FALLO AL ENVIAR CORREO DE RESPUESTA - NO SE ACTUALIZARÁ EL ESTADO', [
@@ -1051,7 +571,7 @@ class RequestController extends Controller
         // Email was sent successfully, now update the request status
         $updateData = ['status' => $status];
 
-        if ($status === RequestStatuses::COMPLETED || $status === RequestStatuses::REJECTED) {
+        if (RequestStatuses::COMPLETED === $status || RequestStatuses::REJECTED === $status) {
             $updateData['processed_at'] = now();
         } else {
             // For other statuses, clear processed_at
@@ -1113,7 +633,475 @@ class RequestController extends Controller
                 'created_at' => $requestForm->created_at,
                 'processed_at' => $requestForm->processed_at,
                 'formatted_processed_at' => $requestForm->formatted_processed_at,
-            ]
+            ],
         ]);
+    }
+
+    /**
+     * Extract original files from request for email attachment
+     * Only extracts multipart files, not base64 (which can't be attached)
+     * Supports both files[certificacionBancaria] (FormData) and files.certificacionBancaria notation.
+     */
+    private function extractOriginalFiles(Request $request): array
+    {
+        $originalFiles = [];
+        $allFiles = $request->allFiles();
+
+        foreach ($allFiles as $key => $file) {
+            // Handle nested files array (files[certificacionBancaria] from FormData)
+            if (is_array($file)) {
+                foreach ($file as $singleFile) {
+                    if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
+                        $originalFiles[] = $singleFile;
+                    }
+                }
+            }
+            // Handle files with dot notation (files.certificacionBancaria)
+            elseif (0 === strpos($key, 'files.')) {
+                if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                    $originalFiles[] = $file;
+                }
+            }
+            // Handle single file upload
+            elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                $originalFiles[] = $file;
+            }
+        }
+
+        return $originalFiles;
+    }
+
+    /**
+     * Process and store files to private bucket
+     * Handles files from JSON array or multipart form-data
+     * Supports both files[certificacionBancaria] (FormData) and files.certificacionBancaria notation.
+     */
+    private function processAndStoreFiles(Request $request): array
+    {
+        $disk = 'prosalud-private';
+        $fallbackDisk = 'local';
+        $filesMetadata = [];
+
+        $allFiles = $request->allFiles();
+
+        foreach ($allFiles as $key => $file) {
+            if (!is_array($file) && !($file instanceof \Illuminate\Http\UploadedFile)) {
+                continue;
+            }
+
+            // Handle nested files array (files[certificacionBancaria] from FormData)
+            if (is_array($file)) {
+                foreach ($file as $fileKey => $singleFile) {
+                    if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
+                        $metadata = $this->storeUploadedFile($singleFile, $fileKey, $disk, $fallbackDisk);
+                        if ($metadata) {
+                            $filesMetadata[$fileKey] = $metadata;
+                        }
+                    }
+                }
+            }
+            // Handle files with dot notation (files.certificacionBancaria)
+            elseif ('files' === $key && $file instanceof \Illuminate\Http\UploadedFile) {
+                // This shouldn't happen, but handle it just in case
+                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
+                if ($metadata) {
+                    $filesMetadata[$key] = $metadata;
+                }
+            }
+            // Handle direct file keys (certificacionBancaria directly)
+            elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
+                if ($metadata) {
+                    $filesMetadata[$key] = $metadata;
+                }
+            }
+        }
+
+        // Also check for files with dot notation (files.certificacionBancaria)
+        // Laravel converts files[certificacionBancaria] to files.certificacionBancaria
+        $dotNotationFiles = [];
+        foreach ($allFiles as $key => $value) {
+            if (0 === strpos($key, 'files.')) {
+                $fileKey = substr($key, 6); // Remove 'files.' prefix
+                if ($value instanceof \Illuminate\Http\UploadedFile && $value->isValid()) {
+                    $dotNotationFiles[$fileKey] = $value;
+                }
+            }
+        }
+
+        // Process dot notation files
+        foreach ($dotNotationFiles as $fileKey => $file) {
+            if (!isset($filesMetadata[$fileKey])) {
+                $metadata = $this->storeUploadedFile($file, $fileKey, $disk, $fallbackDisk);
+                if ($metadata) {
+                    $filesMetadata[$fileKey] = $metadata;
+                }
+            }
+        }
+
+        // Then, handle files from JSON array (base64 encoded)
+        $jsonFiles = $request->input('files', []);
+        if (is_array($jsonFiles) && !empty($jsonFiles)) {
+            foreach ($jsonFiles as $key => $fileData) {
+                // Skip if we already processed this file from multipart
+                if (isset($filesMetadata[$key])) {
+                    continue;
+                }
+
+                try {
+                    // Handle base64 encoded files from API
+                    if (is_string($fileData) && preg_match('/^data:([a-zA-Z0-9\/]+);base64,/', $fileData, $matches)) {
+                        $mimeType = $matches[1];
+                        $base64Data = substr($fileData, strpos($fileData, ',') + 1);
+                        $fileContent = base64_decode($base64Data, true);
+
+                        if (false === $fileContent) {
+                            Log::warning('Failed to decode base64 file', [
+                                'key' => $key,
+                                'mime_type' => $mimeType,
+                            ]);
+                            continue;
+                        }
+
+                        // Determine file extension from mime type
+                        $extension = $this->getExtensionFromMimeType($mimeType);
+                        $filename = $this->generateDescriptiveFilenameForBase64($key, $extension);
+                        $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+
+                        // Store file
+                        $stored = Storage::disk($disk)->put($storagePath, $fileContent);
+
+                        if (false === $stored) {
+                            Log::warning('Failed to store file in private bucket, trying fallback', [
+                                'key' => $key,
+                                'path' => $storagePath,
+                            ]);
+                            $stored = Storage::disk($fallbackDisk)->put($storagePath, $fileContent);
+                            if ($stored) {
+                                $disk = $fallbackDisk;
+                            }
+                        }
+
+                        if ($stored) {
+                            $filesMetadata[$key] = [
+                                'path' => $storagePath,
+                                'disk' => $disk,
+                                'mime_type' => $mimeType,
+                                'size' => strlen($fileContent),
+                                'original_key' => $key,
+                            ];
+                        }
+                    }
+                    // Handle file upload objects
+                    elseif (is_array($fileData) && isset($fileData['name']) && isset($fileData['content'])) {
+                        // File data structure: {name: string, content: base64 string, mime_type?: string}
+                        $fileName = $fileData['name'];
+                        $content = $fileData['content'];
+                        $mimeType = $fileData['mime_type'] ?? 'application/octet-stream';
+
+                        // If content is base64, decode it
+                        if (preg_match('/^data:([a-zA-Z0-9\/]+);base64,/', $content, $matches)) {
+                            $mimeType = $matches[1];
+                            $base64Data = substr($content, strpos($content, ',') + 1);
+                            $fileContent = base64_decode($base64Data, true);
+                        } else {
+                            // Assume it's already base64 without prefix
+                            $fileContent = base64_decode($content, true);
+                        }
+
+                        if (false === $fileContent) {
+                            Log::warning('Failed to decode file content', ['key' => $key]);
+                            continue;
+                        }
+
+                        $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: $this->getExtensionFromMimeType($mimeType);
+                        $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+                        $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+
+                        // Store file
+                        $stored = Storage::disk($disk)->put($storagePath, $fileContent);
+
+                        if (false === $stored) {
+                            Log::warning('Failed to store file in private bucket, trying fallback', [
+                                'key' => $key,
+                                'path' => $storagePath,
+                            ]);
+                            $stored = Storage::disk($fallbackDisk)->put($storagePath, $fileContent);
+                            if ($stored) {
+                                $disk = $fallbackDisk;
+                            }
+                        }
+
+                        if ($stored) {
+                            $filesMetadata[$key] = [
+                                'path' => $storagePath,
+                                'disk' => $disk,
+                                'original_name' => $fileName,
+                                'mime_type' => $mimeType,
+                                'size' => strlen($fileContent),
+                                'original_key' => $key,
+                            ];
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Error processing file for request form', [
+                        'key' => $key,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                    ]);
+                    // Continue with next file instead of failing completely
+                }
+            }
+        }
+
+        return $filesMetadata;
+    }
+
+    /**
+     * Store an uploaded file to private bucket.
+     */
+    private function storeUploadedFile(
+        \Illuminate\Http\UploadedFile $file,
+        string $key,
+        string &$disk,
+        string $fallbackDisk,
+    ): ?array {
+        try {
+            $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
+            $filename = $this->generateDescriptiveFilenameForUpload($file, $key, $extension);
+            $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+
+            // Store file
+            $storedPath = Storage::disk($disk)->putFileAs(
+                'request-forms/' . date('Y/m'),
+                $file,
+                $filename
+            );
+
+            $finalDisk = $disk;
+            if (false === $storedPath) {
+                Log::warning('Failed to store file in private bucket, trying fallback', [
+                    'key' => $key,
+                    'path' => $storagePath,
+                ]);
+                $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                    'request-forms/' . date('Y/m'),
+                    $file,
+                    $filename
+                );
+                if ($storedPath) {
+                    $finalDisk = $fallbackDisk;
+                } else {
+                    return null;
+                }
+            }
+
+            return [
+                'path' => $storedPath,
+                'disk' => $finalDisk,
+                'original_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getMimeType(),
+                'size' => $file->getSize(),
+                'original_key' => $key,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error storing uploaded file', [
+                'key' => $key,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Generate a simple but descriptive filename for uploaded files
+     * Format: [Key]-[UniqueId].[ext]
+     * Example: CertBanc-abc123.pdf.
+     */
+    private function generateDescriptiveFilenameForUpload(
+        \Illuminate\Http\UploadedFile $file,
+        string $key,
+        string $extension,
+    ): string {
+        // Map common keys to short abbreviations
+        $keyAbbreviations = [
+            'certificacionBancaria' => 'CertBanc',
+            'diplomaEducativo' => 'Diploma',
+            'actaGrado' => 'ActaGrado',
+            'certificadoEps' => 'CertEPS',
+            'certificadoAfp' => 'CertAFP',
+            'cedula' => 'Cedula',
+            'carnet' => 'Carnet',
+            'foto' => 'Foto',
+            'documento' => 'Doc',
+        ];
+
+        // Get short name from key
+        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
+
+        // Generate short unique identifier
+        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
+
+        // Build simple filename: [ShortName]-[UniqueId].[ext]
+        return sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
+    }
+
+    /**
+     * Format key name to readable format.
+     */
+    private function formatKeyName(string $key): string
+    {
+        // Convert camelCase to PascalCase with spaces, then remove spaces
+        $formatted = preg_replace('/([a-z])([A-Z])/', '$1$2', $key);
+        $formatted = ucfirst($formatted);
+
+        // Remove special characters
+        $formatted = preg_replace('/[^a-zA-Z0-9]/', '', $formatted);
+
+        return $formatted ?: 'Archivo';
+    }
+
+    /**
+     * Get file extension from MIME type.
+     */
+    private function getExtensionFromMimeType(string $mimeType): string
+    {
+        $mimeToExt = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'application/pdf' => 'pdf',
+            'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'text/plain' => 'txt',
+            'text/csv' => 'csv',
+        ];
+
+        return $mimeToExt[$mimeType] ?? 'bin';
+    }
+
+    /**
+     * Generate a simple but descriptive filename for base64 encoded files
+     * Format: [Key]-[UniqueId].[ext].
+     */
+    private function generateDescriptiveFilenameForBase64(string $key, string $extension): string
+    {
+        // Map common keys to short abbreviations
+        $keyAbbreviations = [
+            'certificacionBancaria' => 'CertBanc',
+            'diplomaEducativo' => 'Diploma',
+            'actaGrado' => 'ActaGrado',
+            'certificadoEps' => 'CertEPS',
+            'certificadoAfp' => 'CertAFP',
+            'cedula' => 'Cedula',
+            'carnet' => 'Carnet',
+            'foto' => 'Foto',
+            'documento' => 'Doc',
+        ];
+
+        // Get short name from key
+        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
+
+        // Generate short unique identifier
+        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
+
+        // Build simple filename: [ShortName]-[UniqueId].[ext]
+        return sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
+    }
+
+    /**
+     * Get a summary of payload data for logging.
+     */
+    private function getPayloadSummary(array $payload): array
+    {
+        $summary = [];
+
+        $commonFields = [
+            'proceso', 'dondeRealizaProceso', 'motivoSolicitud',
+            'dirigidoAQuien', 'tipoVehiculo', 'placaVehiculo',
+            'infoCertificado', 'otrosDescripcion',
+        ];
+
+        foreach ($commonFields as $field) {
+            if (isset($payload[$field])) {
+                $summary[$field] = $payload[$field];
+            }
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Format files metadata for API response (without exposing sensitive data)
+     * Generates temporary URLs for private bucket files.
+     */
+    private function formatFilesMetadata(?array $files, ?string $requestId = null): array
+    {
+        if (!is_array($files) || empty($files)) {
+            return [];
+        }
+
+        $formatted = [];
+        foreach ($files as $key => $fileMetadata) {
+            $fileKey = $fileMetadata['original_key'] ?? $key;
+            $disk = $fileMetadata['disk'] ?? 'prosalud-private';
+            $path = $fileMetadata['path'] ?? null;
+
+            $downloadUrl = null;
+            $urlExpiresAt = null;
+
+            if ($path && 'prosalud-private' === $disk) {
+                try {
+                    $storage = Storage::disk($disk);
+                    $downloadUrl = $storage->temporaryUrl($path, now()->addHours(1));
+                    $urlExpiresAt = now()->addHours(1)->toIso8601String();
+                } catch (\Exception $e) {
+                    // If temporary URL generation fails (e.g., local disk doesn't support it),
+                    // fallback to the download endpoint
+                    Log::warning('Failed to generate temporary URL, using download endpoint', [
+                        'disk' => $disk,
+                        'path' => $path,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $downloadUrl = $requestId
+                        ? url("/api/requests/{$requestId}/files/{$fileKey}")
+                        : null;
+                }
+            } else {
+                // For non-private disks or if path is missing, use download endpoint
+                $downloadUrl = $requestId
+                    ? url("/api/requests/{$requestId}/files/{$fileKey}")
+                    : null;
+            }
+
+            $formatted[$key] = [
+                'original_name' => $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? $key,
+                'mime_type' => $fileMetadata['mime_type'] ?? 'application/octet-stream',
+                'size' => $fileMetadata['size'] ?? 0,
+                'original_key' => $fileKey,
+                'download_url' => $downloadUrl,
+                'url_expires_at' => $urlExpiresAt,
+            ];
+        }
+
+        return $formatted;
+    }
+
+    /**
+     * Get human-readable status text.
+     */
+    private function getStatusText(string $status): string
+    {
+        return match ($status) {
+            RequestStatuses::PENDING => 'pendiente',
+            RequestStatuses::IN_REVIEW => 'en revisión',
+            RequestStatuses::REJECTED => 'rechazada',
+            RequestStatuses::COMPLETED => 'completada',
+            default => 'desconocido',
+        };
     }
 }

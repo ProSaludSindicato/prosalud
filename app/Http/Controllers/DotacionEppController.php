@@ -2,11 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreSstDeliveryRequest;
-use App\Http\Requests\StoreSstReturnRequest;
+use App\Http\Requests\{StoreSstDeliveryRequest, StoreSstReturnRequest};
 use App\Services\SstDotacionService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Log;
 
 class DotacionEppController extends Controller

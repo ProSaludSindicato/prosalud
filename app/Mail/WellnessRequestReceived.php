@@ -9,10 +9,11 @@ use Illuminate\Queue\SerializesModels;
 
 class WellnessRequestReceived extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable;
+    use SerializesModels;
 
     public function __construct(
-        public WellnessRequest $wellnessRequest
+        public WellnessRequest $wellnessRequest,
     ) {
     }
 
@@ -29,4 +30,3 @@ class WellnessRequestReceived extends Mailable
             ]);
     }
 }
-

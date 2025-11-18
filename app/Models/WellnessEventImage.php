@@ -7,12 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WellnessEventImage extends Model
 {
-    protected $guarded = [];
-    
     /**
-     * The model does not have created_at/updated_at columns
+     * The model does not have created_at/updated_at columns.
      */
     public $timestamps = false;
+    protected $guarded = [];
 
     public function event(): BelongsTo
     {

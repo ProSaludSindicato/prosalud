@@ -11,12 +11,13 @@ use Illuminate\Support\Facades\Log;
 class RequestAssignmentController extends Controller
 {
     public function __construct(
-        private RequestAssignmentService $assignmentService
-    ) {}
+        private RequestAssignmentService $assignmentService,
+    ) {
+    }
 
     /**
      * Get all request assignments
-     * Requires: users.view permission
+     * Requires: users.view permission.
      */
     public function index(): JsonResponse
     {
@@ -29,7 +30,6 @@ class RequestAssignmentController extends Controller
                 'success' => true,
                 'data' => $assignments,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error al consultar asignaciones de solicitudes', [
                 'error' => $e->getMessage(),
@@ -46,13 +46,13 @@ class RequestAssignmentController extends Controller
 
     /**
      * Store or update request assignments
-     * Requires: users.edit permission
+     * Requires: users.edit permission.
      */
     public function store(StoreRequestAssignmentRequest $request): JsonResponse
     {
         try {
             $validated = $request->validated();
-            
+
             $assignments = $validated['assignments'] ?? [];
             $subtypeAssignments = $validated['subtype_assignments'] ?? [];
 
@@ -65,14 +65,12 @@ class RequestAssignmentController extends Controller
                 'message' => 'Asignaciones guardadas correctamente',
                 'data' => $result,
             ]);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error de validación',
                 'errors' => $e->errors(),
             ], 422);
-
         } catch (\Exception $e) {
             Log::error('Error al guardar asignaciones de solicitudes', [
                 'error' => $e->getMessage(),
@@ -89,11 +87,10 @@ class RequestAssignmentController extends Controller
 
     /**
      * Update request assignments (alias for store)
-     * Requires: users.edit permission
+     * Requires: users.edit permission.
      */
     public function update(StoreRequestAssignmentRequest $request): JsonResponse
     {
         return $this->store($request);
     }
 }
-

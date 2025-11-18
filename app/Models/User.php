@@ -4,9 +4,9 @@ namespace App\Models;
 
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
@@ -38,6 +38,27 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    public function apiTokens(): HasMany
+    {
+        return $this->hasMany(ApiToken::class);
+    }
+
+    /**
+     * Get all request type assignments for this user.
+     */
+    public function requestTypeAssignments(): HasMany
+    {
+        return $this->hasMany(RequestTypeAssignment::class);
+    }
+
+    /**
+     * Get all request subtype assignments for this user.
+     */
+    public function requestSubtypeAssignments(): HasMany
+    {
+        return $this->hasMany(RequestSubtypeAssignment::class);
+    }
+
     /**
      * Get the attributes that should be cast.
      *
@@ -48,26 +69,5 @@ class User extends Authenticatable
         return [
             'password' => 'hashed',
         ];
-    }
-
-    public function apiTokens(): HasMany
-    {
-        return $this->hasMany(ApiToken::class);
-    }
-
-    /**
-     * Get all request type assignments for this user
-     */
-    public function requestTypeAssignments(): HasMany
-    {
-        return $this->hasMany(RequestTypeAssignment::class);
-    }
-
-    /**
-     * Get all request subtype assignments for this user
-     */
-    public function requestSubtypeAssignments(): HasMany
-    {
-        return $this->hasMany(RequestSubtypeAssignment::class);
     }
 }

@@ -2,12 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Hospital;
-use App\Models\InventoryLocation;
-use App\Models\InventoryStockMovement;
-use App\Models\InventoryVariant;
-use App\Models\InventoryVariantStock;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
+use App\Models\{Hospital, InventoryLocation, InventoryStockMovement, InventoryVariant, InventoryVariantStock};
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -41,9 +36,9 @@ class InventoryStockService
         string $reason,
         ?string $referenceType = null,
         ?string $referenceId = null,
-        ?string $notes = null
+        ?string $notes = null,
     ): InventoryVariantStock {
-        if ($quantity === 0) {
+        if (0 === $quantity) {
             return $this->findOrCreateStock($variant, $location);
         }
 
@@ -76,9 +71,9 @@ class InventoryStockService
     public function adjustReserved(
         InventoryVariant $variant,
         InventoryLocation $location,
-        int $quantity
+        int $quantity,
     ): InventoryVariantStock {
-        if ($quantity === 0) {
+        if (0 === $quantity) {
             return $this->findOrCreateStock($variant, $location);
         }
 
@@ -103,7 +98,7 @@ class InventoryStockService
         string $reason,
         ?string $referenceType = null,
         ?string $referenceId = null,
-        ?string $notes = null
+        ?string $notes = null,
     ): void {
         if ($quantity <= 0) {
             throw new \InvalidArgumentException('La cantidad de transferencia debe ser mayor que cero.');
@@ -149,8 +144,9 @@ class InventoryStockService
         $currentTotal = $variant->stocks()->sum('stock');
         $difference = $desiredTotal - $currentTotal;
 
-        if ($difference === 0) {
+        if (0 === $difference) {
             $this->updateVariantTotalStock($variant);
+
             return;
         }
 
@@ -183,7 +179,7 @@ class InventoryStockService
         string $reason,
         ?string $referenceType = null,
         ?string $referenceId = null,
-        ?string $notes = null
+        ?string $notes = null,
     ): InventoryStockMovement {
         return InventoryStockMovement::query()->create([
             'id' => (string) Str::uuid(),

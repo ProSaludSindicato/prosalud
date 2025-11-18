@@ -2,9 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Model;
 
 class Vote extends Model
 {
@@ -31,7 +30,7 @@ class Vote extends Model
     ];
 
     /**
-     * Scope to filter votes by voter document
+     * Scope to filter votes by voter document.
      */
     public function scopeByVoter($query, $documentType, $documentNumber)
     {
@@ -40,7 +39,7 @@ class Vote extends Model
     }
 
     /**
-     * Scope to filter votes by candidate
+     * Scope to filter votes by candidate.
      */
     public function scopeByCandidate($query, $candidateId)
     {
@@ -48,7 +47,7 @@ class Vote extends Model
     }
 
     /**
-     * Scope to filter votes by hospital
+     * Scope to filter votes by hospital.
      */
     public function scopeByHospital($query, $hospital)
     {
@@ -56,7 +55,7 @@ class Vote extends Model
     }
 
     /**
-     * Scope to filter votes by date range
+     * Scope to filter votes by date range.
      */
     public function scopeByDateRange($query, $startDate, $endDate)
     {
@@ -64,7 +63,7 @@ class Vote extends Model
     }
 
     /**
-     * Get voter information as array
+     * Get voter information as array.
      */
     public function getVoterAttribute()
     {
@@ -77,7 +76,7 @@ class Vote extends Model
     }
 
     /**
-     * Get candidate information as array
+     * Get candidate information as array.
      */
     public function getCandidateAttribute()
     {
@@ -90,7 +89,7 @@ class Vote extends Model
     }
 
     /**
-     * Check if voter has already voted for this candidate
+     * Check if voter has already voted for this candidate.
      */
     public static function hasVoted($documentType, $documentNumber, $candidateId)
     {
@@ -100,7 +99,7 @@ class Vote extends Model
     }
 
     /**
-     * Get vote count for a specific candidate
+     * Get vote count for a specific candidate.
      */
     public static function getCandidateVoteCount($candidateId)
     {
@@ -108,7 +107,7 @@ class Vote extends Model
     }
 
     /**
-     * Get vote count by hospital
+     * Get vote count by hospital.
      */
     public static function getVoteCountByHospital($hospital)
     {

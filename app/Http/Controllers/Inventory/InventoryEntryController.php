@@ -5,15 +5,10 @@ namespace App\Http\Controllers\Inventory;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\StoreInventoryEntryRequest;
 use App\Http\Resources\InventoryEntryResource;
-use App\Models\InventoryEntry;
-use App\Models\InventoryLocation;
-use App\Models\InventoryProduct;
-use App\Models\InventoryVariant;
+use App\Models\{InventoryEntry, InventoryLocation, InventoryProduct, InventoryVariant};
 use App\Services\InventoryStockService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{DB, Log};
 use Illuminate\Support\Str;
 
 class InventoryEntryController extends Controller
@@ -166,7 +161,7 @@ class InventoryEntryController extends Controller
                 ]);
 
                 $totalQuantity += $quantity;
-                $itemsCreated++;
+                ++$itemsCreated;
             }
 
             $entry->update([

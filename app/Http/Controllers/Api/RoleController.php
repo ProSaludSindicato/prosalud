@@ -4,11 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
-use Spatie\Permission\Models\Role;
-use Spatie\Permission\Models\Permission;
+use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Validation\Rule;
+use Spatie\Permission\Models\{Permission, Role};
 
 class RoleController extends Controller
 {
@@ -23,7 +21,7 @@ class RoleController extends Controller
             'success' => true,
             'data' => $roles->map(function ($role) {
                 $users = User::role($role->name)->get(['id', 'name', 'email']);
-                
+
                 return [
                     'id' => $role->id,
                     'name' => $role->name,
@@ -46,7 +44,7 @@ class RoleController extends Controller
                     'created_at' => $role->created_at,
                     'updated_at' => $role->updated_at,
                 ];
-            })
+            }),
         ]);
     }
 
@@ -59,13 +57,13 @@ class RoleController extends Controller
             'name' => 'required|string|max:255|unique:roles,name',
             'description' => 'nullable|string|max:500',
             'permissions' => 'array',
-            'permissions.*' => 'exists:permissions,id'
+            'permissions.*' => 'exists:permissions,id',
         ]);
 
         $role = Role::create([
             'name' => $request->name,
             'description' => $request->description,
-            'guard_name' => 'web'
+            'guard_name' => 'web',
         ]);
 
         if ($request->has('permissions')) {
@@ -100,7 +98,7 @@ class RoleController extends Controller
                 }),
                 'created_at' => $role->created_at,
                 'updated_at' => $role->updated_at,
-            ]
+            ],
         ], 201);
     }
 
@@ -135,7 +133,7 @@ class RoleController extends Controller
                 }),
                 'created_at' => $role->created_at,
                 'updated_at' => $role->updated_at,
-            ]
+            ],
         ]);
     }
 
@@ -149,11 +147,11 @@ class RoleController extends Controller
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('roles', 'name')->ignore($role->id)
+                Rule::unique('roles', 'name')->ignore($role->id),
             ],
             'description' => 'nullable|string|max:500',
             'permissions' => 'array',
-            'permissions.*' => 'exists:permissions,id'
+            'permissions.*' => 'exists:permissions,id',
         ]);
 
         $role->update([
@@ -193,7 +191,7 @@ class RoleController extends Controller
                 }),
                 'created_at' => $role->created_at,
                 'updated_at' => $role->updated_at,
-            ]
+            ],
         ]);
     }
 
@@ -204,7 +202,7 @@ class RoleController extends Controller
     {
         return response()->json([
             'success' => false,
-            'message' => 'Los roles no se pueden eliminar por seguridad del sistema'
+            'message' => 'Los roles no se pueden eliminar por seguridad del sistema',
         ], 403);
     }
 }

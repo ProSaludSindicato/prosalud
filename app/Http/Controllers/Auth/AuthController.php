@@ -4,14 +4,13 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Auth;
 
 class AuthController extends Controller
 {
     /**
-     * Login del usuario
+     * Login del usuario.
      */
     public function login(LoginRequest $request): JsonResponse
     {
@@ -21,7 +20,7 @@ class AuthController extends Controller
             if (!Auth::attempt($credentials)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Credenciales incorrectas'
+                    'message' => 'Credenciales incorrectas',
                 ], 401);
             }
 
@@ -29,9 +28,10 @@ class AuthController extends Controller
 
             if (!$user->is_active) {
                 Auth::logout();
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Tu cuenta está desactivada. Contacta al administrador.'
+                    'message' => 'Tu cuenta está desactivada. Contacta al administrador.',
                 ], 403);
             }
 
@@ -49,15 +49,14 @@ class AuthController extends Controller
                         'created_at' => $user->created_at,
                     ],
                     'token' => $token,
-                    'token_type' => 'Bearer'
-                ]
+                    'token_type' => 'Bearer',
+                ],
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error interno del servidor',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno',
             ], 500);
         }
     }
@@ -69,20 +68,19 @@ class AuthController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Logout exitoso'
+                'message' => 'Logout exitoso',
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error al cerrar sesión',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno',
             ], 500);
         }
     }
 
     /**
-     * Obtener información del usuario autenticado
+     * Obtener información del usuario autenticado.
      */
     public function me(Request $request): JsonResponse
     {
@@ -98,21 +96,20 @@ class AuthController extends Controller
                         'email' => $user->email,
                         'is_active' => $user->is_active,
                         'created_at' => $user->created_at,
-                    ]
-                ]
+                    ],
+                ],
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener información del usuario',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno',
             ], 500);
         }
     }
 
     /**
-     * Refrescar token (opcional)
+     * Refrescar token (opcional).
      */
     public function refresh(Request $request): JsonResponse
     {
@@ -130,15 +127,14 @@ class AuthController extends Controller
                 'message' => 'Token refrescado exitosamente',
                 'data' => [
                     'token' => $token,
-                    'token_type' => 'Bearer'
-                ]
+                    'token_type' => 'Bearer',
+                ],
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Error al refrescar el token',
-                'error' => config('app.debug') ? $e->getMessage() : 'Error interno'
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno',
             ], 500);
         }
     }

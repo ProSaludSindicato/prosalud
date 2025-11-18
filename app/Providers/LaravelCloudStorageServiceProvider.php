@@ -2,9 +2,8 @@
 
 namespace App\Providers;
 
+use Illuminate\Support\Facades\{Config, Log};
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Log;
 
 class LaravelCloudStorageServiceProvider extends ServiceProvider
 {
@@ -13,7 +12,6 @@ class LaravelCloudStorageServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
     }
 
     /**
@@ -25,7 +23,7 @@ class LaravelCloudStorageServiceProvider extends ServiceProvider
     }
 
     /**
-     * Configure Laravel Cloud storage disks dynamically
+     * Configure Laravel Cloud storage disks dynamically.
      */
     private function configureLaravelCloudDisks(): void
     {
@@ -45,21 +43,20 @@ class LaravelCloudStorageServiceProvider extends ServiceProvider
             foreach ($disks as $diskConfig) {
                 $this->configureDisk($diskConfig);
             }
-
         } catch (\Exception $e) {
             Log::warning('Invalid LARAVEL_CLOUD_DISK_CONFIG: ' . $e->getMessage());
         }
     }
 
     /**
-     * Configure a specific disk
+     * Configure a specific disk.
      */
     private function configureDisk(array $diskConfig): void
     {
         $diskName = $diskConfig['disk'];
 
-        if ($diskName === 'public') {
-            Config::set("filesystems.disks.prosalud-public", [
+        if ('public' === $diskName) {
+            Config::set('filesystems.disks.prosalud-public', [
                 'driver' => 's3',
                 'key' => $diskConfig['access_key_id'],
                 'secret' => $diskConfig['access_key_secret'],
@@ -74,8 +71,8 @@ class LaravelCloudStorageServiceProvider extends ServiceProvider
             ]);
         }
 
-        if ($diskName === 'private') {
-            Config::set("filesystems.disks.prosalud-private", [
+        if ('private' === $diskName) {
+            Config::set('filesystems.disks.prosalud-private', [
                 'driver' => 's3',
                 'key' => $diskConfig['access_key_id'],
                 'secret' => $diskConfig['access_key_secret'],

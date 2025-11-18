@@ -5,8 +5,7 @@ namespace App\Console\Commands;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-use Spatie\Permission\Models\Role;
-use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\{Permission, Role};
 
 class VerifyAdminPermissions extends Command
 {
@@ -41,6 +40,7 @@ class VerifyAdminPermissions extends Command
         if (!$adminRole) {
             $this->error('El rol "admin" no existe en la base de datos.');
             $this->warn('Ejecuta: php artisan db:seed --class=RolePermissionSeeder');
+
             return Command::FAILURE;
         }
 
@@ -48,7 +48,7 @@ class VerifyAdminPermissions extends Command
 
         // Verificar permisos del rol admin
         $rolePermissions = $adminRole->permissions->pluck('name')->toArray();
-        $this->info("✓ El rol admin tiene " . count($rolePermissions) . " permisos asignados");
+        $this->info('✓ El rol admin tiene ' . count($rolePermissions) . ' permisos asignados');
 
         // Buscar usuario admin
         $adminUser = User::where('email', 'admin@prosalud.com')->first();
@@ -56,6 +56,7 @@ class VerifyAdminPermissions extends Command
         if (!$adminUser) {
             $this->error('Usuario admin@prosalud.com no encontrado.');
             $this->warn('Ejecuta: php artisan db:seed --class=UserSeeder');
+
             return Command::FAILURE;
         }
 
@@ -87,6 +88,7 @@ class VerifyAdminPermissions extends Command
                 ]);
             } else {
                 $this->warn('Ejecuta con --fix para corregir automáticamente.');
+
                 return Command::FAILURE;
             }
         }
@@ -135,12 +137,12 @@ class VerifyAdminPermissions extends Command
                 'user_id' => $adminUser->id,
                 'permissions_count' => count($finalPermissions),
             ]);
+
             return Command::SUCCESS;
         } else {
             $this->warn('⚠ Aún hay diferencias en los permisos.');
+
             return Command::FAILURE;
         }
     }
 }
-
-

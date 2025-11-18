@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Inventory;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class UpdateProductRequest extends FormRequest
 {
@@ -45,7 +44,7 @@ class UpdateProductRequest extends FormRequest
                     preg_match('/variants\.(\d+)\.sku/', $attribute, $matches);
                     $index = $matches[1] ?? null;
 
-                    if ($index === null) {
+                    if (null === $index) {
                         return;
                     }
 

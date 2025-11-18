@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
 
@@ -25,7 +25,7 @@ class LiquidacionSearchRequest extends FormRequest
         return [
             'tipo' => 'required|string|max:10',
             'numero_documento' => 'required|string|max:20',
-            'fecha_expedicion' => 'required|date|date_format:Y-m-d'
+            'fecha_expedicion' => 'required|date|date_format:Y-m-d',
         ];
     }
 
@@ -45,7 +45,7 @@ class LiquidacionSearchRequest extends FormRequest
 
             'fecha_expedicion.required' => 'La fecha de expedición es obligatoria.',
             'fecha_expedicion.date' => 'La fecha de expedición debe ser una fecha válida.',
-            'fecha_expedicion.date_format' => 'La fecha de expedición debe tener el formato YYYY-MM-DD.'
+            'fecha_expedicion.date_format' => 'La fecha de expedición debe tener el formato YYYY-MM-DD.',
         ];
     }
 
@@ -59,14 +59,9 @@ class LiquidacionSearchRequest extends FormRequest
             'input' => $this->all(),
             'ip' => $this->ip(),
             'user_agent' => $this->userAgent(),
-            'timestamp' => now()
+            'timestamp' => now(),
         ]);
 
-        throw new HttpResponseException(
-            response()->json([
-                'message' => 'Los datos proporcionados no son válidos.',
-                'errors' => $validator->errors()
-            ], 422)
-        );
+        throw new HttpResponseException(response()->json(['message' => 'Los datos proporcionados no son válidos.', 'errors' => $validator->errors()], 422));
     }
 }

@@ -6,8 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\InventoryLocationResource;
 use App\Models\InventoryLocation;
 use App\Services\InventoryStockService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Log;
 
 class InventoryLocationController extends Controller

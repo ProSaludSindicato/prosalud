@@ -2,8 +2,7 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\{Cache, Log};
 use Illuminate\Support\Str;
 
 class OtpService
@@ -15,7 +14,7 @@ class OtpService
     private const RATE_LIMIT_WINDOW_MINUTES = 1;
 
     /**
-     * Generate a 6-digit OTP code
+     * Generate a 6-digit OTP code.
      */
     public function generateOtp(): string
     {
@@ -23,13 +22,13 @@ class OtpService
     }
 
     /**
-     * Store OTP for a specific identifier (document number)
+     * Store OTP for a specific identifier (document number).
      */
     public function storeOtp(string $identifier, string $otp): string
     {
         $sessionId = Str::uuid()->toString();
         $cacheKey = $this->getOtpCacheKey($identifier, $sessionId);
-        
+
         Cache::put($cacheKey, [
             'otp' => $otp,
             'created_at' => now()->toIso8601String(),
@@ -55,7 +54,7 @@ class OtpService
     }
 
     /**
-     * Verify OTP code
+     * Verify OTP code.
      */
     public function verifyOtp(string $identifier, string $sessionId, string $otp): bool
     {
@@ -67,6 +66,7 @@ class OtpService
                 'identifier' => $identifier,
                 'session_id' => $sessionId,
             ]);
+
             return false;
         }
 
@@ -78,11 +78,12 @@ class OtpService
                 'attempts' => $storedData['attempts'],
             ]);
             Cache::forget($cacheKey);
+
             return false;
         }
 
         // Increment attempts
-        $storedData['attempts']++;
+        ++$storedData['attempts'];
         Cache::put($cacheKey, $storedData, now()->addMinutes(self::OTP_EXPIRY_MINUTES));
 
         // Verify OTP
@@ -92,6 +93,7 @@ class OtpService
                 'session_id' => $sessionId,
                 'attempt' => $storedData['attempts'],
             ]);
+
             return false;
         }
 
@@ -108,7 +110,7 @@ class OtpService
     }
 
     /**
-     * Check if OTP session is verified
+     * Check if OTP session is verified.
      */
     public function isOtpVerified(string $identifier, string $sessionId): bool
     {
@@ -119,7 +121,7 @@ class OtpService
     }
 
     /**
-     * Invalidate OTP session (after successful use)
+     * Invalidate OTP session (after successful use).
      */
     public function invalidateOtp(string $identifier, string $sessionId): void
     {
@@ -133,7 +135,7 @@ class OtpService
     }
 
     /**
-     * Check rate limiting for OTP requests
+     * Check rate limiting for OTP requests.
      */
     public function checkRateLimit(string $identifier): bool
     {
@@ -145,45 +147,23 @@ class OtpService
                 'identifier' => $identifier,
                 'requests' => $requests,
             ]);
+
             return false;
         }
 
         Cache::put($rateLimitKey, $requests + 1, now()->addMinutes(self::RATE_LIMIT_WINDOW_MINUTES));
+
         return true;
     }
 
     /**
-     * Get OTP cache key
-     */
-    private function getOtpCacheKey(string $identifier, string $sessionId): string
-    {
-        return "otp:{$identifier}:{$sessionId}";
-    }
-
-    /**
-     * Get session cache key
-     */
-    private function getSessionCacheKey(string $identifier): string
-    {
-        return "otp:sessions:{$identifier}";
-    }
-
-    /**
-     * Get rate limit cache key
-     */
-    private function getRateLimitCacheKey(string $identifier): string
-    {
-        return "otp:ratelimit:{$identifier}";
-    }
-
-    /**
-     * Clean up old OTP sessions for an identifier
+     * Clean up old OTP sessions for an identifier.
      */
     public function cleanupOldSessions(string $identifier): void
     {
         $sessionKey = $this->getSessionCacheKey($identifier);
         $sessions = Cache::get($sessionKey, []);
-        
+
         $validSessions = [];
         foreach ($sessions as $session) {
             $createdAt = \Carbon\Carbon::parse($session['created_at']);
@@ -191,12 +171,35 @@ class OtpService
                 $validSessions[] = $session;
             }
         }
-        
+
         if (empty($validSessions)) {
             Cache::forget($sessionKey);
         } else {
             Cache::put($sessionKey, $validSessions, now()->addMinutes(self::OTP_EXPIRY_MINUTES + 5));
         }
     }
-}
 
+    /**
+     * Get OTP cache key.
+     */
+    private function getOtpCacheKey(string $identifier, string $sessionId): string
+    {
+        return "otp:{$identifier}:{$sessionId}";
+    }
+
+    /**
+     * Get session cache key.
+     */
+    private function getSessionCacheKey(string $identifier): string
+    {
+        return "otp:sessions:{$identifier}";
+    }
+
+    /**
+     * Get rate limit cache key.
+     */
+    private function getRateLimitCacheKey(string $identifier): string
+    {
+        return "otp:ratelimit:{$identifier}";
+    }
+}

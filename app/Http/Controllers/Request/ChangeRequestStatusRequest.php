@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Request;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Support\Facades\Log;
 
 class ChangeRequestStatusRequest extends FormRequest
@@ -56,15 +56,9 @@ class ChangeRequestStatusRequest extends FormRequest
     {
         Log::error('Errores de validación en ChangeRequestStatusRequest', [
             'input' => $this->all(),
-            'errors' => $validator->errors()->toArray()
+            'errors' => $validator->errors()->toArray(),
         ]);
 
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => 'Errores de validación',
-                'errors' => $validator->errors(),
-            ], 422)
-        );
+        throw new HttpResponseException(response()->json(['success' => false, 'message' => 'Errores de validación', 'errors' => $validator->errors()], 422));
     }
 }

@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SupplierDelivery extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -32,7 +33,7 @@ class SupplierDelivery extends Model
     ];
 
     /**
-     * Get all items for this delivery
+     * Get all items for this delivery.
      */
     public function items(): HasMany
     {

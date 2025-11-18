@@ -3,8 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
 
 class WellnessActivityRealized extends Model
 {
@@ -35,7 +34,7 @@ class WellnessActivityRealized extends Model
     ];
 
     /**
-     * Relación con la solicitud de bienestar
+     * Relación con la solicitud de bienestar.
      */
     public function wellnessRequest(): BelongsTo
     {
@@ -43,7 +42,7 @@ class WellnessActivityRealized extends Model
     }
 
     /**
-     * Relación con las evidencias (imágenes)
+     * Relación con las evidencias (imágenes).
      */
     public function evidences(): HasMany
     {
@@ -51,11 +50,10 @@ class WellnessActivityRealized extends Model
     }
 
     /**
-     * Relación con el evento de galería (si está publicado)
+     * Relación con el evento de galería (si está publicado).
      */
     public function galleryEvent(): BelongsTo
     {
         return $this->belongsTo(WellnessEvent::class, 'gallery_event_id');
     }
 }
-

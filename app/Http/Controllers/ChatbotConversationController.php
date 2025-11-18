@@ -2,12 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreChatbotConversationRequest;
-use App\Http\Requests\UpdateChatbotFeedbackRequest;
+use App\Http\Requests\{StoreChatbotConversationRequest, UpdateChatbotFeedbackRequest};
 use App\Models\ChatbotConversation;
-use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-
+use Illuminate\Http\{Request, Response};
 
 class ChatbotConversationController extends Controller
 {
@@ -81,7 +78,7 @@ class ChatbotConversationController extends Controller
             return response()->json([
                 'message' => 'The given data was invalid.',
                 'errors' => [
-                    'feedback' => ['The feedback field is required.']
+                    'feedback' => ['The feedback field is required.'],
                 ],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
@@ -113,7 +110,7 @@ class ChatbotConversationController extends Controller
             return response()->json([
                 'message' => 'The given data was invalid.',
                 'errors' => [
-                    'feedback' => ['The feedback field is required.']
+                    'feedback' => ['The feedback field is required.'],
                 ],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }

@@ -5,12 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
 
 class InventorySubcategory extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -25,7 +25,7 @@ class InventorySubcategory extends Model
     ];
 
     /**
-     * Get the category that owns this subcategory
+     * Get the category that owns this subcategory.
      */
     public function category(): BelongsTo
     {
@@ -33,7 +33,7 @@ class InventorySubcategory extends Model
     }
 
     /**
-     * Get all products for this subcategory
+     * Get all products for this subcategory.
      */
     public function products(): HasMany
     {

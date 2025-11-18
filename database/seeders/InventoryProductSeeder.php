@@ -2,12 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\InventoryCategory;
-use App\Models\InventoryLocation;
-use App\Models\InventoryProduct;
-use App\Models\InventorySubcategory;
-use App\Models\InventoryVariant;
-use App\Models\InventoryVariantStock;
+use App\Models\{InventoryCategory, InventoryLocation, InventoryProduct, InventorySubcategory, InventoryVariant, InventoryVariantStock};
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
@@ -300,7 +295,7 @@ DATA;
         $generatedSkus = [];
 
         foreach ($lines as $line) {
-            if ($line === '') {
+            if ('' === $line) {
                 continue;
             }
 
@@ -330,10 +325,10 @@ DATA;
             $gender = null;
             foreach ($nameTokens as $index => $token) {
                 $upperToken = strtoupper($token);
-                if ($upperToken === 'HOMBRE') {
+                if ('HOMBRE' === $upperToken) {
                     $gender = 'hombre';
                     unset($nameTokens[$index]);
-                } elseif ($upperToken === 'MUJER') {
+                } elseif ('MUJER' === $upperToken) {
                     $gender = 'mujer';
                     unset($nameTokens[$index]);
                 }
@@ -358,7 +353,7 @@ DATA;
 
             $nameTokens = array_values($nameTokens);
             $baseName = trim(implode(' ', $nameTokens));
-            if ($baseName === '') {
+            if ('' === $baseName) {
                 $baseName = $colorLabel ?? 'Producto Sin Nombre';
             }
 
@@ -398,7 +393,7 @@ DATA;
                 $baseWords
             )));
             $baseCode = substr($baseCode, 0, 8);
-            if ($baseCode === '') {
+            if ('' === $baseCode) {
                 $baseCode = 'PRD';
             }
 
@@ -416,7 +411,7 @@ DATA;
             $counter = 2;
             while (in_array($sku, $generatedSkus, true)) {
                 $sku = $skuBase . '-' . $counter;
-                $counter++;
+                ++$counter;
             }
             $generatedSkus[] = $sku;
 

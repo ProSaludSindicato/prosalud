@@ -14,7 +14,7 @@ class RequestTypes
     public const SOLICITUD_RETIRO_SINDICAL = 'solicitud-retiro-sindical';
 
     /**
-     * Get all valid request types
+     * Get all valid request types.
      */
     public static function all(): array
     {
@@ -31,7 +31,7 @@ class RequestTypes
     }
 
     /**
-     * Get request types with subtypes
+     * Get request types with subtypes.
      */
     public static function withSubtypes(): array
     {
@@ -41,11 +41,10 @@ class RequestTypes
     }
 
     /**
-     * Check if a request type has subtypes
+     * Check if a request type has subtypes.
      */
     public static function hasSubtypes(string $requestType): bool
     {
         return in_array($requestType, self::withSubtypes());
     }
 }
-

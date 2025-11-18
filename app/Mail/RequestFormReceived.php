@@ -6,31 +6,31 @@ use App\Models\RequestForm;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\{Log, Storage};
 
 class RequestFormReceived extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable;
+    use SerializesModels;
 
     /**
-     * Array to store attachment file data
+     * Array to store attachment file data.
      */
     private array $attachmentData = [];
 
     /**
-     * Track used names to avoid duplicates
+     * Track used names to avoid duplicates.
      */
     private array $usedNames = [];
 
     /**
-     * Track original file names from multipart to avoid duplicates from storage
+     * Track original file names from multipart to avoid duplicates from storage.
      */
     private array $multipartFileNames = [];
 
     public function __construct(
         public RequestForm $requestForm,
-        array $originalFiles = []
+        array $originalFiles = [],
     ) {
         // Add multipart files from request first
         foreach ($originalFiles as $file) {
@@ -52,12 +52,41 @@ class RequestFormReceived extends Mailable
     }
 
     /**
-     * Load files from storage based on files metadata
+     * Build the message.
+     */
+    public function build(): self
+    {
+        $logoPath = public_path('logo.png');
+        $logoCid = file_exists($logoPath) ? $this->embed($logoPath) : '';
+
+        $mail = $this
+            ->subject("Confirmación de recepción {$this->requestForm->request_type} – ProSalud")
+            ->view('emails.request_form_received')
+            ->with([
+                'requestForm' => $this->requestForm,
+                'logoCid' => $logoCid,
+            ]);
+
+        foreach ($this->attachmentData as $attachment) {
+            $mail->attachData(
+                $attachment['content'],
+                $attachment['name'],
+                [
+                    'mime' => $attachment['mime'],
+                ]
+            );
+        }
+
+        return $mail;
+    }
+
+    /**
+     * Load files from storage based on files metadata.
      */
     private function loadFilesFromStorage(): void
     {
         $filesMetadata = $this->requestForm->files ?? [];
-        
+
         if (empty($filesMetadata)) {
             return;
         }
@@ -74,7 +103,7 @@ class RequestFormReceived extends Mailable
         foreach ($filesMetadata as $key => $fileMetadata) {
             // Only attach update data files for actualizar-datos-personales requests
             // For other request types, attach all files
-            if ($this->requestForm->request_type === 'actualizar-datos-personales') {
+            if ('actualizar-datos-personales' === $this->requestForm->request_type) {
                 if (!in_array($key, $updateDataFileKeys)) {
                     continue;
                 }
@@ -82,7 +111,7 @@ class RequestFormReceived extends Mailable
 
             $path = $fileMetadata['path'] ?? null;
             $disk = $fileMetadata['disk'] ?? 'prosalud-private';
-            
+
             if (!$path) {
                 continue;
             }
@@ -139,7 +168,7 @@ class RequestFormReceived extends Mailable
     }
 
     /**
-     * Get file extension from MIME type
+     * Get file extension from MIME type.
      */
     private function getExtensionFromMimeType(string $mimeType): string
     {
@@ -169,6 +198,7 @@ class RequestFormReceived extends Mailable
         // If name hasn't been used, use it as-is
         if (!in_array($originalName, $this->usedNames)) {
             $this->usedNames[] = $originalName;
+
             return $originalName;
         }
 
@@ -181,39 +211,11 @@ class RequestFormReceived extends Mailable
         $counter = 1;
         do {
             $uniqueName = $baseName . ' (' . $counter . ')' . $extension;
-            $counter++;
+            ++$counter;
         } while (in_array($uniqueName, $this->usedNames));
 
         $this->usedNames[] = $uniqueName;
+
         return $uniqueName;
-    }
-
-    /**
-     * Build the message.
-     */
-    public function build(): self
-    {
-        $logoPath = public_path('logo.png');
-        $logoCid = file_exists($logoPath) ? $this->embed($logoPath) : '';
-
-        $mail = $this
-            ->subject("Confirmación de recepción {$this->requestForm->request_type} – ProSalud")
-            ->view('emails.request_form_received')
-            ->with([
-                'requestForm' => $this->requestForm,
-                'logoCid' => $logoCid,
-            ]);
-
-        foreach ($this->attachmentData as $attachment) {
-            $mail->attachData(
-                $attachment['content'],
-                $attachment['name'],
-                [
-                    'mime' => $attachment['mime'],
-                ]
-            );
-        }
-
-        return $mail;
     }
 }

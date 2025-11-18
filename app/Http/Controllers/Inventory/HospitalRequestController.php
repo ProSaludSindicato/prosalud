@@ -3,21 +3,13 @@
 namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Inventory\StoreHospitalRequestRequest;
-use App\Http\Requests\Inventory\UpdateHospitalRequestStatusRequest;
+use App\Http\Requests\Inventory\{StoreHospitalRequestRequest, UpdateHospitalRequestStatusRequest};
 use App\Http\Resources\HospitalRequestResource;
 use App\Mail\HospitalRequestStatusUpdated;
-use App\Models\Hospital;
-use App\Models\HospitalRequest;
-use App\Models\User;
-use App\Models\InventoryLocation;
-use App\Models\InventoryVariant;
+use App\Models\{Hospital, HospitalRequest, InventoryLocation, InventoryVariant, User};
 use App\Services\InventoryStockService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{DB, Log, Mail};
 use Illuminate\Support\Str;
 
 class HospitalRequestController extends Controller
@@ -27,7 +19,7 @@ class HospitalRequestController extends Controller
     }
 
     /**
-     * Get all hospital requests with optional filters
+     * Get all hospital requests with optional filters.
      */
     public function index(Request $request): JsonResponse
     {
@@ -64,7 +56,7 @@ class HospitalRequestController extends Controller
             }
 
             // Check if summary is requested
-            if ($request->has('summary') && $request->summary === 'true') {
+            if ($request->has('summary') && 'true' === $request->summary) {
                 $summary = [
                     'pending' => HospitalRequest::where('status', 'pending')->count(),
                     'approved' => HospitalRequest::where('status', 'approved')->count(),
@@ -114,7 +106,7 @@ class HospitalRequestController extends Controller
     }
 
     /**
-     * Store a new hospital request
+     * Store a new hospital request.
      */
     public function store(StoreHospitalRequestRequest $request): JsonResponse
     {
@@ -136,7 +128,7 @@ class HospitalRequestController extends Controller
                     'id' => (string) Str::uuid(),
                     'hospital_id' => $hospital->id,
                     'name' => $hospital->name,
-                    'type' => $hospital->type === 'warehouse' ? 'warehouse' : 'hospital',
+                    'type' => 'warehouse' === $hospital->type ? 'warehouse' : 'hospital',
                     'is_primary' => false,
                 ]);
             }
@@ -219,7 +211,7 @@ class HospitalRequestController extends Controller
     }
 
     /**
-     * Get a single hospital request
+     * Get a single hospital request.
      */
     public function show(string $id): JsonResponse
     {
@@ -256,7 +248,7 @@ class HospitalRequestController extends Controller
     }
 
     /**
-     * Update hospital request status
+     * Update hospital request status.
      */
     public function updateStatus(UpdateHospitalRequestStatusRequest $request, string $id): JsonResponse
     {
@@ -301,18 +293,18 @@ class HospitalRequestController extends Controller
                     $available = $primaryStock->stock - $primaryStock->reserved;
 
                     if ($available < $item->quantity) {
-                                    DB::rollBack();
+                        DB::rollBack();
 
-                                    Log::warning('Reserva de stock insuficiente', [
-                                        'request_id' => $hospitalRequest->id,
-                                        'variant_id' => $variant->id,
-                                        'variant_label' => $variant->label,
-                                        'location' => $primaryLocation->name,
-                                        'requested_quantity' => $item->quantity,
-                                        'stock' => $primaryStock->stock,
-                                        'reserved' => $primaryStock->reserved,
-                                        'available' => $available,
-                                    ]);
+                        Log::warning('Reserva de stock insuficiente', [
+                            'request_id' => $hospitalRequest->id,
+                            'variant_id' => $variant->id,
+                            'variant_label' => $variant->label,
+                            'location' => $primaryLocation->name,
+                            'requested_quantity' => $item->quantity,
+                            'stock' => $primaryStock->stock,
+                            'reserved' => $primaryStock->reserved,
+                            'available' => $available,
+                        ]);
 
                         return response()->json([
                             'success' => false,
@@ -347,7 +339,7 @@ class HospitalRequestController extends Controller
                 }
             }
 
-            if ($newStatus === 'delivered' && $previousStatus !== 'delivered') {
+            if ('delivered' === $newStatus && 'delivered' !== $previousStatus) {
                 $primaryLocation = $this->stockService->getPrimaryLocation();
                 $shouldTransfer = true;
 
@@ -372,9 +364,9 @@ class HospitalRequestController extends Controller
                                         referenceId: $hospitalRequest->id,
                                         notes: "Traslado por solicitud hospitalaria #{$hospitalRequest->id}"
                                     );
-                        } catch (\RuntimeException $movementException) {
-                            $primaryStock = $this->stockService->findOrCreateStock($variant, $primaryLocation);
-                            $hospitalStock = $this->stockService->findOrCreateStock($variant, $hospitalLocation);
+                                } catch (\RuntimeException $movementException) {
+                                    $primaryStock = $this->stockService->findOrCreateStock($variant, $primaryLocation);
+                                    $hospitalStock = $this->stockService->findOrCreateStock($variant, $hospitalLocation);
 
                                     DB::rollBack();
 
@@ -385,11 +377,11 @@ class HospitalRequestController extends Controller
                                         'from_location' => $primaryLocation->name,
                                         'to_location' => $hospitalLocation->name,
                                         'quantity' => $item->quantity,
-                                'from_stock' => $primaryStock->stock,
-                                'from_reserved' => $primaryStock->reserved,
-                                'from_available' => $primaryStock->stock - $primaryStock->reserved,
-                                'to_stock' => $hospitalStock->stock,
-                                'to_reserved' => $hospitalStock->reserved,
+                                        'from_stock' => $primaryStock->stock,
+                                        'from_reserved' => $primaryStock->reserved,
+                                        'from_available' => $primaryStock->stock - $primaryStock->reserved,
+                                        'to_stock' => $hospitalStock->stock,
+                                        'to_reserved' => $hospitalStock->reserved,
                                         'message' => $movementException->getMessage(),
                                     ]);
 
@@ -462,14 +454,14 @@ class HospitalRequestController extends Controller
     }
 
     /**
-     * Delete a hospital request (only if pending)
+     * Delete a hospital request (only if pending).
      */
     public function destroy(string $id): JsonResponse
     {
         try {
             $hospitalRequest = HospitalRequest::findOrFail($id);
 
-            if ($hospitalRequest->status !== 'pending') {
+            if ('pending' !== $hospitalRequest->status) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Solo se pueden eliminar solicitudes pendientes',
@@ -512,7 +504,7 @@ class HospitalRequestController extends Controller
 
             $mail = Mail::to($requesterEmail ?? 'juanpapabon@gmail.com');
 
-            if ($requesterEmail && $requesterEmail !== 'juanpapabon@gmail.com') {
+            if ($requesterEmail && 'juanpapabon@gmail.com' !== $requesterEmail) {
                 $mail->cc('juanpapabon@gmail.com');
             }
 
@@ -527,7 +519,7 @@ class HospitalRequestController extends Controller
                 'previous_status' => $previousStatus,
                 'new_status' => $newStatus,
                 'requester_email' => $requesterEmail,
-                'fallback_only' => $requesterEmail === null,
+                'fallback_only' => null === $requesterEmail,
             ]);
 
             if (!$requesterEmail) {

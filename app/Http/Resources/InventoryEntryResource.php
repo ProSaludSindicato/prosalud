@@ -32,7 +32,7 @@ class InventoryEntryResource extends JsonResource
                     'name' => $this->location->name,
                     'type' => $this->location->type,
                     'hospital_id' => $this->location->hospital_id,
-                ], fn ($value) => $value !== null);
+                ], fn ($value) => null !== $value);
             }),
             'items' => InventoryEntryItemResource::collection($this->whenLoaded('items')),
             'created_at' => $this->created_at?->toISOString(),

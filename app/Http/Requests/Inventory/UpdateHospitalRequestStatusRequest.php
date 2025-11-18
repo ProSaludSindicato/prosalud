@@ -55,6 +55,7 @@ class UpdateHospitalRequestStatusRequest extends FormRequest
 
             if (!$hospitalRequest) {
                 $validator->errors()->add('hospital_request', 'La solicitud de hospital no existe.');
+
                 return;
             }
             $newStatus = $this->input('status');

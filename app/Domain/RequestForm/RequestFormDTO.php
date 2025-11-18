@@ -23,7 +23,7 @@ class RequestFormDTO
         string $email,
         string $phoneNumber,
         array $payload = [],
-        array $files = []
+        array $files = [],
     ) {
         $this->requestType = $requestType;
         $this->documentType = $documentType;
@@ -129,7 +129,7 @@ class RequestFormDTO
     }
 
     /**
-     * Create DTO from array data received from frontend
+     * Create DTO from array data received from frontend.
      */
     public static function fromArray(array $data): self
     {
@@ -148,7 +148,7 @@ class RequestFormDTO
 
     /**
      * Convert DTO to array for database storage
-     * Maps to exact database field names from migration
+     * Maps to exact database field names from migration.
      */
     public function toArray(): array
     {
@@ -165,7 +165,7 @@ class RequestFormDTO
     }
 
     /**
-     * Get payload as object for easy access
+     * Get payload as object for easy access.
      */
     public function getPayloadAsObject(): object
     {
@@ -173,7 +173,7 @@ class RequestFormDTO
     }
 
     /**
-     * Get files as object for easy access
+     * Get files as object for easy access.
      */
     public function getFilesAsObject(): object
     {
@@ -181,7 +181,7 @@ class RequestFormDTO
     }
 
     /**
-     * Get specific payload value by key
+     * Get specific payload value by key.
      */
     public function getPayloadValue(string $key, $default = null)
     {
@@ -189,7 +189,7 @@ class RequestFormDTO
     }
 
     /**
-     * Get specific file value by key
+     * Get specific file value by key.
      */
     public function getFileValue(string $key, $default = null)
     {
@@ -197,7 +197,7 @@ class RequestFormDTO
     }
 
     /**
-     * Set payload value
+     * Set payload value.
      */
     public function setPayloadValue(string $key, $value): void
     {
@@ -207,7 +207,7 @@ class RequestFormDTO
     }
 
     /**
-     * Set file value
+     * Set file value.
      */
     public function setFileValue(string $key, $value): void
     {

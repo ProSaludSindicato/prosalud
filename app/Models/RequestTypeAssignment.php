@@ -13,7 +13,7 @@ class RequestTypeAssignment extends Model
     ];
 
     /**
-     * Get the user that is assigned to this request type
+     * Get the user that is assigned to this request type.
      */
     public function user(): BelongsTo
     {

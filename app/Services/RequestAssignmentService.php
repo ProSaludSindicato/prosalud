@@ -2,20 +2,15 @@
 
 namespace App\Services;
 
-use App\Constants\RequestSubtypes;
-use App\Constants\RequestTypes;
-use App\Models\RequestForm;
-use App\Models\RequestSubtypeAssignment;
-use App\Models\RequestTypeAssignment;
-use App\Models\User;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use App\Constants\{RequestSubtypes, RequestTypes};
+use App\Models\{RequestForm, RequestSubtypeAssignment, RequestTypeAssignment, User};
+use Illuminate\Support\Facades\{DB, Log};
 use Illuminate\Validation\ValidationException;
 
 class RequestAssignmentService
 {
     /**
-     * Get all assignments formatted for API response
+     * Get all assignments formatted for API response.
      */
     public function getAllAssignments(): array
     {
@@ -24,7 +19,7 @@ class RequestAssignmentService
             ->get()
             ->groupBy('request_type')
             ->map(function ($assignments) {
-                return $assignments->pluck('user_id')->map(fn($id) => (string) $id)->toArray();
+                return $assignments->pluck('user_id')->map(fn ($id) => (string) $id)->toArray();
             })
             ->toArray();
 
@@ -35,7 +30,7 @@ class RequestAssignmentService
             ->map(function ($assignments) {
                 return $assignments->groupBy('subtype')
                     ->map(function ($subtypeAssignments) {
-                        return $subtypeAssignments->pluck('user_id')->map(fn($id) => (string) $id)->toArray();
+                        return $subtypeAssignments->pluck('user_id')->map(fn ($id) => (string) $id)->toArray();
                     })
                     ->toArray();
             })
@@ -48,7 +43,7 @@ class RequestAssignmentService
     }
 
     /**
-     * Save or update assignments
+     * Save or update assignments.
      */
     public function saveAssignments(array $assignments, array $subtypeAssignments): array
     {
@@ -108,7 +103,103 @@ class RequestAssignmentService
     }
 
     /**
-     * Validate assignments before saving
+     * Get request types that a user can access.
+     */
+    public function getAccessibleRequestTypesForUser(int $userId): array
+    {
+        $typeAssignments = RequestTypeAssignment::where('user_id', $userId)
+            ->pluck('request_type')
+            ->toArray();
+
+        $subtypeAssignments = RequestSubtypeAssignment::where('user_id', $userId)
+            ->select('request_type', 'subtype')
+            ->get()
+            ->groupBy('request_type')
+            ->map(function ($assignments) {
+                return $assignments->pluck('subtype')->toArray();
+            })
+            ->toArray();
+
+        return [
+            'types' => $typeAssignments,
+            'subtypes' => $subtypeAssignments,
+        ];
+    }
+
+    /**
+     * Check if a user can access a specific request.
+     */
+    public function canUserAccessRequest(User $user, RequestForm $requestForm): bool
+    {
+        // Admins can access everything
+        if ($user->hasRole('admin')) {
+            return true;
+        }
+
+        $userId = $user->id;
+        $requestType = $requestForm->request_type;
+
+        // Check if user has direct type assignment
+        $hasTypeAssignment = RequestTypeAssignment::where('user_id', $userId)
+            ->where('request_type', $requestType)
+            ->exists();
+
+        if ($hasTypeAssignment) {
+            // For types without subtypes, type assignment is enough
+            if (!RequestTypes::hasSubtypes($requestType)) {
+                return true;
+            }
+
+            // For types with subtypes, check if there's a specific subtype assignment
+            // If there's no subtype in the request, fall back to type assignment
+            $subtype = $this->getSubtypeFromRequest($requestForm);
+
+            if (empty($subtype)) {
+                // No subtype in request, use type assignment as fallback
+                return true;
+            }
+
+            // Check if user has specific subtype assignment
+            $hasSubtypeAssignment = RequestSubtypeAssignment::where('user_id', $userId)
+                ->where('request_type', $requestType)
+                ->where('subtype', $subtype)
+                ->exists();
+
+            if ($hasSubtypeAssignment) {
+                return true;
+            }
+
+            // Check if there's a general type assignment (fallback) but no specific subtype assignment
+            // If no specific subtype assignments exist for this type, use type assignment as fallback
+            $hasAnySubtypeAssignment = RequestSubtypeAssignment::where('request_type', $requestType)
+                ->exists();
+
+            if (!$hasAnySubtypeAssignment) {
+                // No subtype assignments exist, use type assignment as fallback
+                return true;
+            }
+
+            // Specific subtype assignment exists but user doesn't have it
+            return false;
+        }
+
+        // Check if user has subtype assignment
+        if (RequestTypes::hasSubtypes($requestType)) {
+            $subtype = $this->getSubtypeFromRequest($requestForm);
+
+            if (!empty($subtype)) {
+                return RequestSubtypeAssignment::where('user_id', $userId)
+                    ->where('request_type', $requestType)
+                    ->where('subtype', $subtype)
+                    ->exists();
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Validate assignments before saving.
      */
     private function validateAssignments(array $assignments, array $subtypeAssignments): void
     {
@@ -121,7 +212,7 @@ class RequestAssignmentService
 
         // Validate request types (without subtypes)
         $requestTypesWithoutSubtypes = array_diff($validRequestTypes, $requestTypesWithSubtypes);
-        
+
         foreach ($requestTypesWithoutSubtypes as $requestType) {
             if (!isset($assignments[$requestType]) || empty($assignments[$requestType])) {
                 $errors["assignments.{$requestType}"] = ['Debe tener al menos un usuario asignado'];
@@ -162,7 +253,7 @@ class RequestAssignmentService
             }
 
             // For request types with subtypes, ensure all subtypes have assignments
-            if ($requestType === RequestTypes::VERIFICACION_PAGOS) {
+            if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
                 foreach ($validSubtypes as $subtype) {
                     if (!isset($subtypes[$subtype]) || empty($subtypes[$subtype])) {
                         $errors["subtype_assignments.{$requestType}.{$subtype}"] = ['Debe tener al menos un usuario asignado'];
@@ -186,7 +277,7 @@ class RequestAssignmentService
         $activeUsers = User::whereIn('id', $allUserIds)
             ->where('is_active', true)
             ->pluck('id')
-            ->map(fn($id) => (string) $id)
+            ->map(fn ($id) => (string) $id)
             ->toArray();
 
         $inactiveUserIds = array_diff($allUserIds, $activeUsers);
@@ -220,110 +311,12 @@ class RequestAssignmentService
     }
 
     /**
-     * Get request types that a user can access
-     */
-    public function getAccessibleRequestTypesForUser(int $userId): array
-    {
-        $typeAssignments = RequestTypeAssignment::where('user_id', $userId)
-            ->pluck('request_type')
-            ->toArray();
-
-        $subtypeAssignments = RequestSubtypeAssignment::where('user_id', $userId)
-            ->select('request_type', 'subtype')
-            ->get()
-            ->groupBy('request_type')
-            ->map(function ($assignments) {
-                return $assignments->pluck('subtype')->toArray();
-            })
-            ->toArray();
-
-        return [
-            'types' => $typeAssignments,
-            'subtypes' => $subtypeAssignments,
-        ];
-    }
-
-    /**
-     * Check if a user can access a specific request
-     */
-    public function canUserAccessRequest(User $user, RequestForm $requestForm): bool
-    {
-        // Admins can access everything
-        if ($user->hasRole('admin')) {
-            return true;
-        }
-
-        $userId = $user->id;
-        $requestType = $requestForm->request_type;
-
-        // Check if user has direct type assignment
-        $hasTypeAssignment = RequestTypeAssignment::where('user_id', $userId)
-            ->where('request_type', $requestType)
-            ->exists();
-
-        if ($hasTypeAssignment) {
-            // For types without subtypes, type assignment is enough
-            if (!RequestTypes::hasSubtypes($requestType)) {
-                return true;
-            }
-
-            // For types with subtypes, check if there's a specific subtype assignment
-            // If there's no subtype in the request, fall back to type assignment
-            $subtype = $this->getSubtypeFromRequest($requestForm);
-            
-            if (empty($subtype)) {
-                // No subtype in request, use type assignment as fallback
-                return true;
-            }
-
-            // Check if user has specific subtype assignment
-            $hasSubtypeAssignment = RequestSubtypeAssignment::where('user_id', $userId)
-                ->where('request_type', $requestType)
-                ->where('subtype', $subtype)
-                ->exists();
-
-            if ($hasSubtypeAssignment) {
-                return true;
-            }
-
-            // Check if there's a general type assignment (fallback) but no specific subtype assignment
-            // If no specific subtype assignments exist for this type, use type assignment as fallback
-            $hasAnySubtypeAssignment = RequestSubtypeAssignment::where('request_type', $requestType)
-                ->exists();
-
-            if (!$hasAnySubtypeAssignment) {
-                // No subtype assignments exist, use type assignment as fallback
-                return true;
-            }
-
-            // Specific subtype assignment exists but user doesn't have it
-            return false;
-        }
-
-        // Check if user has subtype assignment
-        if (RequestTypes::hasSubtypes($requestType)) {
-            $subtype = $this->getSubtypeFromRequest($requestForm);
-            
-            if (!empty($subtype)) {
-                $hasSubtypeAssignment = RequestSubtypeAssignment::where('user_id', $userId)
-                    ->where('request_type', $requestType)
-                    ->where('subtype', $subtype)
-                    ->exists();
-
-                return $hasSubtypeAssignment;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Get subtype from request form
+     * Get subtype from request form.
      */
     private function getSubtypeFromRequest(RequestForm $requestForm): ?string
     {
         $payload = $requestForm->payload ?? [];
+
         return $payload['solicitudRelacionadaCon'] ?? null;
     }
 }
-

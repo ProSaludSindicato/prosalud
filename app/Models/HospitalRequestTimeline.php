@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HospitalRequestTimeline extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -30,7 +31,7 @@ class HospitalRequestTimeline extends Model
     ];
 
     /**
-     * Get the hospital request that owns this timeline entry
+     * Get the hospital request that owns this timeline entry.
      */
     public function hospitalRequest(): BelongsTo
     {

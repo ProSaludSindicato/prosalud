@@ -8,11 +8,12 @@ class IncapacidadService
 {
     public function __construct(
         private ExcelReaderService $excelReader,
-        private DateFormatterService $dateFormatter
-    ) {}
+        private DateFormatterService $dateFormatter,
+    ) {
+    }
 
     /**
-     * Search for disability records by document criteria
+     * Search for disability records by document criteria.
      */
     public function searchByDocument(string $tipo, string $numeroDocumento, string $fechaExpedicion): array
     {
@@ -35,7 +36,7 @@ class IncapacidadService
 
                 return [
                     'status' => 'error',
-                    'message' => 'No se pudo leer el archivo de incapacidades.'
+                    'message' => 'No se pudo leer el archivo de incapacidades.',
                 ];
             }
 
@@ -56,7 +57,7 @@ class IncapacidadService
 
                 return [
                     'status' => 'not_found',
-                    'message' => 'No se encontraron incapacidades registradas para el documento especificado.'
+                    'message' => 'No se encontraron incapacidades registradas para el documento especificado.',
                 ];
             }
 
@@ -73,9 +74,8 @@ class IncapacidadService
 
             return [
                 'status' => 'success',
-                'data' => $formattedMatches
+                'data' => $formattedMatches,
             ];
-
         } catch (\Exception $e) {
             $executionTime = round((microtime(true) - $startTime) * 1000, 2);
 
@@ -85,18 +85,18 @@ class IncapacidadService
                 'fecha_expedicion' => $fechaExpedicion,
                 'execution_time_ms' => $executionTime,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return [
                 'status' => 'error',
-                'message' => 'Error interno del servidor: ' . $e->getMessage()
+                'message' => 'Error interno del servidor: ' . $e->getMessage(),
             ];
         }
     }
 
     /**
-     * Find records that match the search criteria
+     * Find records that match the search criteria.
      */
     private function findMatchingRecords(array $excelData, string $tipo, string $numeroDocumento, string $fechaExpedicion): array
     {
@@ -133,7 +133,7 @@ class IncapacidadService
     }
 
     /**
-     * Format dates in the records and filter internal fields
+     * Format dates in the records and filter internal fields.
      */
     private function formatRecordDates(array $records): array
     {
@@ -151,13 +151,13 @@ class IncapacidadService
     }
 
     /**
-     * Filter out internal fields that should not be exposed in the API
+     * Filter out internal fields that should not be exposed in the API.
      */
     private function filterInternalFields(array $record): array
     {
         $internalFields = [
             'REPORTE FACTURA',
-            'REPORTE VIVI'
+            'REPORTE VIVI',
         ];
 
         return array_filter($record, function ($value, $key) use ($internalFields) {
@@ -166,7 +166,7 @@ class IncapacidadService
     }
 
     /**
-     * Validate if two dates match, handling different formats
+     * Validate if two dates match, handling different formats.
      */
     private function validateDateMatch(string $requestDate, string $excelDate): bool
     {
@@ -180,26 +180,27 @@ class IncapacidadService
             if (!$excelCarbon) {
                 Log::warning('No se pudo parsear fecha del Excel', [
                     'excel_date' => $excelDate,
-                    'request_date' => $requestDate
+                    'request_date' => $requestDate,
                 ]);
+
                 return false;
             }
 
             // Compare dates (ignore time)
             return $requestCarbon->format('Y-m-d') === $excelCarbon->format('Y-m-d');
-
         } catch (\Exception $e) {
             Log::warning('Error al validar fechas', [
                 'request_date' => $requestDate,
                 'excel_date' => $excelDate,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
 
     /**
-     * Parse Excel date from various possible formats
+     * Parse Excel date from various possible formats.
      */
     private function parseExcelDate(string $dateString): ?\Carbon\Carbon
     {

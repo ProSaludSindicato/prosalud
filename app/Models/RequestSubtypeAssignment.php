@@ -14,7 +14,7 @@ class RequestSubtypeAssignment extends Model
     ];
 
     /**
-     * Get the user that is assigned to this request subtype
+     * Get the user that is assigned to this request subtype.
      */
     public function user(): BelongsTo
     {

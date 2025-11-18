@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SupplierDeliveryItem extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -31,7 +32,7 @@ class SupplierDeliveryItem extends Model
     ];
 
     /**
-     * Get the supplier delivery that owns this item
+     * Get the supplier delivery that owns this item.
      */
     public function supplierDelivery(): BelongsTo
     {
@@ -39,7 +40,7 @@ class SupplierDeliveryItem extends Model
     }
 
     /**
-     * Get the product for this item
+     * Get the product for this item.
      */
     public function product(): BelongsTo
     {
@@ -47,7 +48,7 @@ class SupplierDeliveryItem extends Model
     }
 
     /**
-     * Get the variant for this item
+     * Get the variant for this item.
      */
     public function variant(): BelongsTo
     {

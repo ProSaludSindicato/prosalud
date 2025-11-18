@@ -4,8 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Vote;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\{DB, Log};
 
 class ClearVotesCommand extends Command
 {
@@ -36,9 +35,10 @@ class ClearVotesCommand extends Command
 
         // Get current vote count
         $voteCount = Vote::count();
-        
-        if ($voteCount === 0) {
+
+        if (0 === $voteCount) {
             $this->info('✅ The votes table is already empty. Nothing to clear.');
+
             return 0;
         }
 
@@ -52,6 +52,7 @@ class ClearVotesCommand extends Command
             $this->warn('🔍 DRY RUN MODE - No data will be deleted');
             $this->info('The following votes would be deleted:');
             $this->showVoteDetails();
+
             return 0;
         }
 
@@ -64,22 +65,24 @@ class ClearVotesCommand extends Command
         if (!$this->option('force')) {
             $this->warn('⚠️  WARNING: This will permanently delete ALL votes from the database!');
             $this->warn('⚠️  This action cannot be undone!');
-            
+
             if (!$this->confirm('Are you sure you want to continue?')) {
                 $this->info('❌ Operation cancelled by user.');
+
                 return 0;
             }
 
             // Double confirmation for safety
             if (!$this->confirm('This will delete ALL ' . $voteCount . ' votes. Type "DELETE" to confirm')) {
                 $this->info('❌ Operation cancelled by user.');
+
                 return 0;
             }
         }
 
         // Perform the deletion
         $this->info('🗑️  Clearing votes table...');
-        
+
         try {
             // Log the operation
             Log::warning('Votes table cleared via artisan command', [
@@ -90,8 +93,8 @@ class ClearVotesCommand extends Command
                 'options' => [
                     'force' => $this->option('force'),
                     'backup' => $this->option('backup'),
-                    'dry_run' => $this->option('dry-run')
-                ]
+                    'dry_run' => $this->option('dry-run'),
+                ],
             ]);
 
             // Clear the table (truncate doesn't work in transactions)
@@ -99,21 +102,20 @@ class ClearVotesCommand extends Command
 
             $this->info('✅ Successfully cleared all votes from the database.');
             $this->info("🗑️  Deleted {$voteCount} votes.");
-            
+
             // Reset auto-increment (already done by truncate, but just to be sure)
             DB::statement('ALTER TABLE votes AUTO_INCREMENT = 1');
             $this->info('🔄 Reset auto-increment counter to 1.');
 
             return 0;
-
         } catch (\Exception $e) {
             $this->error('❌ Error occurred while clearing votes:');
             $this->error($e->getMessage());
-            
+
             Log::error('Error clearing votes table', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             return 1;
@@ -121,7 +123,7 @@ class ClearVotesCommand extends Command
     }
 
     /**
-     * Show vote statistics
+     * Show vote statistics.
      */
     private function showVoteStatistics()
     {
@@ -170,60 +172,59 @@ class ClearVotesCommand extends Command
     }
 
     /**
-     * Show detailed vote information
+     * Show detailed vote information.
      */
     private function showVoteDetails()
     {
         $votes = Vote::orderBy('vote_timestamp', 'desc')->limit(10)->get();
-        
+
         $this->line('');
         $this->info('Recent votes (last 10):');
-        
+
         foreach ($votes as $vote) {
             $this->line("  • Vote #{$vote->id}: {$vote->voter_document_type} {$vote->voter_document_number} voted for {$vote->candidate_name} on {$vote->vote_timestamp}");
         }
-        
+
         if (Vote::count() > 10) {
-            $this->line("  ... and " . (Vote::count() - 10) . " more votes");
+            $this->line('  ... and ' . (Vote::count() - 10) . ' more votes');
         }
     }
 
     /**
-     * Create backup of votes before clearing
+     * Create backup of votes before clearing.
      */
     private function createBackup()
     {
         $this->info('💾 Creating backup...');
-        
+
         try {
             $votes = Vote::all();
             $backupData = $votes->toArray();
-            
+
             $backupFileName = 'votes_backup_' . now()->format('Y_m_d_H_i_s') . '.json';
             $backupPath = storage_path('app/backups/' . $backupFileName);
-            
+
             // Create backup directory if it doesn't exist
             if (!file_exists(storage_path('app/backups'))) {
                 mkdir(storage_path('app/backups'), 0755, true);
             }
-            
+
             // Save backup
             file_put_contents($backupPath, json_encode($backupData, JSON_PRETTY_PRINT));
-            
+
             $this->info("✅ Backup created: {$backupPath}");
-            $this->info("📁 Backup contains " . count($backupData) . " votes");
-            
+            $this->info('📁 Backup contains ' . count($backupData) . ' votes');
+
             Log::info('Votes backup created', [
                 'backup_file' => $backupFileName,
                 'votes_count' => count($backupData),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
-            
         } catch (\Exception $e) {
             $this->error('❌ Error creating backup: ' . $e->getMessage());
             Log::error('Error creating votes backup', [
                 'error' => $e->getMessage(),
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
         }
     }

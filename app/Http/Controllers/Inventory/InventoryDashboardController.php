@@ -4,15 +4,13 @@ namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InventoryCategoryResource;
-use App\Models\HospitalRequest;
-use App\Models\InventoryCategory;
-use App\Models\InventoryProduct;
+use App\Models\{HospitalRequest, InventoryCategory, InventoryProduct};
 use Illuminate\Http\JsonResponse;
 
 class InventoryDashboardController extends Controller
 {
     /**
-     * Get inventory dashboard data with metrics
+     * Get inventory dashboard data with metrics.
      */
     public function index(): JsonResponse
     {

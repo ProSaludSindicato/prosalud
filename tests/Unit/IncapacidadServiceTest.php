@@ -2,11 +2,8 @@
 
 namespace Tests\Unit;
 
+use App\Services\{DateFormatterService, ExcelReaderService, IncapacidadService};
 use Tests\TestCase;
-use App\Services\IncapacidadService;
-use App\Services\ExcelReaderService;
-use App\Services\DateFormatterService;
-use Mockery;
 
 class IncapacidadServiceTest extends TestCase
 {
@@ -23,12 +20,18 @@ class IncapacidadServiceTest extends TestCase
         $this->service = new IncapacidadService($this->excelReader, $this->dateFormatter);
     }
 
-    public function test_search_by_document_returns_success_when_records_found()
+    protected function tearDown(): void
+    {
+        \Mockery::close();
+        parent::tearDown();
+    }
+
+    public function testSearchByDocumentReturnsSuccessWhenRecordsFound()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI'],
             ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', 'SI', 'si'],
-            ['002', '23/10/24', 'CC', '987654321', '2/1/2025', 'María García', 'NO', 'no']
+            ['002', '23/10/24', 'CC', '987654321', '2/1/2025', 'María García', 'NO', 'no'],
         ];
 
         $this->excelReader
@@ -51,7 +54,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertArrayNotHasKey('REPORTE VIVI', $record);
     }
 
-    public function test_search_by_document_returns_not_found_when_no_records()
+    public function testSearchByDocumentReturnsNotFoundWhenNoRecords()
     {
         $this->excelReader
             ->shouldReceive('readIncapacidadesFile')
@@ -64,7 +67,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertStringContainsString('No se pudo leer', $result['message']);
     }
 
-    public function test_search_by_document_handles_excel_reader_exception()
+    public function testSearchByDocumentHandlesExcelReaderException()
     {
         $this->excelReader
             ->shouldReceive('readIncapacidadesFile')
@@ -77,11 +80,11 @@ class IncapacidadServiceTest extends TestCase
         $this->assertStringContainsString('Error interno', $result['message']);
     }
 
-    public function test_internal_fields_are_filtered_from_response()
+    public function testInternalFieldsAreFilteredFromResponse()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI', 'estado'],
-            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', 'SI', 'si', 'PAGADA']
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', 'SI', 'si', 'PAGADA'],
         ];
 
         $this->excelReader
@@ -108,11 +111,11 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('PAGADA', $record['estado']);
     }
 
-    public function test_date_conversion_with_english_format()
+    public function testDateConversionWithEnglishFormat()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'FECHA ENVIO', 'Fecha Incio Incapacidad'],
-            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', '20-Mar-25', '2/15/2025']
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez', '20-Mar-25', '2/15/2025'],
         ];
 
         $this->excelReader
@@ -190,12 +193,12 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('01/01/2025', $record['Fecha Expedicion']);  // Fecha Expedicion converted
     }
 
-    public function test_search_by_document_with_date_validation_filters_mismatched_dates()
+    public function testSearchByDocumentWithDateValidationFiltersMismatchedDates()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
             ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez'],
-            ['002', '23/10/24', 'CC', '123456789', '2/1/2025', 'Juan Pérez Otro']
+            ['002', '23/10/24', 'CC', '123456789', '2/1/2025', 'Juan Pérez Otro'],
         ];
 
         $this->excelReader
@@ -215,11 +218,11 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('001', $result['data'][0]['N° Radicado']);
     }
 
-    public function test_search_by_document_with_date_validation_returns_not_found_when_no_matching_dates()
+    public function testSearchByDocumentWithDateValidationReturnsNotFoundWhenNoMatchingDates()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
-            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez']
+            ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez'],
         ];
 
         $this->excelReader
@@ -236,11 +239,5 @@ class IncapacidadServiceTest extends TestCase
 
         $this->assertEquals('not_found', $result['status']);
         $this->assertStringContainsString('No se encontraron', $result['message']);
-    }
-
-    protected function tearDown(): void
-    {
-        \Mockery::close();
-        parent::tearDown();
     }
 }

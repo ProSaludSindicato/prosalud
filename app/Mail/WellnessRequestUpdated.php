@@ -9,7 +9,8 @@ use Illuminate\Queue\SerializesModels;
 
 class WellnessRequestUpdated extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable;
+    use SerializesModels;
 
     public function __construct(
         public WellnessRequest $wellnessRequest,
@@ -25,7 +26,7 @@ class WellnessRequestUpdated extends Mailable
      */
     public function build(): self
     {
-        $view = $this->statusOnly 
+        $view = $this->statusOnly
             ? 'emails.wellness_request_status_changed'
             : 'emails.wellness_request_updated';
 
@@ -44,4 +45,3 @@ class WellnessRequestUpdated extends Mailable
             ]);
     }
 }
-

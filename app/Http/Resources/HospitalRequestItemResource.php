@@ -27,7 +27,7 @@ class HospitalRequestItemResource extends JsonResource
             'variant' => new InventoryVariantResource($this->whenLoaded('variant')),
             'current_stock' => $this->when(
                 $this->relationLoaded('variant'),
-                fn() => $this->variant?->stock
+                fn () => $this->variant?->stock
             ),
         ];
     }

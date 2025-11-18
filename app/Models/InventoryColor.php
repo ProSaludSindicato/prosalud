@@ -23,7 +23,7 @@ class InventoryColor extends Model
     ];
 
     /**
-     * Get all variants with this color
+     * Get all variants with this color.
      */
     public function variants(): HasMany
     {

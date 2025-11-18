@@ -4,9 +4,7 @@ namespace App\Services;
 
 use App\Mail\UserPasswordReset;
 use App\Models\User;
-use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\{Crypt, Log, Mail};
 
 class PasswordResetService
 {
@@ -112,4 +110,3 @@ class PasswordResetService
         return rtrim($baseUrl, '/') . '/' . $path . '?token=' . urlencode($token);
     }
 }
-

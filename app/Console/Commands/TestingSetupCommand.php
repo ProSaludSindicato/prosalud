@@ -3,8 +3,7 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\{Artisan, DB};
 
 class TestingSetupCommand extends Command
 {
@@ -49,9 +48,9 @@ class TestingSetupCommand extends Command
             $this->line('');
             $this->line('🚀 To run tests, use:');
             $this->line('   php artisan test --env=testing');
-
         } catch (\Exception $e) {
             $this->error('❌ Error setting up testing environment: ' . $e->getMessage());
+
             return 1;
         }
 
@@ -59,7 +58,7 @@ class TestingSetupCommand extends Command
     }
 
     /**
-     * Create the testing database
+     * Create the testing database.
      */
     private function createTestingDatabase(): void
     {
@@ -75,7 +74,8 @@ class TestingSetupCommand extends Command
     }
 
     /**
-     * Run migrations for testing
+     * Run migrations for testing.
+     *
      * @throws \Exception
      */
     private function runMigrations(): void
@@ -94,7 +94,7 @@ class TestingSetupCommand extends Command
     }
 
     /**
-     * Run seeders for testing
+     * Run seeders for testing.
      */
     private function runSeeders(): void
     {

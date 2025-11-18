@@ -3,8 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Http\{JsonResponse, Request};
 use Spatie\Permission\Models\Permission;
 
 class PermissionController extends Controller
@@ -27,7 +26,7 @@ class PermissionController extends Controller
                     'created_at' => $permission->created_at,
                     'updated_at' => $permission->updated_at,
                 ];
-            })
+            }),
         ]);
     }
 
@@ -45,7 +44,7 @@ class PermissionController extends Controller
                 'guard_name' => $permission->guard_name,
                 'created_at' => $permission->created_at,
                 'updated_at' => $permission->updated_at,
-            ]
+            ],
         ]);
     }
 
@@ -74,7 +73,7 @@ class PermissionController extends Controller
                 'guard_name' => $permission->guard_name,
                 'created_at' => $permission->created_at,
                 'updated_at' => $permission->updated_at,
-            ]
+            ],
         ]);
     }
 }

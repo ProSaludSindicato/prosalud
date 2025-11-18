@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HospitalRequestItem extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -33,7 +34,7 @@ class HospitalRequestItem extends Model
     ];
 
     /**
-     * Get the hospital request that owns this item
+     * Get the hospital request that owns this item.
      */
     public function hospitalRequest(): BelongsTo
     {
@@ -41,7 +42,7 @@ class HospitalRequestItem extends Model
     }
 
     /**
-     * Get the product for this item
+     * Get the product for this item.
      */
     public function product(): BelongsTo
     {
@@ -49,7 +50,7 @@ class HospitalRequestItem extends Model
     }
 
     /**
-     * Get the variant for this item
+     * Get the variant for this item.
      */
     public function variant(): BelongsTo
     {

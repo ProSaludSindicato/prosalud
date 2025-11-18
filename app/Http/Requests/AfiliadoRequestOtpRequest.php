@@ -44,4 +44,3 @@ class AfiliadoRequestOtpRequest extends FormRequest
         ];
     }
 }
-

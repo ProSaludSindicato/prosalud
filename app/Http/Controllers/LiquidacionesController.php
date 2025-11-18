@@ -2,21 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\JsonResponse;
 use App\Http\Requests\LiquidacionSearchRequest;
 use App\Services\LiquidacionService;
+use Illuminate\Http\JsonResponse;
 
 class LiquidacionesController extends Controller
 {
     public function __construct(
-        private LiquidacionService $liquidacionService
-    ) {}
+        private LiquidacionService $liquidacionService,
+    ) {
+    }
 
     /**
-     * Search for liquidation records by document type and number
-     *
-     * @param LiquidacionSearchRequest $request
-     * @return JsonResponse
+     * Search for liquidation records by document type and number.
      */
     public function search(LiquidacionSearchRequest $request): JsonResponse
     {
@@ -57,7 +55,7 @@ class LiquidacionesController extends Controller
     }
 
     /**
-     * Build HTTP response based on service result
+     * Build HTTP response based on service result.
      */
     private function buildResponse(array $result): JsonResponse
     {
@@ -69,8 +67,8 @@ class LiquidacionesController extends Controller
             'error' => response()->json($result, 500),
             default => response()->json([
                 'status' => 'error',
-                'message' => 'Respuesta inesperada del servicio'
-            ], 500)
+                'message' => 'Respuesta inesperada del servicio',
+            ], 500),
         };
     }
 }

@@ -30,7 +30,7 @@ class InventoryVariantStockResource extends JsonResource
             'stock' => (int) $this->stock,
             'reserved' => (int) $this->reserved,
             'min_stock' => (int) $this->min_stock,
-            'max_stock' => $this->max_stock !== null ? (int) $this->max_stock : null,
+            'max_stock' => null !== $this->max_stock ? (int) $this->max_stock : null,
         ];
     }
 }

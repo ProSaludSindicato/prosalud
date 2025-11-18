@@ -1,36 +1,10 @@
 <?php
 
-use App\Http\Controllers\ActivosController;
-use App\Http\Controllers\ActivosFileController;
-use App\Http\Controllers\AfiliadoController;
-use App\Http\Controllers\AfiliadosFileController;
-use App\Http\Controllers\Api\PermissionController;
-use App\Http\Controllers\Api\RoleController;
-use App\Http\Controllers\AuthController as ApiAuthController;
-use App\Http\Controllers\ChatbotConversationController;
-use App\Http\Controllers\ComfenalcoEventController;
-use App\Http\Controllers\DelegadosController;
-use App\Http\Controllers\DelegadosFileController;
-use App\Http\Controllers\DotacionEppController;
-use App\Http\Controllers\IncapacidadesController;
-use App\Http\Controllers\IncapacidadesFileController;
-use App\Http\Controllers\Inventory\HospitalRequestController;
-use App\Http\Controllers\Inventory\InventoryCategoryController;
-use App\Http\Controllers\Inventory\InventoryColorController;
-use App\Http\Controllers\Inventory\InventoryDashboardController;
-use App\Http\Controllers\Inventory\InventoryEntryController;
-use App\Http\Controllers\Inventory\InventoryLocationController;
-use App\Http\Controllers\Inventory\InventoryProductController;
-use App\Http\Controllers\Inventory\InventoryStockMovementController;
-use App\Http\Controllers\LiquidacionesController;
-use App\Http\Controllers\LiquidacionesFileController;
-use App\Http\Controllers\Request\RequestAssignmentController;
-use App\Http\Controllers\Request\RequestController;
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
+use App\Http\Controllers\Api\{PermissionController, RoleController};
+use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryStockMovementController};
+use App\Http\Controllers\Request\{RequestAssignmentController, RequestController};
 use App\Http\Controllers\User\UserController;
-use App\Http\Controllers\VoteController;
-use App\Http\Controllers\WellnessActivityRealizedController;
-use App\Http\Controllers\WellnessEventController;
-use App\Http\Controllers\WellnessRequestController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {

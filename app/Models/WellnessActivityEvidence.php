@@ -28,11 +28,10 @@ class WellnessActivityEvidence extends Model
     ];
 
     /**
-     * Relación con la actividad realizada
+     * Relación con la actividad realizada.
      */
     public function activityRealized(): BelongsTo
     {
         return $this->belongsTo(WellnessActivityRealized::class, 'activity_realized_id');
     }
 }
-

@@ -4,11 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\UploadIncapacidadesFileRequest;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
-use PhpOffice\PhpSpreadsheet\IOFactory;
+use Illuminate\Support\Facades\{Auth, Log, Storage};
+use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
 
 class IncapacidadesFileController extends Controller
 {
@@ -53,7 +50,7 @@ class IncapacidadesFileController extends Controller
 
             try {
                 $storedPath = Storage::disk($disk)->putFileAs(self::STORAGE_DIRECTORY, $file, self::FILE_NAME);
-                if ($storedPath === false) {
+                if (false === $storedPath) {
                     throw new \Exception('Error al subir archivo al bucket privado');
                 }
 
@@ -77,7 +74,7 @@ class IncapacidadesFileController extends Controller
                     $disk = self::FALLBACK_DISK;
                     $storedPath = Storage::disk($disk)->putFileAs(self::STORAGE_DIRECTORY, $file, self::FILE_NAME);
 
-                    if ($storedPath === false) {
+                    if (false === $storedPath) {
                         throw new \Exception('Error al subir archivo al disco de fallback');
                     }
 
@@ -120,4 +117,3 @@ class IncapacidadesFileController extends Controller
         }
     }
 }
-

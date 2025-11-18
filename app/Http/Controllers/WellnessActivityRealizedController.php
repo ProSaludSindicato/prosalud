@@ -2,24 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\PublishToGalleryRequest;
-use App\Http\Requests\StoreWellnessActivityRealizedRequest;
-use App\Http\Requests\UpdateWellnessActivityRealizedRequest;
-use App\Models\WellnessActivityEvidence;
-use App\Models\WellnessActivityRealized;
-use App\Models\WellnessEvent;
-use App\Models\WellnessEventImage;
-use App\Models\WellnessRequest;
+use App\Http\Requests\{PublishToGalleryRequest, StoreWellnessActivityRealizedRequest, UpdateWellnessActivityRealizedRequest};
+use App\Models\{WellnessActivityEvidence, WellnessActivityRealized, WellnessEvent, WellnessEventImage, WellnessRequest};
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\{DB, Log, Storage};
 use Illuminate\Support\Str;
 
 class WellnessActivityRealizedController extends Controller
 {
     /**
-     * Create activity realized for a wellness request
+     * Create activity realized for a wellness request.
      */
     public function store(StoreWellnessActivityRealizedRequest $request, int $wellness_request_id): JsonResponse
     {
@@ -27,7 +19,7 @@ class WellnessActivityRealizedController extends Controller
             // Verify wellness request exists and is resolved
             $wellnessRequest = WellnessRequest::findOrFail($wellness_request_id);
 
-            if ($wellnessRequest->status !== 'resolved') {
+            if ('resolved' !== $wellnessRequest->status) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Solo se puede registrar actividad realizada para solicitudes aprobadas',
@@ -83,7 +75,6 @@ class WellnessActivityRealizedController extends Controller
                 'message' => 'Actividad realizada registrada exitosamente',
                 'data' => $this->formatActivityRealizedResponse($activityRealized),
             ], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error creando actividad realizada', [
@@ -101,7 +92,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Get activity realized for a wellness request
+     * Get activity realized for a wellness request.
      */
     public function show(int $wellness_request_id): JsonResponse
     {
@@ -121,7 +112,6 @@ class WellnessActivityRealizedController extends Controller
                 'success' => true,
                 'data' => $this->formatActivityRealizedResponse($activityRealized),
             ], 200);
-
         } catch (\Exception $e) {
             Log::error('Error obteniendo actividad realizada', [
                 'wellness_request_id' => $wellness_request_id,
@@ -137,7 +127,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Update activity realized
+     * Update activity realized.
      */
     public function update(UpdateWellnessActivityRealizedRequest $request, int $wellness_request_id): JsonResponse
     {
@@ -169,7 +159,7 @@ class WellnessActivityRealizedController extends Controller
             if ($request->has('publicado_en_galeria')) {
                 $updateData['published_to_gallery'] = $request->boolean('publicado_en_galeria');
                 // If setting to false, also clear gallery_event_id
-                if ($updateData['published_to_gallery'] === false) {
+                if (false === $updateData['published_to_gallery']) {
                     $updateData['gallery_event_id'] = null;
                 }
             }
@@ -193,7 +183,7 @@ class WellnessActivityRealizedController extends Controller
             }
 
             // Handle delete listado_asistencia
-            if ($request->input('eliminar_listado_asistencia') === 'true') {
+            if ('true' === $request->input('eliminar_listado_asistencia')) {
                 if ($activityRealized->listado_asistencia_path) {
                     try {
                         Storage::disk('prosalud-private')->delete($activityRealized->listado_asistencia_path);
@@ -230,7 +220,7 @@ class WellnessActivityRealizedController extends Controller
             // Handle evidencias_orden (update order of evidences)
             if ($request->has('evidencias_orden')) {
                 $evidenciasOrden = $request->input('evidencias_orden');
-                
+
                 // Normalize format (support both object and array of objects)
                 $orderMap = [];
                 if (isset($evidenciasOrden[0]) && is_array($evidenciasOrden[0])) {
@@ -238,7 +228,7 @@ class WellnessActivityRealizedController extends Controller
                     foreach ($evidenciasOrden as $item) {
                         $evidenceId = $item['evidence_id'] ?? $item['id'] ?? null;
                         $order = $item['order'] ?? null;
-                        if ($evidenceId && $order !== null) {
+                        if ($evidenceId && null !== $order) {
                             $orderMap[$evidenceId] = $order;
                         }
                     }
@@ -308,7 +298,6 @@ class WellnessActivityRealizedController extends Controller
                 'message' => 'Actividad realizada actualizada exitosamente',
                 'data' => $this->formatActivityRealizedResponse($activityRealized),
             ], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error actualizando actividad realizada', [
@@ -326,7 +315,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Publish activity to gallery
+     * Publish activity to gallery.
      */
     public function publishToGallery(PublishToGalleryRequest $request, int $wellness_request_id): JsonResponse
     {
@@ -401,7 +390,7 @@ class WellnessActivityRealizedController extends Controller
                     foreach ($evidenciasOrden as $item) {
                         $evidenceId = $item['evidence_id'] ?? $item['id'] ?? null;
                         $order = $item['order'] ?? null;
-                        if ($evidenceId && $order !== null) {
+                        if ($evidenceId && null !== $order) {
                             $orderMap[$evidenceId] = $order;
                         }
                     }
@@ -480,7 +469,6 @@ class WellnessActivityRealizedController extends Controller
                     'evento_galeria_id' => $galleryEvent->id,
                 ],
             ], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error publicando actividad en galería', [
@@ -498,7 +486,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Store evidencias (images) in public bucket
+     * Store evidencias (images) in public bucket.
      */
     private function storeEvidencias(WellnessActivityRealized $activityRealized, array $evidencias): void
     {
@@ -522,7 +510,7 @@ class WellnessActivityRealizedController extends Controller
                 );
 
                 $finalDisk = $disk;
-                if ($storedPath === false) {
+                if (false === $storedPath) {
                     Log::warning('Failed to store evidence in public bucket, trying fallback', [
                         'activity_realized_id' => $activityRealized->id,
                     ]);
@@ -539,7 +527,7 @@ class WellnessActivityRealizedController extends Controller
                 }
 
                 // Generate URL
-                if ($finalDisk === 'prosalud-public') {
+                if ('prosalud-public' === $finalDisk) {
                     $baseUrl = config('filesystems.disks.prosalud-public.url');
                     $imageUrl = rtrim($baseUrl, '/') . '/' . ltrim($storedPath, '/');
                 } else {
@@ -554,7 +542,6 @@ class WellnessActivityRealizedController extends Controller
                     'is_selected_for_gallery' => false,
                     'order' => $currentMaxOrder + $index + 1,
                 ]);
-
             } catch (\Exception $e) {
                 Log::error('Error guardando evidencia', [
                     'activity_realized_id' => $activityRealized->id,
@@ -567,7 +554,7 @@ class WellnessActivityRealizedController extends Controller
 
     /**
      * Store listado_asistencia file in private bucket
-     * Returns the stored path (always uses prosalud-private bucket)
+     * Returns the stored path (always uses prosalud-private bucket).
      */
     private function storeListadoAsistencia($file, int $wellness_request_id): string
     {
@@ -584,7 +571,7 @@ class WellnessActivityRealizedController extends Controller
             $filename
         );
 
-        if ($storedPath === false) {
+        if (false === $storedPath) {
             Log::warning('Failed to store listado in private bucket, trying fallback', [
                 'wellness_request_id' => $wellness_request_id,
             ]);
@@ -602,7 +589,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Delete evidence image from storage
+     * Delete evidence image from storage.
      */
     private function deleteEvidenceImage(WellnessActivityEvidence $evidence): void
     {
@@ -637,7 +624,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Parse JSON array string to array
+     * Parse JSON array string to array.
      */
     private function parseJsonArray(?string $jsonString): array
     {
@@ -647,7 +634,7 @@ class WellnessActivityRealizedController extends Controller
 
         // Try to decode as JSON
         $decoded = json_decode($jsonString, true);
-        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+        if (JSON_ERROR_NONE === json_last_error() && is_array($decoded)) {
             return $decoded;
         }
 
@@ -656,7 +643,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Format activity realized response with Spanish keys
+     * Format activity realized response with Spanish keys.
      */
     private function formatActivityRealizedResponse(WellnessActivityRealized $activityRealized): array
     {
@@ -716,7 +703,7 @@ class WellnessActivityRealizedController extends Controller
     }
 
     /**
-     * Format evidencias with main image information
+     * Format evidencias with main image information.
      */
     private function formatEvidencias(WellnessActivityRealized $activityRealized): array
     {
@@ -744,52 +731,48 @@ class WellnessActivityRealizedController extends Controller
 
     /**
      * Generate a simple but descriptive filename for evidence images
-     * Format: Evid-Act[ID]-[UniqueId]-[Index].[ext]
+     * Format: Evid-Act[ID]-[UniqueId]-[Index].[ext].
      */
     private function generateDescriptiveFilenameForEvidence(
         \Illuminate\Http\UploadedFile $image,
         int $activityRealizedId,
         int $index,
-        string $extension
+        string $extension,
     ): string {
         $uniqueId = substr(Str::uuid()->toString(), 0, 6);
-        
+
         // Build simple filename: Evid-Act[ID]-[UniqueId]-[Index].[ext]
-        $filename = sprintf(
+        return sprintf(
             'Evid-Act%d-%s-%d.%s',
             $activityRealizedId,
             $uniqueId,
             $index + 1,
             $extension
         );
-
-        return $filename;
     }
 
     /**
      * Generate a simple but descriptive filename for listado_asistencia
-     * Format: Listado-Req[ID]-[UniqueId].[ext]
+     * Format: Listado-Req[ID]-[UniqueId].[ext].
      */
     private function generateDescriptiveFilenameForListado(
         \Illuminate\Http\UploadedFile $file,
         int $wellnessRequestId,
-        string $extension
+        string $extension,
     ): string {
         $uniqueId = substr(Str::uuid()->toString(), 0, 6);
-        
+
         // Build simple filename: Listado-Req[ID]-[UniqueId].[ext]
-        $filename = sprintf(
+        return sprintf(
             'Listado-Req%d-%s.%s',
             $wellnessRequestId,
             $uniqueId,
             $extension
         );
-
-        return $filename;
     }
 
     /**
-     * Get file extension from MIME type
+     * Get file extension from MIME type.
      */
     private function getExtensionFromMimeType(string $mimeType): string
     {

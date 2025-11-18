@@ -2,20 +2,11 @@
 
 namespace App\Services;
 
-use App\Models\InventoryCategory;
-use App\Models\SstDeliveryItem;
-use App\Models\SstDeliveryRecord;
-use App\Models\SstReturnItem;
-use App\Models\SstReturnRecord;
-use App\Models\User;
+use App\Models\{InventoryCategory, SstDeliveryItem, SstDeliveryRecord, SstReturnItem, SstReturnRecord, User};
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use Illuminate\Support\{Collection, Str};
+use Illuminate\Support\Facades\{Auth, DB, Log, Storage};
 
 class SstDotacionService
 {
@@ -45,7 +36,7 @@ class SstDotacionService
                 'defaultColor' => $item['defaultColor'] ?? null,
                 'description' => $item['description'] ?? null,
                 'unit' => $item['unit'] ?? 'unidad',
-            ], fn ($value) => $value !== null);
+            ], fn ($value) => null !== $value);
         }, self::inventoryItems());
     }
 
@@ -66,6 +57,7 @@ class SstDotacionService
             ->filter(fn (array $affiliate) => $affiliate['active'] ?? false)
             ->sortBy(function (array $affiliate) {
                 $fullName = trim(($affiliate['firstName'] ?? '') . ' ' . ($affiliate['lastName'] ?? ''));
+
                 return mb_strtolower($fullName, 'UTF-8');
             })
             ->values();
@@ -77,11 +69,11 @@ class SstDotacionService
             $hospitalFilter,
             $searchTerm
         ) {
-            if ($statusFilter === 'active' && !$affiliate['active']) {
+            if ('active' === $statusFilter && !$affiliate['active']) {
                 return false;
             }
 
-            if ($statusFilter === 'inactive' && $affiliate['active']) {
+            if ('inactive' === $statusFilter && $affiliate['active']) {
                 return false;
             }
 
@@ -106,7 +98,7 @@ class SstDotacionService
                     $affiliate['hospital'] ?? '',
                 ]));
 
-                if (mb_strpos($haystack, $needle) === false) {
+                if (false === mb_strpos($haystack, $needle)) {
                     return false;
                 }
             }
@@ -192,10 +184,10 @@ class SstDotacionService
 
         foreach ($itemsPayload as $itemPayload) {
             $itemId = $itemPayload['itemId'];
-            
+
             // Carnet es un ítem especial que no requiere validación de inventario
             $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
-            
+
             if ($isCarnet) {
                 // Crear registro para Carnet sin validación de inventario
                 SstDeliveryItem::create([
@@ -278,175 +270,6 @@ class SstDotacionService
     }
 
     /**
-     * Build affiliates collection enriched with last delivery information.
-     */
-    private function buildAffiliatesCollection(): Collection
-    {
-        $affiliatesRaw = collect($this->afiliadoService->getAllAfiliadosBasic());
-
-        $lastDeliveries = SstDeliveryRecord::query()
-            ->select('affiliate_id', DB::raw('MAX(delivered_at) as last_delivery_at'))
-            ->groupBy('affiliate_id')
-            ->pluck('last_delivery_at', 'affiliate_id');
-
-        return $affiliatesRaw->map(function (array $afiliado) use ($lastDeliveries) {
-            $documentType = strtoupper($afiliado['tipo_documento'] ?? '');
-            $documentNumber = $afiliado['documento'] ?? '';
-            $id = sprintf('%s-%s', $documentType, $documentNumber);
-            $convenio = $afiliado['convenios'][0] ?? null;
-            $hospital = $convenio['cliente'] ?? 'SIN ASIGNAR';
-            $role = $convenio['proceso'] ?? null;
-            $status = strtoupper($afiliado['estado'] ?? '');
-
-            $lastDeliveryAt = $lastDeliveries[$id] ?? null;
-            $lastDeliveryIso = $lastDeliveryAt
-                ? Carbon::parse($lastDeliveryAt)->setTimezone('America/Bogota')->toISOString()
-                : null;
-
-            return [
-                'id' => $id,
-                'firstName' => trim($afiliado['nombres'] ?? ''),
-                'lastName' => trim($afiliado['apellidos'] ?? ''),
-                'documentType' => $documentType,
-                'documentNumber' => $documentNumber,
-                'hospital' => $hospital,
-                'role' => $role,
-                'active' => $status === 'ACTIVO',
-                'status' => $status,
-                'convenioStatus' => $convenio['estado'] ?? null,
-                'lastDeliveryAt' => $lastDeliveryIso,
-                'notes' => null,
-            ];
-        });
-    }
-
-    private function transformDeliveryRecord(SstDeliveryRecord $record): array
-    {
-        $signatureUrl = null;
-        if ($record->signature_path) {
-            try {
-                $disk = self::SIGNATURE_DISK;
-
-                $diskInstance = Storage::disk($disk);
-
-                if (method_exists($diskInstance, 'temporaryUrl')) {
-                    $signatureUrl = $diskInstance->temporaryUrl(
-                        $record->signature_path,
-                        now()->addMinutes(self::SIGNATURE_TEMP_URL_MINUTES)
-                    );
-                } else {
-                    $signatureUrl = $diskInstance->url($record->signature_path);
-                }
-            } catch (\Throwable $e) {
-                Log::warning('No se pudo generar URL para la firma de dotación', [
-                    'record_id' => $record->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        return [
-            'id' => $record->id,
-            'affiliateId' => $record->affiliate_id,
-            'deliveredAt' => $record->delivered_at?->setTimezone('America/Bogota')->toISOString(),
-            'deliveredBy' => $record->delivered_by_name,
-            'deliveryType' => $record->delivery_type,
-            'items' => $record->items->map(function (SstDeliveryItem $item) {
-                // Si es carnet, no buscar en inventario
-                $isCarnet = in_array(strtolower($item->item_id), ['__carnet__', 'carnet'], true);
-                
-                if ($isCarnet) {
-                    return [
-                        'itemId' => $item->item_id,
-                        'name' => $item->item_name,
-                        'gender' => null,
-                        'variant' => [],
-                        'quantity' => $item->quantity,
-                    ];
-                }
-                
-                $inventoryItem = $this->findInventoryItem($item->item_id);
-                $inventoryGender = is_array($inventoryItem) ? ($inventoryItem['gender'] ?? null) : null;
-
-                return [
-                    'itemId' => $item->item_id,
-                    'name' => $item->item_name,
-                    'gender' => $item->item_gender ?? $inventoryGender,
-                    'variant' => array_filter([
-                        'color' => $item->variant_color,
-                        'size' => $item->variant_size,
-                    ], fn ($value) => $value !== null),
-                    'quantity' => $item->quantity,
-                ];
-            })->all(),
-            'signedDocumentUrl' => $signatureUrl,
-            'signedDocumentType' => $record->signed_document_type,
-            'signedDocumentNumber' => $record->signed_document_number,
-            'notes' => $record->notes,
-        ];
-    }
-
-    private function findInventoryItem(string $itemId): ?array
-    {
-        foreach (self::inventoryItems() as $item) {
-            if ($item['id'] === $itemId) {
-                return $item;
-            }
-        }
-
-        return null;
-    }
-
-    private static function inventoryItems(): array
-    {
-        if (self::$inventoryCache !== null) {
-            return self::$inventoryCache;
-        }
-
-        $categories = InventoryCategory::query()
-            ->with(['products.variants.color'])
-            ->get()
-            ->filter(function (InventoryCategory $category) {
-                $normalized = Str::slug($category->name);
-                return in_array($normalized, ['dotacion', 'dotación', 'epp'], true);
-            });
-
-        $items = [];
-
-        foreach ($categories as $category) {
-            $categoryLabel = $category->name;
-
-            foreach ($category->products as $product) {
-                $variants = $product->variants->map(function ($variant) {
-                    $payload = array_filter([
-                        'color' => $variant->color_id,
-                        'size' => $variant->size,
-                    ], fn ($value) => $value !== null && $value !== '');
-
-                    return $payload ?: null;
-                })->filter()->values()->all();
-
-                $defaultColor = $product->variants->firstWhere('color_id')?->color_id;
-
-                $items[] = array_filter([
-                    'id' => $product->id,
-                    'name' => $product->name,
-                    'category' => $categoryLabel,
-                    'gender' => $product->gender,
-                    'variants' => !empty($variants) ? $variants : null,
-                    'defaultColor' => $defaultColor,
-                    'description' => $product->description,
-                    'unit' => 'unidad',
-                ], fn ($value) => $value !== null);
-            }
-        }
-
-        self::$inventoryCache = $items;
-
-        return self::$inventoryCache;
-    }
-
-    /**
      * Create a return record with items and signature storage.
      */
     public function createReturn(array $data): array
@@ -497,10 +320,10 @@ class SstDotacionService
 
         foreach ($itemsPayload as $itemPayload) {
             $itemId = $itemPayload['itemId'];
-            
+
             // Carnet es un ítem especial que no requiere validación de inventario
             $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
-            
+
             if ($isCarnet) {
                 // Crear registro para Carnet sin validación de inventario
                 SstReturnItem::create([
@@ -624,6 +447,176 @@ class SstDotacionService
         ];
     }
 
+    /**
+     * Build affiliates collection enriched with last delivery information.
+     */
+    private function buildAffiliatesCollection(): Collection
+    {
+        $affiliatesRaw = collect($this->afiliadoService->getAllAfiliadosBasic());
+
+        $lastDeliveries = SstDeliveryRecord::query()
+            ->select('affiliate_id', DB::raw('MAX(delivered_at) as last_delivery_at'))
+            ->groupBy('affiliate_id')
+            ->pluck('last_delivery_at', 'affiliate_id');
+
+        return $affiliatesRaw->map(function (array $afiliado) use ($lastDeliveries) {
+            $documentType = strtoupper($afiliado['tipo_documento'] ?? '');
+            $documentNumber = $afiliado['documento'] ?? '';
+            $id = sprintf('%s-%s', $documentType, $documentNumber);
+            $convenio = $afiliado['convenios'][0] ?? null;
+            $hospital = $convenio['cliente'] ?? 'SIN ASIGNAR';
+            $role = $convenio['proceso'] ?? null;
+            $status = strtoupper($afiliado['estado'] ?? '');
+
+            $lastDeliveryAt = $lastDeliveries[$id] ?? null;
+            $lastDeliveryIso = $lastDeliveryAt
+                ? Carbon::parse($lastDeliveryAt)->setTimezone('America/Bogota')->toISOString()
+                : null;
+
+            return [
+                'id' => $id,
+                'firstName' => trim($afiliado['nombres'] ?? ''),
+                'lastName' => trim($afiliado['apellidos'] ?? ''),
+                'documentType' => $documentType,
+                'documentNumber' => $documentNumber,
+                'hospital' => $hospital,
+                'role' => $role,
+                'active' => 'ACTIVO' === $status,
+                'status' => $status,
+                'convenioStatus' => $convenio['estado'] ?? null,
+                'lastDeliveryAt' => $lastDeliveryIso,
+                'notes' => null,
+            ];
+        });
+    }
+
+    private function transformDeliveryRecord(SstDeliveryRecord $record): array
+    {
+        $signatureUrl = null;
+        if ($record->signature_path) {
+            try {
+                $disk = self::SIGNATURE_DISK;
+
+                $diskInstance = Storage::disk($disk);
+
+                if (method_exists($diskInstance, 'temporaryUrl')) {
+                    $signatureUrl = $diskInstance->temporaryUrl(
+                        $record->signature_path,
+                        now()->addMinutes(self::SIGNATURE_TEMP_URL_MINUTES)
+                    );
+                } else {
+                    $signatureUrl = $diskInstance->url($record->signature_path);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo generar URL para la firma de dotación', [
+                    'record_id' => $record->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return [
+            'id' => $record->id,
+            'affiliateId' => $record->affiliate_id,
+            'deliveredAt' => $record->delivered_at?->setTimezone('America/Bogota')->toISOString(),
+            'deliveredBy' => $record->delivered_by_name,
+            'deliveryType' => $record->delivery_type,
+            'items' => $record->items->map(function (SstDeliveryItem $item) {
+                // Si es carnet, no buscar en inventario
+                $isCarnet = in_array(strtolower($item->item_id), ['__carnet__', 'carnet'], true);
+
+                if ($isCarnet) {
+                    return [
+                        'itemId' => $item->item_id,
+                        'name' => $item->item_name,
+                        'gender' => null,
+                        'variant' => [],
+                        'quantity' => $item->quantity,
+                    ];
+                }
+
+                $inventoryItem = $this->findInventoryItem($item->item_id);
+                $inventoryGender = is_array($inventoryItem) ? ($inventoryItem['gender'] ?? null) : null;
+
+                return [
+                    'itemId' => $item->item_id,
+                    'name' => $item->item_name,
+                    'gender' => $item->item_gender ?? $inventoryGender,
+                    'variant' => array_filter([
+                        'color' => $item->variant_color,
+                        'size' => $item->variant_size,
+                    ], fn ($value) => null !== $value),
+                    'quantity' => $item->quantity,
+                ];
+            })->all(),
+            'signedDocumentUrl' => $signatureUrl,
+            'signedDocumentType' => $record->signed_document_type,
+            'signedDocumentNumber' => $record->signed_document_number,
+            'notes' => $record->notes,
+        ];
+    }
+
+    private function findInventoryItem(string $itemId): ?array
+    {
+        foreach (self::inventoryItems() as $item) {
+            if ($item['id'] === $itemId) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
+
+    private static function inventoryItems(): array
+    {
+        if (null !== self::$inventoryCache) {
+            return self::$inventoryCache;
+        }
+
+        $categories = InventoryCategory::query()
+            ->with(['products.variants.color'])
+            ->get()
+            ->filter(function (InventoryCategory $category) {
+                $normalized = Str::slug($category->name);
+
+                return in_array($normalized, ['dotacion', 'dotación', 'epp'], true);
+            });
+
+        $items = [];
+
+        foreach ($categories as $category) {
+            $categoryLabel = $category->name;
+
+            foreach ($category->products as $product) {
+                $variants = $product->variants->map(function ($variant) {
+                    $payload = array_filter([
+                        'color' => $variant->color_id,
+                        'size' => $variant->size,
+                    ], fn ($value) => null !== $value && '' !== $value);
+
+                    return $payload ?: null;
+                })->filter()->values()->all();
+
+                $defaultColor = $product->variants->firstWhere('color_id')?->color_id;
+
+                $items[] = array_filter([
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'category' => $categoryLabel,
+                    'gender' => $product->gender,
+                    'variants' => !empty($variants) ? $variants : null,
+                    'defaultColor' => $defaultColor,
+                    'description' => $product->description,
+                    'unit' => 'unidad',
+                ], fn ($value) => null !== $value);
+            }
+        }
+
+        self::$inventoryCache = $items;
+
+        return self::$inventoryCache;
+    }
+
     private function transformReturnRecord(SstReturnRecord $record): array
     {
         $signatureUrl = null;
@@ -665,7 +658,7 @@ class SstDotacionService
             'items' => $record->items->map(function (SstReturnItem $item) {
                 // Si es carnet, no buscar en inventario
                 $isCarnet = in_array(strtolower($item->item_id), ['__carnet__', 'carnet'], true);
-                
+
                 if ($isCarnet) {
                     return [
                         'itemId' => $item->item_id,
@@ -673,7 +666,7 @@ class SstDotacionService
                         'quantity' => $item->quantity,
                     ];
                 }
-                
+
                 $inventoryItem = $this->findInventoryItem($item->item_id);
                 $inventoryGender = is_array($inventoryItem) ? ($inventoryItem['gender'] ?? null) : null;
 
@@ -682,7 +675,7 @@ class SstDotacionService
                     'variant' => array_filter([
                         'color' => $item->variant_color,
                         'size' => $item->variant_size,
-                    ], fn ($value) => $value !== null) ?: null,
+                    ], fn ($value) => null !== $value) ?: null,
                     'quantity' => $item->quantity,
                 ];
             })->all(),
@@ -701,11 +694,11 @@ class SstDotacionService
         }
 
         $mimeType = $matches[1];
-        $extension = $matches[2] === 'jpeg' ? 'jpg' : $matches[2];
+        $extension = 'jpeg' === $matches[2] ? 'jpg' : $matches[2];
         $base64 = substr($dataUrl, strpos($dataUrl, ',') + 1);
         $binary = base64_decode($base64, true);
 
-        if ($binary === false) {
+        if (false === $binary) {
             throw new \InvalidArgumentException('La firma no se pudo decodificar correctamente.');
         }
 
@@ -725,4 +718,3 @@ class SstDotacionService
         ];
     }
 }
-

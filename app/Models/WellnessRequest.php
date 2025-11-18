@@ -2,30 +2,28 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\{Collection, Model};
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
 use Illuminate\Support\Carbon;
 
 /**
- * @property int $id
- * @property string $activity_name
- * @property string|null $activity_description
- * @property string $cost_center
- * @property array|null $locations
- * @property string $proposed_date
- * @property string|null $start_time
- * @property string|null $end_time
- * @property int|null $participant_count
- * @property bool $requires_details
- * @property int $requester_id
- * @property string $status
- * @property Carbon $created_at
- * @property Carbon $updated_at
- * @property-read User $requester
- * @property-read Collection<WellnessRequestDetail> $details
+ * @property int                               $id
+ * @property string                            $activity_name
+ * @property string|null                       $activity_description
+ * @property string                            $cost_center
+ * @property array|null                        $locations
+ * @property string                            $proposed_date
+ * @property string|null                       $start_time
+ * @property string|null                       $end_time
+ * @property int|null                          $participant_count
+ * @property bool                              $requires_details
+ * @property int                               $requester_id
+ * @property string                            $status
+ * @property Carbon                            $created_at
+ * @property Carbon                            $updated_at
+ * @property User                              $requester
+ * @property Collection<WellnessRequestDetail> $details
  */
 class WellnessRequest extends Model
 {
@@ -55,7 +53,7 @@ class WellnessRequest extends Model
     ];
 
     /**
-     * Relación con el usuario solicitante
+     * Relación con el usuario solicitante.
      */
     public function requester(): BelongsTo
     {
@@ -63,7 +61,7 @@ class WellnessRequest extends Model
     }
 
     /**
-     * Relación con los detalles/souvenirs
+     * Relación con los detalles/souvenirs.
      */
     public function details(): HasMany
     {
@@ -71,7 +69,7 @@ class WellnessRequest extends Model
     }
 
     /**
-     * Relación con la actividad realizada (si existe)
+     * Relación con la actividad realizada (si existe).
      */
     public function activityRealized(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
@@ -79,11 +77,11 @@ class WellnessRequest extends Model
     }
 
     /**
-     * Get status translated text
+     * Get status translated text.
      */
     public function getStatusTextAttribute(): string
     {
-        return match($this->status) {
+        return match ($this->status) {
             'pending' => 'Pendiente',
             'in_progress' => 'En revisión',
             'resolved' => 'Aprobada',
@@ -93,13 +91,14 @@ class WellnessRequest extends Model
     }
 
     /**
-     * Get locations as string
+     * Get locations as string.
      */
     public function getLocationsTextAttribute(): string
     {
         if (empty($this->locations) || !is_array($this->locations)) {
             return 'N/A';
         }
+
         return implode(', ', $this->locations);
     }
 }

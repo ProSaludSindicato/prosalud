@@ -2,28 +2,16 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
-use App\Constants\Providers;
 
 class StoreWellnessEventRequest extends FormRequest
 {
     public function authorize(): bool
     {
         return true;
-    }
-
-    protected function prepareForValidation()
-    {
-        // Parse is_visible from string to boolean if needed
-        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
-            $this->merge([
-                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
-            ]);
-        }
     }
 
     public function rules(): array
@@ -91,6 +79,16 @@ class StoreWellnessEventRequest extends FormRequest
             'images.*.mimes' => 'Las imágenes deben ser de tipo: jpeg, png, jpg, gif, webp.',
             'images.*.max' => 'Cada imagen no puede exceder 5MB.',
         ];
+    }
+
+    protected function prepareForValidation()
+    {
+        // Parse is_visible from string to boolean if needed
+        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
+            $this->merge([
+                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
+            ]);
+        }
     }
 
     protected function failedValidation(Validator $validator)

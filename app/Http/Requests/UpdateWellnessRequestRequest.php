@@ -2,11 +2,11 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
+use Carbon\Carbon;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
 class UpdateWellnessRequestRequest extends FormRequest
 {
@@ -73,7 +73,7 @@ class UpdateWellnessRequestRequest extends FormRequest
         }
 
         // Validación condicional de detalles
-        if ($requiereDetalles !== null) {
+        if (null !== $requiereDetalles) {
             if ($requiereDetalles) {
                 $rules['detalles'] = [
                     'required',
@@ -167,7 +167,7 @@ class UpdateWellnessRequestRequest extends FormRequest
                 try {
                     $horaInicio = Carbon::createFromFormat('H:i', $this->input('horaInicio'));
                     $horaFin = Carbon::createFromFormat('H:i', $this->input('horaFin'));
-                    
+
                     if ($horaFin->lte($horaInicio)) {
                         $validator->errors()->add('horaFin', 'La hora de fin debe ser posterior a la hora de inicio');
                     }
@@ -179,6 +179,77 @@ class UpdateWellnessRequestRequest extends FormRequest
     }
 
     /**
+     * Transform validated Spanish field names to English for backend processing.
+     */
+    public function getTransformedData(): array
+    {
+        $data = $this->validated();
+
+        $transformed = [];
+
+        if (isset($data['nombreActividad'])) {
+            $transformed['activity_name'] = $data['nombreActividad'];
+        }
+
+        if (isset($data['descripcionActividad'])) {
+            $transformed['activity_description'] = $data['descripcionActividad'] ?? null;
+        }
+
+        if (isset($data['centroCostos'])) {
+            $transformed['cost_center'] = $data['centroCostos'];
+        }
+
+        if (isset($data['sedes'])) {
+            $transformed['locations'] = $data['sedes'] ?? [];
+        }
+
+        if (isset($data['fechaPropuesta'])) {
+            $transformed['proposed_date'] = $data['fechaPropuesta'];
+        }
+
+        if (isset($data['horaInicio'])) {
+            $transformed['start_time'] = $data['horaInicio'] ?? null;
+        }
+
+        if (isset($data['horaFin'])) {
+            $transformed['end_time'] = $data['horaFin'] ?? null;
+        }
+
+        if (isset($data['numeroParticipantes'])) {
+            $transformed['participant_count'] = $data['numeroParticipantes'] ?? null;
+        }
+
+        if (isset($data['requiereDetalles'])) {
+            $transformed['requires_details'] = $data['requiereDetalles'];
+        }
+
+        if (isset($data['estado'])) {
+            $transformed['status'] = $data['estado'];
+        }
+
+        return $transformed;
+    }
+
+    /**
+     * Get transformed details data.
+     */
+    public function getTransformedDetails(): array
+    {
+        $details = [];
+
+        if ($this->has('detalles') && is_array($this->input('detalles'))) {
+            foreach ($this->input('detalles') as $detalle) {
+                $details[] = [
+                    'type' => $detalle['tipo'],
+                    'quantity' => $detalle['cantidad'],
+                ];
+            }
+        }
+
+        return $details;
+    }
+
+    /**
      * Handle a failed validation attempt.
      *
      * @throws HttpResponseException
@@ -187,7 +258,7 @@ class UpdateWellnessRequestRequest extends FormRequest
     {
         Log::error('Errores de validación en UpdateWellnessRequestRequest', [
             'input' => $this->except(['detalles']),
-            'errors' => $validator->errors()->toArray()
+            'errors' => $validator->errors()->toArray(),
         ]);
 
         // Determinar código de estado apropiado
@@ -202,21 +273,15 @@ class UpdateWellnessRequestRequest extends FormRequest
             $message = 'Error de validación';
         }
 
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => $message,
-                'errors' => $errors,
-            ], $statusCode)
-        );
+        throw new HttpResponseException(response()->json(['success' => false, 'message' => $message, 'errors' => $errors], $statusCode));
     }
 
     /**
-     * Get valid locations for a cost center
+     * Get valid locations for a cost center.
      */
     private function getSedesValidas(?string $centroCostos): ?array
     {
-        return match($centroCostos) {
+        return match ($centroCostos) {
             'Bello' => ['Niquia', 'Autopista'],
             'Rionegro' => ['Jorge Humberto', 'Gilberto Mejía'],
             'La Maria asistencial' => ['Castilla', 'La 33'],
@@ -227,80 +292,4 @@ class UpdateWellnessRequestRequest extends FormRequest
             default => null,
         };
     }
-
-    /**
-     * Transform validated Spanish field names to English for backend processing
-     * 
-     * @return array
-     */
-    public function getTransformedData(): array
-    {
-        $data = $this->validated();
-        
-        $transformed = [];
-        
-        if (isset($data['nombreActividad'])) {
-            $transformed['activity_name'] = $data['nombreActividad'];
-        }
-        
-        if (isset($data['descripcionActividad'])) {
-            $transformed['activity_description'] = $data['descripcionActividad'] ?? null;
-        }
-        
-        if (isset($data['centroCostos'])) {
-            $transformed['cost_center'] = $data['centroCostos'];
-        }
-        
-        if (isset($data['sedes'])) {
-            $transformed['locations'] = $data['sedes'] ?? [];
-        }
-        
-        if (isset($data['fechaPropuesta'])) {
-            $transformed['proposed_date'] = $data['fechaPropuesta'];
-        }
-        
-        if (isset($data['horaInicio'])) {
-            $transformed['start_time'] = $data['horaInicio'] ?? null;
-        }
-        
-        if (isset($data['horaFin'])) {
-            $transformed['end_time'] = $data['horaFin'] ?? null;
-        }
-        
-        if (isset($data['numeroParticipantes'])) {
-            $transformed['participant_count'] = $data['numeroParticipantes'] ?? null;
-        }
-        
-        if (isset($data['requiereDetalles'])) {
-            $transformed['requires_details'] = $data['requiereDetalles'];
-        }
-        
-        if (isset($data['estado'])) {
-            $transformed['status'] = $data['estado'];
-        }
-        
-        return $transformed;
-    }
-
-    /**
-     * Get transformed details data
-     * 
-     * @return array
-     */
-    public function getTransformedDetails(): array
-    {
-        $details = [];
-        
-        if ($this->has('detalles') && is_array($this->input('detalles'))) {
-            foreach ($this->input('detalles') as $detalle) {
-                $details[] = [
-                    'type' => $detalle['tipo'],
-                    'quantity' => $detalle['cantidad'],
-                ];
-            }
-        }
-        
-        return $details;
-    }
 }
-

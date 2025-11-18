@@ -2,12 +2,11 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Contracts\Validation\ValidationRule;
+use Carbon\Carbon;
+use Illuminate\Contracts\Validation\{ValidationRule, Validator};
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
 class StoreWellnessRequestRequest extends FormRequest
 {
@@ -170,59 +169,7 @@ class StoreWellnessRequestRequest extends FormRequest
     }
 
     /**
-     * Handle a failed validation attempt.
-     *
-     * @throws HttpResponseException
-     */
-    protected function failedValidation(Validator $validator)
-    {
-        Log::error('Errores de validación en StoreWellnessRequestRequest', [
-            'input' => $this->except(['detalles']),
-            'errors' => $validator->errors()->toArray()
-        ]);
-
-        // Determinar código de estado apropiado
-        $statusCode = 422;
-        $message = 'Datos inválidos';
-
-        // Si hay errores básicos de formato, usar 400
-        $errors = $validator->errors()->toArray();
-        $basicErrors = ['nombreActividad', 'centroCostos', 'fechaPropuesta', 'solicitanteId', 'requiereDetalles'];
-        if (count(array_intersect_key($errors, array_flip($basicErrors))) > 0) {
-            $statusCode = 400;
-            $message = 'Error de validación';
-        }
-
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => $message,
-                'errors' => $errors,
-            ], $statusCode)
-        );
-    }
-
-    /**
-     * Get valid locations for a cost center
-     */
-    private function getSedesValidas(?string $centroCostos): ?array
-    {
-        return match($centroCostos) {
-            'Bello' => ['Niquia', 'Autopista'],
-            'Rionegro' => ['Jorge Humberto', 'Gilberto Mejía'],
-            'La Maria asistencial' => ['Castilla', 'La 33'],
-            'La Maria VIH' => ['Castilla', 'La 33'],
-            'La Maria Cosalud' => ['Castilla', 'La 33'],
-            'La Maria Enterritorio' => ['Castilla', 'La 33'],
-            'Admon' => ['Principal'],
-            default => null,
-        };
-    }
-
-    /**
-     * Transform validated Spanish field names to English for backend processing
-     *
-     * @return array
+     * Transform validated Spanish field names to English for backend processing.
      */
     public function getTransformedData(): array
     {
@@ -248,9 +195,7 @@ class StoreWellnessRequestRequest extends FormRequest
     }
 
     /**
-     * Get transformed details data
-     *
-     * @return array
+     * Get transformed details data.
      */
     public function getTransformedDetails(): array
     {
@@ -267,5 +212,48 @@ class StoreWellnessRequestRequest extends FormRequest
 
         return $details;
     }
-}
 
+    /**
+     * Handle a failed validation attempt.
+     *
+     * @throws HttpResponseException
+     */
+    protected function failedValidation(Validator $validator)
+    {
+        Log::error('Errores de validación en StoreWellnessRequestRequest', [
+            'input' => $this->except(['detalles']),
+            'errors' => $validator->errors()->toArray(),
+        ]);
+
+        // Determinar código de estado apropiado
+        $statusCode = 422;
+        $message = 'Datos inválidos';
+
+        // Si hay errores básicos de formato, usar 400
+        $errors = $validator->errors()->toArray();
+        $basicErrors = ['nombreActividad', 'centroCostos', 'fechaPropuesta', 'solicitanteId', 'requiereDetalles'];
+        if (count(array_intersect_key($errors, array_flip($basicErrors))) > 0) {
+            $statusCode = 400;
+            $message = 'Error de validación';
+        }
+
+        throw new HttpResponseException(response()->json(['success' => false, 'message' => $message, 'errors' => $errors], $statusCode));
+    }
+
+    /**
+     * Get valid locations for a cost center.
+     */
+    private function getSedesValidas(?string $centroCostos): ?array
+    {
+        return match ($centroCostos) {
+            'Bello' => ['Niquia', 'Autopista'],
+            'Rionegro' => ['Jorge Humberto', 'Gilberto Mejía'],
+            'La Maria asistencial' => ['Castilla', 'La 33'],
+            'La Maria VIH' => ['Castilla', 'La 33'],
+            'La Maria Cosalud' => ['Castilla', 'La 33'],
+            'La Maria Enterritorio' => ['Castilla', 'La 33'],
+            'Admon' => ['Principal'],
+            default => null,
+        };
+    }
+}

@@ -8,11 +8,12 @@ use Illuminate\Queue\SerializesModels;
 
 class AfiliadoOtpCode extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable;
+    use SerializesModels;
 
     public function __construct(
         public string $otpCode,
-        public string $nombreAfiliado
+        public string $nombreAfiliado,
     ) {
     }
 
@@ -23,7 +24,7 @@ class AfiliadoOtpCode extends Mailable
     {
         $logoPath = public_path('assets/logo.png');
         $logoCid = '';
-        
+
         // Try to embed logo if it exists
         if (file_exists($logoPath)) {
             try {
@@ -46,4 +47,3 @@ class AfiliadoOtpCode extends Mailable
             ]);
     }
 }
-

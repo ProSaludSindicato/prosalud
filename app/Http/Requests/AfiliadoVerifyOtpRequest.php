@@ -53,4 +53,3 @@ class AfiliadoVerifyOtpRequest extends FormRequest
         ];
     }
 }
-

@@ -7,15 +7,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WellnessEvent extends Model
 {
+    /**
+     * The model does not have created_at/updated_at columns.
+     */
+    public $timestamps = false;
     protected $guarded = [];
 
     /**
-     * The model does not have created_at/updated_at columns
-     */
-    public $timestamps = false;
-
-    /**
-     * Attribute casting
+     * Attribute casting.
      */
     protected $casts = [
         'date' => 'date',
@@ -29,7 +28,7 @@ class WellnessEvent extends Model
     }
 
     /**
-     * Relación con la actividad realizada (si este evento fue creado desde una actividad)
+     * Relación con la actividad realizada (si este evento fue creado desde una actividad).
      */
     public function activityRealized(): \Illuminate\Database\Eloquent\Relations\HasOne
     {

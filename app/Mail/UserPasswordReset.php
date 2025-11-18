@@ -9,7 +9,8 @@ use Illuminate\Queue\SerializesModels;
 
 class UserPasswordReset extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable;
+    use SerializesModels;
 
     public function __construct(
         public User $user,
@@ -46,4 +47,3 @@ class UserPasswordReset extends Mailable
             ]);
     }
 }
-

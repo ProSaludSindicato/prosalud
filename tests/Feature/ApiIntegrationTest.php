@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
 class ApiIntegrationTest extends TestCase
 {
@@ -15,9 +15,9 @@ class ApiIntegrationTest extends TestCase
     }
 
     /**
-     * Test complete incapacidades API flow with real Excel file
+     * Test complete incapacidades API flow with real Excel file.
      */
-    public function test_incapacidades_api_complete_flow()
+    public function testIncapacidadesApiCompleteFlow()
     {
         if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
@@ -26,7 +26,7 @@ class ApiIntegrationTest extends TestCase
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '1000644432',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $response->assertStatus(200)
@@ -38,20 +38,20 @@ class ApiIntegrationTest extends TestCase
                             'Tipo',
                             'Numero Documento',
                             'Fecha Expedicion',
-                            'Nombres'
-                        ]
-                    ]
+                            'Nombres',
+                        ],
+                    ],
                 ])
                 ->assertJsonMissing([
                     'REPORTE FACTURA',
-                    'REPORTE VIVI'
+                    'REPORTE VIVI',
                 ]);
     }
 
     /**
-     * Test complete liquidaciones API flow with real Excel file
+     * Test complete liquidaciones API flow with real Excel file.
      */
-    public function test_liquidaciones_api_complete_flow()
+    public function testLiquidacionesApiCompleteFlow()
     {
         // Skip if Excel file doesn't exist
         if (!file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
@@ -61,7 +61,7 @@ class ApiIntegrationTest extends TestCase
         $response = $this->postJson('/api/liquidaciones/search', [
             'tipo' => 'CC',
             'numero_documento' => '1121949803',
-            'fecha_expedicion' => '2020-01-01'
+            'fecha_expedicion' => '2020-01-01',
         ]);
 
         $response->assertStatus(200)
@@ -74,82 +74,82 @@ class ApiIntegrationTest extends TestCase
                             'FECHA EXPEDICION',
                             'NOMBRE',
                             'HOSPITAL',
-                            'PROCESO'
-                        ]
-                    ]
+                            'PROCESO',
+                        ],
+                    ],
                 ])
                 ->assertJsonMissing([
                     'FECHA DE ENTREGA A CAMILA',
                     'RESPONSABLE DE ENTREGA CONTABILIDAD',
                     'REVISION',
-                    'FORMATO DE REVISION FISICO'
+                    'FORMATO DE REVISION FISICO',
                 ]);
     }
 
     /**
-     * Test API error handling when Excel files are missing
+     * Test API error handling when Excel files are missing.
      */
-    public function test_api_error_handling_missing_files()
+    public function testApiErrorHandlingMissingFiles()
     {
         // Test incapacidades with missing file
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         // Should return either 404 (not found) or 500 (error) depending on file availability
         $this->assertContains($response->getStatusCode(), [404, 500]);
 
-        if ($response->getStatusCode() === 500) {
+        if (500 === $response->getStatusCode()) {
             $response->assertJson([
-                'status' => 'error'
+                'status' => 'error',
             ]);
         } else {
             $response->assertJson([
-                'status' => 'not_found'
+                'status' => 'not_found',
             ]);
         }
     }
 
     /**
-     * Test API validation with various invalid inputs
+     * Test API validation with various invalid inputs.
      */
-    public function test_api_validation_comprehensive()
+    public function testApiValidationComprehensive()
     {
         $invalidInputs = [
             // Missing required fields
             [
                 'data' => ['tipo' => 'CC'],
-                'expected_errors' => ['numero_documento', 'fecha_expedicion']
+                'expected_errors' => ['numero_documento', 'fecha_expedicion'],
             ],
             // Invalid date format
             [
                 'data' => [
                     'tipo' => 'CC',
                     'numero_documento' => '123456789',
-                    'fecha_expedicion' => '01/01/2025' // Should be YYYY-MM-DD
+                    'fecha_expedicion' => '01/01/2025', // Should be YYYY-MM-DD
                 ],
-                'expected_errors' => ['fecha_expedicion']
+                'expected_errors' => ['fecha_expedicion'],
             ],
             // Empty values
             [
                 'data' => [
                     'tipo' => '',
                     'numero_documento' => '',
-                    'fecha_expedicion' => ''
+                    'fecha_expedicion' => '',
                 ],
-                'expected_errors' => ['tipo', 'numero_documento', 'fecha_expedicion']
+                'expected_errors' => ['tipo', 'numero_documento', 'fecha_expedicion'],
             ],
             // Invalid date
             [
                 'data' => [
                     'tipo' => 'CC',
                     'numero_documento' => '123456789',
-                    'fecha_expedicion' => 'invalid-date'
+                    'fecha_expedicion' => 'invalid-date',
                 ],
-                'expected_errors' => ['fecha_expedicion']
-            ]
+                'expected_errors' => ['fecha_expedicion'],
+            ],
         ];
 
         foreach ($invalidInputs as $testCase) {
@@ -161,9 +161,9 @@ class ApiIntegrationTest extends TestCase
     }
 
     /**
-     * Test API performance with large datasets
+     * Test API performance with large datasets.
      */
-    public function test_api_performance()
+    public function testApiPerformance()
     {
         // Skip if Excel file doesn't exist
         if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
@@ -175,7 +175,7 @@ class ApiIntegrationTest extends TestCase
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '1000644432',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
         $endTime = microtime(true);
@@ -187,9 +187,9 @@ class ApiIntegrationTest extends TestCase
     }
 
     /**
-     * Test API with different document types
+     * Test API with different document types.
      */
-    public function test_api_with_different_document_types()
+    public function testApiWithDifferentDocumentTypes()
     {
         // Skip if Excel file doesn't exist
         if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
@@ -202,7 +202,7 @@ class ApiIntegrationTest extends TestCase
             $response = $this->postJson('/api/incapacidades/search', [
                 'tipo' => $tipo,
                 'numero_documento' => '1000644432',
-                'fecha_expedicion' => '2025-01-01'
+                'fecha_expedicion' => '2025-01-01',
             ]);
 
             // Should return either success or not_found, but not error
@@ -211,22 +211,22 @@ class ApiIntegrationTest extends TestCase
     }
 
     /**
-     * Test API with various date formats in request
+     * Test API with various date formats in request.
      */
-    public function test_api_with_various_date_formats()
+    public function testApiWithVariousDateFormats()
     {
         $dateFormats = [
             '2025-01-01', // Valid format
             '2025-12-31', // Valid format
             '2024-02-29', // Leap year
-            '2023-06-15'  // Valid format
+            '2023-06-15',  // Valid format
         ];
 
         foreach ($dateFormats as $date) {
             $response = $this->postJson('/api/incapacidades/search', [
                 'tipo' => 'CC',
                 'numero_documento' => '1000644432',
-                'fecha_expedicion' => $date
+                'fecha_expedicion' => $date,
             ]);
 
             // Should not return validation error for valid dates
@@ -235,32 +235,32 @@ class ApiIntegrationTest extends TestCase
     }
 
     /**
-     * Test API error messages are in Spanish
+     * Test API error messages are in Spanish.
      */
-    public function test_api_error_messages_spanish()
+    public function testApiErrorMessagesSpanish()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '123456789',
-            'fecha_expedicion' => 'invalid-date'
+            'fecha_expedicion' => 'invalid-date',
         ]);
 
         $response->assertStatus(422)
                 ->assertJsonFragment([
-                    'message' => 'Los datos proporcionados no son válidos.'
+                    'message' => 'Los datos proporcionados no son válidos.',
                 ])
                 ->assertJsonFragment([
                     'fecha_expedicion' => [
                         'La fecha de expedición debe ser una fecha válida.',
-                        'La fecha de expedición debe tener el formato YYYY-MM-DD.'
-                    ]
+                        'La fecha de expedición debe tener el formato YYYY-MM-DD.',
+                    ],
                 ]);
     }
 
     /**
-     * Test API handles concurrent requests
+     * Test API handles concurrent requests.
      */
-    public function test_api_concurrent_requests()
+    public function testApiConcurrentRequests()
     {
         // Skip if Excel file doesn't exist
         if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
@@ -270,11 +270,11 @@ class ApiIntegrationTest extends TestCase
         $requests = [];
 
         // Simulate multiple concurrent requests
-        for ($i = 0; $i < 5; $i++) {
+        for ($i = 0; $i < 5; ++$i) {
             $requests[] = $this->postJson('/api/incapacidades/search', [
                 'tipo' => 'CC',
                 'numero_documento' => '1000644432',
-                'fecha_expedicion' => '2025-01-01'
+                'fecha_expedicion' => '2025-01-01',
             ]);
         }
 
@@ -285,9 +285,9 @@ class ApiIntegrationTest extends TestCase
     }
 
     /**
-     * Test API response structure consistency
+     * Test API response structure consistency.
      */
-    public function test_api_response_structure_consistency()
+    public function testApiResponseStructureConsistency()
     {
         // Skip if Excel file doesn't exist
         if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
@@ -297,10 +297,10 @@ class ApiIntegrationTest extends TestCase
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
             'numero_documento' => '1000644432',
-            'fecha_expedicion' => '2025-01-01'
+            'fecha_expedicion' => '2025-01-01',
         ]);
 
-        if ($response->getStatusCode() === 200) {
+        if (200 === $response->getStatusCode()) {
             $response->assertJsonStructure([
                 'status',
                 'data' => [
@@ -324,9 +324,9 @@ class ApiIntegrationTest extends TestCase
                         'estado',
                         'detalles',
                         'valor Incapacidad Recibido',
-                        'Hospital'
-                    ]
-                ]
+                        'Hospital',
+                    ],
+                ],
             ]);
         }
     }

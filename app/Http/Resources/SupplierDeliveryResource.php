@@ -24,7 +24,7 @@ class SupplierDeliveryResource extends JsonResource
             'notes' => $this->notes,
             'items' => $this->when(
                 $this->relationLoaded('items'),
-                fn() => $this->items->map(fn($item) => [
+                fn () => $this->items->map(fn ($item) => [
                     'id' => $item->id,
                     'product_id' => $item->product_id,
                     'variant_id' => $item->variant_id,

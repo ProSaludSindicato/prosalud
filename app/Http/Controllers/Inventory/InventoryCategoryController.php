@@ -3,22 +3,16 @@
 namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Inventory\StoreCategoryRequest;
-use App\Http\Requests\Inventory\StoreSubcategoryRequest;
-use App\Http\Requests\Inventory\UpdateCategoryRequest;
-use App\Http\Requests\Inventory\UpdateSubcategoryRequest;
-use App\Http\Resources\InventoryCategoryResource;
-use App\Http\Resources\InventorySubcategoryResource;
+use App\Http\Requests\Inventory\{StoreCategoryRequest, StoreSubcategoryRequest, UpdateCategoryRequest, UpdateSubcategoryRequest};
+use App\Http\Resources\{InventoryCategoryResource, InventorySubcategoryResource};
 use App\Models\InventoryCategory;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{DB, Log};
 
 class InventoryCategoryController extends Controller
 {
     /**
-     * Get all categories with optional filters
+     * Get all categories with optional filters.
      */
     public function index(Request $request): JsonResponse
     {
@@ -64,7 +58,7 @@ class InventoryCategoryController extends Controller
     }
 
     /**
-     * Store a new category
+     * Store a new category.
      */
     public function store(StoreCategoryRequest $request): JsonResponse
     {
@@ -118,7 +112,7 @@ class InventoryCategoryController extends Controller
     }
 
     /**
-     * Get a single category
+     * Get a single category.
      */
     public function show(string $id): JsonResponse
     {
@@ -148,7 +142,7 @@ class InventoryCategoryController extends Controller
     }
 
     /**
-     * Update a category
+     * Update a category.
      */
     public function update(UpdateCategoryRequest $request, string $id): JsonResponse
     {
@@ -187,7 +181,7 @@ class InventoryCategoryController extends Controller
     }
 
     /**
-     * Delete a category
+     * Delete a category.
      */
     public function destroy(string $id): JsonResponse
     {
@@ -233,7 +227,7 @@ class InventoryCategoryController extends Controller
     }
 
     /**
-     * Store a new subcategory
+     * Store a new subcategory.
      */
     public function storeSubcategory(StoreSubcategoryRequest $request, string $categoryId): JsonResponse
     {
@@ -276,7 +270,7 @@ class InventoryCategoryController extends Controller
     }
 
     /**
-     * Update a subcategory
+     * Update a subcategory.
      */
     public function updateSubcategory(UpdateSubcategoryRequest $request, string $categoryId, string $subcategoryId): JsonResponse
     {
@@ -317,7 +311,7 @@ class InventoryCategoryController extends Controller
     }
 
     /**
-     * Delete a subcategory
+     * Delete a subcategory.
      */
     public function destroySubcategory(string $categoryId, string $subcategoryId): JsonResponse
     {

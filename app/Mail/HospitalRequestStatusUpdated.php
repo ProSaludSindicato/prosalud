@@ -53,4 +53,3 @@ class HospitalRequestStatusUpdated extends Mailable
             ]);
     }
 }
-

@@ -2,8 +2,8 @@
 
 namespace Tests\Unit;
 
-use Tests\TestCase;
 use App\Services\DateFormatterService;
+use Tests\TestCase;
 
 class DateFormatterServiceTest extends TestCase
 {
@@ -15,7 +15,12 @@ class DateFormatterServiceTest extends TestCase
         $this->service = new DateFormatterService();
     }
 
-    public function test_is_date_field_returns_true_for_known_date_fields()
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+    }
+
+    public function testIsDateFieldReturnsTrueForKnownDateFields()
     {
         $dateFields = [
             'fecha recibido',
@@ -26,7 +31,7 @@ class DateFormatterServiceTest extends TestCase
             'FECHA EXPEDICION',
             'FECHA INGRESO',
             'FECHA RETIRO',
-            'FECHA DE ENTREGA A CAMILA'
+            'FECHA DE ENTREGA A CAMILA',
         ];
 
         foreach ($dateFields as $field) {
@@ -34,7 +39,7 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_is_date_field_returns_false_for_non_date_fields()
+    public function testIsDateFieldReturnsFalseForNonDateFields()
     {
         $nonDateFields = [
             'N° Radicado',
@@ -44,7 +49,7 @@ class DateFormatterServiceTest extends TestCase
             'Cargo',
             'Hospital',
             'PROCESO',
-            'ESTADO BD'
+            'ESTADO BD',
         ];
 
         foreach ($nonDateFields as $field) {
@@ -52,13 +57,13 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_convert_date_format_handles_mm_dd_yyyy_format()
+    public function testConvertDateFormatHandlesMmDdYyyyFormat()
     {
         $testCases = [
             '1/1/2025' => '01/01/2025',
             '12/31/2024' => '31/12/2024',
             '6/15/2023' => '15/06/2023',
-            '3/8/2022' => '08/03/2022'
+            '3/8/2022' => '08/03/2022',
         ];
 
         foreach ($testCases as $input => $expected) {
@@ -67,13 +72,13 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_convert_date_format_handles_english_format()
+    public function testConvertDateFormatHandlesEnglishFormat()
     {
         $testCases = [
             '20-Mar-25' => '20/03/2025',
             '15-Jan-24' => '15/01/2024',
             '31-Dec-23' => '31/12/2023',
-            '1-Jun-22' => '01/06/2022'
+            '1-Jun-22' => '01/06/2022',
         ];
 
         foreach ($testCases as $input => $expected) {
@@ -82,13 +87,13 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_convert_date_format_returns_original_string_on_parse_failure()
+    public function testConvertDateFormatReturnsOriginalStringOnParseFailure()
     {
         $invalidDates = [
             'invalid-date',
             'not-a-date',
             '2025-13-32',
-            ''
+            '',
         ];
 
         foreach ($invalidDates as $invalidDate) {
@@ -97,7 +102,7 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_convert_record_dates_processes_all_date_fields()
+    public function testConvertRecordDatesProcessesAllDateFields()
     {
         $record = [
             'N° Radicado' => '001',
@@ -106,7 +111,7 @@ class DateFormatterServiceTest extends TestCase
             'Fecha Incio Incapacidad' => '2/20/2024',
             'Fecha Fin Incapacidad' => '3/25/2024',
             'FECHA ENVIO' => '15-Mar-24',
-            'Nombres' => 'Juan Pérez'
+            'Nombres' => 'Juan Pérez',
         ];
 
         $result = $this->service->convertRecordDates($record);
@@ -118,13 +123,13 @@ class DateFormatterServiceTest extends TestCase
         $this->assertEquals('Juan Pérez', $result['Nombres']); // Non-date field unchanged
     }
 
-    public function test_convert_record_dates_handles_empty_values()
+    public function testConvertRecordDatesHandlesEmptyValues()
     {
         $record = [
             'fecha recibido' => '',
             'Fecha Incio Incapacidad' => null,
             'FECHA ENVIO' => '   ',
-            'Nombres' => 'Juan Pérez'
+            'Nombres' => 'Juan Pérez',
         ];
 
         $result = $this->service->convertRecordDates($record);
@@ -135,7 +140,7 @@ class DateFormatterServiceTest extends TestCase
         $this->assertEquals('Juan Pérez', $result['Nombres']);
     }
 
-    public function test_get_date_fields_returns_correct_list()
+    public function testGetDateFieldsReturnsCorrectList()
     {
         $expectedFields = [
             'fecha recibido',
@@ -146,7 +151,7 @@ class DateFormatterServiceTest extends TestCase
             'FECHA EXPEDICION',
             'FECHA INGRESO',
             'FECHA RETIRO',
-            'FECHA DE ENTREGA A CAMILA'
+            'FECHA DE ENTREGA A CAMILA',
         ];
 
         $actualFields = $this->service->getDateFields();
@@ -154,13 +159,13 @@ class DateFormatterServiceTest extends TestCase
         $this->assertEquals($expectedFields, $actualFields);
     }
 
-    public function test_can_convert_date_returns_true_for_valid_dates()
+    public function testCanConvertDateReturnsTrueForValidDates()
     {
         $validDates = [
             '1/1/2025',
             '12/31/2024',
             '20-Mar-25',
-            '15-Jan-24'
+            '15-Jan-24',
         ];
 
         foreach ($validDates as $date) {
@@ -168,13 +173,13 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_can_convert_date_returns_false_for_invalid_dates()
+    public function testCanConvertDateReturnsFalseForInvalidDates()
     {
         $invalidDates = [
             'invalid-date',
             'not-a-date',
             '2025-13-32',
-            ''
+            '',
         ];
 
         foreach ($invalidDates as $date) {
@@ -182,7 +187,7 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_convert_date_format_handles_edge_cases()
+    public function testConvertDateFormatHandlesEdgeCases()
     {
         $edgeCases = [
             '2/29/2024' => '29/02/2024', // Leap year
@@ -194,11 +199,11 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_convert_date_format_handles_whitespace()
+    public function testConvertDateFormatHandlesWhitespace()
     {
         $testCases = [
             '1/1/2025' => '01/01/2025',
-            '20-Mar-25' => '20/03/2025'
+            '20-Mar-25' => '20/03/2025',
         ];
 
         foreach ($testCases as $input => $expected) {
@@ -207,7 +212,7 @@ class DateFormatterServiceTest extends TestCase
         }
     }
 
-    public function test_convert_record_dates_preserves_non_date_fields()
+    public function testConvertRecordDatesPreservesNonDateFields()
     {
         $record = [
             'N° Radicado' => '001',
@@ -216,7 +221,7 @@ class DateFormatterServiceTest extends TestCase
             'Nombres' => 'Juan Pérez',
             'Cargo' => 'Enfermero',
             'Hospital' => 'Hospital Central',
-            'fecha recibido' => '1/15/2024'
+            'fecha recibido' => '1/15/2024',
         ];
 
         $result = $this->service->convertRecordDates($record);
@@ -231,10 +236,5 @@ class DateFormatterServiceTest extends TestCase
 
         // Date field should be converted
         $this->assertEquals('15/01/2024', $result['fecha recibido']);
-    }
-
-    protected function tearDown(): void
-    {
-        parent::tearDown();
     }
 }

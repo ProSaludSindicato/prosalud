@@ -7,22 +7,24 @@ use Illuminate\Support\Facades\Storage;
 
 class ComfenalcoEvent extends Model
 {
-    protected $guarded = [];
+    public const UPDATED_AT = null;
 
     public $timestamps = true;
-    const UPDATED_AT = null;
+    protected $guarded = [];
 
     protected $appends = ['banner_image_url'];
 
     /**
-     * Get the banner image URL
+     * Get the banner image URL.
      */
     public function getBannerImageUrlAttribute(): ?string
     {
         if ($this->banner_image) {
             $disk = 'prosalud-public';
+
             return Storage::disk($disk)->url($this->banner_image);
         }
+
         return null;
     }
 
@@ -30,13 +32,15 @@ class ComfenalcoEvent extends Model
     {
         if ($this->banner_image) {
             $disk = 'prosalud-public';
+
             return Storage::disk($disk)->url($this->banner_image);
         }
+
         return null;
     }
 
     /**
-     * Delete the banner image file when the model is deleted
+     * Delete the banner image file when the model is deleted.
      */
     protected static function boot(): void
     {

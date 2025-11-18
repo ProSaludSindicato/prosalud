@@ -36,7 +36,3 @@ class ApiToken extends Model
         return $this->expires_at instanceof Carbon && $this->expires_at->isPast();
     }
 }
-
-
-
-

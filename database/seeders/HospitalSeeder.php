@@ -2,8 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\Hospital;
-use App\Models\InventoryLocation;
+use App\Models\{Hospital, InventoryLocation};
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
@@ -49,13 +48,13 @@ class HospitalSeeder extends Seeder
                 $hospital->locations()->create([
                     'id' => (string) Str::uuid(),
                     'name' => $hospitalData['name'],
-                    'type' => $hospitalData['type'] === 'warehouse' ? 'warehouse' : 'hospital',
+                    'type' => 'warehouse' === $hospitalData['type'] ? 'warehouse' : 'hospital',
                     'is_primary' => $hospitalData['is_primary'] ?? false,
                 ]);
             } else {
                 $location->update([
                     'name' => $hospitalData['name'],
-                    'type' => $hospitalData['type'] === 'warehouse' ? 'warehouse' : 'hospital',
+                    'type' => 'warehouse' === $hospitalData['type'] ? 'warehouse' : 'hospital',
                     'is_primary' => $hospitalData['is_primary'] ?? false,
                 ]);
             }

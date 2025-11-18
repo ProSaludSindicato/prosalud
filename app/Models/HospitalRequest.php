@@ -5,12 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
 
 class HospitalRequest extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -39,7 +39,7 @@ class HospitalRequest extends Model
     }
 
     /**
-     * Get all items for this request
+     * Get all items for this request.
      */
     public function items(): HasMany
     {
@@ -47,7 +47,7 @@ class HospitalRequest extends Model
     }
 
     /**
-     * Get all timeline entries for this request
+     * Get all timeline entries for this request.
      */
     public function timeline(): HasMany
     {
@@ -56,7 +56,7 @@ class HospitalRequest extends Model
     }
 
     /**
-     * Valid status transitions
+     * Valid status transitions.
      */
     public static function getValidTransitions(): array
     {
@@ -70,7 +70,7 @@ class HospitalRequest extends Model
     }
 
     /**
-     * Check if transition is valid
+     * Check if transition is valid.
      */
     public function canTransitionTo(string $newStatus): bool
     {
@@ -80,7 +80,7 @@ class HospitalRequest extends Model
     }
 
     /**
-     * Update status and create timeline entry
+     * Update status and create timeline entry.
      */
     public function updateStatus(string $newStatus, ?string $actor = null, ?string $description = null): bool
     {

@@ -4,10 +4,8 @@ namespace App\Http\Controllers\User;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Services\AuditLogService;
-use App\Services\UserInvitationService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use App\Services\{AuditLogService, UserInvitationService};
+use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -16,9 +14,11 @@ class UserController extends Controller
     public function __construct(
         private AuditLogService $auditLogService,
         private UserInvitationService $userInvitationService,
-    ) {}
+    ) {
+    }
+
     /**
-     * Display a listing of users
+     * Display a listing of users.
      */
     public function index(Request $request): JsonResponse
     {
@@ -45,7 +45,7 @@ class UserController extends Controller
             'total_users' => $users->total(),
             'current_page' => $users->currentPage(),
             'per_page' => $users->perPage(),
-            'filters' => $request->only(['search', 'is_active'])
+            'filters' => $request->only(['search', 'is_active']),
         ]);
 
         return response()->json([
@@ -58,12 +58,12 @@ class UserController extends Controller
                 'last_page' => $users->lastPage(),
                 'from' => $users->firstItem(),
                 'to' => $users->lastItem(),
-            ]
+            ],
         ]);
     }
 
     /**
-     * Store a newly created user
+     * Store a newly created user.
      */
     public function store(StoreUserRequest $request): JsonResponse
     {
@@ -111,12 +111,12 @@ class UserController extends Controller
                 'is_active' => $user->is_active,
                 'role' => $role,
                 'created_at' => $user->created_at,
-            ]
+            ],
         ], 201);
     }
 
     /**
-     * Display the specified user
+     * Display the specified user.
      */
     public function show(User $user): JsonResponse
     {
@@ -136,12 +136,12 @@ class UserController extends Controller
                 'roles' => $user->roles->pluck('name'),
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at,
-            ]
+            ],
         ]);
     }
 
     /**
-     * Update the specified user
+     * Update the specified user.
      */
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
@@ -166,12 +166,12 @@ class UserController extends Controller
                 'email' => $user->email,
                 'is_active' => $user->is_active,
                 'updated_at' => $user->updated_at,
-            ]
+            ],
         ]);
     }
 
     /**
-     * Change user status (activate/deactivate)
+     * Change user status (activate/deactivate).
      */
     public function changeStatus(ChangeUserStatusRequest $request, User $user): JsonResponse
     {
@@ -207,8 +207,7 @@ class UserController extends Controller
                 'email' => $user->email,
                 'is_active' => $user->is_active,
                 'updated_at' => $user->updated_at,
-            ]
+            ],
         ]);
     }
 }
-

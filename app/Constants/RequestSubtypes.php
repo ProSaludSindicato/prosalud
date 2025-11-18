@@ -16,7 +16,7 @@ class RequestSubtypes
     public const INCAPACIDADES = 'INCAPACIDADES';
 
     /**
-     * Get all valid subtypes for verificacion-pagos
+     * Get all valid subtypes for verificacion-pagos.
      */
     public static function all(): array
     {
@@ -35,11 +35,11 @@ class RequestSubtypes
     }
 
     /**
-     * Get subtypes for a specific request type
+     * Get subtypes for a specific request type.
      */
     public static function forRequestType(string $requestType): array
     {
-        if ($requestType === RequestTypes::VERIFICACION_PAGOS) {
+        if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
             return self::all();
         }
 
@@ -47,7 +47,7 @@ class RequestSubtypes
     }
 
     /**
-     * Check if a subtype is valid for a request type
+     * Check if a subtype is valid for a request type.
      */
     public static function isValid(string $requestType, string $subtype): bool
     {
@@ -58,4 +58,3 @@ class RequestSubtypes
         return in_array($subtype, self::forRequestType($requestType));
     }
 }
-

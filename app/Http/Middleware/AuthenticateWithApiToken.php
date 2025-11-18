@@ -3,20 +3,17 @@
 namespace App\Http\Middleware;
 
 use App\Models\ApiToken;
-use Closure;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{Auth, Log};
 
 class AuthenticateWithApiToken
 {
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param \Closure(Request): (\Symfony\Component\HttpFoundation\Response) $next
      */
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, \Closure $next)
     {
         $token = $request->bearerToken();
 
@@ -51,14 +48,16 @@ class AuthenticateWithApiToken
 
         if ($apiToken->isExpired()) {
             $apiToken->delete();
+
             return $this->unauthorizedResponse('Token expirado', [
                 'token_id' => $apiToken->id,
                 'user_id' => $apiToken->user_id,
             ]);
         }
 
-        if ($apiToken->user->is_active === false) {
+        if (false === $apiToken->user->is_active) {
             $apiToken->delete();
+
             return $this->unauthorizedResponse('Usuario inactivo', [
                 'token_id' => $apiToken->id,
                 'user_id' => $apiToken->user_id,
@@ -105,5 +104,3 @@ class AuthenticateWithApiToken
         ], 401);
     }
 }
-
-

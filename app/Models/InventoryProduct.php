@@ -5,12 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
 
 class InventoryProduct extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
+    use HasUuids;
 
     public $incrementing = false;
 
@@ -28,7 +28,7 @@ class InventoryProduct extends Model
     ];
 
     /**
-     * Get the category that owns this product
+     * Get the category that owns this product.
      */
     public function category(): BelongsTo
     {
@@ -36,7 +36,7 @@ class InventoryProduct extends Model
     }
 
     /**
-     * Get the subcategory that owns this product
+     * Get the subcategory that owns this product.
      */
     public function subcategory(): BelongsTo
     {
@@ -44,7 +44,7 @@ class InventoryProduct extends Model
     }
 
     /**
-     * Get all variants for this product
+     * Get all variants for this product.
      */
     public function variants(): HasMany
     {
@@ -52,7 +52,7 @@ class InventoryProduct extends Model
     }
 
     /**
-     * Get all hospital request items for this product
+     * Get all hospital request items for this product.
      */
     public function hospitalRequestItems(): HasMany
     {
@@ -60,7 +60,7 @@ class InventoryProduct extends Model
     }
 
     /**
-     * Get all supplier delivery items for this product
+     * Get all supplier delivery items for this product.
      */
     public function supplierDeliveryItems(): HasMany
     {
@@ -68,7 +68,7 @@ class InventoryProduct extends Model
     }
 
     /**
-     * Calculate total stock across all variants
+     * Calculate total stock across all variants.
      */
     public function getTotalStockAttribute(): int
     {
@@ -76,7 +76,7 @@ class InventoryProduct extends Model
     }
 
     /**
-     * Check if any variant is low on stock
+     * Check if any variant is low on stock.
      */
     public function getIsLowStockAttribute(): bool
     {

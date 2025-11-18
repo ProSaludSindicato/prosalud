@@ -27,11 +27,11 @@ class InventoryProductResource extends JsonResource
             'gender' => $this->gender,
             'total_stock' => $this->when(
                 $this->relationLoaded('variants'),
-                fn() => $this->total_stock
+                fn () => $this->total_stock
             ),
             'is_low_stock' => $this->when(
                 $this->relationLoaded('variants'),
-                fn() => $this->is_low_stock
+                fn () => $this->is_low_stock
             ),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

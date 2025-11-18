@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
 
@@ -83,22 +83,22 @@ class RespondToRequestRequest extends FormRequest
                 $totalSize = 0;
                 $maxTotalSizeKB = 20480; // 20MB en KB
                 $maxTotalSizeMB = 20;
-                
+
                 // Normalizar a array si es un solo archivo
                 if (!is_array($attachments)) {
                     $attachments = [$attachments];
                 }
-                
+
                 // Calcular tamaño total
                 foreach ($attachments as $file) {
                     if ($file && $file->isValid()) {
                         $totalSize += $file->getSize(); // getSize() retorna bytes
                     }
                 }
-                
+
                 // Convertir bytes a KB
                 $totalSizeKB = $totalSize / 1024;
-                
+
                 // Validar tamaño total
                 if ($totalSizeKB > $maxTotalSizeKB) {
                     $totalSizeMB = round($totalSizeKB / 1024, 2);
@@ -120,15 +120,9 @@ class RespondToRequestRequest extends FormRequest
     {
         Log::error('Errores de validación en RespondToRequestRequest', [
             'input' => $this->except(['attachments']),
-            'errors' => $validator->errors()->toArray()
+            'errors' => $validator->errors()->toArray(),
         ]);
 
-        throw new HttpResponseException(
-            response()->json([
-                'success' => false,
-                'message' => 'Errores de validación',
-                'errors' => $validator->errors(),
-            ], 422)
-        );
+        throw new HttpResponseException(response()->json(['success' => false, 'message' => 'Errores de validación', 'errors' => $validator->errors()], 422));
     }
 }

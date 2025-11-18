@@ -2,18 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreWellnessRequestRequest;
-use App\Http\Requests\UpdateWellnessRequestRequest;
-use App\Mail\WellnessRequestReceived;
-use App\Mail\WellnessRequestUpdated;
-use App\Models\User;
-use App\Models\WellnessRequest;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
+use App\Http\Requests\{StoreWellnessRequestRequest, UpdateWellnessRequestRequest};
+use App\Mail\{WellnessRequestReceived, WellnessRequestUpdated};
+use App\Models\{User, WellnessRequest};
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
 
 class WellnessRequestController extends Controller
 {
@@ -75,7 +68,7 @@ class WellnessRequestController extends Controller
             'total' => $wellnessRequests->total(),
             'current_page' => $wellnessRequests->currentPage(),
             'per_page' => $wellnessRequests->perPage(),
-            'filters' => $request->only(['estado', 'centroCostos', 'solicitanteId', 'fechaDesde', 'fechaHasta', 'busqueda'])
+            'filters' => $request->only(['estado', 'centroCostos', 'solicitanteId', 'fechaDesde', 'fechaHasta', 'busqueda']),
         ]);
 
         return response()->json([
@@ -88,7 +81,7 @@ class WellnessRequestController extends Controller
                 'last_page' => $wellnessRequests->lastPage(),
                 'from' => $wellnessRequests->firstItem(),
                 'to' => $wellnessRequests->lastItem(),
-            ]
+            ],
         ]);
     }
 
@@ -169,7 +162,6 @@ class WellnessRequestController extends Controller
                 'message' => 'Solicitud de bienestar creada exitosamente',
                 'data' => $this->formatWellnessRequestResponse($wellnessRequest),
             ], 200);
-
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -315,15 +307,15 @@ class WellnessRequestController extends Controller
             DB::commit();
 
             // Send email notification if there are changes
-            if (!empty($changes) || $oldDetailsForEmail !== null) {
+            if (!empty($changes) || null !== $oldDetailsForEmail) {
                 try {
                     $requester = User::find($wellnessRequest->requester_id);
                     $requesterEmail = $requester ? $requester->email : null;
 
                     // Check if only status changed (no other fields and no details changed)
-                    $statusOnly = count($changes) === 1 
-                        && isset($changes['status']) 
-                        && $oldDetailsForEmail === null;
+                    $statusOnly = 1 === count($changes)
+                        && isset($changes['status'])
+                        && null === $oldDetailsForEmail;
 
                     // Send email to Human Resources with copy to requester
                     Mail::to('juanpapabon@gmail.com')
@@ -343,7 +335,7 @@ class WellnessRequestController extends Controller
                         'email_human_resources' => 'juanpapabon@gmail.com',
                         'email_requester' => $requesterEmail,
                         'changes_count' => count($changes),
-                        'details_changed' => $oldDetailsForEmail !== null,
+                        'details_changed' => null !== $oldDetailsForEmail,
                         'status_only' => $statusOnly,
                     ]);
                 } catch (\Throwable $e) {
@@ -367,7 +359,6 @@ class WellnessRequestController extends Controller
                 'message' => 'Solicitud de bienestar actualizada exitosamente',
                 'data' => $this->formatWellnessRequestResponse($wellnessRequest),
             ], 200);
-
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -387,11 +378,11 @@ class WellnessRequestController extends Controller
     }
 
     /**
-     * Normalize value for comparison
+     * Normalize value for comparison.
      */
     private function normalizeValueForComparison($value, string $field): string
     {
-        if ($value === null) {
+        if (null === $value) {
             return '';
         }
 
@@ -408,14 +399,17 @@ class WellnessRequestController extends Controller
                         return (string) $value;
                     }
                 }
+
                 return (string) $value;
 
             case 'locations':
                 // Normalize arrays to sorted JSON string
                 if (is_array($value)) {
                     sort($value);
+
                     return json_encode($value);
                 }
+
                 return (string) $value;
 
             case 'requires_details':
@@ -429,7 +423,7 @@ class WellnessRequestController extends Controller
     }
 
     /**
-     * Normalize details array for comparison
+     * Normalize details array for comparison.
      */
     private function normalizeDetailsArray(?array $details): string
     {
@@ -445,6 +439,7 @@ class WellnessRequestController extends Controller
             if ($typeA !== $typeB) {
                 return strcmp($typeA, $typeB);
             }
+
             return ($a['quantity'] ?? 0) <=> ($b['quantity'] ?? 0);
         });
 
@@ -452,7 +447,7 @@ class WellnessRequestController extends Controller
     }
 
     /**
-     * Format wellness request for response with Spanish keys
+     * Format wellness request for response with Spanish keys.
      */
     private function formatWellnessRequestResponse(WellnessRequest $wellnessRequest): array
     {
@@ -487,7 +482,7 @@ class WellnessRequestController extends Controller
     }
 
     /**
-     * Format activity realized for wellness request response
+     * Format activity realized for wellness request response.
      */
     private function formatActivityRealizedForRequest(\App\Models\WellnessActivityRealized $activityRealized): array
     {
@@ -547,7 +542,7 @@ class WellnessRequestController extends Controller
     }
 
     /**
-     * Format evidencias with main image information for wellness request
+     * Format evidencias with main image information for wellness request.
      */
     private function formatEvidenciasForRequest(\App\Models\WellnessActivityRealized $activityRealized): array
     {
