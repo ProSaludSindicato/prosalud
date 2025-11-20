@@ -97,14 +97,13 @@ class ClearDotacionEppCommand extends Command
         $this->info('🗑️  Clearing dotación/EPP records...');
 
         try {
-            DB::beginTransaction();
-
             // Delete signature files from S3 if requested
             if ($this->option('delete-signatures')) {
                 $this->deleteSignatureFiles();
             }
 
             // Disable foreign key checks temporarily for truncate
+            // Note: TRUNCATE doesn't work inside transactions in MySQL
             DB::statement('SET FOREIGN_KEY_CHECKS=0;');
 
             // Delete items first (foreign key constraints)
@@ -130,8 +129,6 @@ class ClearDotacionEppCommand extends Command
             $this->info("✅ Deleted {$deletedDeliveries} delivery records");
             $this->info("✅ Deleted {$deletedReturns} return records");
 
-            DB::commit();
-
             // Log the operation
             Log::warning('Dotación/EPP records cleared via artisan command', [
                 'command' => 'dotacion-epp:clear',
@@ -153,7 +150,13 @@ class ClearDotacionEppCommand extends Command
 
             return 0;
         } catch (\Exception $e) {
-            DB::rollBack();
+            // Re-enable foreign key checks in case of error
+            try {
+                DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+            } catch (\Exception $fkException) {
+                // Ignore if we can't re-enable (might already be enabled)
+            }
+
             $this->error('❌ Error occurred while clearing records:');
             $this->error($e->getMessage());
 
