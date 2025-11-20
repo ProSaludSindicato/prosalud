@@ -104,6 +104,9 @@ class ClearDotacionEppCommand extends Command
                 $this->deleteSignatureFiles();
             }
 
+            // Disable foreign key checks temporarily for truncate
+            DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+
             // Delete items first (foreign key constraints)
             $deletedDeliveryItems = SstDeliveryItem::count();
             $deletedReturnItems = SstReturnItem::count();
@@ -120,6 +123,9 @@ class ClearDotacionEppCommand extends Command
 
             SstDeliveryRecord::truncate();
             SstReturnRecord::truncate();
+
+            // Re-enable foreign key checks
+            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
 
             $this->info("✅ Deleted {$deletedDeliveries} delivery records");
             $this->info("✅ Deleted {$deletedReturns} return records");
