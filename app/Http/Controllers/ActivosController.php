@@ -2,17 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AssemblyAttendanceService;
 use App\Services\ExcelReaderService;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Log;
 
 class ActivosController extends Controller
 {
-    private ExcelReaderService $excelReaderService;
-
-    public function __construct(ExcelReaderService $excelReaderService)
-    {
-        $this->excelReaderService = $excelReaderService;
+    public function __construct(
+        private ExcelReaderService $excelReaderService,
+        private AssemblyAttendanceService $attendanceService,
+    ) {
     }
 
     /**
@@ -61,6 +61,15 @@ class ActivosController extends Controller
                 'data' => $afiliado,
                 'found' => null !== $afiliado,
             ];
+
+            if ($afiliado) {
+                $this->attendanceService->record(
+                    $afiliado['cedula'] ?? $documento,
+                    $afiliado['nombre_apellidos'] ?? null,
+                    $afiliado['fecha_expedicion'] ?? $fechaExpedicion,
+                    $request
+                );
+            }
 
             // Log the result
             Log::info('Resultado de búsqueda de afiliado', [

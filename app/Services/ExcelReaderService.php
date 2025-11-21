@@ -217,8 +217,8 @@ class ExcelReaderService
                 $rowFechaExpedicion = trim($row[6] ?? ''); // Fecha Expedición is column 6 (0-indexed)
 
                 // Normalize dates for comparison
-                $normalizedInputDate = $this->normalizeDate($fechaExpedicion);
-                $normalizedRowDate = $this->normalizeDate($rowFechaExpedicion);
+                $normalizedInputDate = $this->normalizeAssemblyDate($fechaExpedicion);
+                $normalizedRowDate = $this->normalizeAssemblyDate($rowFechaExpedicion);
 
                 if ($rowTipoDocumento === $tipoDocumento
                     && $rowDocumento === $documento
@@ -567,8 +567,8 @@ class ExcelReaderService
                 $rowFechaExpedicion = trim($row[3] ?? '');
 
                 // Normalize dates for comparison
-                $normalizedInputDate = $this->normalizeDate($fechaExpedicion);
-                $normalizedRowDate = $this->normalizeDate($rowFechaExpedicion);
+                $normalizedInputDate = $this->normalizeAssemblyDate($fechaExpedicion);
+                $normalizedRowDate = $this->normalizeAssemblyDate($rowFechaExpedicion);
 
                 if ($rowCedula === $cedula && $normalizedInputDate === $normalizedRowDate) {
                     // Return the affiliate's information
@@ -596,7 +596,7 @@ class ExcelReaderService
     /**
      * Normalize date format for comparison.
      */
-    private function normalizeDate(string $date): string
+    public function normalizeAssemblyDate(string $date): string
     {
         try {
             // Try to parse the date and return in Y-m-d format
