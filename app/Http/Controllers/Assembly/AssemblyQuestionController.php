@@ -412,6 +412,7 @@ class AssemblyQuestionController extends Controller
     public function startLiveQuestion(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            'title' => 'nullable|string|max:500',
             'timeLimit' => 'nullable|integer|min:0',
             'majorityType' => 'nullable|in:SIMPLE,ABSOLUTE,TWO_THIRDS',
             'quorumRequired' => 'boolean',
@@ -425,7 +426,7 @@ class AssemblyQuestionController extends Controller
 
                 $question = AssemblyQuestion::create([
                     'id' => (string) Str::uuid(),
-                    'title' => 'Pregunta #' . $nextOrder,
+                    'title' => $validated['title'] ?? 'Pregunta #' . $nextOrder,
                     'description' => null,
                     'help_text' => null,
                     'type' => 'SINGLE',
