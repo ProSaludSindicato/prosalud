@@ -25,6 +25,7 @@ class ActivosController extends Controller
             $request->validate([
                 'documento' => 'required|string|max:50',
                 'fecha_expedicion' => 'required|string|max:50',
+                'signature' => 'required|string',
             ]);
 
             $documento = trim($request->input('documento'));
@@ -67,7 +68,8 @@ class ActivosController extends Controller
                     $afiliado['cedula'] ?? $documento,
                     $afiliado['nombre_apellidos'] ?? null,
                     $afiliado['fecha_expedicion'] ?? $fechaExpedicion,
-                    $request
+                    $request,
+                    $request->input('signature')
                 );
             }
 

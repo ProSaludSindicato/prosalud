@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AssemblyAttendance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
@@ -17,7 +18,8 @@ class AssemblyAttendanceService
         ?string $documentNumber,
         ?string $fullName,
         ?string $issueDate,
-        Request $request
+        Request $request,
+        ?string $signatureData = null
     ): ?AssemblyAttendance {
         $documentNumber = $this->normalizeDocument($documentNumber);
 
@@ -26,11 +28,13 @@ class AssemblyAttendanceService
         }
 
         $normalizedIssueDate = $this->normalizeDate($issueDate);
+        $signaturePath = $this->storeSignature($documentNumber, $signatureData);
 
         $attendance = AssemblyAttendance::create([
             'document_number' => $documentNumber,
             'full_name' => $this->normalizeName($fullName),
             'issue_date_normalized' => $normalizedIssueDate,
+            'signature_path' => $signaturePath,
             'ip_address' => $request->ip(),
             'user_agent' => Str::limit($request->userAgent() ?? '', 512, ''),
             'authenticated_at' => now(),
@@ -42,9 +46,41 @@ class AssemblyAttendanceService
             'issue_date' => $attendance->issue_date_normalized?->toDateString(),
             'ip_address' => $attendance->ip_address,
             'source' => $request->path(),
+            'signature_path' => $attendance->signature_path,
         ]);
 
         return $attendance;
+    }
+
+    private function storeSignature(string $documentNumber, ?string $signatureData): ?string
+    {
+        if (empty($signatureData)) {
+            return null;
+        }
+
+        if (!preg_match('/^data:(image\/(png|jpe?g));base64,/', $signatureData, $matches)) {
+            throw new \InvalidArgumentException('Formato de firma inválido.');
+        }
+
+        $mimeType = $matches[1];
+        $extension = 'jpeg' === $matches[2] ? 'jpg' : $matches[2];
+        $base64 = substr($signatureData, strpos($signatureData, ',') + 1);
+        $binary = base64_decode($base64, true);
+
+        if (false === $binary) {
+            throw new \InvalidArgumentException('La firma no se pudo decodificar correctamente.');
+        }
+
+        if (strlen($binary) > 1024 * 1024) {
+            throw new \InvalidArgumentException('La firma excede el tamaño máximo permitido de 1MB.');
+        }
+
+        $safeDocument = preg_replace('/[^A-Za-z0-9_\-]/', '_', $documentNumber);
+        $path = sprintf('assembly-signatures/%s/%s.%s', $safeDocument, Str::uuid(), $extension);
+
+        Storage::disk('prosalud-private')->put($path, $binary, ['visibility' => 'private', 'ContentType' => $mimeType]);
+
+        return $path;
     }
 
     private function normalizeDocument(?string $document): ?string

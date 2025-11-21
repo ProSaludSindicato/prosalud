@@ -34,6 +34,7 @@ class AfiliadoController extends Controller
                 'tipo_documento' => 'required|string|max:50',
                 'documento' => 'required|string|max:50',
                 'fecha_expedicion' => 'required|string|max:50',
+                'signature' => 'required|string',
             ]);
 
             $tipoDocumento = trim($request->input('tipo_documento'));
@@ -97,7 +98,8 @@ class AfiliadoController extends Controller
                 $afiliado['documento'] ?? $documento,
                 $fullName,
                 $fechaExpedicion,
-                $request
+                $request,
+                $request->input('signature')
             );
 
             return response()->json([
