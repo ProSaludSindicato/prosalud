@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
+use App\Http\Controllers\Assembly\{AssemblyQuestionController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryStockMovementController};
 use App\Http\Controllers\Request\{RequestAssignmentController, RequestController};
 use App\Http\Controllers\User\UserController;
@@ -42,6 +43,40 @@ Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
 
 // Public route for creating requests (used by affiliates from public site)
 Route::post('/requests', [RequestController::class, 'store']);
+
+// Assembly Voting System Routes
+Route::prefix('assembly')->group(function () {
+    // Public routes - Questions (read-only for voters)
+    Route::get('/questions', [AssemblyQuestionController::class, 'index']);
+    Route::get('/questions/{id}', [AssemblyQuestionController::class, 'show']);
+
+    // Public routes - Votes
+    Route::post('/questions/{questionId}/votes', [AssemblyVoteController::class, 'store']);
+    Route::get('/questions/{questionId}/votes/me', [AssemblyVoteController::class, 'getMyVote']);
+
+    // Public routes - Results
+    Route::get('/questions/{questionId}/results', [AssemblyVoteController::class, 'getResults']);
+
+    // Public routes - Quorum
+    Route::get('/quorum', [QuorumController::class, 'index']);
+
+    Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
+        // Admin routes - Questions management
+        Route::post('/questions', [AssemblyQuestionController::class, 'store'])->middleware('permission:assembly.questions.manage');
+        Route::put('/questions/{id}', [AssemblyQuestionController::class, 'update'])->middleware('permission:assembly.questions.manage');
+        Route::patch('/questions/{id}', [AssemblyQuestionController::class, 'update'])->middleware('permission:assembly.questions.manage');
+        Route::delete('/questions/{id}', [AssemblyQuestionController::class, 'destroy'])->middleware('permission:assembly.questions.manage');
+        Route::post('/questions/{id}/open', [AssemblyQuestionController::class, 'open'])->middleware('permission:assembly.questions.manage');
+        Route::post('/questions/{id}/close', [AssemblyQuestionController::class, 'close'])->middleware('permission:assembly.questions.manage');
+        Route::post('/live-question/start', [AssemblyQuestionController::class, 'startLiveQuestion'])->middleware('permission:assembly.questions.manage');
+        Route::post('/live-question/close', [AssemblyQuestionController::class, 'closeActiveQuestion'])->middleware('permission:assembly.questions.manage');
+
+        // Admin routes - Quorum management
+        Route::put('/quorum', [QuorumController::class, 'update'])->middleware('permission:assembly.quorum.manage');
+        Route::patch('/quorum', [QuorumController::class, 'update'])->middleware('permission:assembly.quorum.manage');
+        Route::post('/quorum/verify', [QuorumController::class, 'verify'])->middleware('permission:assembly.quorum.manage');
+    });
+});
 
 Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     // Request management routes

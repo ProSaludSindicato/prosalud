@@ -23,6 +23,10 @@ class RolePermissionSeeder extends Seeder
             'votes.statistics.view' => 'Ver estadísticas generales de votaciones (incluye estadísticas por hospital)',
             'votes.audit.view' => 'Ver auditoría y trazabilidad de votaciones y gestionar cambios de candidato',
 
+            // Assembly voting
+            'assembly.questions.manage' => 'Gestionar preguntas y estados de votación de la asamblea',
+            'assembly.quorum.manage' => 'Gestionar y verificar el quórum de la asamblea',
+
             // Users
             'users.view' => 'Ver listado y detalle de usuarios del sistema',
             'users.create' => 'Crear nuevos usuarios del sistema',
@@ -100,6 +104,8 @@ class RolePermissionSeeder extends Seeder
             'votes.hospital_statistics.view' => 'Ver estadísticas de votaciones por hospital', // NO
             'votes.audit.view' => 'Ver auditoría y trazabilidad de votaciones',  // SI
             'votes.manage' => 'Gestionar votaciones y cambiar candidatos', // NO
+            'assembly.questions.manage' => 'Gestionar preguntas y estados de votación de la asamblea',
+            'assembly.quorum.manage' => 'Gestionar y verificar el quórum de la asamblea',
 
             // Users (nuevo formato)
             'users.manage' => 'Gestionar usuarios del sistema (crear, editar, activar/desactivar)', // NO

@@ -11,6 +11,7 @@ class ExcelReaderService
     private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES_PENDIENTES.xlsx';
     private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
     private const DELEGADOS_FILE_PATH = 'data/DELEGADOS.xlsx';
+    private const ASAMBLEA_DELEGADOS_FILE_PATH = 'data/ASAMBLEA_DELEGADOS_PROSALUD.xlsx';
 
     private const PRIMARY_STORAGE_DISK = 'prosalud-private';
     private const FALLBACK_STORAGE_DISK = 'local';
@@ -486,24 +487,152 @@ class ExcelReaderService
     }
 
     /**
+     * Read the asamblea delegados Excel file from public directory.
+     */
+    public function readAsambleaDelegadosFile(): array
+    {
+        try {
+            $filePath = public_path(self::ASAMBLEA_DELEGADOS_FILE_PATH);
+            
+            if (!file_exists($filePath)) {
+                Log::error('Archivo de asamblea delegados no encontrado', [
+                    'file_path' => $filePath,
+                ]);
+                return [];
+            }
+
+            $spreadsheet = IOFactory::load($filePath);
+            $worksheet = $spreadsheet->getActiveSheet();
+            $data = $worksheet->toArray();
+
+            Log::info('Archivo de asamblea delegados leído exitosamente', [
+                'rows_count' => count($data),
+                'file_path' => $filePath,
+            ]);
+
+            return $data;
+        } catch (SpreadsheetException $e) {
+            Log::error('Error al procesar archivo Excel de asamblea delegados', [
+                'error' => $e->getMessage(),
+                'file_path' => self::ASAMBLEA_DELEGADOS_FILE_PATH,
+            ]);
+
+            return [];
+        } catch (\Throwable $e) {
+            Log::error('Error inesperado al leer archivo de asamblea delegados', [
+                'error' => $e->getMessage(),
+                'file_path' => self::ASAMBLEA_DELEGADOS_FILE_PATH,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Check if the asamblea delegados Excel file exists and is readable.
+     */
+    public function isAsambleaDelegadosFileAvailable(): bool
+    {
+        $filePath = public_path(self::ASAMBLEA_DELEGADOS_FILE_PATH);
+        return file_exists($filePath) && is_readable($filePath);
+    }
+
+    /**
+     * Search for an affiliate in the asamblea delegados file by cedula and expedition date.
+     * Returns the affiliate's information if found and dates match.
+     */
+    public function searchAfiliadoInAsamblea(string $cedula, string $fechaExpedicion): ?array
+    {
+        try {
+            $data = $this->readAsambleaDelegadosFile();
+
+            if (empty($data)) {
+                return null;
+            }
+
+            // Skip header row (assuming first row is header)
+            $rows = array_slice($data, 1);
+
+            foreach ($rows as $row) {
+                // Check if row has enough columns
+                // Columns: CEDULA, NOMBRE Y APELLIDOS, ESTADO BD, F. EXPEDICIÓN
+                if (count($row) < 4) {
+                    continue;
+                }
+
+                $rowCedula = trim($row[0] ?? '');
+                $rowNombreApellidos = trim($row[1] ?? '');
+                $rowEstadoBD = trim($row[2] ?? '');
+                $rowFechaExpedicion = trim($row[3] ?? '');
+
+                // Normalize dates for comparison
+                $normalizedInputDate = $this->normalizeDate($fechaExpedicion);
+                $normalizedRowDate = $this->normalizeDate($rowFechaExpedicion);
+
+                if ($rowCedula === $cedula && $normalizedInputDate === $normalizedRowDate) {
+                    // Return the affiliate's information
+                    return [
+                        'cedula' => $rowCedula,
+                        'nombre_apellidos' => $rowNombreApellidos,
+                        'estado_bd' => $rowEstadoBD,
+                        'fecha_expedicion' => $rowFechaExpedicion,
+                    ];
+                }
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Error al buscar afiliado en archivo de asamblea delegados', [
+                'error' => $e->getMessage(),
+                'cedula' => $cedula,
+                'fecha_expedicion' => $fechaExpedicion,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
      * Normalize date format for comparison.
      */
     private function normalizeDate(string $date): string
     {
         try {
             // Try to parse the date and return in Y-m-d format
+            // Format: j/M/Y (e.g., 8/Mar/2017) - abbreviated month name, day without leading zero
+            $parsedDate = \DateTime::createFromFormat('j/M/Y', $date);
+            if ($parsedDate && $parsedDate->format('j/M/Y') === $date) {
+                return $parsedDate->format('Y-m-d');
+            }
+
+            // Format: d/M/Y (e.g., 30/Jun/1993) - abbreviated month name, day with leading zero
+            $parsedDate = \DateTime::createFromFormat('d/M/Y', $date);
+            if ($parsedDate && $parsedDate->format('d/M/Y') === $date) {
+                return $parsedDate->format('Y-m-d');
+            }
+
+            // Format: j/m/Y (e.g., 8/3/2017) - numeric, day without leading zero
+            $parsedDate = \DateTime::createFromFormat('j/m/Y', $date);
+            if ($parsedDate && $parsedDate->format('j/m/Y') === $date) {
+                return $parsedDate->format('Y-m-d');
+            }
+
+            // Format: d/m/Y (e.g., 30/06/1993) - numeric, day with leading zero
             $parsedDate = \DateTime::createFromFormat('d/m/Y', $date);
-            if ($parsedDate) {
+            if ($parsedDate && $parsedDate->format('d/m/Y') === $date) {
                 return $parsedDate->format('Y-m-d');
             }
 
+            // Format: Y-m-d (e.g., 1993-06-30)
             $parsedDate = \DateTime::createFromFormat('Y-m-d', $date);
-            if ($parsedDate) {
+            if ($parsedDate && $parsedDate->format('Y-m-d') === $date) {
                 return $parsedDate->format('Y-m-d');
             }
 
+            // Format: m/d/Y (e.g., 06/30/1993)
             $parsedDate = \DateTime::createFromFormat('m/d/Y', $date);
-            if ($parsedDate) {
+            if ($parsedDate && $parsedDate->format('m/d/Y') === $date) {
                 return $parsedDate->format('Y-m-d');
             }
 

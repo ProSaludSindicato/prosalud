@@ -16,25 +16,22 @@ class ActivosController extends Controller
     }
 
     /**
-     * Search for a person's hospital by document type, document number and expedition date.
+     * Search for an affiliate by document number and expedition date in the asamblea delegados file.
      */
     public function searchHospital(Request $request): JsonResponse
     {
         try {
             // Validate input
             $request->validate([
-                'tipo_documento' => 'required|string|max:50',
                 'documento' => 'required|string|max:50',
                 'fecha_expedicion' => 'required|string|max:50',
             ]);
 
-            $tipoDocumento = trim($request->input('tipo_documento'));
             $documento = trim($request->input('documento'));
             $fechaExpedicion = trim($request->input('fecha_expedicion'));
 
             // Log the search attempt
-            Log::info('Búsqueda de hospital en activos', [
-                'tipo_documento' => $tipoDocumento,
+            Log::info('Búsqueda de afiliado en asamblea delegados', [
                 'documento' => $documento,
                 'fecha_expedicion' => $fechaExpedicion,
                 'ip_address' => $request->ip(),
@@ -42,47 +39,41 @@ class ActivosController extends Controller
                 'timestamp' => now()->toISOString(),
             ]);
 
-            // Check if the activos file is available
-            if (!$this->excelReaderService->isActivosFileAvailable()) {
-                Log::error('Archivo de activos no disponible para búsqueda');
+            // Check if the asamblea delegados file is available
+            if (!$this->excelReaderService->isAsambleaDelegadosFileAvailable()) {
+                Log::error('Archivo de asamblea delegados no disponible para búsqueda');
 
                 return response()->json([
                     'success' => false,
                     'message' => 'Servicio temporalmente no disponible',
-                    'hospital' => null,
+                    'data' => null,
                 ], 503);
             }
 
-            // Search for the person
-            $hospital = $this->excelReaderService->searchPersonInActivos(
-                $tipoDocumento,
+            // Search for the affiliate
+            $afiliado = $this->excelReaderService->searchAfiliadoInAsamblea(
                 $documento,
                 $fechaExpedicion
             );
 
-            // Transform hospital name if found
-            $transformedHospital = $hospital ? $this->transformHospitalName($hospital) : null;
-
             $response = [
                 'success' => true,
-                'hospital' => $transformedHospital,
-                'found' => null !== $hospital,
+                'data' => $afiliado,
+                'found' => null !== $afiliado,
             ];
 
             // Log the result
-            Log::info('Resultado de búsqueda de hospital', [
-                'tipo_documento' => $tipoDocumento,
+            Log::info('Resultado de búsqueda de afiliado', [
                 'documento' => $documento,
                 'fecha_expedicion' => $fechaExpedicion,
-                'hospital_original' => $hospital,
-                'hospital_transformado' => $transformedHospital,
-                'encontrado' => null !== $hospital,
+                'encontrado' => null !== $afiliado,
+                'afiliado' => $afiliado,
                 'timestamp' => now()->toISOString(),
             ]);
 
             return response()->json($response);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::warning('Validación fallida en búsqueda de hospital', [
+            Log::warning('Validación fallida en búsqueda de afiliado', [
                 'errors' => $e->errors(),
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
@@ -92,13 +83,12 @@ class ActivosController extends Controller
                 'success' => false,
                 'message' => 'Datos de entrada inválidos',
                 'errors' => $e->errors(),
-                'hospital' => null,
+                'data' => null,
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Error inesperado en búsqueda de hospital', [
+            Log::error('Error inesperado en búsqueda de afiliado', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'tipo_documento' => $request->input('tipo_documento'),
                 'documento' => $request->input('documento'),
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
                 'timestamp' => now()->toISOString(),
@@ -107,42 +97,9 @@ class ActivosController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error interno del servidor',
-                'hospital' => null,
+                'data' => null,
             ], 500);
         }
     }
 
-    /**
-     * Transform hospital name to client expected format.
-     */
-    private function transformHospitalName(string $hospital): string
-    {
-        $transformations = [
-            'ADMON' => 'ADMON',
-            'HMFS - BELLO' => 'Bello',
-            'HLM - GRUPO 1' => 'La Maria',
-            'HLM - GRUPO 3' => 'La Maria',
-            'HSJDRionegro' => 'Rionegro',
-            'LA MARIA - COOSALUD' => 'La Maria',
-            'LA MARIA - ENTERRITORIO' => 'La Maria',
-            'LA MARIA - ENTERRITORIO 2' => 'La Maria',
-            'LA MARIA - VIH - 1' => 'La Maria',
-        ];
-
-        // Check for exact match first
-        if (isset($transformations[$hospital])) {
-            return $transformations[$hospital];
-        }
-
-        // Check for partial matches (case insensitive)
-        $hospitalUpper = strtoupper(trim($hospital));
-        foreach ($transformations as $key => $value) {
-            if (false !== strpos($hospitalUpper, strtoupper($key))) {
-                return $value;
-            }
-        }
-
-        // If no transformation found, return original
-        return $hospital;
-    }
 }
