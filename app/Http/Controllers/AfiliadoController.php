@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Http\Requests\{AfiliadoRequestOtpRequest, AfiliadoVerifyOtpRequest};
 use App\Mail\AfiliadoOtpCode;
 use App\Services\{AfiliadoService, ObfuscationService, OtpService};
-use App\Services\AssemblyAttendanceService;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail};
 
@@ -16,7 +15,6 @@ class AfiliadoController extends Controller
         AfiliadoService $afiliadoService,
         OtpService $otpService,
         ObfuscationService $obfuscationService,
-        private AssemblyAttendanceService $attendanceService,
     ) {
         $this->afiliadoService = $afiliadoService;
         $this->otpService = $otpService;
@@ -34,7 +32,6 @@ class AfiliadoController extends Controller
                 'tipo_documento' => 'required|string|max:50',
                 'documento' => 'required|string|max:50',
                 'fecha_expedicion' => 'required|string|max:50',
-                'signature' => 'required|string',
             ]);
 
             $tipoDocumento = trim($request->input('tipo_documento'));
@@ -92,15 +89,6 @@ class AfiliadoController extends Controller
                 'convenios_count' => count($afiliado['convenios'] ?? []),
                 'timestamp' => now()->toISOString(),
             ]);
-
-            $fullName = trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''));
-            $this->attendanceService->record(
-                $afiliado['documento'] ?? $documento,
-                $fullName,
-                $fechaExpedicion,
-                $request,
-                $request->input('signature')
-            );
 
             return response()->json([
                 'success' => true,

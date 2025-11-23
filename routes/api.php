@@ -2,7 +2,7 @@
 
 use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
-use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyQuestionController, AssemblyVoteController, QuorumController};
+use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryStockMovementController};
 use App\Http\Controllers\Request\{RequestAssignmentController, RequestController};
 use App\Http\Controllers\User\UserController;
@@ -71,6 +71,8 @@ Route::prefix('assembly')->group(function () {
         Route::post('/live-question/start', [AssemblyQuestionController::class, 'startLiveQuestion'])->middleware('permission:assembly.questions.manage');
         Route::post('/live-question/close', [AssemblyQuestionController::class, 'closeActiveQuestion'])->middleware('permission:assembly.questions.manage');
         Route::get('/attendance', [AssemblyAttendanceController::class, 'index'])->middleware('permission:assembly.questions.manage');
+        Route::delete('/attendance/{id}', [AssemblyAttendanceController::class, 'destroy'])->middleware('permission:assembly.questions.manage');
+        Route::get('/report/download', [AssemblyReportController::class, 'download'])->middleware('permission:assembly.questions.manage');
 
         // Admin routes - Quorum management
         Route::put('/quorum', [QuorumController::class, 'update'])->middleware('permission:assembly.quorum.manage');
