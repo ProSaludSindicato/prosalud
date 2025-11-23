@@ -111,7 +111,7 @@ class AssemblyReportService
         ]);
         
         // Get all attendance records
-        $attendances = AssemblyAttendance::orderBy('authenticated_at', 'desc')->get();
+        $attendances = AssemblyAttendance::query()->orderByDesc('authenticated_at')->get();
         
         $row = 2;
         
