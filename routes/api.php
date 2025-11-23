@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryStockMovementController};
@@ -169,6 +169,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
         Route::post('/deliveries', [DotacionEppController::class, 'storeDelivery'])->middleware(['permission:dotacion.view', 'permission:dotacion.deliveries.create']);
         Route::get('/returns', [DotacionEppController::class, 'returns'])->middleware('permission:dotacion.view');
         Route::post('/returns', [DotacionEppController::class, 'storeReturn'])->middleware(['permission:dotacion.view', 'permission:dotacion.deliveries.create']);
+        Route::get('/reports/deliveries/excel', [SstDeliveryReportController::class, 'download'])->middleware('permission:dotacion.view');
     });
 
     // Inventory Management routes
