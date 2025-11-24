@@ -24,10 +24,27 @@ class AssemblyReportService
 
     /**
      * Generate Excel report with attendance and voting results.
+     * 
+     * @param int|null $assemblyId ID of the assembly to generate report for. If null, uses active assembly.
      */
-    public function generateReport(): string
+    public function generateReport(?int $assemblyId = null): string
     {
         try {
+            // If no assembly_id provided, get active assembly
+            if ($assemblyId === null) {
+                $assembly = \App\Models\Assembly::getCurrent();
+                if (!$assembly) {
+                    throw new \RuntimeException('No hay asamblea activa para generar el reporte');
+                }
+                $assemblyId = $assembly->id;
+            } else {
+                // Verify assembly exists
+                $assembly = \App\Models\Assembly::find($assemblyId);
+                if (!$assembly) {
+                    throw new \RuntimeException("Asamblea con ID {$assemblyId} no encontrada");
+                }
+            }
+
             $spreadsheet = new Spreadsheet();
             
             // Remove default sheet
@@ -36,12 +53,12 @@ class AssemblyReportService
             // Create attendance sheet
             $attendanceSheet = $spreadsheet->createSheet();
             $attendanceSheet->setTitle('Listado de Asistencia');
-            $this->buildAttendanceSheet($attendanceSheet);
+            $this->buildAttendanceSheet($attendanceSheet, $assemblyId);
             
             // Create voting results sheet
             $votingSheet = $spreadsheet->createSheet();
             $votingSheet->setTitle('Resultados de Votación');
-            $this->buildVotingResultsSheet($votingSheet);
+            $this->buildVotingResultsSheet($votingSheet, $assemblyId);
             
             // Set first sheet as active
             $spreadsheet->setActiveSheetIndex(0);
@@ -79,7 +96,7 @@ class AssemblyReportService
     /**
      * Build attendance sheet with signatures embedded.
      */
-    private function buildAttendanceSheet(Worksheet $sheet): void
+    private function buildAttendanceSheet(Worksheet $sheet, int $assemblyId): void
     {
         // Headers
         $headers = [
@@ -110,8 +127,11 @@ class AssemblyReportService
             ],
         ]);
         
-        // Get all attendance records
-        $attendances = AssemblyAttendance::query()->orderByDesc('authenticated_at')->get();
+        // Get attendance records filtered by assembly_id
+        $attendances = AssemblyAttendance::query()
+            ->where('assembly_id', $assemblyId)
+            ->orderByDesc('authenticated_at')
+            ->get();
         
         $row = 2;
         
@@ -230,7 +250,7 @@ class AssemblyReportService
     /**
      * Build voting results sheet.
      */
-    private function buildVotingResultsSheet(Worksheet $sheet): void
+    private function buildVotingResultsSheet(Worksheet $sheet, int $assemblyId): void
     {
         // Headers
         $headers = [
@@ -264,15 +284,21 @@ class AssemblyReportService
             ],
         ]);
         
-        // Get all questions with their votes
-        $questions = AssemblyQuestion::with(['options', 'votes'])->orderBy('order')->get();
+        // Get questions filtered by assembly_id with their votes
+        $questions = AssemblyQuestion::with(['options'])
+            ->where('assembly_id', $assemblyId)
+            ->orderBy('order')
+            ->get();
         
         $row = 2;
         $questionNumber = 1;
         $questionChartData = [];
         
         foreach ($questions as $question) {
-            $votes = $question->votes;
+            // Get votes filtered by assembly_id for this question
+            $votes = AssemblyVote::where('question_id', $question->id)
+                ->where('assembly_id', $assemblyId)
+                ->get();
             $totalVotes = $votes->count();
             
             // Get option texts
@@ -297,7 +323,7 @@ class AssemblyReportService
             
             // Calculate if majority was achieved
             $maxVotes = $totalVotes > 0 ? max(array_column($optionResults, 'votes')) : 0;
-            $majorityAchieved = $this->calculateMajority($question, $maxVotes, $totalVotes);
+            $majorityAchieved = $this->calculateMajority($question, $maxVotes, $totalVotes, $assemblyId);
             
             // Map majority type
             $majorityTypeMap = [
@@ -527,9 +553,10 @@ class AssemblyReportService
     /**
      * Calculate if majority was achieved.
      */
-    private function calculateMajority(AssemblyQuestion $question, int $maxVotes, int $totalVotes): bool
+    private function calculateMajority(AssemblyQuestion $question, int $maxVotes, int $totalVotes, int $assemblyId): bool
     {
-        $quorum = \App\Models\QuorumConfig::getCurrent();
+        // Get quorum config for the specific assembly
+        $quorum = \App\Models\QuorumConfig::where('assembly_id', $assemblyId)->first();
         $presentDelegates = $quorum ? $quorum->present_delegates : 0;
         
         switch ($question->majority_type) {

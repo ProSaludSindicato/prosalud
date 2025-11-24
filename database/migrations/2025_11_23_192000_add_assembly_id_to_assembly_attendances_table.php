@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::table('assembly_attendances', function (Blueprint $table) {
             // Agregar assembly_id como nullable
             // La creación de la asamblea inicial y asociación de datos se hace mediante comando
-            $table->string('assembly_id', 255)->nullable()->after('id');
+            $table->unsignedBigInteger('assembly_id')->nullable()->after('id');
             
             $table->foreign('assembly_id')
                 ->references('id')

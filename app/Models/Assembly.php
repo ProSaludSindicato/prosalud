@@ -4,15 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Str;
 
 class Assembly extends Model
 {
-    public $incrementing = false;
-    protected $keyType = 'string';
-
     protected $fillable = [
-        'id',
         'name',
         'description',
         'start_date',
@@ -31,12 +26,6 @@ class Assembly extends Model
     protected static function boot()
     {
         parent::boot();
-
-        static::creating(function ($assembly) {
-            if (empty($assembly->id)) {
-                $assembly->id = (string) Str::uuid();
-            }
-        });
 
         // When activating an assembly, deactivate all others
         static::updating(function ($assembly) {
@@ -72,7 +61,13 @@ class Assembly extends Model
     }
 
     /**
-     * Get or create a default assembly for backward compatibility
+     * Get or create a default assembly for backward compatibility.
+     * 
+     * WARNING: This method creates a new assembly automatically if none exists.
+     * Use only when explicitly needed for backward compatibility.
+     * Most code should use getCurrent() and handle the null case explicitly.
+     * 
+     * @deprecated Prefer using getCurrent() and handling null cases explicitly
      */
     public static function getOrCreateDefault(): self
     {

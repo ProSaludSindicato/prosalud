@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Str;
+use App\Models\Assembly;
 
 class AssemblyQuestion extends Model
 {
@@ -57,6 +58,18 @@ class AssemblyQuestion extends Model
         static::creating(function ($question) {
             if (empty($question->id)) {
                 $question->id = (string) Str::uuid();
+            }
+            // Auto-assign assembly_id from active assembly if not set
+            if (empty($question->assembly_id)) {
+                $assembly = Assembly::getCurrent();
+                if ($assembly) {
+                    $question->assembly_id = $assembly->id;
+                } else {
+                    throw new \RuntimeException(
+                        'No se puede crear una pregunta sin asamblea activa. ' .
+                        'Por favor, active una asamblea primero o especifique assembly_id.'
+                    );
+                }
             }
         });
 

@@ -31,6 +31,26 @@ class AssemblyAttendance extends Model
         'signature_url',
     ];
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($attendance) {
+            // Auto-assign assembly_id from active assembly if not set
+            if (empty($attendance->assembly_id)) {
+                $assembly = Assembly::getCurrent();
+                if ($assembly) {
+                    $attendance->assembly_id = $assembly->id;
+                } else {
+                    throw new \RuntimeException(
+                        'No se puede registrar asistencia sin asamblea activa. ' .
+                        'Por favor, active una asamblea primero.'
+                    );
+                }
+            }
+        });
+    }
+
     public function getSignatureUrlAttribute(): ?string
     {
         if (!$this->signature_path) {

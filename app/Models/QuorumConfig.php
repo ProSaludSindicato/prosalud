@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Assembly;
 
 class QuorumConfig extends Model
 {
@@ -26,6 +27,39 @@ class QuorumConfig extends Model
         'verified' => 'boolean',
         'updated_at' => 'datetime',
     ];
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($quorum) {
+            // Auto-assign assembly_id from active assembly if not set
+            if (empty($quorum->assembly_id)) {
+                $assembly = Assembly::getCurrent();
+                if (!$assembly) {
+                    throw new \RuntimeException(
+                        'No se puede crear una configuración de quórum sin asamblea activa. ' .
+                        'Por favor, active una asamblea primero o especifique assembly_id.'
+                    );
+                }
+                $quorum->assembly_id = $assembly->id;
+            }
+        });
+
+        static::updating(function ($quorum) {
+            // Auto-assign assembly_id from active assembly if not set (por si acaso)
+            if (empty($quorum->assembly_id)) {
+                $assembly = Assembly::getCurrent();
+                if (!$assembly) {
+                    throw new \RuntimeException(
+                        'No se puede actualizar una configuración de quórum sin asamblea activa. ' .
+                        'Por favor, active una asamblea primero o especifique assembly_id.'
+                    );
+                }
+                $quorum->assembly_id = $assembly->id;
+            }
+        });
+    }
 
     public function isQuorumMet(): bool
     {

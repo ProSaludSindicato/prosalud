@@ -594,7 +594,7 @@ class AssemblyQuestionController extends Controller
             return Assembly::find($request->input('assembly_id'));
         }
         
-        // Default to active assembly
-        return Assembly::getCurrent() ?? Assembly::getOrCreateDefault();
+        // Default to active assembly (no auto-creation)
+        return Assembly::getCurrent();
     }
 }

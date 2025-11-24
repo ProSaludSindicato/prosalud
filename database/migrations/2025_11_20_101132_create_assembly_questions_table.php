@@ -27,7 +27,7 @@ return new class extends Migration
             $table->timestamp('closed_at')->nullable();
             $table->integer('votes_count')->default(0);
             $table->boolean('results_visible')->default(false);
-            $table->string('assembly_id', 255)->nullable()->index();
+            $table->unsignedBigInteger('assembly_id')->nullable()->index();
             $table->timestamps();
         });
     }

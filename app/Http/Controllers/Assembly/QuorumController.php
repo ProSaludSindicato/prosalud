@@ -64,7 +64,13 @@ class QuorumController extends Controller
                 'requiredPercentage' => 'required|integer|min:1|max:100',
             ]);
 
-            $assembly = \App\Models\Assembly::getCurrent() ?? \App\Models\Assembly::getOrCreateDefault();
+            $assembly = \App\Models\Assembly::getCurrent();
+            if (!$assembly) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No hay asamblea activa. Por favor, active una asamblea primero.',
+                ], 400);
+            }
 
             $quorum = QuorumConfig::getCurrent();
 

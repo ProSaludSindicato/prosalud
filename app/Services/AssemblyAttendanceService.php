@@ -31,8 +31,14 @@ class AssemblyAttendanceService
         $normalizedIssueDate = $this->normalizeDate($issueDate);
         $signaturePath = $this->storeSignature($documentNumber, $signatureData);
 
-        // Get the active assembly
-        $assembly = Assembly::getCurrent() ?? Assembly::getOrCreateDefault();
+        // Get the active assembly (required)
+        $assembly = Assembly::getCurrent();
+        if (!$assembly) {
+            throw new \RuntimeException(
+                'No se puede registrar asistencia sin asamblea activa. ' .
+                'Por favor, active una asamblea primero.'
+            );
+        }
 
         $attendance = AssemblyAttendance::create([
             'assembly_id' => $assembly->id,

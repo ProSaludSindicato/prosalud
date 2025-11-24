@@ -70,6 +70,7 @@ Route::prefix('assembly')->group(function () {
         Route::get('/assemblies/{id}', [AssemblyController::class, 'show'])->middleware('permission:assembly.questions.manage');
         Route::put('/assemblies/{id}', [AssemblyController::class, 'update'])->middleware('permission:assembly.questions.manage');
         Route::post('/assemblies/{id}/activate', [AssemblyController::class, 'activate'])->middleware('permission:assembly.questions.manage');
+        Route::post('/assemblies/{id}/deactivate', [AssemblyController::class, 'deactivate'])->middleware('permission:assembly.questions.manage');
         
         // Admin routes - Questions management
         // Admin routes - Questions management

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
+use App\Models\Assembly;
 
 class AssemblyVote extends Model
 {
@@ -44,6 +45,17 @@ class AssemblyVote extends Model
                 $question = AssemblyQuestion::find($vote->question_id);
                 if ($question && $question->assembly_id) {
                     $vote->assembly_id = $question->assembly_id;
+                } else {
+                    // Fallback: try to get from active assembly
+                    $assembly = Assembly::getCurrent();
+                    if ($assembly) {
+                        $vote->assembly_id = $assembly->id;
+                    } else {
+                        throw new \RuntimeException(
+                            'No se puede crear un voto sin asamblea. ' .
+                            'La pregunta debe pertenecer a una asamblea o debe haber una asamblea activa.'
+                        );
+                    }
                 }
             }
         });

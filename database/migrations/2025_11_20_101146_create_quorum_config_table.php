@@ -17,7 +17,7 @@ return new class extends Migration
             $table->integer('present_delegates')->default(0);
             $table->integer('required_percentage')->default(50);
             $table->boolean('verified')->default(false);
-            $table->string('assembly_id', 255)->nullable()->index();
+            $table->unsignedBigInteger('assembly_id')->nullable()->index();
             $table->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
         });
     }

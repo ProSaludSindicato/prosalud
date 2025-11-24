@@ -10,7 +10,7 @@ use App\Models\QuorumConfig;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Schema;
 
 class CreateInitialAssemblyCommand extends Command
 {
@@ -157,7 +157,6 @@ class CreateInitialAssemblyCommand extends Command
             } else {
                 $this->info('🏗️  Creando asamblea inicial...');
                 $assembly = Assembly::create([
-                    'id' => (string) Str::uuid(),
                     'name' => $assemblyName,
                     'description' => $assemblyDescription,
                     'start_date' => $analysis['earliest_date'] ? date('Y-m-d', strtotime($analysis['earliest_date'])) : now()->toDateString(),
@@ -170,52 +169,42 @@ class CreateInitialAssemblyCommand extends Command
             }
 
             // Asociar preguntas
-            if ($analysis['questions_count'] > 0) {
+            if ($analysis['questions_count'] > 0 && $this->columnExists('assembly_questions', 'assembly_id')) {
                 $this->info("📝 Asociando {$analysis['questions_count']} preguntas...");
-                $updated = AssemblyQuestion::whereNull('assembly_id')
+                $updated = DB::table('assembly_questions')
+                    ->whereNull('assembly_id')
                     ->update(['assembly_id' => $assembly->id]);
                 $this->line("   ✅ {$updated} preguntas asociadas");
             }
 
             // Asociar votos (obtienen assembly_id desde sus preguntas relacionadas)
-            if ($analysis['votes_count'] > 0) {
+            if ($analysis['votes_count'] > 0 && $this->columnExists('assembly_votes', 'assembly_id')) {
                 $this->info("🗳️  Asociando {$analysis['votes_count']} votos...");
                 
-                // Para votos, necesitamos obtener el assembly_id desde la pregunta
-                // Primero actualizamos los votos de preguntas que ya tienen assembly_id
+                // Para votos, obtenemos el assembly_id desde la pregunta relacionada
                 $votesUpdated = DB::table('assembly_votes')
                     ->join('assembly_questions', 'assembly_votes.question_id', '=', 'assembly_questions.id')
                     ->where('assembly_questions.assembly_id', $assembly->id)
                     ->whereNull('assembly_votes.assembly_id')
                     ->update(['assembly_votes.assembly_id' => $assembly->id]);
                 
-                // Si hay votos sin assembly_id y la columna existe como nullable, los asociamos
-                // (esto maneja el caso donde los votos no tienen assembly_id aún)
-                $votesWithoutQuestion = DB::table('assembly_votes')
-                    ->leftJoin('assembly_questions', 'assembly_votes.question_id', '=', 'assembly_questions.id')
-                    ->whereNull('assembly_questions.id')
-                    ->whereNull('assembly_votes.assembly_id')
-                    ->count();
-                
-                if ($votesWithoutQuestion > 0) {
-                    $this->warn("   ⚠️  {$votesWithoutQuestion} votos sin pregunta relacionada encontrados");
-                }
-                
                 $this->line("   ✅ {$votesUpdated} votos asociados");
             }
 
             // Asociar asistencias
-            if ($analysis['attendances_count'] > 0) {
+            if ($analysis['attendances_count'] > 0 && $this->columnExists('assembly_attendances', 'assembly_id')) {
                 $this->info("👥 Asociando {$analysis['attendances_count']} asistencias...");
-                $updated = AssemblyAttendance::whereNull('assembly_id')
+                $updated = DB::table('assembly_attendances')
+                    ->whereNull('assembly_id')
                     ->update(['assembly_id' => $assembly->id]);
                 $this->line("   ✅ {$updated} asistencias asociadas");
             }
 
             // Asociar configuraciones de quórum
-            if ($analysis['quorum_configs_count'] > 0) {
+            if ($analysis['quorum_configs_count'] > 0 && $this->columnExists('quorum_config', 'assembly_id')) {
                 $this->info("📊 Asociando {$analysis['quorum_configs_count']} configuraciones de quórum...");
-                $updated = QuorumConfig::whereNull('assembly_id')
+                $updated = DB::table('quorum_config')
+                    ->whereNull('assembly_id')
                     ->update(['assembly_id' => $assembly->id]);
                 $this->line("   ✅ {$updated} configuraciones de quórum asociadas");
             }
@@ -225,6 +214,24 @@ class CreateInitialAssemblyCommand extends Command
             $this->line('');
             $this->info('✅ ¡Asamblea inicial creada exitosamente!');
             $this->line('');
+            
+            // Contar registros asociados (usando queries directas que funcionan aunque las columnas no existan aún)
+            $questionsCount = $this->columnExists('assembly_questions', 'assembly_id')
+                ? DB::table('assembly_questions')->where('assembly_id', $assembly->id)->count()
+                : $analysis['questions_count'];
+            
+            $votesCount = $this->columnExists('assembly_votes', 'assembly_id')
+                ? DB::table('assembly_votes')->where('assembly_id', $assembly->id)->count()
+                : 'N/A (columna aún no existe)';
+            
+            $attendancesCount = $this->columnExists('assembly_attendances', 'assembly_id')
+                ? DB::table('assembly_attendances')->where('assembly_id', $assembly->id)->count()
+                : 'N/A (columna aún no existe)';
+            
+            $quorumConfigsCount = $this->columnExists('quorum_config', 'assembly_id')
+                ? DB::table('quorum_config')->where('assembly_id', $assembly->id)->count()
+                : $analysis['quorum_configs_count'];
+            
             $this->table(
                 ['Campo', 'Valor'],
                 [
@@ -233,10 +240,10 @@ class CreateInitialAssemblyCommand extends Command
                     ['Estado', $assembly->is_active ? 'Activa' : 'Inactiva'],
                     ['Fecha inicio', $assembly->start_date?->format('Y-m-d') ?? 'N/A'],
                     ['Fecha fin', $assembly->end_date?->format('Y-m-d') ?? 'N/A'],
-                    ['Preguntas', $assembly->questions()->count()],
-                    ['Votos', $assembly->questions()->withCount('votes')->get()->sum('votes_count')],
-                    ['Asistencias', $assembly->attendances()->count()],
-                    ['Quórum configs', $assembly->quorumConfigs()->count()],
+                    ['Preguntas', $questionsCount],
+                    ['Votos', $votesCount],
+                    ['Asistencias', $attendancesCount],
+                    ['Quórum configs', $quorumConfigsCount],
                 ]
             );
 
@@ -268,18 +275,30 @@ class CreateInitialAssemblyCommand extends Command
      */
     private function analyzeExistingData(): array
     {
-        // Obtener registros sin assembly_id (datos que necesitan ser asociados)
-        $questions = AssemblyQuestion::select('created_at', 'opened_at', 'closed_at')
-            ->whereNull('assembly_id')
-            ->get();
+        // Verificar qué columnas existen
+        $questionsHasAssemblyId = $this->columnExists('assembly_questions', 'assembly_id');
+        $votesHasAssemblyId = $this->columnExists('assembly_votes', 'assembly_id');
+        $attendancesHasAssemblyId = $this->columnExists('assembly_attendances', 'assembly_id');
+        $quorumHasAssemblyId = $this->columnExists('quorum_config', 'assembly_id');
+
+        // Obtener registros (filtrar por assembly_id solo si la columna existe)
+        $questionsQuery = AssemblyQuestion::select('created_at', 'opened_at', 'closed_at');
+        if ($questionsHasAssemblyId) {
+            $questionsQuery->whereNull('assembly_id');
+        }
+        $questions = $questionsQuery->get();
         
-        $votes = AssemblyVote::select('created_at', 'voted_at')
-            ->whereNull('assembly_id')
-            ->get();
+        $votesQuery = AssemblyVote::select('created_at', 'voted_at');
+        if ($votesHasAssemblyId) {
+            $votesQuery->whereNull('assembly_id');
+        }
+        $votes = $votesQuery->get();
         
-        $attendances = AssemblyAttendance::select('created_at', 'authenticated_at')
-            ->whereNull('assembly_id')
-            ->get();
+        $attendancesQuery = AssemblyAttendance::select('created_at', 'authenticated_at');
+        if ($attendancesHasAssemblyId) {
+            $attendancesQuery->whereNull('assembly_id');
+        }
+        $attendances = $attendancesQuery->get();
 
         // También contar todos los registros (con y sin assembly_id) para estadísticas
         $totalQuestions = AssemblyQuestion::count();
@@ -334,10 +353,19 @@ class CreateInitialAssemblyCommand extends Command
         $latestDate = $dates->max();
 
         // Contar registros sin assembly_id (que necesitan ser asociados)
-        $questionsWithoutAssembly = AssemblyQuestion::whereNull('assembly_id')->count();
-        $votesWithoutAssembly = AssemblyVote::whereNull('assembly_id')->count();
-        $attendancesWithoutAssembly = AssemblyAttendance::whereNull('assembly_id')->count();
-        $quorumConfigsWithoutAssembly = QuorumConfig::whereNull('assembly_id')->count();
+        // Solo si la columna existe
+        $questionsWithoutAssembly = $questionsHasAssemblyId 
+            ? AssemblyQuestion::whereNull('assembly_id')->count() 
+            : AssemblyQuestion::count();
+        $votesWithoutAssembly = $votesHasAssemblyId 
+            ? AssemblyVote::whereNull('assembly_id')->count() 
+            : AssemblyVote::count();
+        $attendancesWithoutAssembly = $attendancesHasAssemblyId 
+            ? AssemblyAttendance::whereNull('assembly_id')->count() 
+            : AssemblyAttendance::count();
+        $quorumConfigsWithoutAssembly = $quorumHasAssemblyId 
+            ? QuorumConfig::whereNull('assembly_id')->count() 
+            : QuorumConfig::count();
 
         return [
             'has_data' => $totalQuestions > 0 || $totalVotes > 0 || $totalAttendances > 0 || $totalQuorumConfigs > 0,
@@ -387,5 +415,18 @@ class CreateInitialAssemblyCommand extends Command
         }
 
         return $description;
+    }
+
+    /**
+     * Verifica si una columna existe en una tabla
+     */
+    private function columnExists(string $table, string $column): bool
+    {
+        try {
+            return Schema::hasColumn($table, $column);
+        } catch (\Exception $e) {
+            // Si hay error, asumir que la columna no existe
+            return false;
+        }
     }
 }

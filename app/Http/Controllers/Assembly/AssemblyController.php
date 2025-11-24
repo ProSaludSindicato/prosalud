@@ -7,7 +7,6 @@ use App\Models\Assembly;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 class AssemblyController extends Controller
 {
@@ -115,18 +114,65 @@ class AssemblyController extends Controller
             $validated = $request->validate([
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
+                'startDate' => 'nullable|date',
                 'start_date' => 'nullable|date',
-                'end_date' => 'nullable|date|after_or_equal:start_date',
+                'endDate' => 'nullable|date',
+                'end_date' => 'nullable|date',
                 'activate' => 'nullable|boolean',
             ]);
 
+            // Manejar tanto camelCase como snake_case del frontend
+            $startDate = $validated['startDate'] ?? $validated['start_date'] ?? null;
+            $endDate = $validated['endDate'] ?? $validated['end_date'] ?? null;
+
+            // Validar que end_date sea después o igual a start_date si ambos existen
+            if ($startDate && $endDate) {
+                $startTimestamp = is_string($startDate) ? strtotime($startDate) : $startDate;
+                $endTimestamp = is_string($endDate) ? strtotime($endDate) : $endDate;
+                
+                if ($endTimestamp < $startTimestamp) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'La fecha de fin debe ser posterior o igual a la fecha de inicio',
+                        'errors' => [
+                            'endDate' => ['La fecha de fin debe ser posterior o igual a la fecha de inicio'],
+                        ],
+                    ], 422);
+                }
+            }
+
+            // Si se va a activar, desactivar primero todas las demás (antes de crear)
+            $willActivate = filter_var($validated['activate'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            if ($willActivate) {
+                Assembly::where('is_active', true)->update(['is_active' => false]);
+            }
+
+            // Normalizar fechas al formato correcto
+            $startDateNormalized = null;
+            $endDateNormalized = null;
+            
+            if ($startDate) {
+                $startDateNormalized = is_string($startDate) 
+                    ? date('Y-m-d', strtotime($startDate)) 
+                    : (is_object($startDate) && method_exists($startDate, 'format') 
+                        ? $startDate->format('Y-m-d') 
+                        : $startDate);
+            }
+            
+            if ($endDate) {
+                $endDateNormalized = is_string($endDate) 
+                    ? date('Y-m-d', strtotime($endDate)) 
+                    : (is_object($endDate) && method_exists($endDate, 'format') 
+                        ? $endDate->format('Y-m-d') 
+                        : $endDate);
+            }
+
             $assembly = Assembly::create([
-                'id' => (string) Str::uuid(),
                 'name' => $validated['name'],
                 'description' => $validated['description'] ?? null,
-                'start_date' => $validated['start_date'] ?? null,
-                'end_date' => $validated['end_date'] ?? null,
-                'is_active' => $validated['activate'] ?? false,
+                'start_date' => $startDateNormalized,
+                'end_date' => $endDateNormalized,
+                'is_active' => $willActivate,
             ]);
 
             Log::info('Assembly created', ['assembly_id' => $assembly->id]);
@@ -172,11 +218,55 @@ class AssemblyController extends Controller
             $validated = $request->validate([
                 'name' => 'sometimes|string|max:255',
                 'description' => 'nullable|string',
+                'startDate' => 'nullable|date',
                 'start_date' => 'nullable|date',
-                'end_date' => 'nullable|date|after_or_equal:start_date',
+                'endDate' => 'nullable|date',
+                'end_date' => 'nullable|date',
             ]);
 
-            $assembly->update($validated);
+            // Manejar tanto camelCase como snake_case
+            $updateData = [];
+            if (isset($validated['name'])) {
+                $updateData['name'] = $validated['name'];
+            }
+            if (isset($validated['description'])) {
+                $updateData['description'] = $validated['description'];
+            }
+            
+            $startDate = $validated['startDate'] ?? $validated['start_date'] ?? null;
+            $endDate = $validated['endDate'] ?? $validated['end_date'] ?? null;
+            
+            // Normalizar fechas al formato correcto
+            if ($startDate !== null) {
+                $updateData['start_date'] = is_string($startDate) 
+                    ? date('Y-m-d', strtotime($startDate)) 
+                    : (is_object($startDate) && method_exists($startDate, 'format') 
+                        ? $startDate->format('Y-m-d') 
+                        : $startDate);
+            }
+            if ($endDate !== null) {
+                $updateData['end_date'] = is_string($endDate) 
+                    ? date('Y-m-d', strtotime($endDate)) 
+                    : (is_object($endDate) && method_exists($endDate, 'format') 
+                        ? $endDate->format('Y-m-d') 
+                        : $endDate);
+            }
+
+            // Validar que end_date sea después o igual a start_date si ambos existen
+            $finalStartDate = $updateData['start_date'] ?? $assembly->start_date?->format('Y-m-d');
+            $finalEndDate = $updateData['end_date'] ?? $assembly->end_date?->format('Y-m-d');
+            
+            if ($finalStartDate && $finalEndDate && strtotime($finalEndDate) < strtotime($finalStartDate)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La fecha de fin debe ser posterior o igual a la fecha de inicio',
+                    'errors' => [
+                        'endDate' => ['La fecha de fin debe ser posterior o igual a la fecha de inicio'],
+                    ],
+                ], 422);
+            }
+
+            $assembly->update($updateData);
 
             Log::info('Assembly updated', ['assembly_id' => $assembly->id]);
 
@@ -236,6 +326,51 @@ class AssemblyController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al activar la asamblea',
+            ], 500);
+        }
+    }
+
+    /**
+     * Deactivate an assembly
+     */
+    public function deactivate(string $id): JsonResponse
+    {
+        try {
+            $assembly = Assembly::find($id);
+
+            if (!$assembly) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Asamblea no encontrada',
+                ], 404);
+            }
+
+            if (!$assembly->is_active) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La asamblea ya está desactivada',
+                ], 422);
+            }
+
+            $assembly->update(['is_active' => false]);
+            $assembly->refresh();
+
+            Log::info('Assembly deactivated', ['assembly_id' => $assembly->id]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Asamblea desactivada correctamente',
+                'data' => $this->formatAssembly($assembly),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error deactivating assembly', [
+                'id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al desactivar la asamblea',
             ], 500);
         }
     }
