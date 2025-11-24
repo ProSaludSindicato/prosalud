@@ -75,6 +75,11 @@ class AssemblyQuestion extends Model
         return $this->hasMany(AssemblyVote::class, 'question_id');
     }
 
+    public function assembly(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Assembly::class, 'assembly_id');
+    }
+
     public function isOpen(): bool
     {
         return $this->status === 'OPEN';

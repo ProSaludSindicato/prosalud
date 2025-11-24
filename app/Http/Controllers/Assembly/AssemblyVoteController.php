@@ -88,6 +88,7 @@ class AssemblyVoteController extends Controller
                 // Create new vote
                 $vote = AssemblyVote::create([
                     'question_id' => $questionId,
+                    'assembly_id' => $question->assembly_id,
                     'voter_id' => $validated['voterId'],
                     'voter_name' => $validated['voterName'],
                     'selected_options' => $selectedOptionKeys,

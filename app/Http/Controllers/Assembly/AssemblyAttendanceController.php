@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Assembly;
 
 use App\Http\Controllers\Controller;
+use App\Models\Assembly;
 use App\Models\AssemblyAttendance;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,9 +22,24 @@ class AssemblyAttendanceController extends Controller
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
             'perPage' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'assembly_id' => ['nullable', 'string'],
         ]);
 
-        $query = AssemblyAttendance::query()->orderByDesc('authenticated_at');
+        $query = AssemblyAttendance::query();
+
+        // Filter by assembly (default to active assembly)
+        $assembly = null;
+        if ($request->has('assembly_id')) {
+            $assembly = Assembly::find($request->input('assembly_id'));
+        } else {
+            $assembly = Assembly::getCurrent();
+        }
+
+        if ($assembly) {
+            $query->where('assembly_id', $assembly->id);
+        }
+
+        $query->orderByDesc('authenticated_at');
 
         if (!empty($validated['document'])) {
             $query->where('document_number', 'like', '%' . $validated['document'] . '%');

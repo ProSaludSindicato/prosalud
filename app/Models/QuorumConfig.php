@@ -40,6 +40,17 @@ class QuorumConfig extends Model
 
     public static function getCurrent(): ?self
     {
+        $assembly = \App\Models\Assembly::getCurrent();
+        if ($assembly) {
+            return self::where('assembly_id', $assembly->id)
+                ->orderBy('updated_at', 'desc')
+                ->first();
+        }
         return self::orderBy('updated_at', 'desc')->first();
+    }
+
+    public function assembly(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Assembly::class, 'assembly_id');
     }
 }

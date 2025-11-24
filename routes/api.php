@@ -2,7 +2,7 @@
 
 use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
-use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
+use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryStockMovementController};
 use App\Http\Controllers\Request\{RequestAssignmentController, RequestController};
 use App\Http\Controllers\User\UserController;
@@ -60,7 +60,18 @@ Route::prefix('assembly')->group(function () {
     // Public routes - Quorum
     Route::get('/quorum', [QuorumController::class, 'index']);
 
+    // Public routes - Current Assembly
+    Route::get('/current', [AssemblyController::class, 'current']);
+
     Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
+        // Admin routes - Assembly management
+        Route::get('/assemblies', [AssemblyController::class, 'index'])->middleware('permission:assembly.questions.manage');
+        Route::post('/assemblies', [AssemblyController::class, 'store'])->middleware('permission:assembly.questions.manage');
+        Route::get('/assemblies/{id}', [AssemblyController::class, 'show'])->middleware('permission:assembly.questions.manage');
+        Route::put('/assemblies/{id}', [AssemblyController::class, 'update'])->middleware('permission:assembly.questions.manage');
+        Route::post('/assemblies/{id}/activate', [AssemblyController::class, 'activate'])->middleware('permission:assembly.questions.manage');
+        
+        // Admin routes - Questions management
         // Admin routes - Questions management
         Route::post('/questions', [AssemblyQuestionController::class, 'store'])->middleware('permission:assembly.questions.manage');
         Route::put('/questions/{id}', [AssemblyQuestionController::class, 'update'])->middleware('permission:assembly.questions.manage');

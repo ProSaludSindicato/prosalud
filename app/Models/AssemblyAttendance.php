@@ -12,6 +12,7 @@ class AssemblyAttendance extends Model
     use HasFactory;
 
     protected $fillable = [
+        'assembly_id',
         'document_number',
         'full_name',
         'issue_date_normalized',
@@ -57,6 +58,11 @@ class AssemblyAttendance extends Model
         }
 
         return null;
+    }
+
+    public function assembly(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Assembly::class, 'assembly_id');
     }
 }
 

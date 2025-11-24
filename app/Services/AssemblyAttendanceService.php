@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Assembly;
 use App\Models\AssemblyAttendance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -30,7 +31,11 @@ class AssemblyAttendanceService
         $normalizedIssueDate = $this->normalizeDate($issueDate);
         $signaturePath = $this->storeSignature($documentNumber, $signatureData);
 
+        // Get the active assembly
+        $assembly = Assembly::getCurrent() ?? Assembly::getOrCreateDefault();
+
         $attendance = AssemblyAttendance::create([
+            'assembly_id' => $assembly->id,
             'document_number' => $documentNumber,
             'full_name' => $this->normalizeName($fullName),
             'issue_date_normalized' => $normalizedIssueDate,

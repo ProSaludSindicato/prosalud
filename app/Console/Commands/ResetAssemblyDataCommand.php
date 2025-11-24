@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Assembly;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +13,9 @@ class ResetAssemblyDataCommand extends Command
                             {--keep-questions : Mantiene preguntas y opciones}
                             {--keep-attendance : Mantiene el registro de asistencia}
                             {--force : Omite confirmaciones}
-                            {--dry-run : Muestra lo que se eliminaría sin borrar}';
+                            {--dry-run : Muestra lo que se eliminaría sin borrar}
+                            {--assembly-id= : ID de la asamblea específica a resetear (si no se especifica, usa la asamblea activa)}
+                            {--all : Resetea todas las asambleas}';
 
     protected $description = 'Limpia datos de la funcionalidad de votaciones de asamblea para pruebas o despliegues';
 

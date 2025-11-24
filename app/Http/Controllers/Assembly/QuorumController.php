@@ -64,10 +64,13 @@ class QuorumController extends Controller
                 'requiredPercentage' => 'required|integer|min:1|max:100',
             ]);
 
+            $assembly = \App\Models\Assembly::getCurrent() ?? \App\Models\Assembly::getOrCreateDefault();
+
             $quorum = QuorumConfig::getCurrent();
 
-            if (!$quorum) {
+            if (!$quorum || $quorum->assembly_id !== $assembly->id) {
                 $quorum = new QuorumConfig();
+                $quorum->assembly_id = $assembly->id;
             }
 
             $quorum->total_delegates = $validated['totalDelegates'];

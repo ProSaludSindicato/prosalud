@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Assembly;
 
 use App\Http\Controllers\Controller;
+use App\Models\Assembly;
 use App\Models\AssemblyQuestion;
 use App\Models\QuorumConfig;
 use Illuminate\Http\JsonResponse;
@@ -15,13 +16,20 @@ use Illuminate\Validation\ValidationException;
 class AssemblyQuestionController extends Controller
 {
     /**
-     * Get all questions
+     * Get all questions for the active assembly
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $questions = AssemblyQuestion::with('options')
-                ->orderBy('order')
+            $assembly = $this->getAssembly($request);
+            
+            $query = AssemblyQuestion::with('options');
+            
+            if ($assembly) {
+                $query->where('assembly_id', $assembly->id);
+            }
+            
+            $questions = $query->orderBy('order')
                 ->get()
                 ->map(function (AssemblyQuestion $question) {
                     return $this->formatQuestion($this->ensureDefaultOptions($question));
@@ -91,14 +99,24 @@ class AssemblyQuestionController extends Controller
 
             DB::beginTransaction();
 
+            $assembly = $this->getAssembly($request);
+            
+            if (!$assembly) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No hay asamblea activa. Por favor, active una asamblea primero.',
+                ], 400);
+            }
+
             // Calculate order if not provided
             if (!isset($validated['order'])) {
-                $maxOrder = AssemblyQuestion::max('order') ?? 0;
+                $maxOrder = AssemblyQuestion::where('assembly_id', $assembly->id)->max('order') ?? 0;
                 $validated['order'] = $maxOrder + 1;
             }
 
             $question = AssemblyQuestion::create([
                 'id' => (string) Str::uuid(),
+                'assembly_id' => $assembly->id,
                 'title' => $validated['title'] ?? 'Pregunta #' . $validated['order'],
                 'description' => $validated['description'] ?? null,
                 'help_text' => $validated['helpText'] ?? null,
@@ -421,11 +439,21 @@ class AssemblyQuestionController extends Controller
         ]);
 
         try {
-            return DB::transaction(function () use ($validated) {
-                $nextOrder = (AssemblyQuestion::max('order') ?? 0) + 1;
+            $assembly = $this->getAssembly($request);
+            
+            if (!$assembly) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No hay asamblea activa. Por favor, active una asamblea primero.',
+                ], 400);
+            }
+
+            return DB::transaction(function () use ($validated, $assembly) {
+                $nextOrder = (AssemblyQuestion::where('assembly_id', $assembly->id)->max('order') ?? 0) + 1;
 
                 $question = AssemblyQuestion::create([
                     'id' => (string) Str::uuid(),
+                    'assembly_id' => $assembly->id,
                     'title' => $validated['title'] ?? 'Pregunta #' . $nextOrder,
                     'description' => null,
                     'help_text' => null,
@@ -469,10 +497,18 @@ class AssemblyQuestionController extends Controller
     /**
      * Close the currently open question (if any)
      */
-    public function closeActiveQuestion(): JsonResponse
+    public function closeActiveQuestion(Request $request): JsonResponse
     {
         try {
-            $question = AssemblyQuestion::where('status', 'OPEN')->first();
+            $assembly = $this->getAssembly($request);
+            
+            $query = AssemblyQuestion::where('status', 'OPEN');
+            
+            if ($assembly) {
+                $query->where('assembly_id', $assembly->id);
+            }
+            
+            $question = $query->first();
 
             if (!$question) {
                 return response()->json([
@@ -505,6 +541,7 @@ class AssemblyQuestionController extends Controller
     private function openQuestion(AssemblyQuestion $question): AssemblyQuestion
     {
         $currentOpen = AssemblyQuestion::where('status', 'OPEN')
+            ->where('assembly_id', $question->assembly_id)
             ->where('id', '!=', $question->id)
             ->first();
 
@@ -545,5 +582,19 @@ class AssemblyQuestionController extends Controller
         ]);
 
         return $question->refresh();
+    }
+
+    /**
+     * Get the active assembly from request or default
+     */
+    private function getAssembly(Request $request): ?Assembly
+    {
+        // Allow specifying assembly_id in query params for admin queries
+        if ($request->has('assembly_id')) {
+            return Assembly::find($request->input('assembly_id'));
+        }
+        
+        // Default to active assembly
+        return Assembly::getCurrent() ?? Assembly::getOrCreateDefault();
     }
 }
