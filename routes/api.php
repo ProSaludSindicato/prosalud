@@ -3,7 +3,7 @@
 use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
-use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryStockMovementController};
+use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
 use App\Http\Controllers\Request\{RequestAssignmentController, RequestController};
 use App\Http\Controllers\User\UserController;
 use Illuminate\Support\Facades\Route;
@@ -221,5 +221,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
         Route::get('/locations/{location}', [InventoryLocationController::class, 'show'])->middleware('permission:inventory.locations.view');
 
         Route::get('/stock-movements', [InventoryStockMovementController::class, 'index'])->middleware('permission:inventory.stock_movements.view');
+
+        Route::post('/reports/excel', [InventoryReportController::class, 'generateExcel']);
     });
 });
