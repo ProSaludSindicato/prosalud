@@ -39,7 +39,7 @@ class UserController extends Controller
 
         // Pagination
         $perPage = $request->get('per_page', 15);
-        $users = $query->paginate($perPage);
+        $users = $query->with('roles')->paginate($perPage);
 
         Log::info('Lista de usuarios consultada', [
             'total_users' => $users->total(),
@@ -48,9 +48,22 @@ class UserController extends Controller
             'filters' => $request->only(['search', 'is_active']),
         ]);
 
+        // Format users data to include role
+        $formattedUsers = $users->getCollection()->map(function ($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'is_active' => $user->is_active,
+                'role' => $user->roles->first()?->name ?? null,
+                'created_at' => $user->created_at,
+                'updated_at' => $user->updated_at,
+            ];
+        });
+
         return response()->json([
             'success' => true,
-            'data' => $users->items(),
+            'data' => $formattedUsers->values()->all(),
             'pagination' => [
                 'current_page' => $users->currentPage(),
                 'per_page' => $users->perPage(),
@@ -133,7 +146,7 @@ class UserController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'is_active' => $user->is_active,
-                'roles' => $user->roles->pluck('name'),
+                'role' => $user->roles->first()?->name ?? null,
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at,
             ],
@@ -157,6 +170,9 @@ class UserController extends Controller
             'updated_at' => $user->updated_at,
         ]);
 
+        // Refresh roles relationship
+        $user->load('roles');
+
         return response()->json([
             'success' => true,
             'message' => 'Usuario actualizado exitosamente',
@@ -165,6 +181,7 @@ class UserController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'is_active' => $user->is_active,
+                'role' => $user->roles->first()?->name ?? null,
                 'updated_at' => $user->updated_at,
             ],
         ]);
