@@ -8,16 +8,19 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\RespondToRequestRequest;
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestSubtypeAssignment, RequestTypeAssignment};
-use App\Services\{AuditLogService, RequestAssignmentService};
+use App\Services\{AuditLogService, RequestAssignmentService, RequestExcelExportService};
+use App\Http\Requests\ExportRequestsExcelRequest;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail, Storage};
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class RequestController extends Controller
 {
     public function __construct(
         private AuditLogService $auditLogService,
         private RequestAssignmentService $assignmentService,
+        private RequestExcelExportService $excelExportService,
     ) {
     }
 
@@ -1089,6 +1092,83 @@ class RequestController extends Controller
         }
 
         return $formatted;
+    }
+
+    /**
+     * Export requests to Excel file.
+     */
+    public function exportExcel(ExportRequestsExcelRequest $request): BinaryFileResponse|JsonResponse
+    {
+        try {
+            $user = $request->user();
+
+            // Preparar filtros
+            $dateRange = $request->input('date_range', []);
+            $filters = [
+                'request_type' => $request->input('request_type', 'all'),
+                'date_range' => [
+                    'include_all' => $dateRange['include_all'] ?? true,
+                    'start_date' => $dateRange['start_date'] ?? null,
+                    'end_date' => $dateRange['end_date'] ?? null,
+                ],
+            ];
+
+            // Generar reporte
+            $filePath = $this->excelExportService->generateReport($filters);
+
+            if (!file_exists($filePath)) {
+                Log::error('Error generando reporte Excel de solicitudes: archivo no creado', [
+                    'user_id' => $user->id,
+                    'filters' => $filters,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al generar el reporte',
+                ], 500);
+            }
+
+            // Nombre del archivo
+            $fileName = 'Reporte_Solicitudes_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d') . '.xlsx';
+
+            Log::info('Reporte Excel de solicitudes generado', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]);
+
+            // Registrar en auditoría
+            $this->auditLogService->logBusinessProcess('request_form', 'excel_export', $this->auditLogService->addRequestContext($request, [
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]));
+
+            return response()->download($filePath, $fileName, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ])->deleteFileAfterSend(true);
+        } catch (\InvalidArgumentException $e) {
+            Log::warning('Error de validación al generar reporte Excel de solicitudes', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        } catch (\Exception $e) {
+            Log::error('Error generando reporte Excel de solicitudes', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el reporte. Por favor, intente nuevamente.',
+            ], 500);
+        }
     }
 
     /**
