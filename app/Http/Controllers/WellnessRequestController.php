@@ -2,14 +2,22 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{StoreWellnessRequestRequest, UpdateWellnessRequestRequest};
+use App\Http\Requests\{ExportWellnessExcelRequest, StoreWellnessRequestRequest, UpdateWellnessRequestRequest};
 use App\Mail\{WellnessRequestReceived, WellnessRequestUpdated};
 use App\Models\{User, WellnessRequest};
+use App\Services\{AuditLogService, WellnessExcelExportService};
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class WellnessRequestController extends Controller
 {
+    public function __construct(
+        private WellnessExcelExportService $excelExportService,
+        private AuditLogService $auditLogService,
+    ) {
+    }
+
     /**
      * Display a listing of wellness requests.
      */
@@ -566,5 +574,86 @@ class WellnessRequestController extends Controller
                 'is_main' => $mainImageUrl && $evidence->image_url === $mainImageUrl,
             ];
         })->sortBy('order')->values()->toArray();
+    }
+
+    /**
+     * Export wellness requests to Excel file.
+     */
+    public function exportExcel(ExportWellnessExcelRequest $request): BinaryFileResponse|JsonResponse
+    {
+        try {
+            $user = $request->user();
+
+            // Preparar filtros
+            $filters = [
+                'cost_center' => $request->input('cost_center'),
+                'requester_id' => $request->input('requester_id'),
+                'status' => $request->input('status'),
+                'fecha_desde' => $request->input('fecha_desde'),
+                'fecha_hasta' => $request->input('fecha_hasta'),
+            ];
+
+            // Preparar opciones
+            $options = [
+                'include_images' => $request->boolean('include_images', false),
+            ];
+
+            // Generar reporte
+            $filePath = $this->excelExportService->generateReport($filters, $options);
+
+            if (!file_exists($filePath)) {
+                Log::error('Error generando reporte Excel de bienestar: archivo no creado', [
+                    'user_id' => $user->id,
+                    'filters' => $filters,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al generar el reporte',
+                ], 500);
+            }
+
+            // Nombre del archivo con fecha y hora de generación
+            $fileName = 'Reporte_Bienestar_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+
+            Log::info('Reporte Excel de bienestar generado', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]);
+
+            // Registrar en auditoría
+            $this->auditLogService->logBusinessProcess('wellness_request', 'excel_export', [
+                'user_id' => $user->id,
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]);
+
+            return response()->download($filePath, $fileName, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ])->deleteFileAfterSend(true);
+        } catch (\InvalidArgumentException $e) {
+            Log::warning('Error de validación al generar reporte Excel de bienestar', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        } catch (\Exception $e) {
+            Log::error('Error generando reporte Excel de bienestar', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el reporte. Por favor, intente nuevamente.',
+            ], 500);
+        }
     }
 }

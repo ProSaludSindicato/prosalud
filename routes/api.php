@@ -137,6 +137,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'show'])->middleware('permission:wellness_requests.view');
     Route::put('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update'])->middleware('permission:wellness_requests.edit');
     Route::patch('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update'])->middleware('permission:wellness_requests.edit');
+    Route::post('/wellness-requests/export/excel', [WellnessRequestController::class, 'exportExcel'])->middleware('permission:wellness_requests.view');
 
     // Wellness Activity Realized routes
     Route::post('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'store'])->middleware('permission:wellness_requests.edit');
