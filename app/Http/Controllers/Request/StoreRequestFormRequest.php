@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Request;
 
+use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -39,6 +40,7 @@ class StoreRequestFormRequest extends FormRequest
             'payload' => 'nullable|array',
             'files' => 'nullable|array',
             'files.*' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',
+            'recaptcha_token' => ['required', new RecaptchaRule()],
         ];
 
         // Validaciones específicas para actualizar-datos-personales
@@ -223,6 +225,7 @@ class StoreRequestFormRequest extends FormRequest
             'phone_number.required' => 'El número de teléfono es obligatorio.',
             'files.*.max' => 'El archivo no puede exceder 4MB.',
             'files.*.mimes' => 'El archivo debe ser PDF, Word o imagen (JPG, PNG, GIF, WEBP).',
+            'recaptcha_token.required' => 'La verificación de reCAPTCHA es requerida.',
         ];
 
         // Mensajes específicos para actualizar-datos-personales

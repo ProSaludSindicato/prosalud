@@ -54,4 +54,10 @@ return [
         // Ruta donde el usuario restablece su contraseña
         'password_reset_path' => env('FRONTEND_PASSWORD_RESET_PATH', '/auth/restablecer-contraseña'),
     ],
+
+    'recaptcha' => [
+        'site_key' => env('RECAPTCHA_SITE_KEY'),
+        'secret_key' => env('RECAPTCHA_SECRET_KEY'),
+        'project_id' => env('RECAPTCHA_PROJECT_ID'),
+    ],
 ];

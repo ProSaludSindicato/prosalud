@@ -321,9 +321,19 @@ class AfiliadoController extends Controller
             // Invalidate OTP session after successful verification
             $this->otpService->invalidateOtp($documento, $sessionId);
 
-            // Obfuscate sensitive data in afiliado information
+            // Obfuscate sensitive data in afiliado information, except email and phone after OTP authentication
             if (isset($afiliadoInfo['afiliado']) && is_array($afiliadoInfo['afiliado'])) {
-                $afiliadoInfo['afiliado'] = $this->obfuscationService->obfuscateAfiliadoData($afiliadoInfo['afiliado']);
+                $obfuscatedData = $this->obfuscationService->obfuscateAfiliadoData($afiliadoInfo['afiliado']);
+
+                // Restaurar correo y celular sin ofuscar después de autenticación OTP exitosa
+                if (isset($afiliadoInfo['afiliado']['correo_personal'])) {
+                    $obfuscatedData['correo_personal'] = $afiliadoInfo['afiliado']['correo_personal'];
+                }
+                if (isset($afiliadoInfo['afiliado']['celular'])) {
+                    $obfuscatedData['celular'] = $afiliadoInfo['afiliado']['celular'];
+                }
+
+                $afiliadoInfo['afiliado'] = $obfuscatedData;
             }
 
             // Log successful verification

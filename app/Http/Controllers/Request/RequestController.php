@@ -26,6 +26,17 @@ class RequestController extends Controller
 
     public function store(StoreRequestFormRequest $request): JsonResponse
     {
+        // Nota: La verificación de reCAPTCHA ya se realizó en StoreRequestFormRequest
+        // mediante RecaptchaRule. Los tokens de reCAPTCHA Enterprise solo pueden
+        // usarse una vez, por lo que no debemos verificar nuevamente aquí.
+        // Si llegamos a este punto, significa que la validación pasó exitosamente.
+        
+        Log::info('Procesando solicitud después de validación exitosa de reCAPTCHA', [
+            'request_type' => $request->input('request_type'),
+            'ip' => $request->ip(),
+            'has_recaptcha_token' => $request->has('recaptcha_token'),
+        ]);
+
         $dto = RequestFormDTO::fromArray($request->validated());
         $requestData = $dto->toArray();
 
