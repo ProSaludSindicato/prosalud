@@ -241,6 +241,7 @@ class CertificadoConvenioService
 
     /**
      * Obtiene convenios por documento (versión optimizada)
+     * Selecciona el convenio activo más reciente/actual, o el más reciente si no hay activos
      */
     private function getConveniosByDocumentoOptimized($sheet, string $documento): array
     {
@@ -257,25 +258,75 @@ class CertificadoConvenioService
                     'cliente' => $this->normalizeValue($sheet->getCell('D' . $rowIndex)->getValue() ?? ''),
                     'proceso' => $this->normalizeValue($sheet->getCell('F' . $rowIndex)->getValue() ?? ''),
                     'estado' => $this->normalizeValue($sheet->getCell('G' . $rowIndex)->getValue() ?? ''),
+                    'fecha_ingreso' => $this->normalizeDate($sheet->getCell('H' . $rowIndex)->getValue() ?? ''),
                     'fecha_fin' => $this->normalizeDate($sheet->getCell('I' . $rowIndex)->getValue() ?? ''),
                 ];
             }
         }
 
-        // Seleccionar convenio activo o el más reciente
-        $selectedConvenio = null;
-        foreach ($convenios as $conv) {
-            if (strcasecmp($conv['estado'], 'Activo') === 0) {
-                $selectedConvenio = $conv;
-                break;
-            }
+        if (empty($convenios)) {
+            return [];
         }
 
-        if (!$selectedConvenio && !empty($convenios)) {
-            // Ordenar por fecha_fin descendente y tomar el primero
-            usort($convenios, function ($a, $b) {
-                return strcmp($b['fecha_fin'], $a['fecha_fin']);
+        // Filtrar convenios activos
+        $conveniosActivos = array_filter($convenios, function ($conv) {
+            return strcasecmp($conv['estado'], 'Activo') === 0;
+        });
+
+        $selectedConvenio = null;
+
+        if (!empty($conveniosActivos)) {
+            // Si hay convenios activos, seleccionar el más reciente/actual
+            // Prioridad: fecha_fin vacía > fecha_fin más reciente > fecha_ingreso más reciente
+            usort($conveniosActivos, function ($a, $b) {
+                // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad
+                $aFechaFinVacia = empty($a['fecha_fin']);
+                $bFechaFinVacia = empty($b['fecha_fin']);
+                
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return -1; // $a tiene prioridad
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return 1; // $b tiene prioridad
+                }
+                
+                // Si ambos tienen fecha_fin o ambos están vacíos, comparar por fecha_fin
+                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                    $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
+                    if ($comparison !== 0) {
+                        return $comparison; // Más reciente primero
+                    }
+                }
+                
+                // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
+                return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']); // Más reciente primero
             });
+            
+            $selectedConvenio = reset($conveniosActivos);
+        } else {
+            // Si no hay activos, seleccionar el más reciente por fecha_fin
+            usort($convenios, function ($a, $b) {
+                // Fecha_fin vacía tiene menor prioridad cuando no hay activos
+                $aFechaFinVacia = empty($a['fecha_fin']);
+                $bFechaFinVacia = empty($b['fecha_fin']);
+                
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return 1; // $b tiene prioridad
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return -1; // $a tiene prioridad
+                }
+                
+                // Comparar por fecha_fin (más reciente primero)
+                $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
+                if ($comparison !== 0) {
+                    return $comparison;
+                }
+                
+                // Si las fechas_fin son iguales, usar fecha_ingreso
+                return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']);
+            });
+            
             $selectedConvenio = $convenios[0];
         }
 

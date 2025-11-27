@@ -89,12 +89,38 @@ class AfiliadoService
         string $fechaExpedicion,
     ): ?array {
         return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+            $originalMemoryLimit = ini_get('memory_limit');
+            $originalMaxExecutionTime = ini_get('max_execution_time');
+
             try {
-                $spreadsheet = IOFactory::load($excelPath);
+                // Aumentar memoria temporalmente
+                ini_set('memory_limit', '512M');
+                set_time_limit(60);
+
+                // Usar reader optimizado
+                $reader = IOFactory::createReader('Xlsx');
+                
+                // Leer solo datos, no fórmulas ni formato (ahorra memoria)
+                if (method_exists($reader, 'setReadDataOnly')) {
+                    $reader->setReadDataOnly(true);
+                }
+                
+                // Cargar solo las hojas necesarias
+                if (method_exists($reader, 'setLoadSheetsOnly')) {
+                    $reader->setLoadSheetsOnly([
+                        self::SHEET_INFORMACION_GENERAL,
+                        self::SHEET_CONVENIOS,
+                    ]);
+                }
+
+                $spreadsheet = $reader->load($excelPath);
 
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
 
                     return null;
                 }
@@ -118,6 +144,9 @@ class AfiliadoService
                         ],
                     ]);
 
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
                     return null;
                 }
 
@@ -127,6 +156,10 @@ class AfiliadoService
                 $conveniosFull = $conveniosSheet
                     ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
                     : [];
+
+                // Liberar memoria explícitamente
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
 
                 return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
             } catch (SpreadsheetException $e) {
@@ -149,6 +182,14 @@ class AfiliadoService
                 ]);
 
                 return null;
+            } finally {
+                // Restaurar límites originales
+                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                    ini_set('memory_limit', (string) $originalMemoryLimit);
+                }
+                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                    set_time_limit((int) $originalMaxExecutionTime);
+                }
             }
         }, null);
     }
@@ -171,11 +212,30 @@ class AfiliadoService
                 ini_set('memory_limit', '512M');
                 set_time_limit(60);
 
-                $spreadsheet = IOFactory::load($excelPath);
+                // Usar reader optimizado
+                $reader = IOFactory::createReader('Xlsx');
+                
+                // Leer solo datos, no fórmulas ni formato (ahorra memoria)
+                if (method_exists($reader, 'setReadDataOnly')) {
+                    $reader->setReadDataOnly(true);
+                }
+                
+                // Cargar solo las hojas necesarias
+                if (method_exists($reader, 'setLoadSheetsOnly')) {
+                    $reader->setLoadSheetsOnly([
+                        self::SHEET_INFORMACION_GENERAL,
+                        self::SHEET_CONVENIOS,
+                    ]);
+                }
+
+                $spreadsheet = $reader->load($excelPath);
 
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
 
                     return null;
                 }
@@ -196,6 +256,9 @@ class AfiliadoService
                         'fecha_expedicion' => $fechaExpedicion,
                     ]);
 
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
                     return null;
                 }
 
@@ -208,6 +271,10 @@ class AfiliadoService
                     $conveniosData = $conveniosSheet->toArray();
                     $conveniosFull = $this->getConveniosByDocumento($conveniosData, $documento);
                 }
+
+                // Liberar memoria explícitamente
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
 
                 return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
             } catch (SpreadsheetException $e) {
@@ -251,12 +318,35 @@ class AfiliadoService
         string $fechaExpedicion,
     ): ?array {
         return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+            $originalMemoryLimit = ini_get('memory_limit');
+            $originalMaxExecutionTime = ini_get('max_execution_time');
+
             try {
-                $spreadsheet = IOFactory::load($excelPath);
+                // Aumentar memoria temporalmente
+                ini_set('memory_limit', '512M');
+                set_time_limit(60);
+
+                // Usar reader optimizado
+                $reader = IOFactory::createReader('Xlsx');
+                
+                // Leer solo datos, no fórmulas ni formato (ahorra memoria)
+                if (method_exists($reader, 'setReadDataOnly')) {
+                    $reader->setReadDataOnly(true);
+                }
+                
+                // Cargar solo la hoja necesaria
+                if (method_exists($reader, 'setLoadSheetsOnly')) {
+                    $reader->setLoadSheetsOnly([self::SHEET_INFORMACION_GENERAL]);
+                }
+
+                $spreadsheet = $reader->load($excelPath);
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
 
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
 
                     return null;
                 }
@@ -269,12 +359,19 @@ class AfiliadoService
                 );
 
                 if (null === $afiliadoRow) {
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
                     return null;
                 }
 
                 $correo = $this->normalizeValue($afiliadoRow[self::COL_CORREO_PERSONAL] ?? '');
                 $nombres = $this->normalizeValue($afiliadoRow[self::COL_NOMBRES] ?? '');
                 $apellidos = $this->normalizeValue($afiliadoRow[self::COL_APELLIDOS] ?? '');
+
+                // Liberar memoria explícitamente
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
 
                 if (empty($correo)) {
                     Log::warning('Afiliado encontrado pero sin correo electrónico', [
@@ -300,6 +397,14 @@ class AfiliadoService
                 ]);
 
                 return null;
+            } finally {
+                // Restaurar límites originales
+                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                    ini_set('memory_limit', (string) $originalMemoryLimit);
+                }
+                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                    set_time_limit((int) $originalMaxExecutionTime);
+                }
             }
         }, null);
     }
@@ -314,12 +419,39 @@ class AfiliadoService
         string $fechaExpedicion,
     ): ?array {
         return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+            $originalMemoryLimit = ini_get('memory_limit');
+            $originalMaxExecutionTime = ini_get('max_execution_time');
+
             try {
-                $spreadsheet = IOFactory::load($excelPath);
+                // Aumentar memoria temporalmente
+                ini_set('memory_limit', '512M');
+                set_time_limit(60);
+
+                // Usar reader optimizado
+                $reader = IOFactory::createReader('Xlsx');
+                
+                // Leer solo datos, no fórmulas ni formato (ahorra memoria)
+                if (method_exists($reader, 'setReadDataOnly')) {
+                    $reader->setReadDataOnly(true);
+                }
+                
+                // Cargar solo las hojas necesarias
+                if (method_exists($reader, 'setLoadSheetsOnly')) {
+                    $reader->setLoadSheetsOnly([
+                        self::SHEET_INFORMACION_GENERAL,
+                        self::SHEET_CONVENIOS,
+                        self::SHEET_BENEFICIARIOS,
+                    ]);
+                }
+
+                $spreadsheet = $reader->load($excelPath);
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
 
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
 
                     return null;
                 }
@@ -332,6 +464,9 @@ class AfiliadoService
                 );
 
                 if (null === $afiliadoRow) {
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
                     return null;
                 }
 
@@ -343,6 +478,10 @@ class AfiliadoService
                     : [];
 
                 $beneficiarios = $this->getBeneficiariosByDocumento($spreadsheet, $documento);
+
+                // Liberar memoria explícitamente
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
 
                 $afiliadoFiltered = $this->filterAfiliadoCompleteInfo($afiliadoFull);
                 $beneficiariosFiltered = $this->filterBeneficiariosInfo($beneficiarios);
@@ -363,6 +502,14 @@ class AfiliadoService
                 ]);
 
                 return null;
+            } finally {
+                // Restaurar límites originales
+                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                    ini_set('memory_limit', (string) $originalMemoryLimit);
+                }
+                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                    set_time_limit((int) $originalMaxExecutionTime);
+                }
             }
         }, null);
     }
@@ -1007,39 +1154,78 @@ class AfiliadoService
                 'cliente' => $clienteFinal,
                 'proceso' => $this->normalizeValue($convenio['proceso'] ?? ''),
                 'estado' => $this->normalizeValue($convenio['estado'] ?? ''),
+                'fecha_ingreso' => $this->normalizeDate($convenio['fecha_ingreso'] ?? ''),
                 'fecha_fin' => $this->normalizeDate($convenio['fecha_fin'] ?? ''),
             ];
 
             $conveniosFiltered[] = $convenioFiltered;
         }
 
-        // Elegir un solo convenio según reglas:
-        // 1) Si existe alguno con estado "Activo" (insensible a mayúsculas), devolver ese (el primero encontrado)
-        // 2) Si no hay "Activo", devolver el de mayor fecha_fin (YYYY-MM-DD). En empate, el primero
-        $selectedConvenio = null;
-
-        // Regla 1: buscar "Activo"
-        foreach ($conveniosFiltered as $conv) {
-            $estado = $conv['estado'] ?? null;
-            if (null !== $estado && 0 === strcasecmp($estado, 'Activo')) {
-                $selectedConvenio = $conv;
-                break;
-            }
+        if (empty($conveniosFiltered)) {
+            $afiliadoFiltered['convenios'] = [];
+            return $afiliadoFiltered;
         }
 
-        // Regla 2: si no hay Activo, escoger por fecha_fin más reciente
-        if (null === $selectedConvenio && !empty($conveniosFiltered)) {
-            $selectedConvenio = $conveniosFiltered[0];
-            $bestTs = $selectedConvenio['fecha_fin'] ? strtotime($selectedConvenio['fecha_fin']) : null;
-            foreach ($conveniosFiltered as $conv) {
-                $ts = $conv['fecha_fin'] ? strtotime($conv['fecha_fin']) : null;
-                if (false !== $ts && null !== $ts) {
-                    if (null === $bestTs || $ts > $bestTs) {
-                        $bestTs = $ts;
-                        $selectedConvenio = $conv;
+        // Seleccionar convenio activo más reciente/actual, o el más reciente si no hay activos
+        // Prioridad para activos: fecha_fin vacía > fecha_fin más reciente > fecha_ingreso más reciente
+        $conveniosActivos = array_filter($conveniosFiltered, function ($conv) {
+            return strcasecmp($conv['estado'], 'Activo') === 0;
+        });
+
+        $selectedConvenio = null;
+
+        if (!empty($conveniosActivos)) {
+            // Si hay convenios activos, seleccionar el más reciente/actual
+            usort($conveniosActivos, function ($a, $b) {
+                // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad
+                $aFechaFinVacia = empty($a['fecha_fin']);
+                $bFechaFinVacia = empty($b['fecha_fin']);
+                
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return -1; // $a tiene prioridad
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return 1; // $b tiene prioridad
+                }
+                
+                // Si ambos tienen fecha_fin o ambos están vacíos, comparar por fecha_fin
+                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                    $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
+                    if ($comparison !== 0) {
+                        return $comparison; // Más reciente primero
                     }
                 }
-            }
+                
+                // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
+                return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']); // Más reciente primero
+            });
+            
+            $selectedConvenio = reset($conveniosActivos);
+        } else {
+            // Si no hay activos, seleccionar el más reciente por fecha_fin
+            usort($conveniosFiltered, function ($a, $b) {
+                // Fecha_fin vacía tiene menor prioridad cuando no hay activos
+                $aFechaFinVacia = empty($a['fecha_fin']);
+                $bFechaFinVacia = empty($b['fecha_fin']);
+                
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return 1; // $b tiene prioridad
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return -1; // $a tiene prioridad
+                }
+                
+                // Comparar por fecha_fin (más reciente primero)
+                $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
+                if ($comparison !== 0) {
+                    return $comparison;
+                }
+                
+                // Si las fechas_fin son iguales, usar fecha_ingreso
+                return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']);
+            });
+            
+            $selectedConvenio = $conveniosFiltered[0];
         }
 
         // Devolver arreglo con un solo convenio (o vacío si no hay)
