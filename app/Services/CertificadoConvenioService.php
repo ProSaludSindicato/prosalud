@@ -79,99 +79,143 @@ class CertificadoConvenioService
     }
 
     /**
-     * Obtiene los datos del afiliado por documento
+     * Obtiene los datos del afiliado por documento (versión optimizada para memoria)
      */
     private function obtenerDatosAfiliado(string $documento): ?array
     {
         $excelPath = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
         $disks = ['prosalud-private', 'local'];
+        
+        $originalMemoryLimit = ini_get('memory_limit');
+        $originalMaxExecutionTime = ini_get('max_execution_time');
 
-        foreach ($disks as $disk) {
-            try {
-                if (!Storage::disk($disk)->exists($excelPath)) {
-                    continue;
-                }
+        try {
+            // Aumentar memoria temporalmente
+            ini_set('memory_limit', '512M');
+            set_time_limit(60);
 
-                // Crear copia temporal
-                $stream = Storage::disk($disk)->readStream($excelPath);
-                if (false === $stream) {
-                    continue;
-                }
-
-                $tempPath = tempnam(sys_get_temp_dir(), 'prosanet_certificado_') . '.xlsx';
-                $destination = fopen($tempPath, 'w+b');
-                if (false === $destination) {
-                    fclose($stream);
-                    continue;
-                }
-
-                stream_copy_to_stream($stream, $destination);
-                fclose($stream);
-                fclose($destination);
-
+            foreach ($disks as $disk) {
                 try {
-                    $spreadsheet = IOFactory::load($tempPath);
-                    $informacionSheet = $spreadsheet->getSheetByName('INFORMACIÓN GENERAL');
-
-                    if (!$informacionSheet) {
-                        @unlink($tempPath);
+                    if (!Storage::disk($disk)->exists($excelPath)) {
                         continue;
                     }
 
-                    $highestRow = $informacionSheet->getHighestRow();
-                    // Normalizar documento: remover puntos, espacios y convertir a string
-                    $normalizedDocumento = $this->normalizeDocumento($documento);
-
-                    // Buscar por documento (columna B, índice 1)
-                    for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
-                        $cell = $informacionSheet->getCell('B' . $rowIndex);
-                        $rowDocumento = $this->normalizeDocumento($cell->getValue());
-
-                        if ($rowDocumento === $normalizedDocumento) {
-                            // Encontrado, leer toda la fila
-                            $rowData = [];
-                            for ($colIndex = 0; $colIndex < 39; ++$colIndex) {
-                                $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                                $cell = $informacionSheet->getCell($colLetter . $rowIndex);
-                                $rowData[] = $cell->getValue();
-                            }
-
-                            $afiliadoFull = $this->extractAfiliadoInfo($rowData);
-
-                            // Obtener convenios
-                            $conveniosSheet = $spreadsheet->getSheetByName('CONVENIOS');
-                            $conveniosFull = [];
-                            if ($conveniosSheet) {
-                                $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
-                            }
-
-                            @unlink($tempPath);
-
-                            return [
-                                'afiliado' => $afiliadoFull,
-                                'convenio' => !empty($conveniosFull) ? $conveniosFull[0] : null,
-                            ];
-                        }
+                    // Crear copia temporal
+                    $stream = Storage::disk($disk)->readStream($excelPath);
+                    if (false === $stream) {
+                        continue;
                     }
 
-                    @unlink($tempPath);
+                    $tempPath = tempnam(sys_get_temp_dir(), 'prosanet_certificado_') . '.xlsx';
+                    $destination = fopen($tempPath, 'w+b');
+                    if (false === $destination) {
+                        fclose($stream);
+                        continue;
+                    }
+
+                    stream_copy_to_stream($stream, $destination);
+                    fclose($stream);
+                    fclose($destination);
+
+                    try {
+                        // Usar reader optimizado
+                        $reader = IOFactory::createReader('Xlsx');
+                        
+                        // Leer solo datos, no fórmulas ni formato (ahorra memoria)
+                        if (method_exists($reader, 'setReadDataOnly')) {
+                            $reader->setReadDataOnly(true);
+                        }
+                        
+                        // Cargar solo las hojas necesarias
+                        if (method_exists($reader, 'setLoadSheetsOnly')) {
+                            $reader->setLoadSheetsOnly(['INFORMACIÓN GENERAL', 'CONVENIOS']);
+                        }
+
+                        $spreadsheet = $reader->load($tempPath);
+                        $informacionSheet = $spreadsheet->getSheetByName('INFORMACIÓN GENERAL');
+
+                        if (!$informacionSheet) {
+                            @unlink($tempPath);
+                            continue;
+                        }
+
+                        $highestRow = $informacionSheet->getHighestRow();
+                        $normalizedDocumento = $this->normalizeDocumento($documento);
+
+                        // Buscar por documento leyendo solo la columna B primero (optimización)
+                        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+                            // Leer solo la columna del documento primero
+                            $cell = $informacionSheet->getCell('B' . $rowIndex);
+                            $rowDocumento = $this->normalizeDocumento($cell->getValue());
+
+                            if ($rowDocumento === $normalizedDocumento) {
+                                // Encontrado, leer solo las columnas necesarias
+                                $rowData = [];
+                                // Solo leer las columnas que necesitamos: 0,1,2,3,4,8,10,18,20
+                                $neededColumns = [0, 1, 2, 3, 4, 8, 10, 18, 20];
+                                foreach ($neededColumns as $colIndex) {
+                                    $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+                                    $cell = $informacionSheet->getCell($colLetter . $rowIndex);
+                                    $rowData[$colIndex] = $cell->getValue();
+                                }
+
+                                // Completar array con valores vacíos para mantener compatibilidad
+                                $fullRowData = array_fill(0, 39, '');
+                                foreach ($rowData as $index => $value) {
+                                    $fullRowData[$index] = $value;
+                                }
+
+                                $afiliadoFull = $this->extractAfiliadoInfo($fullRowData);
+
+                                // Obtener convenios (solo leer la hoja de convenios si es necesario)
+                                $conveniosSheet = $spreadsheet->getSheetByName('CONVENIOS');
+                                $conveniosFull = [];
+                                if ($conveniosSheet) {
+                                    $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
+                                }
+
+                                // Liberar memoria explícitamente
+                                $spreadsheet->disconnectWorksheets();
+                                unset($spreadsheet);
+                                @unlink($tempPath);
+
+                                return [
+                                    'afiliado' => $afiliadoFull,
+                                    'convenio' => !empty($conveniosFull) ? $conveniosFull[0] : null,
+                                ];
+                            }
+                        }
+
+                        // Liberar memoria si no se encontró
+                        $spreadsheet->disconnectWorksheets();
+                        unset($spreadsheet);
+                        @unlink($tempPath);
+                    } catch (\Throwable $e) {
+                        @unlink($tempPath);
+                        Log::error('Error al procesar Excel para certificado', [
+                            'documento' => $documento,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
                 } catch (\Throwable $e) {
-                    @unlink($tempPath);
-                    Log::error('Error al procesar Excel para certificado', [
+                    Log::error('Error al acceder al archivo Excel para certificado', [
                         'documento' => $documento,
+                        'disk' => $disk,
                         'error' => $e->getMessage(),
                     ]);
                 }
-            } catch (\Throwable $e) {
-                Log::error('Error al acceder al archivo Excel para certificado', [
-                    'documento' => $documento,
-                    'disk' => $disk,
-                    'error' => $e->getMessage(),
-                ]);
+            }
+
+            return null;
+        } finally {
+            // Restaurar límites originales
+            if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                ini_set('memory_limit', (string) $originalMemoryLimit);
+            }
+            if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                set_time_limit((int) $originalMaxExecutionTime);
             }
         }
-
-        return null;
     }
 
     /**
