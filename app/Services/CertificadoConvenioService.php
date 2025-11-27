@@ -317,6 +317,22 @@ class CertificadoConvenioService
         $sexo = $afiliado['sexo'] ?? '';
         $estado = $afiliado['estado'] ?? '';
 
+        // Procesar condicionales basados en SEXO
+        // Normalizar sexo para comparación (puede venir como "M", "MASCULINO", "F", "FEMENINO", etc.)
+        $sexoNormalizado = strtoupper(trim($sexo));
+        $esMasculino = ($sexoNormalizado === 'M' || $sexoNormalizado === 'MASCULINO' || $sexoNormalizado === 'MALE');
+        
+        // Placeholders procesados para condicionales de género
+        $tituloPersona = $esMasculino ? 'el señor' : 'la señora';
+        $identificadoIdentificada = $esMasculino ? 'identificado' : 'identificada';
+        $afiliadoAfiliada = $esMasculino ? 'afiliado' : 'afiliada';
+
+        // Procesar DESTINATARIO (por ahora vacío por defecto, se puede agregar como parámetro en el futuro)
+        $destinatario = ''; // Se puede obtener de algún campo o parámetro en el futuro
+        $destinatarioCompleto = empty(trim($destinatario)) 
+            ? 'A quien corresponda.' 
+            : "Señores {$destinatario}";
+
         return [
             'NOMBRE_COMPLETO' => $nombreCompleto,
             'DOCUMENTO' => $documento,
@@ -333,6 +349,11 @@ class CertificadoConvenioService
             'CORREO_PERSONAL' => $correoPersonal,
             'SEXO' => strtoupper($sexo),
             'ESTADO' => strtoupper($estado),
+            // Placeholders procesados para condicionales
+            'TITULO_PERSONA' => $tituloPersona, // "el señor" o "la señora"
+            'IDENTIFICADO_IDENTIFICADA' => $identificadoIdentificada, // "identificado" o "identificada"
+            'AFILIADO_AFILIADA' => $afiliadoAfiliada, // "afiliado" o "afiliada"
+            'DESTINATARIO_COMPLETO' => $destinatarioCompleto, // "A quien corresponda." o "Señores [nombre]"
         ];
     }
 
