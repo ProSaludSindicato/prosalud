@@ -85,7 +85,7 @@ class CertificadoConvenioService
     {
         $excelPath = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
         $disks = ['prosalud-private', 'local'];
-        
+
         $originalMemoryLimit = ini_get('memory_limit');
         $originalMaxExecutionTime = ini_get('max_execution_time');
 
@@ -120,12 +120,12 @@ class CertificadoConvenioService
                     try {
                         // Usar reader optimizado
                         $reader = IOFactory::createReader('Xlsx');
-                        
+
                         // Leer solo datos, no fórmulas ni formato (ahorra memoria)
                         if (method_exists($reader, 'setReadDataOnly')) {
                             $reader->setReadDataOnly(true);
                         }
-                        
+
                         // Cargar solo las hojas necesarias
                         if (method_exists($reader, 'setLoadSheetsOnly')) {
                             $reader->setLoadSheetsOnly(['INFORMACIÓN GENERAL', 'CONVENIOS']);
@@ -170,8 +170,14 @@ class CertificadoConvenioService
                                 // Obtener convenios (solo leer la hoja de convenios si es necesario)
                                 $conveniosSheet = $spreadsheet->getSheetByName('CONVENIOS');
                                 $conveniosFull = [];
+                                $convenioActual = null;
                                 if ($conveniosSheet) {
+                                    // Obtener todos los convenios
+                                    $todosLosConvenios = $this->getTodosLosConveniosByDocumento($conveniosSheet, $documento);
+                                    // Obtener el convenio actual (más reciente/activo)
                                     $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
+                                    $convenioActual = !empty($conveniosFull) ? $conveniosFull[0] : null;
+                                    $conveniosFull = $todosLosConvenios;
                                 }
 
                                 // Liberar memoria explícitamente
@@ -181,7 +187,8 @@ class CertificadoConvenioService
 
                                 return [
                                     'afiliado' => $afiliadoFull,
-                                    'convenio' => !empty($conveniosFull) ? $conveniosFull[0] : null,
+                                    'convenio' => $convenioActual,
+                                    'todos_los_convenios' => $conveniosFull,
                                 ];
                             }
                         }
@@ -240,6 +247,38 @@ class CertificadoConvenioService
     }
 
     /**
+     * Obtiene TODOS los convenios por documento (sin filtrar)
+     */
+    private function getTodosLosConveniosByDocumento($sheet, string $documento): array
+    {
+        $convenios = [];
+        $normalizedDocumento = $this->normalizeDocumento($documento);
+        $highestRow = $sheet->getHighestRow();
+
+        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+            $cell = $sheet->getCell('A' . $rowIndex);
+            $rowDocumento = $this->normalizeDocumento($cell->getValue());
+
+            if ($rowDocumento === $normalizedDocumento) {
+                $convenios[] = [
+                    'cliente' => $this->normalizeValue($sheet->getCell('D' . $rowIndex)->getValue() ?? ''),
+                    'proceso' => $this->normalizeValue($sheet->getCell('F' . $rowIndex)->getValue() ?? ''),
+                    'estado' => $this->normalizeValue($sheet->getCell('G' . $rowIndex)->getValue() ?? ''),
+                    'fecha_ingreso' => $this->normalizeDate($sheet->getCell('H' . $rowIndex)->getValue() ?? ''),
+                    'fecha_fin' => $this->normalizeDate($sheet->getCell('I' . $rowIndex)->getValue() ?? ''),
+                ];
+            }
+        }
+
+        // Ordenar por fecha_ingreso ascendente (más antiguo primero)
+        usort($convenios, function ($a, $b) {
+            return strcmp($a['fecha_ingreso'], $b['fecha_ingreso']);
+        });
+
+        return $convenios;
+    }
+
+    /**
      * Obtiene convenios por documento (versión optimizada)
      * Selecciona el convenio activo más reciente/actual, o el más reciente si no hay activos
      */
@@ -282,14 +321,14 @@ class CertificadoConvenioService
                 // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
-                
+
                 if ($aFechaFinVacia && !$bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
                 if (!$aFechaFinVacia && $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
-                
+
                 // Si ambos tienen fecha_fin o ambos están vacíos, comparar por fecha_fin
                 if (!$aFechaFinVacia && !$bFechaFinVacia) {
                     $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
@@ -297,11 +336,11 @@ class CertificadoConvenioService
                         return $comparison; // Más reciente primero
                     }
                 }
-                
+
                 // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
                 return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']); // Más reciente primero
             });
-            
+
             $selectedConvenio = reset($conveniosActivos);
         } else {
             // Si no hay activos, seleccionar el más reciente por fecha_fin
@@ -309,24 +348,24 @@ class CertificadoConvenioService
                 // Fecha_fin vacía tiene menor prioridad cuando no hay activos
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
-                
+
                 if ($aFechaFinVacia && !$bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
                 if (!$aFechaFinVacia && $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
-                
+
                 // Comparar por fecha_fin (más reciente primero)
                 $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
                 if ($comparison !== 0) {
                     return $comparison;
                 }
-                
+
                 // Si las fechas_fin son iguales, usar fecha_ingreso
                 return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']);
             });
-            
+
             $selectedConvenio = $convenios[0];
         }
 
@@ -340,6 +379,7 @@ class CertificadoConvenioService
     {
         $afiliado = $afiliadoData['afiliado'];
         $convenio = $afiliadoData['convenio'] ?? null;
+        $todosLosConvenios = $afiliadoData['todos_los_convenios'] ?? [];
 
         // Formatear fechas
         $fechaIngreso = $this->formatearFechaEspanol($afiliado['fecha_ingreso'] ?? null);
@@ -354,11 +394,12 @@ class CertificadoConvenioService
         // Documento formateado con puntos
         $documento = $this->formatearDocumento($afiliado['documento'] ?? '');
 
-        // Lugar de trabajo
-        $lugarTrabajo = $convenio['cliente'] ?? 'No asignado';
-        
-        // Cargo
-        $cargo = $convenio['proceso'] ?? '';
+        // Hospital (transformar cliente)
+        $clienteRaw = $convenio['cliente'] ?? '';
+        $hospital = $this->transformarCliente($clienteRaw);
+
+        // Proceso
+        $proceso = $convenio['proceso'] ?? '';
 
         // Texto de fecha de retiro
         $textoFechaRetiro = $fechaRetiro ? ", hasta {$fechaRetiro}" : '';
@@ -372,25 +413,41 @@ class CertificadoConvenioService
         // Normalizar sexo para comparación (puede venir como "M", "MASCULINO", "F", "FEMENINO", etc.)
         $sexoNormalizado = strtoupper(trim($sexo));
         $esMasculino = ($sexoNormalizado === 'M' || $sexoNormalizado === 'MASCULINO' || $sexoNormalizado === 'MALE');
-        
+
         // Placeholders procesados para condicionales de género
         $tituloPersona = $esMasculino ? 'el señor' : 'la señora';
         $identificadoIdentificada = $esMasculino ? 'identificado' : 'identificada';
         $afiliadoAfiliada = $esMasculino ? 'afiliado' : 'afiliada';
+        $delInteresadoDeLaInteresada = $esMasculino ? 'del interesado' : 'de la interesada';
+
+        // Procesar condicionales basados en ESTADO
+        // Verificar si el afiliado está activo
+        $estadoNormalizado = strtoupper(trim($estado));
+        $estaActivo = ($estadoNormalizado === 'ACTIVO' || $estadoNormalizado === 'ACTIVE');
+        $atiendeAtendio = $estaActivo ? 'atiende' : 'atendió';
+        $seEncuentraEstuvo = $estaActivo ? 'se encuentra' : 'estuvo';
+        $desarrollaActualmenteDesarrollo = $estaActivo ? 'desarrolla actualmente' : 'desarrolló';
 
         // Procesar DESTINATARIO (por ahora vacío por defecto, se puede agregar como parámetro en el futuro)
         $destinatario = ''; // Se puede obtener de algún campo o parámetro en el futuro
-        $destinatarioCompleto = empty(trim($destinatario)) 
-            ? 'A quien corresponda.' 
+        $destinatarioCompleto = empty(trim($destinatario))
+            ? 'A quien corresponda.'
             : "Señores {$destinatario}";
+
+        // Generar lista de convenios formateada
+        $listaConvenios = $this->generarListaConvenios($todosLosConvenios, $convenio);
+
+        // Determinar si hay un convenio o varios
+        $cantidadConvenios = count($todosLosConvenios);
+        $unConvenioVariosConvenios = $cantidadConvenios === 1 ? 'un Convenio' : 'varios Convenios';
 
         return [
             'NOMBRE_COMPLETO' => $nombreCompleto,
             'DOCUMENTO' => $documento,
             'FECHA_INGRESO' => $fechaIngreso,
             'FECHA_RETIRO' => $textoFechaRetiro,
-            'LUGAR_TRABAJO' => $lugarTrabajo,
-            'CARGO' => strtoupper($cargo),
+            'HOSPITAL' => $hospital,
+            'PROCESO' => strtoupper($proceso),
             'FECHA_CERTIFICADO' => $fechaCertificado,
             'DIA_CERTIFICADO' => now()->day,
             'MES_CERTIFICADO' => $this->obtenerMesEspanol(now()->month),
@@ -404,7 +461,13 @@ class CertificadoConvenioService
             'TITULO_PERSONA' => $tituloPersona, // "el señor" o "la señora"
             'IDENTIFICADO_IDENTIFICADA' => $identificadoIdentificada, // "identificado" o "identificada"
             'AFILIADO_AFILIADA' => $afiliadoAfiliada, // "afiliado" o "afiliada"
+            'DEL_INTERESADO_DE_LA_INTERESADA' => $delInteresadoDeLaInteresada, // "del interesado" o "de la interesada"
+            'ATIENDE_ATENDIO' => $atiendeAtendio, // "atiende" o "atendió" (según estado activo)
+            'SE_ENCUENTRA_ESTUVO' => $seEncuentraEstuvo, // "Se encuentra" o "estuvo" (según estado activo)
+            'DESARROLLA_ACTUALMENTE_DESARROLLO' => $desarrollaActualmenteDesarrollo, // "desarrolla actualmente" o "desarrolló" (según estado activo)
             'DESTINATARIO_COMPLETO' => $destinatarioCompleto, // "A quien corresponda." o "Señores [nombre]"
+            'LISTA_CONVENIOS' => $listaConvenios, // Lista formateada de todos los convenios
+            'UN_CONVENIO_VARIOS_CONVENIOS' => $unConvenioVariosConvenios, // "un Convenio" o "varios Convenios" (según cantidad)
         ];
     }
 
@@ -444,6 +507,241 @@ class CertificadoConvenioService
         ];
 
         return $meses[$mes] ?? '';
+    }
+
+    /**
+     * Obtiene el nombre del mes abreviado en español (ej: "ene.", "feb.")
+     */
+    private function obtenerMesAbreviadoEspanol(int $mes): string
+    {
+        $meses = [
+            1 => 'ene.', 2 => 'feb.', 3 => 'mar.', 4 => 'abr.',
+            5 => 'may.', 6 => 'jun.', 7 => 'jul.', 8 => 'ago.',
+            9 => 'sept.', 10 => 'oct.', 11 => 'nov.', 12 => 'dic.'
+        ];
+
+        return $meses[$mes] ?? '';
+    }
+
+    /**
+     * Formatea fecha en formato corto (ej: "ene. 01/2019")
+     */
+    private function formatearFechaCorta($fecha): string
+    {
+        if (!$fecha) {
+            return '';
+        }
+
+        try {
+            $carbon = Carbon::parse($fecha);
+            $mesAbrev = $this->obtenerMesAbreviadoEspanol($carbon->month);
+            $dia = str_pad($carbon->day, 2, '0', STR_PAD_LEFT);
+
+            return "{$mesAbrev} {$dia}/{$carbon->year}";
+        } catch (\Exception $e) {
+            Log::warning('Error formateando fecha corta', [
+                'fecha' => $fecha,
+                'error' => $e->getMessage(),
+            ]);
+
+            return '';
+        }
+    }
+
+    /**
+     * Genera la lista formateada de convenios para el certificado
+     */
+    private function generarListaConvenios(array $todosLosConvenios, ?array $convenioActual): string
+    {
+        if (empty($todosLosConvenios)) {
+            return '';
+        }
+
+        $lineas = [];
+        $convenioActualCliente = $convenioActual['cliente'] ?? null;
+        $convenioActualFechaFin = $convenioActual['fecha_fin'] ?? null;
+        $convenioActualFechaIngreso = $convenioActual['fecha_ingreso'] ?? null;
+        $convenioActualEstado = $convenioActual['estado'] ?? null;
+        $esConvenioActualActivo = strcasecmp($convenioActualEstado ?? '', 'Activo') === 0;
+
+        foreach ($todosLosConvenios as $convenio) {
+            $clienteRaw = $convenio['cliente'] ?? '';
+            $cliente = $this->transformarCliente($clienteRaw);
+            $fechaIngreso = $convenio['fecha_ingreso'] ?? '';
+            $fechaFin = $convenio['fecha_fin'] ?? '';
+            $estado = $convenio['estado'] ?? '';
+
+            // Determinar si es el convenio actual/vigente
+            // Comparar por cliente original (sin transformar), fecha_ingreso, fecha_fin y estado
+            $esActual = ($clienteRaw === $convenioActualCliente
+                && $fechaIngreso === $convenioActualFechaIngreso
+                && $fechaFin === $convenioActualFechaFin
+                && strcasecmp($estado, $convenioActualEstado ?? '') === 0);
+
+            $fechaIngresoFormateada = $this->formatearFechaCorta($fechaIngreso);
+
+            // Formatear fecha de fin
+            // Si es el convenio actual y está activo sin fecha_fin, mostrar "hasta la fecha, se encuentra vigente"
+            if ($esActual && $esConvenioActualActivo && empty($fechaFin)) {
+                $fechaFinFormateada = 'hasta la fecha, se encuentra vigente';
+            } else {
+                $fechaFinFormateada = $this->formatearFechaCorta($fechaFin);
+                if (!empty($fechaFinFormateada)) {
+                    $fechaFinFormateada = "hasta {$fechaFinFormateada}";
+                }
+            }
+
+            $linea = "❖ {$cliente}";
+            if (!empty($fechaIngresoFormateada)) {
+                $linea .= " , desde {$fechaIngresoFormateada}";
+            }
+            if (!empty($fechaFinFormateada)) {
+                $linea .= " {$fechaFinFormateada}";
+            }
+
+            $lineas[] = $linea;
+        }
+
+        return implode("\n", $lineas);
+    }
+
+    /**
+     * Transforma el nombre del cliente del Excel al formato legible para el certificado
+     */
+    private function transformarCliente(?string $cliente): string
+    {
+        if (empty($cliente)) {
+            return 'No asignado';
+        }
+
+        $clienteNormalizado = trim($cliente);
+
+        // Mapeo de clientes del Excel a formato legible
+        $mapeoClientes = [
+            'ABEJORRAL' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+            'ABEJORRAL - ADMON' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+            'ABEJORRAL - ADMON ' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+            'ABEJORRAL - ASIST' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+            'ABEJORRAL - BUEN COMIENZO' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Buen Comienzo',
+            'ABEJORRAL - CBA' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+            'ABEJORRAL - SALUD P' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Salud Pública',
+            'ABEJORRAL SP' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+            'ADMON' => 'Sede Administrativa',
+            'ADMON-HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
+            'BARBOSA' => 'E.S.E. Hospital San Vicente de Paul de Barbosa (Ant)',
+            'BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
+            'BETANIA' => 'E.S.E. Hospital San Antonio de Betania',
+            'CALDAS' => 'E.S.E. Hospital San Vicente de Paúl de Caldas',
+            'CENTRO NEUROLOGICO' => 'Centro Neurológico',
+            'CISNEROS' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
+            'CIUDAD BOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
+            'CIUDADBOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
+            'COPACABANA' => 'E.S.E. Hospital Santa Margarita',
+            'COPACABANA ' => 'E.S.E. Hospital Santa Margarita',
+            'E.S.E CARISMA ADMON ' => 'E.S.E. Hospital Carisma',
+            'E.S.E CARISMA ASISTENCIAL' => 'E.S.E. Hospital Carisma',
+            'E.S.ECARISMA' => 'E.S.E. Hospital Carisma',
+            'FREDONIA' => 'E.S.E. Hospital Santa Lucia - Fredonia (Ant)',
+            'HGM SEDE 80 ADMON' => 'E.S.E. Hospital General de Medellín - Sede 80',
+            'HGM SEDE 80 ASISTENCIAL' => 'E.S.E. Hospital General de Medellín - Sede 80',
+            'HGM SEDE 80 ASISTENCIAL ' => 'E.S.E. Hospital General de Medellín - Sede 80',
+            'HLM - GRUPO 1' => 'E.S.E. Hospital La María',
+            'HLM - GRUPO 2' => 'E.S.E. Hospital La María',
+            'HLM - GRUPO 3' => 'E.S.E. Hospital La María',
+            'HMFS - BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
+            'HSJD Rionegro - ADMON' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
+            'HSJD Rionegro - ASISTENCIAL' => 'Centro Neurológico',
+            'HSJD Rionegro - PIC ' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
+            'HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
+            'HSRI' => 'E.S.E. Hospital San Rafael de Itagüí',
+            'HSRI ' => 'E.S.E. Hospital San Rafael de Itagüí',
+            'JARDIN' => 'E.S.E. Hospital Gabriel Peláez Montoya',
+            'LA MARIA' => 'E.S.E. Hospital La María',
+            'LA MARIA - 000065-2021' => 'E.S.E. Hospital La María',
+            'LA MARIA - 262-2021' => 'E.S.E. Hospital La María',
+            'LA MARIA - COOSALUD' => 'E.S.E. Hospital La María',
+            'LA MARIA - ENTERRITORIO' => 'E.S.E. Hospital La María',
+            'LA MARIA - ENTERRITORIO 1 - 044' => 'E.S.E. Hospital La María',
+            'LA MARIA - ENTERRITORIO 2' => 'E.S.E. Hospital La María',
+            'LA MARIA - ENTERRITORIO 2 - 045' => 'E.S.E. Hospital La María',
+            'LA MARIA - INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
+            'LA MARIA - ITS 257' => 'E.S.E. Hospital La María',
+            'LA MARIA - PROGRAMA ESPECIAL SAVIA SALUD EPS - VIH-SIDA' => 'E.S.E. Hospital La María',
+            'LA MARIA - TRANSMISIBLES' => 'E.S.E. Hospital La María',
+            'LA MARIA - TRANSMISIBLES - 122 - 2023' => 'E.S.E. Hospital La María',
+            'LA MARIA - TRANSMISIBLES 176' => 'E.S.E. Hospital La María',
+            'LA MARIA - UNION TEMPORAL' => 'E.S.E. Hospital La María',
+            'LA MARIA - UNION TEMPORAL 020 - 2023' => 'E.S.E. Hospital La María',
+            'LA MARIA - VIH' => 'E.S.E. Hospital La María',
+            'LA MARIA - VIH - 1' => 'E.S.E. Hospital La María',
+            'LA MARIA 216 - 2021' => 'E.S.E. Hospital La María',
+            'LA MARIA 317 COOSALUD' => 'E.S.E. Hospital La María',
+            'LA MARIA COOSALUD - 046' => 'E.S.E. Hospital La María',
+            'LA MARIA COOSALUD 191' => 'E.S.E. Hospital La María',
+            'LA MARIA COOSALUD 36-2022' => 'E.S.E. Hospital La María',
+            'LA MARIA ENTERRITORIO - 287' => 'E.S.E. Hospital La María',
+            'LA MARIA ENTERRITORIO 038' => 'E.S.E. Hospital La María',
+            'LA MARIA ENTERRITORIO 238' => 'E.S.E. Hospital La María',
+            'LA MARIA- INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
+            'LA MARIA ITS ' => 'E.S.E. Hospital La María',
+            'LA MARIA ITS 127' => 'E.S.E. Hospital La María',
+            'LA MARIA ITS- 376' => 'E.S.E. Hospital La María',
+            'LA MARIA PAI ' => 'E.S.E. Hospital La María',
+            'LA MARIA TB 137' => 'E.S.E. Hospital La María',
+            'LA MARIA TB Y LEPRA  319-2021' => 'E.S.E. Hospital La María',
+            'LA MARIA TBC' => 'E.S.E. Hospital La María',
+            'LA MARIA TRANSMISIBLES - 122' => 'E.S.E. Hospital La María',
+            'LA MARIA TRANSMISIBLES - 275' => 'E.S.E. Hospital La María',
+            'LA MARIA TRANSMISIBLES 234' => 'E.S.E. Hospital La María',
+            'LA MARIA UPAI - 0028 - 2023' => 'E.S.E. Hospital La María',
+            'LA MARIA UPAI - 140 - 2023' => 'E.S.E. Hospital La María',
+            'LA MARIA UPAI - 271' => 'E.S.E. Hospital La María',
+            'LA MARIA UPAI 0028 - 2023' => 'E.S.E. Hospital La María',
+            'LA MARIA UPAI 245' => 'E.S.E. Hospital La María',
+            'LA MARIA UPAI 35' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH - 158' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH 037' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH 131' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH 131 - 2023' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH 158' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH 188' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH N°043' => 'E.S.E. Hospital La María',
+            'LA MARIA VIH UT ' => 'E.S.E. Hospital La María',
+            'LAMARIACOOSALUD36' => 'E.S.E. Hospital La María',
+            'LAMARIAENTERRITORIO038' => 'E.S.E. Hospital La María',
+            'LAMARIAITS127' => 'E.S.E. Hospital La María',
+            'LAMARIATB2022' => 'E.S.E. Hospital La María',
+            'LAMARIAUPAI35' => 'E.S.E. Hospital La María',
+            'LAMARIAVIH037' => 'E.S.E. Hospital La María',
+            'POLICLINICO' => 'POLICLINICO',
+            'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.' => 'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.',
+            'PUERTO BERRIO' => 'E.S.E. Hospital La Cruz',
+            'SOMER' => 'SOMER',
+            'STA GERTRUDIS' => 'E.S.E. Santa Gertrudis',
+            'UNION TEMPORAL - 020 - 2023' => 'E.S.E. Hospital La María',
+            'VENANCIO' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO -  SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO - ADMON' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO - ASIST' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO - ASIST ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO - PIC ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO - SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO - SALUD P.' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO - UCI' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENANCIO ADMON - APH' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+            'VENECIA' => 'ESE Hospital San Rafael de Venecia',
+        ];
+
+        // Buscar coincidencia exacta (case-insensitive)
+        $clienteUpper = strtoupper($clienteNormalizado);
+        foreach ($mapeoClientes as $key => $value) {
+            if (strtoupper($key) === $clienteUpper) {
+                return $value;
+            }
+        }
+
+        // Si no hay coincidencia, retornar el valor original
+        return $clienteNormalizado;
     }
 
     /**
@@ -490,7 +788,7 @@ class CertificadoConvenioService
     {
         // La plantilla está en resources/templates (bajo control de versiones)
         $templatePath = base_path(self::TEMPLATE_PATH);
-        
+
         if (!file_exists($templatePath)) {
             throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/certificado_convenio_template.docx");
         }
@@ -522,7 +820,7 @@ class CertificadoConvenioService
 
         // Convertir a string, remover puntos, espacios y guiones
         $normalized = preg_replace('/[.\s-]/', '', (string) $value);
-        
+
         return trim($normalized);
     }
 
