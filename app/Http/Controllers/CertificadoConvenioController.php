@@ -31,22 +31,21 @@ class CertificadoConvenioController extends Controller
         }
 
         try {
-            // Por ahora genera Word desde la plantilla Word
-            // La conversión a PDF se implementará después cuando se confirme que funciona
+            // Genera PDF desde la plantilla Word usando CloudConvert
             $resultado = $this->certificadoService->generarCertificadoPDF($request->documento);
 
             if (isset($resultado['ruta']) && file_exists($resultado['ruta'])) {
-                // Asegurar que el nombre tenga extensión .docx
+                // Asegurar que el nombre tenga extensión .pdf
                 $nombreArchivo = $resultado['nombre'];
-                if (!str_ends_with($nombreArchivo, '.docx')) {
-                    $nombreArchivo .= '.docx';
+                if (!str_ends_with($nombreArchivo, '.pdf')) {
+                    $nombreArchivo .= '.pdf';
                 }
                 
                 return response()->download(
                     $resultado['ruta'],
                     $nombreArchivo,
                     [
-                        'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'Content-Type' => 'application/pdf',
                     ]
                 )->deleteFileAfterSend(true);
             }

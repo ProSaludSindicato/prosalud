@@ -99,12 +99,12 @@ class AfiliadoService
 
                 // Usar reader optimizado
                 $reader = IOFactory::createReader('Xlsx');
-                
+
                 // Leer solo datos, no fórmulas ni formato (ahorra memoria)
                 if (method_exists($reader, 'setReadDataOnly')) {
                     $reader->setReadDataOnly(true);
                 }
-                
+
                 // Cargar solo las hojas necesarias
                 if (method_exists($reader, 'setLoadSheetsOnly')) {
                     $reader->setLoadSheetsOnly([
@@ -118,7 +118,7 @@ class AfiliadoService
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                    
+
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
@@ -214,12 +214,12 @@ class AfiliadoService
 
                 // Usar reader optimizado
                 $reader = IOFactory::createReader('Xlsx');
-                
+
                 // Leer solo datos, no fórmulas ni formato (ahorra memoria)
                 if (method_exists($reader, 'setReadDataOnly')) {
                     $reader->setReadDataOnly(true);
                 }
-                
+
                 // Cargar solo las hojas necesarias
                 if (method_exists($reader, 'setLoadSheetsOnly')) {
                     $reader->setLoadSheetsOnly([
@@ -233,7 +233,7 @@ class AfiliadoService
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                    
+
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
@@ -328,12 +328,12 @@ class AfiliadoService
 
                 // Usar reader optimizado
                 $reader = IOFactory::createReader('Xlsx');
-                
+
                 // Leer solo datos, no fórmulas ni formato (ahorra memoria)
                 if (method_exists($reader, 'setReadDataOnly')) {
                     $reader->setReadDataOnly(true);
                 }
-                
+
                 // Cargar solo la hoja necesaria
                 if (method_exists($reader, 'setLoadSheetsOnly')) {
                     $reader->setLoadSheetsOnly([self::SHEET_INFORMACION_GENERAL]);
@@ -344,7 +344,7 @@ class AfiliadoService
 
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                    
+
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
@@ -429,12 +429,12 @@ class AfiliadoService
 
                 // Usar reader optimizado
                 $reader = IOFactory::createReader('Xlsx');
-                
+
                 // Leer solo datos, no fórmulas ni formato (ahorra memoria)
                 if (method_exists($reader, 'setReadDataOnly')) {
                     $reader->setReadDataOnly(true);
                 }
-                
+
                 // Cargar solo las hojas necesarias
                 if (method_exists($reader, 'setLoadSheetsOnly')) {
                     $reader->setLoadSheetsOnly([
@@ -449,7 +449,7 @@ class AfiliadoService
 
                 if (!$informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-                    
+
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
@@ -1180,14 +1180,14 @@ class AfiliadoService
                 // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
-                
+
                 if ($aFechaFinVacia && !$bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
                 if (!$aFechaFinVacia && $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
-                
+
                 // Si ambos tienen fecha_fin o ambos están vacíos, comparar por fecha_fin
                 if (!$aFechaFinVacia && !$bFechaFinVacia) {
                     $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
@@ -1195,11 +1195,11 @@ class AfiliadoService
                         return $comparison; // Más reciente primero
                     }
                 }
-                
+
                 // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
                 return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']); // Más reciente primero
             });
-            
+
             $selectedConvenio = reset($conveniosActivos);
         } else {
             // Si no hay activos, seleccionar el más reciente por fecha_fin
@@ -1207,24 +1207,24 @@ class AfiliadoService
                 // Fecha_fin vacía tiene menor prioridad cuando no hay activos
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
-                
+
                 if ($aFechaFinVacia && !$bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
                 if (!$aFechaFinVacia && $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
-                
+
                 // Comparar por fecha_fin (más reciente primero)
                 $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
                 if ($comparison !== 0) {
                     return $comparison;
                 }
-                
+
                 // Si las fechas_fin son iguales, usar fecha_ingreso
                 return strcmp($b['fecha_ingreso'], $a['fecha_ingreso']);
             });
-            
+
             $selectedConvenio = $conveniosFiltered[0];
         }
 

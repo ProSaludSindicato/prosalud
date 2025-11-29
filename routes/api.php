@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, ConvertDocumentController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -48,6 +48,12 @@ Route::post('/requests', [RequestController::class, 'store']);
 Route::prefix('certificados')->group(function () {
     Route::post('/convenio/generar', [CertificadoConvenioController::class, 'generar']);
     Route::post('/convenio/generar-word', [CertificadoConvenioController::class, 'generarWord']);
+});
+
+// Document Conversion routes (públicas, sin autenticación)
+Route::prefix('convert')->group(function () {
+    Route::post('/docx-to-pdf', [ConvertDocumentController::class, 'convertDocxToPdf']);
+    Route::get('/test', [ConvertDocumentController::class, 'test']);
 });
 
 // Assembly Voting System Routes

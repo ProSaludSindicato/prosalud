@@ -18,15 +18,48 @@ class CertificadoConvenioService
     }
 
     /**
-     * Genera un certificado de convenio desde la plantilla Word
-     * NOTA: Por ahora solo genera Word. La conversión a PDF se implementará después
-     * cuando se confirme que la plantilla Word funciona correctamente.
+     * Genera un certificado de convenio en formato PDF
+     * Primero genera el Word desde la plantilla, luego lo convierte a PDF usando CloudConvert
      */
     public function generarCertificadoPDF(string $documento): array
     {
-        // Por ahora, generar Word desde la plantilla Word
-        // La conversión a PDF se implementará en el futuro
-        return $this->generarCertificadoWord($documento);
+        // Primero generar el Word desde la plantilla
+        $resultadoWord = $this->generarCertificadoWord($documento);
+
+        try {
+            // Convertir Word a PDF usando CloudConvert
+            $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
+            $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
+
+            // Limpiar archivo Word temporal
+            if (file_exists($resultadoWord['ruta'])) {
+                @unlink($resultadoWord['ruta']);
+            }
+
+            // Cambiar extensión del nombre de archivo
+            $nombrePDF = str_replace('.docx', '.pdf', $resultadoWord['nombre']);
+
+            // Obtener ruta absoluta del PDF
+            $rutaPDF = storage_path('app/' . $resultadoPDF['path']);
+
+            return [
+                'ruta' => $rutaPDF,
+                'nombre' => $nombrePDF,
+                'tipo' => 'pdf',
+            ];
+        } catch (\Exception $e) {
+            // Si falla la conversión, limpiar el Word temporal y relanzar el error
+            if (file_exists($resultadoWord['ruta'])) {
+                @unlink($resultadoWord['ruta']);
+            }
+
+            Log::error('Error en generarCertificadoPDF al convertir a PDF con CloudConvert', [
+                'documento' => $documento,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
     }
 
     /**
