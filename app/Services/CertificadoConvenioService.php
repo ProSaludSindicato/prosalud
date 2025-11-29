@@ -67,6 +67,10 @@ class CertificadoConvenioService
      */
     public function generarCertificadoWord(string $documento): array
     {
+        // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
+        // Esto evita problemas de zona horaria y cambios de día entre llamadas
+        $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+
         // Obtener información del afiliado
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
 
@@ -74,8 +78,8 @@ class CertificadoConvenioService
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
-        // Preparar datos
-        $datos = $this->prepararDatosCertificado($afiliadoData);
+        // Preparar datos (pasar la fecha capturada)
+        $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado);
 
         // Cargar plantilla
         $templatePath = $this->obtenerRutaPlantilla();
@@ -91,8 +95,8 @@ class CertificadoConvenioService
             $templateProcessor->setValue($key, $value ?? '');
         }
 
-        // Generar nombre de archivo
-        $nombreArchivo = $this->generarNombreArchivo($afiliadoData);
+        // Generar nombre de archivo (usar la misma fecha)
+        $nombreArchivo = $this->generarNombreArchivo($afiliadoData, $fechaCertificado);
         $rutaSalida = storage_path("app/" . self::TEMP_DIR . "/{$nombreArchivo}");
 
         // Crear directorio si no existe
@@ -407,17 +411,26 @@ class CertificadoConvenioService
 
     /**
      * Prepara los datos del certificado
+     *
+     * @param array $afiliadoData
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
+     * @return array
      */
-    private function prepararDatosCertificado(array $afiliadoData): array
+    private function prepararDatosCertificado(array $afiliadoData, ?Carbon $fechaCertificado = null): array
     {
         $afiliado = $afiliadoData['afiliado'];
         $convenio = $afiliadoData['convenio'] ?? null;
         $todosLosConvenios = $afiliadoData['todos_los_convenios'] ?? [];
 
+        // Usar la fecha proporcionada o capturar una nueva si no se proporciona
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+
         // Formatear fechas
         $fechaIngreso = $this->formatearFechaEspanol($afiliado['fecha_ingreso'] ?? null);
         $fechaRetiro = $this->formatearFechaEspanol($afiliado['fecha_liquidacion'] ?? null);
-        $fechaCertificado = $this->formatearFechaEspanol(now());
+        $fechaCertificadoFormateada = $this->formatearFechaEspanol($fechaCertificado);
 
         // Nombre completo en mayúsculas
         $nombreCompleto = strtoupper(
@@ -481,11 +494,11 @@ class CertificadoConvenioService
             'FECHA_RETIRO' => $textoFechaRetiro,
             'HOSPITAL' => $hospital,
             'PROCESO' => strtoupper($proceso),
-            'FECHA_CERTIFICADO' => $fechaCertificado,
-            'DIA_CERTIFICADO' => now()->day,
-            'MES_CERTIFICADO' => $this->obtenerMesEspanol(now()->month),
-            'ANIO_CERTIFICADO' => now()->year,
-            'CONSECUTIVO' => $this->generarConsecutivo(),
+            'FECHA_CERTIFICADO' => $fechaCertificadoFormateada,
+            'DIA_CERTIFICADO' => $fechaCertificado->day,
+            'MES_CERTIFICADO' => $this->obtenerMesEspanol($fechaCertificado->month),
+            'ANIO_CERTIFICADO' => $fechaCertificado->year,
+            'CONSECUTIVO' => $this->generarConsecutivo($fechaCertificado),
             // Campos adicionales
             'CORREO_PERSONAL' => $correoPersonal,
             'SEXO' => strtoupper($sexo),
@@ -795,23 +808,41 @@ class CertificadoConvenioService
 
     /**
      * Genera nombre de archivo
+     *
+     * @param array $afiliadoData
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
+     * @return string
      */
-    private function generarNombreArchivo(array $afiliadoData): string
+    private function generarNombreArchivo(array $afiliadoData, ?Carbon $fechaCertificado = null): string
     {
         $documento = preg_replace('/[^0-9]/', '', $afiliadoData['afiliado']['documento'] ?? 'sin_doc');
-        $fecha = now()->format('Ymd');
+        
+        // Usar la misma fecha que se usa en el contenido del certificado
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+        
+        $fecha = $fechaCertificado->format('Ymd');
 
         return "certificado_convenio_{$documento}_{$fecha}.docx";
     }
 
     /**
      * Genera consecutivo
+     *
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
+     * @return string
      */
-    private function generarConsecutivo(): string
+    private function generarConsecutivo(?Carbon $fechaCertificado = null): string
     {
+        // Usar la misma fecha que se usa en el contenido del certificado
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+        
         // Implementar lógica de consecutivos (puede ser desde BD)
         // Por ahora, usar fecha + número aleatorio
-        return now()->format('Ymd') . rand(1000, 9999);
+        return $fechaCertificado->format('Ymd') . rand(1000, 9999);
     }
 
     /**
