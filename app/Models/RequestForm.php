@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Constants\RequestStatuses;
+use App\Constants\{RequestStatuses, RequestTypes};
 use Illuminate\Database\Eloquent\{Builder, Model};
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -206,8 +206,18 @@ class RequestForm extends Model
     public function formatPayloadValue(string $key, $value): string
     {
         // Special handling for certificado info
-        if ('infoCertificado' === $key && is_array($value)) {
-            return $this->formatCertificadoInfo($value);
+        if ('infoCertificado' === $key) {
+            // Parse JSON string if needed
+            if (is_string($value)) {
+                $decoded = json_decode($value, true);
+                if (is_array($decoded)) {
+                    $value = $decoded;
+                }
+            }
+            
+            if (is_array($value)) {
+                return $this->formatCertificadoInfo($value);
+            }
         }
 
         // Special handling for beneficiarios nuevos
@@ -512,27 +522,39 @@ class RequestForm extends Model
     {
         $formatted = [];
 
-        foreach ($certificadoData as $field => $value) {
-            $label = match ($field) {
-                'fechaIngresoRetiro' => 'Fecha de ingreso/retiro',
-                'valorCompensaciones' => 'Valor de compensaciones',
-                'dirigidoAEntidad' => 'Dirigido a entidad',
-                'paraSubsidioDesempleo' => 'Para subsidio de desempleo',
-                'paraSubsidioVivienda' => 'Para subsidio de vivienda',
-                'dirigidoFondoPensiones' => 'Dirigido a fondo de pensiones',
-                'adicionarActividades' => 'Adicionar actividades',
-                'dirigidoTransitoPicoPlaca' => 'Dirigido a tránsito pico y placa',
-                'dirigidoBancolombia' => 'Dirigido a Bancolombia',
-                'otros' => 'Otros',
-                'dirigidoAQuien' => 'Dirigido a quién',
-                default => $this->formatFieldName($field),
-            };
+        // Mapeo de campos a etiquetas en español
+        $fieldLabels = [
+            'fechaIngresoRetiro' => 'Fecha de ingreso/retiro',
+            'valorCompensaciones' => 'Valor de compensaciones',
+            'dirigidoAEntidad' => 'Dirigido a entidad',
+            'paraSubsidioDesempleo' => 'Para subsidio de desempleo',
+            'paraSubsidioVivienda' => 'Para subsidio de vivienda',
+            'dirigidoFondoPensiones' => 'Dirigido a fondo de pensiones',
+            'adicionarActividades' => 'Adicionar actividades',
+            'dirigidoTransitoPicoPlaca' => 'Dirigido a tránsito pico y placa',
+            'dirigidoBancolombia' => 'Dirigido a Bancolombia',
+            'otros' => 'Otros',
+        ];
 
-            $status = $this->parseBooleanValue($value) ? 'Sí' : 'No';
-            $formatted[] = "{$label}: {$status}";
+        // Solo mostrar campos que están activos (true)
+        foreach ($certificadoData as $field => $value) {
+            if (!$this->parseBooleanValue($value)) {
+                continue; // Saltar campos en false
+            }
+
+            $label = $fieldLabels[$field] ?? $this->formatFieldName($field);
+            $formatted[] = "<strong>{$label}</strong>";
         }
 
-        return implode('<br>', $formatted);
+        // Si no hay campos activos, mostrar mensaje
+        if (empty($formatted)) {
+            return '<span style="color:#6b7280;">No se seleccionaron opciones específicas</span>';
+        }
+
+        // Retornar como lista vertical compacta con mejor formato
+        return '<div style="line-height:1.6; word-wrap:break-word; max-width:100%;">' . 
+               implode('<br>', $formatted) . 
+               '</div>';
     }
 
     /**
@@ -558,5 +580,61 @@ class RequestForm extends Model
         }
 
         return (string) $value;
+    }
+
+    /**
+     * Verifica si este RequestForm es un certificado de convenio simple
+     * que será procesado automáticamente (solo fecha ingreso/retiro y/o dirigido a entidad)
+     * 
+     * @return bool
+     */
+    public function esCertificadoConvenioSimple(): bool
+    {
+        // Solo verificar si es tipo certificado-convenio
+        if ($this->request_type !== RequestTypes::CERTIFICADO_CONVENIO) {
+            return false;
+        }
+
+        $payload = $this->payload ?? [];
+        
+        // Verificar si tiene infoCertificado en el payload
+        if (!isset($payload['infoCertificado'])) {
+            return false;
+        }
+
+        // Parsear el JSON string si existe
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            return false;
+        }
+
+        // Verificar que solo tenga fechaIngresoRetiro y/o dirigidoAEntidad activos
+        $fechaIngresoRetiro = $infoCertificado['fechaIngresoRetiro'] ?? false;
+        $dirigidoAEntidad = $infoCertificado['dirigidoAEntidad'] ?? false;
+
+        // Campos que NO deben estar activos para procesamiento automático
+        $camposNoPermitidos = [
+            'valorCompensaciones',
+            'paraSubsidioDesempleo',
+            'paraSubsidioVivienda',
+            'dirigidoFondoPensiones',
+            'adicionarActividades',
+            'dirigidoBancolombia',
+            'otros',
+        ];
+
+        // Verificar que ningún campo no permitido esté activo
+        foreach ($camposNoPermitidos as $campo) {
+            if (!empty($infoCertificado[$campo] ?? false)) {
+                return false;
+            }
+        }
+
+        // Si tiene fechaIngresoRetiro o dirigidoAEntidad activo, es un certificado simple
+        return $fechaIngresoRetiro || $dirigidoAEntidad;
     }
 }

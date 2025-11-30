@@ -4,8 +4,9 @@ namespace App\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\{Log, Storage};
-use PhpOffice\PhpWord\{IOFactory as WordIOFactory, TemplateProcessor};
+use PhpOffice\PhpWord\TemplateProcessor;
 use PhpOffice\PhpSpreadsheet\{IOFactory, Cell\Coordinate};
+use App\Models\CertificadoConvenioRecord;
 
 class CertificadoConvenioService
 {
@@ -20,11 +21,26 @@ class CertificadoConvenioService
     /**
      * Genera un certificado de convenio en formato PDF
      * Primero genera el Word desde la plantilla, luego lo convierte a PDF usando CloudConvert
+     * Guarda el PDF en el bucket privado y crea un registro en la base de datos
+     *
+     * @param string $documento Número de documento del afiliado
+     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @return array
      */
-    public function generarCertificadoPDF(string $documento): array
+    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null): array
     {
-        // Primero generar el Word desde la plantilla
-        $resultadoWord = $this->generarCertificadoWord($documento);
+        // Obtener información del afiliado primero para tener los datos necesarios
+        $afiliadoData = $this->obtenerDatosAfiliado($documento);
+        if (!$afiliadoData) {
+            throw new \Exception("Afiliado con documento {$documento} no encontrado");
+        }
+
+        // Capturar la fecha una sola vez para usar consistentemente
+        $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        $consecutivo = $this->generarConsecutivo($fechaCertificado);
+
+        // Primero generar el Word desde la plantilla (pasar el consecutivo y destinatario para mantener consistencia)
+        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad);
 
         try {
             // Convertir Word a PDF usando CloudConvert
@@ -42,10 +58,25 @@ class CertificadoConvenioService
             // Obtener ruta absoluta del PDF
             $rutaPDF = storage_path('app/' . $resultadoPDF['path']);
 
+            // Guardar PDF en bucket privado y crear registro en BD
+            $bucketPath = $this->guardarCertificadoEnBucket($rutaPDF, $documento, $consecutivo, $fechaCertificado, $afiliadoData);
+
+            // Crear registro en base de datos
+            $record = $this->crearRegistroCertificado(
+                $documento,
+                $consecutivo,
+                $bucketPath,
+                $fechaCertificado,
+                $afiliadoData
+            );
+
             return [
                 'ruta' => $rutaPDF,
                 'nombre' => $nombrePDF,
                 'tipo' => 'pdf',
+                'consecutivo' => $consecutivo,
+                'bucket_path' => $bucketPath,
+                'record_id' => $record->id,
             ];
         } catch (\Exception $e) {
             // Si falla la conversión, limpiar el Word temporal y relanzar el error
@@ -64,8 +95,13 @@ class CertificadoConvenioService
 
     /**
      * Genera un certificado de convenio en formato Word
+     *
+     * @param string $documento Número de documento del afiliado
+     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @return array
      */
-    public function generarCertificadoWord(string $documento): array
+    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
     {
         // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
         // Esto evita problemas de zona horaria y cambios de día entre llamadas
@@ -78,8 +114,13 @@ class CertificadoConvenioService
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
-        // Preparar datos (pasar la fecha capturada)
-        $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado);
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Preparar datos (pasar la fecha capturada, el consecutivo y el destinatario)
+        $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad);
 
         // Cargar plantilla
         $templatePath = $this->obtenerRutaPlantilla();
@@ -117,8 +158,9 @@ class CertificadoConvenioService
 
     /**
      * Obtiene los datos del afiliado por documento (versión optimizada para memoria)
+     * Método público para uso desde otros servicios
      */
-    private function obtenerDatosAfiliado(string $documento): ?array
+    public function obtenerDatosAfiliado(string $documento): ?array
     {
         $excelPath = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
         $disks = ['prosalud-private', 'local'];
@@ -414,9 +456,11 @@ class CertificadoConvenioService
      *
      * @param array $afiliadoData
      * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
+     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
      * @return array
      */
-    private function prepararDatosCertificado(array $afiliadoData, ?Carbon $fechaCertificado = null): array
+    private function prepararDatosCertificado(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
     {
         $afiliado = $afiliadoData['afiliado'];
         $convenio = $afiliadoData['convenio'] ?? null;
@@ -474,9 +518,9 @@ class CertificadoConvenioService
         $seEncuentraEstuvo = $estaActivo ? 'se encuentra' : 'estuvo';
         $desarrollaActualmenteDesarrollo = $estaActivo ? 'desarrolla actualmente' : 'desarrolló';
 
-        // Procesar DESTINATARIO (por ahora vacío por defecto, se puede agregar como parámetro en el futuro)
-        $destinatario = ''; // Se puede obtener de algún campo o parámetro en el futuro
-        $destinatarioCompleto = empty(trim($destinatario))
+        // Procesar DESTINATARIO
+        $destinatario = trim($dirigidoAEntidad ?? '');
+        $destinatarioCompleto = empty($destinatario)
             ? 'A quien corresponda.'
             : "Señores {$destinatario}";
 
@@ -486,6 +530,11 @@ class CertificadoConvenioService
         // Determinar si hay un convenio o varios
         $cantidadConvenios = count($todosLosConvenios);
         $unConvenioVariosConvenios = $cantidadConvenios === 1 ? 'un Convenio' : 'varios Convenios';
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
 
         return [
             'NOMBRE_COMPLETO' => $nombreCompleto,
@@ -498,7 +547,7 @@ class CertificadoConvenioService
             'DIA_CERTIFICADO' => $fechaCertificado->day,
             'MES_CERTIFICADO' => $this->obtenerMesEspanol($fechaCertificado->month),
             'ANIO_CERTIFICADO' => $fechaCertificado->year,
-            'CONSECUTIVO' => $this->generarConsecutivo($fechaCertificado),
+            'CONSECUTIVO' => $consecutivo,
             // Campos adicionales
             'CORREO_PERSONAL' => $correoPersonal,
             'SEXO' => strtoupper($sexo),
@@ -816,19 +865,20 @@ class CertificadoConvenioService
     private function generarNombreArchivo(array $afiliadoData, ?Carbon $fechaCertificado = null): string
     {
         $documento = preg_replace('/[^0-9]/', '', $afiliadoData['afiliado']['documento'] ?? 'sin_doc');
-        
+
         // Usar la misma fecha que se usa en el contenido del certificado
         if ($fechaCertificado === null) {
             $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
         }
-        
+
         $fecha = $fechaCertificado->format('Ymd');
 
         return "certificado_convenio_{$documento}_{$fecha}.docx";
     }
 
     /**
-     * Genera consecutivo
+     * Genera consecutivo único
+     * Formato: YYYYMMDD + número secuencial del día (4 dígitos, con padding ceros)
      *
      * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
      * @return string
@@ -839,10 +889,29 @@ class CertificadoConvenioService
         if ($fechaCertificado === null) {
             $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
         }
-        
-        // Implementar lógica de consecutivos (puede ser desde BD)
-        // Por ahora, usar fecha + número aleatorio
-        return $fechaCertificado->format('Ymd') . rand(1000, 9999);
+
+        $fechaFormato = $fechaCertificado->format('Ymd');
+
+        // Buscar el último consecutivo del día
+        $ultimoConsecutivo = CertificadoConvenioRecord::where('consecutivo', 'like', $fechaFormato . '%')
+            ->orderBy('consecutivo', 'desc')
+            ->value('consecutivo');
+
+        $numeroSecuencial = 1;
+        if ($ultimoConsecutivo) {
+            // Extraer el número secuencial (últimos 4 dígitos)
+            $numeroSecuencial = (int) substr($ultimoConsecutivo, -4) + 1;
+        }
+
+        // Limitar a 4 dígitos (máximo 9999 certificados por día)
+        if ($numeroSecuencial > 9999) {
+            throw new \Exception('Se ha alcanzado el límite máximo de certificados para el día');
+        }
+
+        // Formatear con padding de ceros a la izquierda
+        $numeroFormateado = str_pad((string) $numeroSecuencial, 4, '0', STR_PAD_LEFT);
+
+        return $fechaFormato . $numeroFormateado;
     }
 
     /**
@@ -912,6 +981,131 @@ class CertificadoConvenioService
         } catch (\Exception $e) {
             return '';
         }
+    }
+
+    /**
+     * Guarda el certificado PDF en el bucket privado con estructura organizada
+     * Estructura: certificados/convenio/YYYY/MM/documento_consecutivo.pdf
+     *
+     * @param string $rutaPDF Ruta local del archivo PDF
+     * @param string $documento Número de documento del afiliado
+     * @param string $consecutivo Número consecutivo del certificado
+     * @param Carbon $fechaCertificado Fecha de generación
+     * @param array $afiliadoData Datos del afiliado
+     * @return string Ruta del archivo en el bucket
+     */
+    private function guardarCertificadoEnBucket(
+        string $rutaPDF,
+        string $documento,
+        string $consecutivo,
+        Carbon $fechaCertificado,
+        array $afiliadoData
+    ): string {
+        $disk = 'prosalud-private';
+        $documentoNormalizado = preg_replace('/[^0-9]/', '', $documento);
+        $anio = $fechaCertificado->format('Y');
+        $mes = $fechaCertificado->format('m');
+
+        // Estructura: certificados/convenio/YYYY/MM/documento_consecutivo.pdf
+        $directorio = "certificados/convenio/{$anio}/{$mes}";
+        $nombreArchivo = "{$documentoNormalizado}_{$consecutivo}.pdf";
+        $bucketPath = "{$directorio}/{$nombreArchivo}";
+
+        try {
+            // Intentar guardar en bucket privado
+            $storage = Storage::disk($disk);
+
+            // Leer el contenido del archivo
+            $contenidoPDF = file_get_contents($rutaPDF);
+            if ($contenidoPDF === false) {
+                throw new \Exception("No se pudo leer el archivo PDF desde: {$rutaPDF}");
+            }
+
+            // Guardar en el bucket
+            $guardado = $storage->put($bucketPath, $contenidoPDF);
+
+            if (!$guardado) {
+                throw new \Exception("No se pudo guardar el certificado en el bucket");
+            }
+
+            Log::info('Certificado guardado en bucket privado', [
+                'documento' => $documento,
+                'consecutivo' => $consecutivo,
+                'bucket_path' => $bucketPath,
+                'disk' => $disk,
+            ]);
+
+            return $bucketPath;
+        } catch (\Exception $e) {
+            Log::error('Error al guardar certificado en bucket privado', [
+                'documento' => $documento,
+                'consecutivo' => $consecutivo,
+                'bucket_path' => $bucketPath,
+                'error' => $e->getMessage(),
+            ]);
+
+            // Intentar con disco local como fallback
+            try {
+                // Leer el contenido del archivo nuevamente para el fallback
+                $contenidoPDFFallback = file_get_contents($rutaPDF);
+                if ($contenidoPDFFallback === false) {
+                    throw new \Exception("No se pudo leer el archivo PDF desde: {$rutaPDF}");
+                }
+
+                $fallbackDisk = 'local';
+                $storage = Storage::disk($fallbackDisk);
+                $directorioLocal = "certificados/convenio/{$anio}/{$mes}";
+                $guardado = $storage->put("{$directorioLocal}/{$nombreArchivo}", $contenidoPDFFallback);
+
+                if ($guardado) {
+                    Log::warning('Certificado guardado en disco local (fallback)', [
+                        'documento' => $documento,
+                        'consecutivo' => $consecutivo,
+                        'path' => "{$directorioLocal}/{$nombreArchivo}",
+                    ]);
+                    return "{$directorioLocal}/{$nombreArchivo}";
+                }
+            } catch (\Exception $fallbackError) {
+                Log::error('Error al guardar certificado en disco local (fallback)', [
+                    'error' => $fallbackError->getMessage(),
+                ]);
+            }
+
+            throw new \Exception("Error al guardar certificado en almacenamiento: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Crea un registro del certificado en la base de datos
+     *
+     * @param string $documento Número de documento del afiliado
+     * @param string $consecutivo Número consecutivo del certificado
+     * @param string $bucketPath Ruta del archivo en el bucket
+     * @param Carbon $fechaCertificado Fecha de generación
+     * @param array $afiliadoData Datos del afiliado
+     * @return CertificadoConvenioRecord
+     */
+    private function crearRegistroCertificado(
+        string $documento,
+        string $consecutivo,
+        string $bucketPath,
+        Carbon $fechaCertificado,
+        array $afiliadoData
+    ): CertificadoConvenioRecord {
+        $record = CertificadoConvenioRecord::create([
+            'document_number' => $documento,
+            'consecutivo' => $consecutivo,
+            'storage_path' => $bucketPath,
+            'generated_at' => $fechaCertificado,
+        ]);
+
+        Log::info('Registro de certificado creado en BD', [
+            'document_number' => $documento,
+            'consecutivo' => $consecutivo,
+            'record_id' => $record->id,
+        ]);
+
+        return $record;
     }
 }
 

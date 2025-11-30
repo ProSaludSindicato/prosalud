@@ -10,3 +10,8 @@ Route::get('/', function () {
 Route::get('/test-certificado', function () {
     return view('test-certificado');
 });
+
+// Ruta temporal para consulta/validación de certificados
+Route::get('/consulta-certificado', function () {
+    return view('consulta-certificado');
+});

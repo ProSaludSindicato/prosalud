@@ -31,9 +31,15 @@ class RequestFormResponse extends Mailable
         $fileIndex = 0;
         foreach ($uploadedFiles as $file) {
             if ($file && $file->isValid()) {
+                // Si el nombre original ya es descriptivo (como Certificado_Sindicato_ProSalud_*), usarlo directamente
+                $originalName = $file->getClientOriginalName();
+                $filename = $this->shouldUseOriginalName($originalName) 
+                    ? $originalName 
+                    : $this->generateDescriptiveFilename($file, $fileIndex);
+                
                 $this->attachmentData[] = [
                     'content' => file_get_contents($file->getRealPath()),
-                    'name' => $this->generateDescriptiveFilename($file, $fileIndex),
+                    'name' => $filename,
                     'mime' => $file->getMimeType(),
                 ];
                 ++$fileIndex;
@@ -111,6 +117,16 @@ class RequestFormResponse extends Mailable
         $baseName = implode('-', $parts);
 
         return $baseName . '.' . $extension;
+    }
+
+    /**
+     * Determina si debe usar el nombre original del archivo
+     * Usa el nombre original si ya tiene un formato descriptivo (ej: Certificado_Sindicato_ProSalud_*)
+     */
+    private function shouldUseOriginalName(string $originalName): bool
+    {
+        // Si el nombre comienza con "Certificado_Sindicato_ProSalud_", usar el nombre original
+        return str_starts_with($originalName, 'Certificado_Sindicato_ProSalud_');
     }
 
     /**

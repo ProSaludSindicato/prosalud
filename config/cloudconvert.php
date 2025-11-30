@@ -61,5 +61,31 @@ return [
     */
 
     'temp_storage_path' => storage_path('app/tmp'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | PDF Security Settings
+    |--------------------------------------------------------------------------
+    |
+    | Configuración para proteger los PDFs generados contra falsificación.
+    | owner_password: Contraseña interna para establecer permisos (no bloquea la apertura)
+    | permissions: Permisos permitidos o prohibidos en el PDF
+    |
+    */
+
+    'pdf_security' => [
+        'enabled' => true,
+        'owner_password' => env('CLOUDCONVERT_PDF_OWNER_PASSWORD'),
+        'permissions' => [
+            // allow_print: enum - "full" (permitir), "low" (baja calidad), "none" (prohibir)
+            'allow_print' => 'full',
+            // allow_extract: boolean - true (permitir), false (prohibir)
+            'allow_extract' => false,
+            // allow_modify: enum - "all", "annotate", "form", "assembly", "none"
+            'allow_modify' => 'none',
+            // allow_accessibility: boolean - true (permitir), false (prohibir)
+            'allow_accessibility' => true,
+        ],
+    ],
 ];
 

@@ -134,18 +134,74 @@ class DocxToPdfCloudConvertService
     private function createJob(): array
     {
         try {
+            // Obtener configuración de seguridad PDF
+            $pdfSecurity = config('cloudconvert.pdf_security', []);
+            $securityEnabled = $pdfSecurity['enabled'] ?? false;
+
+            // Configurar tarea de conversión
+            $convertTask = [
+                'operation' => 'convert',
+                'input' => 'upload-file',
+                'input_format' => 'docx',
+                'output_format' => 'pdf',
+            ];
+
+            // Agregar opciones de seguridad si están habilitadas
+            if ($securityEnabled) {
+                $ownerPassword = $pdfSecurity['owner_password'] ?? null;
+
+                // Requiere encryption: "encrypt" para activar la encriptación
+                // Nota: Según la documentación de CloudConvert, set_owner_password es opcional
+                // pero se recomienda para establecer permisos de forma segura
+                $convertTask['encryption'] = 'encrypt';
+
+                if ($ownerPassword) {
+                    // Usar set_owner_password según la documentación
+                    $convertTask['set_owner_password'] = $ownerPassword;
+                } else {
+                    Log::warning('PDF Security habilitado pero CLOUDCONVERT_PDF_OWNER_PASSWORD no está configurado. Los permisos pueden no aplicarse correctamente.');
+                }
+
+                // Mapear permisos según la documentación de CloudConvert
+                $permissions = $pdfSecurity['permissions'] ?? [];
+
+                // allow_print: enum - "full", "low", "none"
+                if (isset($permissions['allow_print'])) {
+                    $convertTask['allow_print'] = $permissions['allow_print'];
+                }
+
+                // allow_extract: boolean
+                if (isset($permissions['allow_extract'])) {
+                    $convertTask['allow_extract'] = (bool) $permissions['allow_extract'];
+                }
+
+                // allow_modify: enum - "all", "annotate", "form", "assembly", "none"
+                if (isset($permissions['allow_modify'])) {
+                    $convertTask['allow_modify'] = $permissions['allow_modify'];
+                }
+
+                // allow_accessibility: boolean
+                if (isset($permissions['allow_accessibility'])) {
+                    $convertTask['allow_accessibility'] = (bool) $permissions['allow_accessibility'];
+                }
+
+                Log::info('Opciones de seguridad PDF aplicadas', [
+                    'encryption' => 'encrypt',
+                    'set_owner_password_set' => !empty($ownerPassword),
+                    'allow_print' => $permissions['allow_print'] ?? null,
+                    'allow_extract' => $permissions['allow_extract'] ?? null,
+                    'allow_modify' => $permissions['allow_modify'] ?? null,
+                    'allow_accessibility' => $permissions['allow_accessibility'] ?? null,
+                ]);
+            }
+
             // Formato correcto: objeto con nombres de tareas como claves
             $payload = [
                 'tasks' => [
                     'upload-file' => [
                         'operation' => 'import/upload',
                     ],
-                    'convert-docx-to-pdf' => [
-                        'operation' => 'convert',
-                        'input' => 'upload-file',
-                        'input_format' => 'docx',
-                        'output_format' => 'pdf',
-                    ],
+                    'convert-docx-to-pdf' => $convertTask,
                     'export-pdf' => [
                         'operation' => 'export/url',
                         'input' => 'convert-docx-to-pdf',
@@ -155,6 +211,7 @@ class DocxToPdfCloudConvertService
 
             Log::info('Creando Job en CloudConvert', [
                 'base_url' => $this->baseUrl,
+                'pdf_security_enabled' => $securityEnabled,
             ]);
 
             $response = Http::withHeaders([
@@ -504,9 +561,10 @@ class DocxToPdfCloudConvertService
                 mkdir($tempDir, 0755, true);
             }
 
-            // Generar nombre de archivo PDF
+            // Usar el nombre del archivo original (sin extensión) y cambiar a .pdf
+            // Esto mantiene la misma fecha que se usó en el nombre del Word
             $originalName = pathinfo($originalDocxPath, PATHINFO_FILENAME);
-            $pdfFileName = $originalName . '_' . time() . '.pdf';
+            $pdfFileName = $originalName . '.pdf';
             $pdfPath = $tempDir . '/' . $pdfFileName;
 
             // Guardar PDF

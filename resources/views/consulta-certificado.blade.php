@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generar Certificado de Convenio - Prueba</title>
+    <title>Consultar Certificado de Convenio - ProSalud</title>
     <style>
         * {
             margin: 0;
@@ -26,7 +26,7 @@
             border-radius: 12px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
             padding: 40px;
-            max-width: 500px;
+            max-width: 600px;
             width: 100%;
         }
 
@@ -144,6 +144,46 @@
             display: block;
         }
 
+        .certificate-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            font-size: 14px;
+            border-left: 4px solid #667eea;
+        }
+
+        .certificate-info.active {
+            display: block;
+        }
+
+        .certificate-info h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .certificate-info p {
+            margin-bottom: 5px;
+            color: #666;
+        }
+
+        .certificate-info strong {
+            color: #333;
+        }
+
+        .view-pdf-btn {
+            margin-top: 15px;
+            background: #28a745;
+            padding: 10px 20px;
+            font-size: 14px;
+        }
+
+        .view-pdf-btn:hover:not(:disabled) {
+            background: #218838;
+        }
+
         .note {
             background: #f5f5f5;
             padding: 15px;
@@ -157,10 +197,10 @@
 </head>
 <body>
     <div class="container">
-        <h1>Generar Certificado de Convenio</h1>
-        <p class="subtitle">Ingresa el número de documento del afiliado</p>
+        <h1>Consultar Certificado de Convenio</h1>
+        <p class="subtitle">Ingrese el número de documento del afiliado y el consecutivo del certificado para validar su autenticidad</p>
 
-        <form id="certificadoForm">
+        <form id="consultaForm">
             <div class="form-group">
                 <label for="documento">Número de Documento</label>
                 <input 
@@ -173,31 +213,57 @@
                 >
             </div>
 
+            <div class="form-group">
+                <label for="consecutivo">Número Consecutivo del Certificado</label>
+                <input 
+                    type="text" 
+                    id="consecutivo" 
+                    name="consecutivo" 
+                    placeholder="Ej: 202411290001"
+                    required
+                    autocomplete="off"
+                >
+            </div>
+
             <button type="submit" id="submitBtn">
-                Generar Certificado PDF
+                Consultar Certificado
             </button>
         </form>
 
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p>Generando certificado...</p>
+            <p>Consultando certificado...</p>
         </div>
 
         <div class="error" id="error"></div>
         <div class="success" id="success"></div>
 
+        <div class="certificate-info" id="certificateInfo">
+            <h3>Información del Certificado</h3>
+            <p><strong>Documento:</strong> <span id="infoDocumento"></span></p>
+            <p><strong>Consecutivo:</strong> <span id="infoConsecutivo"></span></p>
+            <p><strong>Fecha de Generación:</strong> <span id="infoFecha"></span></p>
+            <button type="button" class="view-pdf-btn" id="viewPdfBtn" onclick="viewPDF()">
+                Ver PDF en Nueva Pestaña
+            </button>
+        </div>
+
         <div class="note">
-            <strong>Nota:</strong> Esta es una página temporal para pruebas. El certificado PDF se descargará automáticamente cuando esté listo.
+            <strong>Nota:</strong> Esta es una página temporal para pruebas. Ingrese el número de documento del afiliado y el consecutivo del certificado para validar su autenticidad y visualizar el PDF.
         </div>
     </div>
 
     <script>
-        const form = document.getElementById('certificadoForm');
+        let pdfUrl = null;
+
+        const form = document.getElementById('consultaForm');
         const submitBtn = document.getElementById('submitBtn');
         const loading = document.getElementById('loading');
         const error = document.getElementById('error');
         const success = document.getElementById('success');
+        const certificateInfo = document.getElementById('certificateInfo');
         const documentoInput = document.getElementById('documento');
+        const consecutivoInput = document.getElementById('consecutivo');
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -205,13 +271,22 @@
             // Limpiar mensajes anteriores
             error.classList.remove('active');
             success.classList.remove('active');
+            certificateInfo.classList.remove('active');
             error.textContent = '';
             success.textContent = '';
+            pdfUrl = null;
 
-            // Validar documento
+            // Validar campos
             const documento = documentoInput.value.trim();
+            const consecutivo = consecutivoInput.value.trim();
+
             if (!documento) {
-                showError('Por favor ingresa un número de documento');
+                showError('Por favor ingrese un número de documento');
+                return;
+            }
+
+            if (!consecutivo) {
+                showError('Por favor ingrese un número consecutivo');
                 return;
             }
 
@@ -220,48 +295,44 @@
             loading.classList.add('active');
 
             try {
-                const response = await fetch('/api/certificados/convenio/generar', {
+                const response = await fetch('/api/certificados/convenio/consultar', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Accept': 'application/pdf'
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify({
-                        documento: documento
+                        documento: documento,
+                        consecutivo: consecutivo
                     })
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: 'Error desconocido' }));
-                    throw new Error(errorData.message || `Error ${response.status}: ${response.statusText}`);
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || `Error ${response.status}: ${response.statusText}`);
                 }
 
-                // Obtener el blob del PDF
-                const blob = await response.blob();
+                // Mostrar información del certificado
+                pdfUrl = data.data.pdf_url;
+                document.getElementById('infoDocumento').textContent = data.data.document_number;
+                document.getElementById('infoConsecutivo').textContent = data.data.consecutivo;
                 
-                // Crear URL temporal y descargar
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `certificado_convenio_${documento}_${new Date().toISOString().split('T')[0]}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
+                // Formatear fecha
+                const fecha = new Date(data.data.generated_at);
+                document.getElementById('infoFecha').textContent = fecha.toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
 
-                // Mostrar éxito
-                success.textContent = '¡Certificado PDF generado y descargado exitosamente!';
+                certificateInfo.classList.add('active');
+                success.textContent = '¡Certificado encontrado y verificado exitosamente!';
                 success.classList.add('active');
-
-                // Limpiar formulario después de 2 segundos
-                setTimeout(() => {
-                    documentoInput.value = '';
-                    success.classList.remove('active');
-                }, 3000);
 
             } catch (err) {
                 console.error('Error:', err);
-                showError(err.message || 'Error al generar el certificado. Por favor intenta nuevamente.');
+                showError(err.message || 'Error al consultar el certificado. Por favor intenta nuevamente.');
             } finally {
                 submitBtn.disabled = false;
                 loading.classList.remove('active');
@@ -273,8 +344,16 @@
             error.classList.add('active');
         }
 
+        function viewPDF() {
+            if (pdfUrl) {
+                window.open(pdfUrl, '_blank');
+            } else {
+                showError('No hay URL disponible para visualizar el PDF');
+            }
+        }
+
         // Permitir Enter para enviar
-        documentoInput.addEventListener('keypress', (e) => {
+        document.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 form.dispatchEvent(new Event('submit'));
             }

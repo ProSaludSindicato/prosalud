@@ -148,11 +148,11 @@
                             @php
                             $payload = is_array($requestForm->payload ?? null) ? $requestForm->payload : [];
                             $payloadSummary = [];
-                            
+
                             // Si es actualizar-datos-personales, mostrar campos específicos de actualización
+                            // Nota: 'proceso' y 'dondeRealizaProceso' se excluyen porque son obtenidos automáticamente por el sistema
                             if ($requestForm->request_type === 'actualizar-datos-personales') {
                                 $updateDataKeys = [
-                                    'proceso', 'dondeRealizaProceso',
                                     'estadoCivil', 'direccion', 'municipio', 'telefonoFijo', 'celular', 'correo',
                                     'tallaUniforme', 'tallaCalzado', 'nivelEducativo',
                                     'numeroCuenta', 'tipoCuenta', 'banco',
@@ -165,8 +165,9 @@
                                 }
                             } else {
                                 // Para otros tipos de solicitud, usar las claves preferidas originales
+                                // Nota: 'proceso' y 'dondeRealizaProceso' se excluyen porque son obtenidos automáticamente por el sistema
                                 $preferredKeys = [
-                                    'proceso', 'dondeRealizaProceso', 'motivoSolicitud',
+                                    'motivoSolicitud',
                                     'dirigidoAQuien', 'tipoVehiculo', 'placaVehiculo',
                                     'infoCertificado', 'otrosDescripcion'
                                 ];
@@ -176,8 +177,12 @@
                                     }
                                 }
                                 if (empty($payloadSummary)) {
-                                    // fallback: take first 5 entries
-                                    $payloadSummary = array_slice($payload, 0, 5, true);
+                                    // fallback: take first 5 entries, excluyendo campos obtenidos automáticamente por el sistema
+                                    $excludedKeys = ['proceso', 'dondeRealizaProceso'];
+                                    $filteredPayload = array_filter($payload, function($key) use ($excludedKeys) {
+                                        return !in_array($key, $excludedKeys);
+                                    }, ARRAY_FILTER_USE_KEY);
+                                    $payloadSummary = array_slice($filteredPayload, 0, 5, true);
                                 }
                             }
                             @endphp
@@ -198,9 +203,15 @@
                             @endif
 
                             <!-- Next Steps -->
+                            @if($requestForm->esCertificadoConvenioSimple())
+                            <p style="margin:0 0 24px; font-size:15px; color:#4b5563; line-height:1.7;">
+                                Tu solicitud de certificado de convenio será procesada automáticamente. En los próximos minutos recibirás un correo electrónico con la respuesta a tu solicitud y el certificado de convenio solicitado adjunto en formato PDF.
+                            </p>
+                            @else
                             <p style="margin:0 0 24px; font-size:15px; color:#4b5563; line-height:1.7;">
                                 Nuestro equipo de Talento Humano está revisando tu solicitud y se pondrá en contacto contigo si es necesario ampliar o verificar algún dato. Te notificaremos oportunamente cuando el estado de tu solicitud cambie.
                             </p>
+                            @endif
 
                             <!-- Important Notice -->
                             <div style="padding:8px 0 0; margin:0;">

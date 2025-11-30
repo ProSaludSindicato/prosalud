@@ -48,6 +48,8 @@ Route::post('/requests', [RequestController::class, 'store']);
 Route::prefix('certificados')->group(function () {
     Route::post('/convenio/generar', [CertificadoConvenioController::class, 'generar']);
     Route::post('/convenio/generar-word', [CertificadoConvenioController::class, 'generarWord']);
+    Route::post('/convenio/consultar', [CertificadoConvenioController::class, 'consultar']);
+    Route::post('/convenio/solicitar', [CertificadoConvenioController::class, 'solicitarAutomatico']);
 });
 
 // Document Conversion routes (públicas, sin autenticación)

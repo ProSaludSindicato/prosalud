@@ -6,9 +6,10 @@ use App\Constants\{RequestStatuses, RequestTypes};
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\RespondToRequestRequest;
+use App\Jobs\ProcessCertificadoConvenioJob;
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestSubtypeAssignment, RequestTypeAssignment};
-use App\Services\{AuditLogService, RequestAssignmentService, RequestExcelExportService};
+use App\Services\{AuditLogService, CertificadoConvenioAutomaticoService, RequestAssignmentService, RequestExcelExportService};
 use App\Http\Requests\ExportRequestsExcelRequest;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail, Storage};
@@ -21,6 +22,7 @@ class RequestController extends Controller
         private AuditLogService $auditLogService,
         private RequestAssignmentService $assignmentService,
         private RequestExcelExportService $excelExportService,
+        private CertificadoConvenioAutomaticoService $certificadoAutomaticoService,
     ) {
     }
 
@@ -114,6 +116,22 @@ class RequestController extends Controller
                 'created_at' => $requestForm->created_at->toIso8601String(),
             ];
             $response['message'] = 'Solicitud de actualización de datos personales recibida correctamente';
+        }
+
+        // Procesar automáticamente certificados de convenio simples (solo fecha ingreso/retiro y/o dirigido a entidad)
+        if (RequestTypes::CERTIFICADO_CONVENIO === $requestForm->request_type) {
+            $debeProcesarAutomatico = $this->debeProcesarCertificadoAutomatico($requestForm);
+            
+            if ($debeProcesarAutomatico) {
+                Log::info('Certificado de convenio simple detectado, encolando procesamiento automático', [
+                    'request_id' => $requestForm->id,
+                    'documento' => $requestForm->document_number,
+                ]);
+
+                // Encolar el procesamiento automático del certificado
+                // El Job se procesará de forma asíncrona mediante queue:work
+                ProcessCertificadoConvenioJob::dispatch($requestForm->id);
+            }
         }
 
         return response()->json($response, 201);
@@ -1180,6 +1198,55 @@ class RequestController extends Controller
                 'message' => 'Error al generar el reporte. Por favor, intente nuevamente.',
             ], 500);
         }
+    }
+
+    /**
+     * Determina si un certificado de convenio debe procesarse automáticamente
+     * Solo se procesa automáticamente si tiene solo fecha ingreso/retiro y/o dirigido a entidad
+     */
+    private function debeProcesarCertificadoAutomatico(RequestForm $requestForm): bool
+    {
+        $payload = $requestForm->payload ?? [];
+        
+        // Verificar si tiene infoCertificado en el payload
+        if (!isset($payload['infoCertificado'])) {
+            return false;
+        }
+
+        // Parsear el JSON string si existe
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            return false;
+        }
+
+        // Verificar que solo tenga fechaIngresoRetiro y/o dirigidoAEntidad activos
+        $fechaIngresoRetiro = $infoCertificado['fechaIngresoRetiro'] ?? false;
+        $dirigidoAEntidad = $infoCertificado['dirigidoAEntidad'] ?? false;
+
+        // Campos que NO deben estar activos para procesamiento automático
+        $camposNoPermitidos = [
+            'valorCompensaciones',
+            'paraSubsidioDesempleo',
+            'paraSubsidioVivienda',
+            'dirigidoFondoPensiones',
+            'adicionarActividades',
+            'dirigidoBancolombia',
+            'otros',
+        ];
+
+        // Verificar que ningún campo no permitido esté activo
+        foreach ($camposNoPermitidos as $campo) {
+            if (!empty($infoCertificado[$campo] ?? false)) {
+                return false;
+            }
+        }
+
+        // Si tiene fechaIngresoRetiro o dirigidoAEntidad activo, procesar automáticamente
+        return $fechaIngresoRetiro || $dirigidoAEntidad;
     }
 
     /**
