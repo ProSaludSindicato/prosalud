@@ -40,4 +40,28 @@ class CertificadoConvenioRecord extends Model
     {
         return $query->where('document_number', $documento);
     }
+
+    /**
+     * Scope para buscar por rango de fechas
+     */
+    public function scopeByFechaRango($query, ?string $fechaDesde = null, ?string $fechaHasta = null)
+    {
+        if ($fechaDesde) {
+            $query->whereDate('generated_at', '>=', $fechaDesde);
+        }
+        
+        if ($fechaHasta) {
+            $query->whereDate('generated_at', '<=', $fechaHasta);
+        }
+        
+        return $query;
+    }
+
+    /**
+     * Scope para buscar por consecutivo (búsqueda parcial)
+     */
+    public function scopeByConsecutivo($query, string $consecutivo)
+    {
+        return $query->where('consecutivo', 'like', "%{$consecutivo}%");
+    }
 }

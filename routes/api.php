@@ -108,6 +108,9 @@ Route::prefix('assembly')->group(function () {
 });
 
 Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
+    // Certificados de Convenio - Listado (requiere autenticación)
+    Route::get('/certificados/convenio', [CertificadoConvenioController::class, 'index'])->middleware('permission:requests.view');
+
     // Request management routes
     Route::get('/requests', [RequestController::class, 'index'])->middleware('permission:requests.view');
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');

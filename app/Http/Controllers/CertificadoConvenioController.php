@@ -142,26 +142,14 @@ class CertificadoConvenioController extends Controller
                 ], 404);
             }
 
-            // Intentar encontrar el archivo en los discos disponibles
-            $disks = ['prosalud-private', 'local'];
-            $storage = null;
-            $disk = null;
+            // Generar URL temporal usando el método privado
+            $urlData = $this->generarUrlTemporalCertificado($certificado);
             
-            foreach ($disks as $diskName) {
-                $testStorage = Storage::disk($diskName);
-                if ($testStorage->exists($certificado->storage_path)) {
-                    $storage = $testStorage;
-                    $disk = $diskName;
-                    break;
-                }
-            }
-            
-            if (!$storage || !$disk) {
-                Log::error('Certificado encontrado en BD pero archivo no existe en storage', [
+            if (!$urlData['pdf_url']) {
+                Log::error('Certificado encontrado en BD pero no se pudo generar URL', [
                     'documento' => $documento,
                     'consecutivo' => $consecutivo,
                     'storage_path' => $certificado->storage_path,
-                    'disks_tried' => $disks,
                 ]);
 
                 return response()->json([
@@ -170,46 +158,8 @@ class CertificadoConvenioController extends Controller
                 ], 404);
             }
 
-            // Generar URL temporal firmada (válida por 1 hora)
-            $urlTemporal = null;
-            $urlExpiresAt = null;
-
-            try {
-                // Intentar generar URL temporal (soportado por S3 y otros drivers)
-                try {
-                    if (method_exists($storage, 'temporaryUrl')) {
-                        $urlTemporal = call_user_func([$storage, 'temporaryUrl'], $certificado->storage_path, now()->addHours(1));
-                        $urlExpiresAt = now()->addHours(1)->toIso8601String();
-                    } else {
-                        throw new \Exception('Método temporaryUrl no disponible');
-                    }
-                } catch (\Exception $tempUrlError) {
-                    // Si falla la URL temporal, intentar URL directa
-                    Log::warning('No se pudo generar URL temporal, usando URL directa', [
-                        'error' => $tempUrlError->getMessage(),
-                    ]);
-                    try {
-                        if (method_exists($storage, 'url')) {
-                            $urlTemporal = call_user_func([$storage, 'url'], $certificado->storage_path);
-                        } else {
-                            throw new \Exception('Método url no disponible');
-                        }
-                    } catch (\Exception $urlError) {
-                        throw new \Exception("No se pudo generar URL para el archivo: " . $urlError->getMessage());
-                    }
-                }
-            } catch (\Exception $e) {
-                Log::error('Error generando URL para certificado', [
-                    'documento' => $documento,
-                    'consecutivo' => $consecutivo,
-                    'error' => $e->getMessage(),
-                ]);
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Error al generar URL de acceso al certificado.',
-                ], 500);
-            }
+            $urlTemporal = $urlData['pdf_url'];
+            $urlExpiresAt = $urlData['url_expires_at'];
 
             return response()->json([
                 'success' => true,
@@ -232,6 +182,105 @@ class CertificadoConvenioController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al consultar el certificado: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Lista los certificados de convenio generados con filtros opcionales
+     * Permite filtrar por documento, consecutivo y rango de fechas
+     */
+    public function index(Request $request): JsonResponse
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'documento' => 'nullable|string',
+                'consecutivo' => 'nullable|string',
+                'fecha_desde' => 'nullable|date|date_format:Y-m-d',
+                'fecha_hasta' => 'nullable|date|date_format:Y-m-d|after_or_equal:fecha_desde',
+                'page' => 'nullable|integer|min:1',
+                'per_page' => 'nullable|integer|min:1|max:100',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $query = CertificadoConvenioRecord::query();
+
+            // Filtro por número de documento
+            if ($request->has('documento') && $request->filled('documento')) {
+                $documento = trim($request->input('documento'));
+                $query->where('document_number', 'like', "%{$documento}%");
+            }
+
+            // Filtro por consecutivo
+            if ($request->has('consecutivo') && $request->filled('consecutivo')) {
+                $consecutivo = trim($request->input('consecutivo'));
+                $query->where('consecutivo', 'like', "%{$consecutivo}%");
+            }
+
+            // Filtro por rango de fechas
+            $fechaDesde = $request->input('fecha_desde');
+            $fechaHasta = $request->input('fecha_hasta');
+            
+            if ($fechaDesde || $fechaHasta) {
+                $query->byFechaRango($fechaDesde, $fechaHasta);
+            }
+
+            // Ordenar por fecha de generación (más recientes primero)
+            $query->orderBy('generated_at', 'desc');
+
+            // Paginación
+            $perPage = $request->input('per_page', 15);
+            $certificados = $query->paginate($perPage);
+
+            // Formatear los resultados con URLs temporales
+            $certificadosFormateados = $certificados->getCollection()->map(function ($certificado) {
+                $urlData = $this->generarUrlTemporalCertificado($certificado);
+                
+                return [
+                    'id' => $certificado->id,
+                    'document_number' => $certificado->document_number,
+                    'consecutivo' => $certificado->consecutivo,
+                    'generated_at' => $certificado->generated_at->format('Y-m-d H:i:s'),
+                    'generated_at_formatted' => $certificado->generated_at->format('d/m/Y H:i:s'),
+                    'storage_path' => $certificado->storage_path,
+                    'pdf_url' => $urlData['pdf_url'] ?? null,
+                    'url_expires_at' => $urlData['url_expires_at'] ?? null,
+                ];
+            });
+
+            Log::info('Lista de certificados de convenio consultada', [
+                'total' => $certificados->total(),
+                'filters' => $request->only(['documento', 'consecutivo', 'fecha_desde', 'fecha_hasta']),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $certificadosFormateados,
+                'pagination' => [
+                    'total' => $certificados->total(),
+                    'per_page' => $certificados->perPage(),
+                    'current_page' => $certificados->currentPage(),
+                    'last_page' => $certificados->lastPage(),
+                    'from' => $certificados->firstItem(),
+                    'to' => $certificados->lastItem(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error consultando lista de certificados de convenio', [
+                'filters' => $request->only(['documento', 'consecutivo', 'fecha_desde', 'fecha_hasta']),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al consultar los certificados: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -297,6 +346,84 @@ class CertificadoConvenioController extends Controller
                 'message' => 'Error al procesar la solicitud: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Genera una URL temporal para un certificado
+     * Retorna la URL y la fecha de expiración, o null si hay error
+     * 
+     * @param CertificadoConvenioRecord $certificado
+     * @return array{pdf_url: string|null, url_expires_at: string|null}
+     */
+    private function generarUrlTemporalCertificado(CertificadoConvenioRecord $certificado): array
+    {
+        // Intentar encontrar el archivo en los discos disponibles
+        $disks = ['prosalud-private', 'local'];
+        $storage = null;
+        
+        foreach ($disks as $diskName) {
+            $testStorage = Storage::disk($diskName);
+            if ($testStorage->exists($certificado->storage_path)) {
+                $storage = $testStorage;
+                break;
+            }
+        }
+        
+        if (!$storage) {
+            Log::warning('Archivo de certificado no encontrado en storage', [
+                'certificado_id' => $certificado->id,
+                'storage_path' => $certificado->storage_path,
+            ]);
+            return ['pdf_url' => null, 'url_expires_at' => null];
+        }
+
+        $urlTemporal = null;
+        $urlExpiresAt = null;
+
+        try {
+            // Intentar generar URL temporal (soportado por S3 y otros drivers)
+            try {
+                if (method_exists($storage, 'temporaryUrl')) {
+                    $expiresAt = now()->addHours(1);
+                    $urlTemporal = call_user_func([$storage, 'temporaryUrl'], $certificado->storage_path, $expiresAt);
+                    $urlExpiresAt = $expiresAt->toIso8601String();
+                } else {
+                    throw new \Exception('Método temporaryUrl no disponible');
+                }
+            } catch (\Exception $tempUrlError) {
+                // Si falla la URL temporal, intentar URL directa
+                Log::warning('No se pudo generar URL temporal, usando URL directa', [
+                    'certificado_id' => $certificado->id,
+                    'error' => $tempUrlError->getMessage(),
+                ]);
+                try {
+                    if (method_exists($storage, 'url')) {
+                        $urlTemporal = call_user_func([$storage, 'url'], $certificado->storage_path);
+                        // Las URLs directas no tienen expiración
+                        $urlExpiresAt = null;
+                    } else {
+                        throw new \Exception('Método url no disponible');
+                    }
+                } catch (\Exception $urlError) {
+                    Log::error('Error generando URL para certificado', [
+                        'certificado_id' => $certificado->id,
+                        'error' => $urlError->getMessage(),
+                    ]);
+                    return ['pdf_url' => null, 'url_expires_at' => null];
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Error generando URL para certificado', [
+                'certificado_id' => $certificado->id,
+                'error' => $e->getMessage(),
+            ]);
+            return ['pdf_url' => null, 'url_expires_at' => null];
+        }
+
+        return [
+            'pdf_url' => $urlTemporal,
+            'url_expires_at' => $urlExpiresAt,
+        ];
     }
 
 }
