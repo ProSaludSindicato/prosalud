@@ -159,19 +159,39 @@ class UserController extends Controller
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
         $userData = $request->validated();
+        
+        // Extract role if provided
+        $role = $userData['role'] ?? null;
+        if (isset($userData['role'])) {
+            unset($userData['role']);
+        }
 
         $user->update($userData);
+
+        // Update role if provided
+        if ($role !== null) {
+            // Remove all existing roles and assign the new one
+            $user->syncRoles([$role]);
+        }
 
         Log::info('Usuario actualizado exitosamente', [
             'user_id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
             'is_active' => $user->is_active,
+            'role' => $role ?? $user->roles->first()?->name ?? null,
             'updated_at' => $user->updated_at,
         ]);
 
         // Refresh roles relationship
         $user->load('roles');
+
+        $this->auditLogService->logAdministrativeAction('user_updated', $this->auditLogService->addRequestContext($request, [
+            'target_user_id' => $user->id,
+            'target_user_email' => $user->email,
+            'target_user_name' => $user->name,
+            'assigned_role' => $role ?? $user->roles->first()?->name ?? null,
+        ]));
 
         return response()->json([
             'success' => true,

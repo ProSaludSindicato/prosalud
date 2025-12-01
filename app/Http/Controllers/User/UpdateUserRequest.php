@@ -30,6 +30,7 @@ class UpdateUserRequest extends FormRequest
             'email' => 'sometimes|required|email|unique:users,email,' . $userId . '|max:255',
             'password' => ['sometimes', 'required', 'string', 'max:128', 'confirmed', new SecurePassword()],
             'is_active' => 'sometimes|boolean',
+            'role' => 'sometimes|string|exists:roles,name',
         ];
     }
 
@@ -51,6 +52,8 @@ class UpdateUserRequest extends FormRequest
             'password.max' => 'La contraseña es demasiado larga.',
             'password.confirmed' => 'La confirmación de contraseña no coincide.',
             'is_active.boolean' => 'El estado activo debe ser verdadero o falso.',
+            'role.string' => 'El rol debe ser una cadena de texto.',
+            'role.exists' => 'El rol seleccionado no existe.',
         ];
     }
 
@@ -64,6 +67,7 @@ class UpdateUserRequest extends FormRequest
             'email' => 'correo electrónico',
             'password' => 'contraseña',
             'is_active' => 'estado activo',
+            'role' => 'rol',
         ];
     }
 
