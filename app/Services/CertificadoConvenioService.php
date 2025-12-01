@@ -29,6 +29,8 @@ class CertificadoConvenioService
      */
     public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null): array
     {
+        $startTime = microtime(true);
+        
         // Obtener información del afiliado primero para tener los datos necesarios
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
         if (!$afiliadoData) {
@@ -69,6 +71,14 @@ class CertificadoConvenioService
                 $fechaCertificado,
                 $afiliadoData
             );
+
+            // Agregar métricas en el procesamiento
+            Log::info('Recursos utilizados durante generación de certificado', [
+                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB',
+                'execution_time' => round(microtime(true) - $startTime, 2) . ' segundos',
+                'documento' => $documento,
+                'consecutivo' => $consecutivo,
+            ]);
 
             return [
                 'ruta' => $rutaPDF,
@@ -522,7 +532,7 @@ class CertificadoConvenioService
         $destinatario = trim($dirigidoAEntidad ?? '');
         $destinatarioCompleto = empty($destinatario)
             ? 'A quien corresponda.'
-            : "Señores {$destinatario}";
+            : "Señores\n{$destinatario}";
 
         // Generar lista de convenios formateada
         $listaConvenios = $this->generarListaConvenios($todosLosConvenios, $convenio);
