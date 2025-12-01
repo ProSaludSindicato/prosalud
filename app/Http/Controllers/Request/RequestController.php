@@ -6,7 +6,6 @@ use App\Constants\{RequestStatuses, RequestTypes};
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\RespondToRequestRequest;
-use App\Jobs\ProcessCertificadoConvenioJob;
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestSubtypeAssignment, RequestTypeAssignment};
 use App\Services\{AuditLogService, CertificadoConvenioAutomaticoService, RequestAssignmentService, RequestExcelExportService};
@@ -123,14 +122,31 @@ class RequestController extends Controller
             $debeProcesarAutomatico = $this->debeProcesarCertificadoAutomatico($requestForm);
             
             if ($debeProcesarAutomatico) {
-                Log::info('Certificado de convenio simple detectado, encolando procesamiento automático', [
+                Log::info('Certificado de convenio simple detectado, iniciando procesamiento automático', [
                     'request_id' => $requestForm->id,
                     'documento' => $requestForm->document_number,
                 ]);
 
-                // Encolar el procesamiento automático del certificado
-                // El Job se procesará de forma asíncrona mediante queue:work
-                ProcessCertificadoConvenioJob::dispatch($requestForm->id);
+                // Procesar de forma asíncrona después de enviar la respuesta HTTP
+                // Esto no requiere workers independientes
+                $certificadoService = $this->certificadoAutomaticoService;
+                $requestFormId = $requestForm->id;
+                
+                dispatch(function () use ($certificadoService, $requestFormId) {
+                    try {
+                        // Recargar el RequestForm desde la BD para asegurar que tenemos la versión más reciente
+                        $requestFormActualizado = RequestForm::find($requestFormId);
+                        if ($requestFormActualizado) {
+                            $certificadoService->procesarConRequestFormExistente($requestFormActualizado);
+                        }
+                    } catch (\Throwable $e) {
+                        Log::error('Error en procesamiento automático de certificado (background)', [
+                            'request_id' => $requestFormId,
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString(),
+                        ]);
+                    }
+                })->afterResponse();
             }
         }
 
