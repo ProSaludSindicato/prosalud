@@ -14,7 +14,8 @@ class CertificadoConvenioService
     private const TEMP_DIR = 'temp';
 
     public function __construct(
-        private readonly AfiliadoService $afiliadoService
+        private readonly AfiliadoService $afiliadoService,
+        private readonly ExcelReaderService $excelReaderService
     ) {
     }
 
@@ -25,12 +26,13 @@ class CertificadoConvenioService
      *
      * @param string $documento Número de documento del afiliado
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      * @return array
      */
-    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null): array
+    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null): array
     {
         $startTime = microtime(true);
-        
+
         // Obtener información del afiliado primero para tener los datos necesarios
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
         if (!$afiliadoData) {
@@ -41,8 +43,8 @@ class CertificadoConvenioService
         $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
         $consecutivo = $this->generarConsecutivo($fechaCertificado);
 
-        // Primero generar el Word desde la plantilla (pasar el consecutivo y destinatario para mantener consistencia)
-        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad);
+        // Primero generar el Word desde la plantilla (pasar el consecutivo, destinatario y compensaciones para mantener consistencia)
+        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones);
 
         try {
             // Convertir Word a PDF usando CloudConvert
@@ -109,9 +111,10 @@ class CertificadoConvenioService
      * @param string $documento Número de documento del afiliado
      * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      * @return array
      */
-    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
+    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null): array
     {
         // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
         // Esto evita problemas de zona horaria y cambios de día entre llamadas
@@ -129,8 +132,8 @@ class CertificadoConvenioService
             $consecutivo = $this->generarConsecutivo($fechaCertificado);
         }
 
-        // Preparar datos (pasar la fecha capturada, el consecutivo y el destinatario)
-        $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad);
+        // Preparar datos (pasar la fecha capturada, el consecutivo, el destinatario y las compensaciones)
+        $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad, $compensaciones);
 
         // Cargar plantilla
         $templatePath = $this->obtenerRutaPlantilla();
@@ -468,9 +471,10 @@ class CertificadoConvenioService
      * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
      * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      * @return array
      */
-    private function prepararDatosCertificado(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
+    private function prepararDatosCertificado(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null): array
     {
         $afiliado = $afiliadoData['afiliado'];
         $convenio = $afiliadoData['convenio'] ?? null;
@@ -546,6 +550,32 @@ class CertificadoConvenioService
             $consecutivo = $this->generarConsecutivo($fechaCertificado);
         }
 
+        // Generar mensaje de compensaciones si están disponibles (en dos partes separadas)
+        $mensajeCompensacionesParte1 = '';
+        $mensajeCompensacionesParte2 = '';
+        if ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
+            Log::info('Compensaciones recibidas en prepararDatosCertificado', [
+                'compensaciones' => $compensaciones,
+                't_basicos' => $compensaciones['t_basicos'],
+                't_auxilios' => $compensaciones['t_auxilios'],
+                't_ingresos' => $compensaciones['t_ingresos'],
+            ]);
+
+            $mensajeCompensaciones = $this->generarMensajeCompensaciones(
+                (int) $compensaciones['t_basicos'],
+                (int) $compensaciones['t_auxilios'],
+                (int) $compensaciones['t_ingresos']
+            );
+
+            $mensajeCompensacionesParte1 = $mensajeCompensaciones['parte1'] ?? '';
+            $mensajeCompensacionesParte2 = $mensajeCompensaciones['parte2'] ?? '';
+        } else {
+            Log::warning('Compensaciones no disponibles o incompletas en prepararDatosCertificado', [
+                'compensaciones' => $compensaciones,
+                'tiene_compensaciones' => !empty($compensaciones),
+            ]);
+        }
+
         return [
             'NOMBRE_COMPLETO' => $nombreCompleto,
             'DOCUMENTO' => $documento,
@@ -573,6 +603,8 @@ class CertificadoConvenioService
             'DESTINATARIO_COMPLETO' => $destinatarioCompleto, // "A quien corresponda." o "Señores [nombre]"
             'LISTA_CONVENIOS' => $listaConvenios, // Lista formateada de todos los convenios
             'UN_CONVENIO_VARIOS_CONVENIOS' => $unConvenioVariosConvenios, // "un Convenio" o "varios Convenios" (según cantidad)
+            'MENSAJE_COMPENSACIONES_PARTE1' => $mensajeCompensacionesParte1, // Primera parte: "Con una compensación Básica mensual variable de $X, auxilios por $Y, para un"
+            'MENSAJE_COMPENSACIONES_PARTE2' => $mensajeCompensacionesParte2, // Segunda parte: "Total de $X. En Letras: [número en letras] pesos."
         ];
     }
 
@@ -1116,6 +1148,177 @@ class CertificadoConvenioService
         ]);
 
         return $record;
+    }
+
+    /**
+     * Genera el mensaje de compensaciones para el certificado
+     * Retorna un array con dos partes separadas para usar en diferentes placeholders
+     *
+     * @param int $tBasicos Valor de T. Basicos
+     * @param int $tAuxilios Valor de T. Auxilios
+     * @param int $tIngresos Valor de T. Ingresos (Total)
+     * @return array ['parte1' => string, 'parte2' => string]
+     */
+    private function generarMensajeCompensaciones(int $tBasicos, int $tAuxilios, int $tIngresos): array
+    {
+        Log::info('Generando mensaje de compensaciones', [
+            't_basicos' => $tBasicos,
+            't_auxilios' => $tAuxilios,
+            't_ingresos' => $tIngresos,
+        ]);
+
+        // Formatear valores con separadores de miles (puntos)
+        $tBasicosFormateado = number_format($tBasicos, 0, ',', '.');
+        $tAuxiliosFormateado = number_format($tAuxilios, 0, ',', '.');
+        $tIngresosFormateado = number_format($tIngresos, 0, ',', '.');
+
+        Log::info('Valores formateados para mensaje', [
+            't_basicos_formateado' => $tBasicosFormateado,
+            't_auxilios_formateado' => $tAuxiliosFormateado,
+            't_ingresos_formateado' => $tIngresosFormateado,
+        ]);
+
+        // Convertir total a letras
+        $totalEnLetras = $this->numeroALetras($tIngresos);
+
+        Log::info('Total en letras generado', [
+            'total_numerico' => $tIngresos,
+            'total_letras' => $totalEnLetras,
+        ]);
+
+        // Construir primera parte: "Con una compensación Básica mensual variable de $X, auxilios por $Y, para un"
+        $parte1 = "Con una compensación Básica mensual variable de \${$tBasicosFormateado}";
+
+        if ($tAuxilios > 0) {
+            $parte1 .= ", auxilios por \${$tAuxiliosFormateado}";
+        }
+
+        $parte1 .= ", para un";
+
+        // Construir segunda parte: "Total de $X. En letras: [número en letras] pesos."
+        $parte2 = "Total de \${$tIngresosFormateado}. En letras: {$totalEnLetras} pesos.";
+
+        Log::info('Mensaje de compensaciones generado (dos partes)', [
+            'parte1' => $parte1,
+            'parte2' => $parte2,
+        ]);
+
+        return [
+            'parte1' => $parte1,
+            'parte2' => $parte2,
+        ];
+    }
+
+    /**
+     * Convierte un número a letras en español
+     *
+     * @param int $numero Número a convertir
+     * @return string Número en letras
+     */
+    private function numeroALetras(int $numero): string
+    {
+        if ($numero == 0) {
+            return 'cero';
+        }
+
+        $millones = intval($numero / 1000000);
+        $miles = intval(($numero % 1000000) / 1000);
+        $unidades = $numero % 1000;
+
+        $resultado = '';
+
+        // Millones
+        if ($millones > 0) {
+            if ($millones == 1) {
+                $resultado .= 'un millón';
+            } else {
+                $resultado .= $this->convertirUnidades($millones) . ' millones';
+            }
+            if ($miles > 0 || $unidades > 0) {
+                $resultado .= ' ';
+            }
+        }
+
+        // Miles
+        if ($miles > 0) {
+            if ($miles == 1) {
+                $resultado .= 'mil';
+            } else {
+                $resultado .= $this->convertirUnidades($miles) . ' mil';
+            }
+            if ($unidades > 0) {
+                $resultado .= ' ';
+            }
+        }
+
+        // Unidades
+        if ($unidades > 0) {
+            $resultado .= $this->convertirUnidades($unidades);
+        }
+
+        return trim($resultado);
+    }
+
+    /**
+     * Convierte un número de 0 a 999 a letras
+     *
+     * @param int $numero Número entre 0 y 999
+     * @return string Número en letras
+     */
+    private function convertirUnidades(int $numero): string
+    {
+        if ($numero == 0) {
+            return '';
+        }
+
+        $unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+        $especiales = [
+            10 => 'diez', 11 => 'once', 12 => 'doce', 13 => 'trece', 14 => 'catorce',
+            15 => 'quince', 16 => 'dieciséis', 17 => 'diecisiete', 18 => 'dieciocho',
+            19 => 'diecinueve', 20 => 'veinte', 21 => 'veintiuno', 22 => 'veintidós',
+            23 => 'veintitrés', 24 => 'veinticuatro', 25 => 'veinticinco', 26 => 'veintiséis',
+            27 => 'veintisiete', 28 => 'veintiocho', 29 => 'veintinueve'
+        ];
+        $decenas = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+        $centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+
+        $resultado = '';
+
+        // Centenas
+        $centena = intval($numero / 100);
+        $resto = $numero % 100;
+
+        if ($centena > 0) {
+            if ($centena == 1 && $resto == 0) {
+                $resultado = 'cien';
+            } else {
+                $resultado = $centenas[$centena];
+            }
+            if ($resto > 0) {
+                $resultado .= ' ';
+            }
+        }
+
+        // Decenas y unidades
+        if ($resto > 0) {
+            if (isset($especiales[$resto])) {
+                $resultado .= $especiales[$resto];
+            } else {
+                $decena = intval($resto / 10);
+                $unidad = $resto % 10;
+
+                if ($decena > 0) {
+                    $resultado .= $decenas[$decena];
+                    if ($unidad > 0) {
+                        $resultado .= ' y ' . $unidades[$unidad];
+                    }
+                } else {
+                    $resultado .= $unidades[$unidad];
+                }
+            }
+        }
+
+        return trim($resultado);
     }
 }
 

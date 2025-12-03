@@ -38,6 +38,7 @@ Route::get('/delegados/by-sede', [DelegadosController::class, 'getBySede']);
 Route::get('/delegados/by-cedula', [DelegadosController::class, 'getByCedula']);
 Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupedBySede']);
 Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
+Route::post('/afiliados/authenticate-for-data-update', [AfiliadoController::class, 'authenticateForDataUpdate']);
 Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp']);
 Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
 

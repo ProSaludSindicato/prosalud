@@ -12,6 +12,7 @@ class ExcelReaderService
     private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
     private const DELEGADOS_FILE_PATH = 'data/DELEGADOS.xlsx';
     private const ASAMBLEA_DELEGADOS_FILE_PATH = 'data/ASAMBLEA_DELEGADOS_PROSALUD.xlsx';
+    private const COMPENSACIONES_FILE_PATH = 'data/COMPENSACIONES_AFILIADOS_ACTIVOS.xlsx';
 
     private const PRIMARY_STORAGE_DISK = 'prosalud-private';
     private const FALLBACK_STORAGE_DISK = 'local';
@@ -752,5 +753,226 @@ class ExcelReaderService
         }
 
         return false;
+    }
+
+    /**
+     * Read the compensaciones Excel file from public directory.
+     */
+    public function readCompensacionesFile(): array
+    {
+        try {
+            $filePath = public_path(self::COMPENSACIONES_FILE_PATH);
+            
+            if (!file_exists($filePath)) {
+                Log::error('Archivo de compensaciones no encontrado', [
+                    'file_path' => $filePath,
+                ]);
+                return [];
+            }
+
+            $spreadsheet = IOFactory::load($filePath);
+            $worksheet = $spreadsheet->getActiveSheet();
+            $data = $worksheet->toArray();
+
+            Log::info('Archivo de compensaciones leído exitosamente', [
+                'rows_count' => count($data),
+                'file_path' => $filePath,
+            ]);
+
+            return $data;
+        } catch (SpreadsheetException $e) {
+            Log::error('Error al procesar archivo Excel de compensaciones', [
+                'error' => $e->getMessage(),
+                'file_path' => self::COMPENSACIONES_FILE_PATH,
+            ]);
+
+            return [];
+        } catch (\Throwable $e) {
+            Log::error('Error inesperado al leer archivo de compensaciones', [
+                'error' => $e->getMessage(),
+                'file_path' => self::COMPENSACIONES_FILE_PATH,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Check if the compensaciones Excel file exists and is readable.
+     */
+    public function isCompensacionesFileAvailable(): bool
+    {
+        $filePath = public_path(self::COMPENSACIONES_FILE_PATH);
+        return file_exists($filePath) && is_readable($filePath);
+    }
+
+    /**
+     * Search for compensation data by documento (row label).
+     * Returns compensation data if found: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     */
+    public function buscarCompensacionPorDocumento(string $documento): ?array
+    {
+        try {
+            Log::info('Iniciando búsqueda de compensación por documento', [
+                'documento_original' => $documento,
+            ]);
+
+            $data = $this->readCompensacionesFile();
+
+            if (empty($data)) {
+                Log::warning('Archivo de compensaciones vacío o no se pudo leer', [
+                    'documento' => $documento,
+                ]);
+                return null;
+            }
+
+            // Normalizar documento (remover puntos, espacios, etc.)
+            $documentoNormalizado = $this->normalizeDocumento($documento);
+
+            Log::info('Buscando documento normalizado en Excel de compensaciones', [
+                'documento_original' => $documento,
+                'documento_normalizado' => $documentoNormalizado,
+                'total_filas' => count($data) - 1, // -1 para excluir header
+            ]);
+
+            // Skip header row (assuming first row is header)
+            $rows = array_slice($data, 1);
+            $rowsRevisadas = 0;
+            $muestrasDocumentos = [];
+
+            foreach ($rows as $index => $row) {
+                // Check if row has enough columns
+                // Columns: Etiquetas de fila (documento), T. Basicos, T. Auxilios, T. Ingresos
+                if (count($row) < 4) {
+                    continue;
+                }
+
+                $rowDocumento = trim($row[0] ?? '');
+                $rowDocumentoNormalizado = $this->normalizeDocumento($rowDocumento);
+
+                // Guardar muestras de los primeros documentos para debugging
+                if ($index < 5) {
+                    $muestrasDocumentos[] = [
+                        'original' => $rowDocumento,
+                        'normalizado' => $rowDocumentoNormalizado,
+                        't_basicos_raw' => $row[1] ?? null,
+                        't_auxilios_raw' => $row[2] ?? null,
+                        't_ingresos_raw' => $row[3] ?? null,
+                    ];
+                }
+
+                if ($rowDocumentoNormalizado === $documentoNormalizado) {
+                    // Extraer valores numéricos de las columnas
+                    $tBasicosRaw = $row[1] ?? 0;
+                    $tAuxiliosRaw = $row[2] ?? 0;
+                    $tIngresosRaw = $row[3] ?? 0;
+
+                    $tBasicos = $this->normalizeNumericValue($tBasicosRaw);
+                    $tAuxilios = $this->normalizeNumericValue($tAuxiliosRaw);
+                    $tIngresos = $this->normalizeNumericValue($tIngresosRaw);
+
+                    Log::info('Compensación encontrada en Excel', [
+                        'documento' => $documento,
+                        'documento_normalizado' => $documentoNormalizado,
+                        't_basicos_raw' => $tBasicosRaw,
+                        't_basicos' => $tBasicos,
+                        't_auxilios_raw' => $tAuxiliosRaw,
+                        't_auxilios' => $tAuxilios,
+                        't_ingresos_raw' => $tIngresosRaw,
+                        't_ingresos' => $tIngresos,
+                        'fila_encontrada' => $index + 2, // +2 porque empezamos en índice 0 y saltamos header
+                        'rows_revisadas' => $rowsRevisadas + 1,
+                    ]);
+
+                    return [
+                        't_basicos' => $tBasicos,
+                        't_auxilios' => $tAuxilios,
+                        't_ingresos' => $tIngresos,
+                    ];
+                }
+
+                $rowsRevisadas++;
+            }
+
+            Log::warning('Documento no encontrado en Excel de compensaciones', [
+                'documento' => $documento,
+                'documento_normalizado' => $documentoNormalizado,
+                'total_rows_revisadas' => $rowsRevisadas,
+                'muestras_documentos' => $muestrasDocumentos,
+            ]);
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Error al buscar compensación por documento', [
+                'error' => $e->getMessage(),
+                'documento' => $documento,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Normaliza un documento removiendo puntos, espacios y caracteres especiales.
+     */
+    private function normalizeDocumento($value): string
+    {
+        if (null === $value || '' === $value) {
+            return '';
+        }
+
+        // Convertir a string, remover puntos, espacios y guiones
+        $normalized = preg_replace('/[.\s-]/', '', (string) $value);
+
+        return trim($normalized);
+    }
+
+    /**
+     * Normaliza un valor numérico removiendo separadores de miles.
+     */
+    private function normalizeNumericValue($value): int
+    {
+        if (null === $value || '' === $value) {
+            return 0;
+        }
+
+        // Si es numérico directo (puede ser float de Excel), retornar
+        if (is_numeric($value)) {
+            $resultado = (int) round($value);
+            return $resultado;
+        }
+
+        // Si es string con formato de número (puede tener puntos o comas como separadores de miles)
+        $valueString = (string) $value;
+        
+        // Remover todos los separadores de miles: puntos, comas y espacios
+        // Tanto el formato colombiano (puntos) como estadounidense (comas) como formato estándar
+        // Usar str_replace para asegurar que se remuevan todos los caracteres
+        $normalized = str_replace([',', '.', ' '], '', $valueString);
+        
+        // También intentar con trim por si acaso
+        $normalized = trim($normalized);
+        
+        if (is_numeric($normalized) && $normalized !== '') {
+            $resultado = (int) round((float) $normalized);
+            Log::info('Valor numérico normalizado exitosamente', [
+                'value_original' => $value,
+                'value_string' => $valueString,
+                'value_normalized' => $normalized,
+                'resultado' => $resultado,
+            ]);
+            return $resultado;
+        }
+
+        Log::warning('No se pudo normalizar valor numérico', [
+            'value' => $value,
+            'type' => gettype($value),
+            'value_string' => $valueString,
+            'normalized_attempt' => $normalized ?? null,
+        ]);
+
+        return 0;
     }
 }

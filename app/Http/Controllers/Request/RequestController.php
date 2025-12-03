@@ -8,7 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\RespondToRequestRequest;
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestSubtypeAssignment, RequestTypeAssignment};
-use App\Services\{AuditLogService, CertificadoConvenioAutomaticoService, RequestAssignmentService, RequestExcelExportService};
+use App\Services\{AuditLogService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
+use App\Services\CertificadoConvenioService;
 use App\Http\Requests\ExportRequestsExcelRequest;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail, Storage};
@@ -22,6 +23,8 @@ class RequestController extends Controller
         private RequestAssignmentService $assignmentService,
         private RequestExcelExportService $excelExportService,
         private CertificadoConvenioAutomaticoService $certificadoAutomaticoService,
+        private ExcelReaderService $excelReaderService,
+        private CertificadoConvenioService $certificadoService,
     ) {
     }
 
@@ -118,10 +121,60 @@ class RequestController extends Controller
         }
 
         // Procesar automáticamente certificados de convenio simples (solo fecha ingreso/retiro y/o dirigido a entidad)
+        // O con compensaciones si el afiliado está activo y tiene registro en el Excel
         if (RequestTypes::CERTIFICADO_CONVENIO === $requestForm->request_type) {
             $debeProcesarAutomatico = $this->debeProcesarCertificadoAutomatico($requestForm);
+            $tieneValorCompensaciones = $this->tieneValorCompensaciones($requestForm);
             
-            if ($debeProcesarAutomatico) {
+            if ($tieneValorCompensaciones) {
+                // Verificar si se puede procesar automáticamente con compensaciones
+                $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
+                
+                if ($puedeProcesarConCompensaciones['puede_procesar']) {
+                    Log::info('Certificado de convenio con compensaciones detectado, iniciando procesamiento automático', [
+                        'request_id' => $requestForm->id,
+                        'documento' => $requestForm->document_number,
+                    ]);
+
+                    // Procesar de forma asíncrona después de enviar la respuesta HTTP
+                    $certificadoService = $this->certificadoAutomaticoService;
+                    $requestFormId = $requestForm->id;
+                    $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
+                    
+                    dispatch(function () use ($certificadoService, $requestFormId, $compensaciones) {
+                        try {
+                            Log::info('Ejecutando procesamiento automático de certificado con compensaciones (background)', [
+                                'request_id' => $requestFormId,
+                                'compensaciones_recibidas' => $compensaciones,
+                            ]);
+
+                            // Recargar el RequestForm desde la BD para asegurar que tenemos la versión más reciente
+                            $requestFormActualizado = RequestForm::find($requestFormId);
+                            if ($requestFormActualizado) {
+                                $certificadoService->procesarConRequestFormExistenteYCompensaciones($requestFormActualizado, $compensaciones);
+                            } else {
+                                Log::error('RequestForm no encontrado en background job', [
+                                    'request_id' => $requestFormId,
+                                ]);
+                            }
+                        } catch (\Throwable $e) {
+                            Log::error('Error en procesamiento automático de certificado con compensaciones (background)', [
+                                'request_id' => $requestFormId,
+                                'compensaciones' => $compensaciones,
+                                'error' => $e->getMessage(),
+                                'trace' => $e->getTraceAsString(),
+                            ]);
+                        }
+                    })->afterResponse();
+                } else {
+                    // No se puede procesar automáticamente, dejar pendiente
+                    Log::info('Certificado de convenio con compensaciones no puede procesarse automáticamente, quedará pendiente', [
+                        'request_id' => $requestForm->id,
+                        'documento' => $requestForm->document_number,
+                        'razon' => $puedeProcesarConCompensaciones['razon'] ?? 'desconocida',
+                    ]);
+                }
+            } elseif ($debeProcesarAutomatico) {
                 Log::info('Certificado de convenio simple detectado, iniciando procesamiento automático', [
                     'request_id' => $requestForm->id,
                     'documento' => $requestForm->document_number,
@@ -1263,6 +1316,133 @@ class RequestController extends Controller
 
         // Si tiene fechaIngresoRetiro o dirigidoAEntidad activo, procesar automáticamente
         return $fechaIngresoRetiro || $dirigidoAEntidad;
+    }
+
+    /**
+     * Verifica si el certificado tiene la opción de valor de compensaciones activa
+     */
+    private function tieneValorCompensaciones(RequestForm $requestForm): bool
+    {
+        $payload = $requestForm->payload ?? [];
+        
+        if (!isset($payload['infoCertificado'])) {
+            return false;
+        }
+
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            return false;
+        }
+
+        return !empty($infoCertificado['valorCompensaciones'] ?? false);
+    }
+
+    /**
+     * Verifica si se puede procesar automáticamente un certificado con compensaciones
+     * Retorna array con 'puede_procesar', 'compensaciones' y 'razon'
+     */
+    private function puedeProcesarCertificadoConCompensaciones(RequestForm $requestForm): array
+    {
+        $documento = $requestForm->document_number;
+        
+        // 1. Verificar que el afiliado esté activo
+        try {
+            $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($documento);
+            
+            if (!$afiliadoData) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Afiliado no encontrado',
+                    'compensaciones' => null,
+                ];
+            }
+
+            $estado = strtoupper(trim($afiliadoData['afiliado']['estado'] ?? ''));
+            $estaActivo = ($estado === 'ACTIVO' || $estado === 'ACTIVE');
+
+            if (!$estaActivo) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Afiliado no está activo',
+                    'compensaciones' => null,
+                ];
+            }
+
+            // 2. Buscar compensaciones en el Excel
+            Log::info('Buscando compensaciones en Excel para documento', [
+                'documento' => $documento,
+            ]);
+
+            $compensaciones = $this->excelReaderService->buscarCompensacionPorDocumento($documento);
+
+            Log::info('Resultado de búsqueda de compensaciones', [
+                'documento' => $documento,
+                'compensaciones_encontradas' => !empty($compensaciones),
+                'compensaciones' => $compensaciones,
+            ]);
+
+            if (!$compensaciones) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'No se encontró registro de compensaciones en el Excel',
+                    'compensaciones' => null,
+                ];
+            }
+
+            // 3. Verificar que los valores sean válidos
+            if (!isset($compensaciones['t_basicos']) || !isset($compensaciones['t_auxilios']) || !isset($compensaciones['t_ingresos'])) {
+                Log::warning('Datos de compensaciones incompletos', [
+                    'documento' => $documento,
+                    'compensaciones' => $compensaciones,
+                ]);
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Datos de compensaciones incompletos',
+                    'compensaciones' => null,
+                ];
+            }
+
+            // 4. Verificar que los valores no sean cero
+            if ($compensaciones['t_basicos'] == 0 && $compensaciones['t_auxilios'] == 0 && $compensaciones['t_ingresos'] == 0) {
+                Log::warning('Datos de compensaciones están en cero', [
+                    'documento' => $documento,
+                    'compensaciones' => $compensaciones,
+                ]);
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Los valores de compensaciones están en cero',
+                    'compensaciones' => null,
+                ];
+            }
+
+            Log::info('Compensaciones válidas encontradas, se puede procesar automáticamente', [
+                'documento' => $documento,
+                't_basicos' => $compensaciones['t_basicos'],
+                't_auxilios' => $compensaciones['t_auxilios'],
+                't_ingresos' => $compensaciones['t_ingresos'],
+            ]);
+
+            return [
+                'puede_procesar' => true,
+                'razon' => null,
+                'compensaciones' => $compensaciones,
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Error verificando compensaciones para certificado', [
+                'documento' => $documento,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'puede_procesar' => false,
+                'razon' => 'Error al verificar compensaciones: ' . $e->getMessage(),
+                'compensaciones' => null,
+            ];
+        }
     }
 
     /**

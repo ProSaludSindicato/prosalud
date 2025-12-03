@@ -22,6 +22,96 @@ class CertificadoConvenioAutomaticoService
     }
 
     /**
+     * Procesa una solicitud automática de certificado de convenio con un RequestForm existente y compensaciones
+     * Genera el certificado, envía correos y cierra la solicitud
+     *
+     * @param RequestForm $requestForm RequestForm ya creado
+     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @return array Resultado del proceso
+     */
+    public function procesarConRequestFormExistenteYCompensaciones(RequestForm $requestForm, ?array $compensaciones = null): array
+    {
+        DB::beginTransaction();
+
+        try {
+            Log::info('Iniciando procesamiento automático de certificado con compensaciones', [
+                'request_id' => $requestForm->id,
+                'documento' => $requestForm->document_number,
+                'tiene_compensaciones' => !empty($compensaciones),
+                'compensaciones' => $compensaciones,
+            ]);
+
+            // Extraer el valor de dirigidoAQuien del payload si existe
+            $dirigidoAEntidad = $this->extraerDirigidoAEntidad($requestForm);
+
+            Log::info('Valor de dirigidoAEntidad extraído del payload', [
+                'request_id' => $requestForm->id,
+                'dirigidoAEntidad' => $dirigidoAEntidad,
+                'payload' => $requestForm->payload,
+            ]);
+
+            // 1. Generar certificado PDF con el destinatario y compensaciones si están disponibles
+            $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
+                $requestForm->document_number,
+                $dirigidoAEntidad,
+                $compensaciones
+            );
+
+            Log::info('Certificado PDF generado para solicitud automática con compensaciones', [
+                'request_id' => $requestForm->id,
+                'consecutivo' => $resultadoCertificado['consecutivo'] ?? null,
+                'bucket_path' => $resultadoCertificado['bucket_path'] ?? null,
+            ]);
+
+            // 2. Guardar el PDF en los archivos de la solicitud para trazabilidad
+            $archivoMetadata = $this->guardarCertificadoEnSolicitud(
+                $requestForm->id,
+                $resultadoCertificado['ruta'],
+                $resultadoCertificado['nombre']
+            );
+
+            // Actualizar el RequestForm con el archivo
+            $files = $requestForm->files ?? [];
+            $files['certificado_convenio'] = $archivoMetadata;
+            $requestForm->files = $files;
+            $requestForm->save();
+
+            // 3. Crear respuesta automática y enviar correo con certificado
+            $this->crearYEnviarRespuestaAutomatica(
+                $requestForm,
+                $resultadoCertificado['ruta'],
+                $resultadoCertificado['nombre'],
+                $resultadoCertificado['consecutivo'] ?? ''
+            );
+
+            DB::commit();
+
+            Log::info('Solicitud automática de certificado con compensaciones procesada exitosamente', [
+                'request_id' => $requestForm->id,
+                'consecutivo' => $resultadoCertificado['consecutivo'] ?? null,
+            ]);
+
+            return [
+                'success' => true,
+                'request_id' => $requestForm->id,
+                'consecutivo' => $resultadoCertificado['consecutivo'] ?? null,
+                'status' => $requestForm->status,
+            ];
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Error procesando solicitud automática de certificado con compensaciones', [
+                'request_id' => $requestForm->id,
+                'documento' => $requestForm->document_number,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
      * Procesa una solicitud automática de certificado de convenio con un RequestForm existente
      * Genera el certificado, envía correos y cierra la solicitud
      *

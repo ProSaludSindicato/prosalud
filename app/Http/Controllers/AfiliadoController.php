@@ -370,6 +370,126 @@ class AfiliadoController extends Controller
     }
 
     /**
+     * Authenticate and get complete affiliate information for data update.
+     * This endpoint is specifically for the personal data update service in the frontend.
+     * It returns the same complete information as verifyOtp but without requiring OTP validation.
+     */
+    public function authenticateForDataUpdate(Request $request): JsonResponse
+    {
+        try {
+            // Validate input
+            $request->validate([
+                'tipo_documento' => 'required|string|max:50',
+                'documento' => 'required|string|max:50',
+                'fecha_expedicion' => 'required|string|max:50',
+            ]);
+
+            $tipoDocumento = trim($request->input('tipo_documento'));
+            $documento = trim($request->input('documento'));
+            $fechaExpedicion = trim($request->input('fecha_expedicion'));
+
+            // Log the authentication attempt
+            Log::info('Intento de autenticación de afiliado para actualización de datos', [
+                'tipo_documento' => $tipoDocumento,
+                'documento' => $documento,
+                'fecha_expedicion' => $fechaExpedicion,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Check if the file is available
+            if (!$this->afiliadoService->isFileAvailable()) {
+                Log::error('Archivo de afiliados no disponible para autenticación de actualización de datos');
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Servicio temporalmente no disponible',
+                ], 503);
+            }
+
+            // Get complete affiliate information
+            $afiliadoInfo = $this->afiliadoService->getCompleteAfiliadoInfo(
+                $tipoDocumento,
+                $documento,
+                $fechaExpedicion
+            );
+
+            if (null === $afiliadoInfo) {
+                Log::warning('Autenticación fallida para actualización de datos - afiliado no encontrado', [
+                    'tipo_documento' => $tipoDocumento,
+                    'documento' => $documento,
+                    'fecha_expedicion' => $fechaExpedicion,
+                    'ip_address' => $request->ip(),
+                    'timestamp' => now()->toISOString(),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Credenciales incorrectas o afiliado no encontrado',
+                ], 401);
+            }
+
+            // Obfuscate sensitive data in afiliado information, except email and phone
+            // This matches the behavior of verifyOtp for consistency
+            if (isset($afiliadoInfo['afiliado']) && is_array($afiliadoInfo['afiliado'])) {
+                $obfuscatedData = $this->obfuscationService->obfuscateAfiliadoData($afiliadoInfo['afiliado']);
+
+                // Restaurar correo y celular sin ofuscar (necesarios para actualización de datos)
+                if (isset($afiliadoInfo['afiliado']['correo_personal'])) {
+                    $obfuscatedData['correo_personal'] = $afiliadoInfo['afiliado']['correo_personal'];
+                }
+                if (isset($afiliadoInfo['afiliado']['celular'])) {
+                    $obfuscatedData['celular'] = $afiliadoInfo['afiliado']['celular'];
+                }
+
+                $afiliadoInfo['afiliado'] = $obfuscatedData;
+            }
+
+            // Log successful authentication
+            Log::info('Autenticación exitosa para actualización de datos', [
+                'documento' => $documento,
+                'ip_address' => $request->ip(),
+                'convenios_count' => count($afiliadoInfo['convenios'] ?? []),
+                'beneficiarios_count' => count($afiliadoInfo['beneficiarios'] ?? []),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Autenticación exitosa',
+                'data' => $afiliadoInfo,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Validación fallida en autenticación de afiliado para actualización de datos', [
+                'errors' => $e->errors(),
+                'ip_address' => $request->ip(),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Datos de entrada inválidos',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Error inesperado en autenticación de afiliado para actualización de datos', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'tipo_documento' => $request->input('tipo_documento'),
+                'documento' => $request->input('documento'),
+                'fecha_expedicion' => $request->input('fecha_expedicion'),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor',
+            ], 500);
+        }
+    }
+
+    /**
      * Obfuscate email address for display (more restrictive)
      * Example: juan.perez@example.com -> j***z@example.com
      * Example: juan@example.com -> j***n@example.com.
