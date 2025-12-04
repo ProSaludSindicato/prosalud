@@ -12,6 +12,7 @@ class CertificadoConvenioService
 {
     private const TEMPLATE_PATH = 'resources/templates/certificado_convenio_template.docx';
     private const TEMPLATE_PATH_BANCOLOMBIA = 'resources/templates/certificado_convenio_cuenta_bancolombia_template.docx';
+    private const TEMPLATE_PATH_SUBSIDIO_VIVIENDA = 'resources/templates/certificado_convenio_subsidio_vivienda_template.docx';
     private const TEMP_DIR = 'temp';
 
     public function __construct(
@@ -29,9 +30,10 @@ class CertificadoConvenioService
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
      * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
+     * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
      * @return array
      */
-    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false): array
+    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false): array
     {
         $startTime = microtime(true);
 
@@ -46,7 +48,7 @@ class CertificadoConvenioService
         $consecutivo = $this->generarConsecutivo($fechaCertificado);
 
         // Primero generar el Word desde la plantilla (pasar el consecutivo, destinatario y compensaciones para mantener consistencia)
-        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones, $esParaBancolombia);
+        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones, $esParaBancolombia, $esParaSubsidioVivienda);
 
         try {
             // Convertir Word a PDF usando CloudConvert
@@ -115,9 +117,10 @@ class CertificadoConvenioService
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
      * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
+     * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
      * @return array
      */
-    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false): array
+    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false): array
     {
         // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
         // Esto evita problemas de zona horaria y cambios de día entre llamadas
@@ -138,16 +141,20 @@ class CertificadoConvenioService
         // Preparar datos según el tipo de certificado
         if ($esParaBancolombia) {
             $datos = $this->prepararDatosCertificadoBancolombia($afiliadoData, $fechaCertificado, $consecutivo);
+        } elseif ($esParaSubsidioVivienda) {
+            $datos = $this->prepararDatosCertificadoSubsidioVivienda($afiliadoData, $fechaCertificado, $consecutivo, $compensaciones);
         } else {
             $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad, $compensaciones);
         }
 
         // Cargar plantilla según el tipo de certificado
-        $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia);
+        $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia, $esParaSubsidioVivienda);
         if (!file_exists($templatePath)) {
             $templateNombre = $esParaBancolombia
                 ? 'certificado_convenio_cuenta_bancolombia_template.docx'
-                : 'certificado_convenio_template.docx';
+                : ($esParaSubsidioVivienda
+                    ? 'certificado_convenio_subsidio_vivienda_template.docx'
+                    : 'certificado_convenio_template.docx');
             throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/{$templateNombre}");
         }
 
@@ -668,6 +675,121 @@ class CertificadoConvenioService
     }
 
     /**
+     * Prepara los datos del certificado específico para Subsidio de Vivienda
+     * Similar al certificado de convenio simple pero con formato especial para compensaciones
+     *
+     * @param array $afiliadoData
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
+     * @param string|null $consecutivo Número consecutivo
+     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @return array
+     */
+    private function prepararDatosCertificadoSubsidioVivienda(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?array $compensaciones = null): array
+    {
+        $afiliado = $afiliadoData['afiliado'];
+        $convenio = $afiliadoData['convenio'] ?? null;
+        $todosLosConvenios = $afiliadoData['todos_los_convenios'] ?? [];
+
+        // Usar la fecha proporcionada o capturar una nueva si no se proporciona
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+
+        // Formatear fechas
+        $fechaCertificadoFormateada = $this->formatearFechaEspanol($fechaCertificado);
+
+        // Nombre completo en mayúsculas
+        $nombreCompleto = strtoupper(
+            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+        );
+
+        // Documento formateado con puntos
+        $documento = $this->formatearDocumento($afiliado['documento'] ?? '');
+
+        // Hospital (transformar cliente)
+        $clienteRaw = $convenio['cliente'] ?? '';
+        $hospital = $this->transformarCliente($clienteRaw);
+
+        // Proceso
+        $proceso = $convenio['proceso'] ?? '';
+
+        // Campos adicionales
+        $sexo = $afiliado['sexo'] ?? '';
+        $estado = $afiliado['estado'] ?? '';
+
+        // Procesar condicionales basados en ESTADO
+        $estadoNormalizado = strtoupper(trim($estado));
+        $estaActivo = ($estadoNormalizado === 'ACTIVO' || $estadoNormalizado === 'ACTIVE');
+        $atiendeAtendio = $estaActivo ? 'atiende' : 'atendió';
+        $seEncuentraEstuvo = $estaActivo ? 'se encuentra' : 'estuvo';
+        $desarrollaActualmenteDesarrollo = $estaActivo ? 'desarrolla actualmente' : 'desarrolló';
+
+        // Generar lista de convenios formateada
+        $listaConvenios = $this->generarListaConvenios($todosLosConvenios, $convenio);
+
+        // Determinar si hay un convenio o varios
+        $cantidadConvenios = count($todosLosConvenios);
+        $unConvenioVariosConvenios = $cantidadConvenios === 1 ? 'un Convenio' : 'varios Convenios';
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Generar mensaje de compensaciones si están disponibles (en formato especial para subsidio de vivienda)
+        $mensajeCompensacionesParte1 = '';
+        $mensajeCompensacionesParte2 = '';
+        if ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
+            Log::info('Compensaciones recibidas en prepararDatosCertificadoSubsidioVivienda', [
+                'compensaciones' => $compensaciones,
+                't_basicos' => $compensaciones['t_basicos'],
+                't_auxilios' => $compensaciones['t_auxilios'],
+                't_ingresos' => $compensaciones['t_ingresos'],
+            ]);
+
+            $mensajeCompensaciones = $this->generarMensajeCompensacionesSubsidioVivienda(
+                (int) $compensaciones['t_basicos'],
+                (int) $compensaciones['t_auxilios'],
+                (int) $compensaciones['t_ingresos']
+            );
+
+            $mensajeCompensacionesParte1 = $mensajeCompensaciones['parte1'] ?? '';
+            $mensajeCompensacionesParte2 = $mensajeCompensaciones['parte2'] ?? '';
+        } else {
+            Log::warning('Compensaciones no disponibles o incompletas en prepararDatosCertificadoSubsidioVivienda', [
+                'compensaciones' => $compensaciones,
+                'tiene_compensaciones' => !empty($compensaciones),
+            ]);
+        }
+
+        Log::info('Preparando datos para certificado de Subsidio de Vivienda', [
+            'nombre_completo' => $nombreCompleto,
+            'documento' => $documento,
+            'fecha_certificado' => $fechaCertificadoFormateada,
+            'consecutivo' => $consecutivo,
+        ]);
+
+        return [
+            'NOMBRE_COMPLETO' => $nombreCompleto,
+            'DOCUMENTO' => $documento,
+            'HOSPITAL' => $hospital,
+            'PROCESO' => strtoupper($proceso),
+            'FECHA_CERTIFICADO' => $fechaCertificadoFormateada,
+            'DIA_CERTIFICADO' => $fechaCertificado->day,
+            'MES_CERTIFICADO' => $this->obtenerMesEspanol($fechaCertificado->month),
+            'ANIO_CERTIFICADO' => $fechaCertificado->year,
+            'CONSECUTIVO' => $consecutivo,
+            'SE_ENCUENTRA_ESTUVO' => $seEncuentraEstuvo,
+            'UN_CONVENIO_VARIOS_CONVENIOS' => $unConvenioVariosConvenios,
+            'DESARROLLA_ACTUALMENTE_DESARROLLO' => $desarrollaActualmenteDesarrollo,
+            'ATIENDE_ATENDIO' => $atiendeAtendio,
+            'LISTA_CONVENIOS' => $listaConvenios,
+            'MENSAJE_COMPENSACIONES_PARTE1' => $mensajeCompensacionesParte1,
+            'MENSAJE_COMPENSACIONES_PARTE2' => $mensajeCompensacionesParte2,
+        ];
+    }
+
+    /**
      * Formatea fecha en español
      */
     private function formatearFechaEspanol($fecha): string
@@ -1019,16 +1141,19 @@ class CertificadoConvenioService
      * Obtiene la ruta de la plantilla según el tipo de certificado
      *
      * @param bool $esParaBancolombia Indica si es para certificado de Bancolombia
+     * @param bool $esParaSubsidioVivienda Indica si es para certificado de subsidio de vivienda
      * @return string
      */
-    private function obtenerRutaPlantilla(bool $esParaBancolombia = false): string
+    private function obtenerRutaPlantilla(bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false): string
     {
         // Seleccionar la plantilla según el tipo de certificado
-        $templatePath = $esParaBancolombia
-            ? base_path(self::TEMPLATE_PATH_BANCOLOMBIA)
-            : base_path(self::TEMPLATE_PATH);
-
-        return $templatePath;
+        if ($esParaBancolombia) {
+            return base_path(self::TEMPLATE_PATH_BANCOLOMBIA);
+        } elseif ($esParaSubsidioVivienda) {
+            return base_path(self::TEMPLATE_PATH_SUBSIDIO_VIVIENDA);
+        } else {
+            return base_path(self::TEMPLATE_PATH);
+        }
     }
 
 
@@ -1270,6 +1395,67 @@ class CertificadoConvenioService
     }
 
     /**
+     * Genera el mensaje de compensaciones para el certificado de subsidio de vivienda
+     * Formato especial: "Con una compensación Básica mensual variable de $X, más los beneficios económicos que no hacen parte integral de la compensación Básica por $Y, para un"
+     * Retorna un array con dos partes separadas para usar en diferentes placeholders
+     *
+     * @param int $tBasicos Valor de T. Basicos
+     * @param int $tAuxilios Valor de T. Auxilios (beneficios económicos)
+     * @param int $tIngresos Valor de T. Ingresos (Total)
+     * @return array ['parte1' => string, 'parte2' => string]
+     */
+    private function generarMensajeCompensacionesSubsidioVivienda(int $tBasicos, int $tAuxilios, int $tIngresos): array
+    {
+        Log::info('Generando mensaje de compensaciones para subsidio de vivienda', [
+            't_basicos' => $tBasicos,
+            't_auxilios' => $tAuxilios,
+            't_ingresos' => $tIngresos,
+        ]);
+
+        // Formatear valores con separadores de miles (puntos)
+        $tBasicosFormateado = number_format($tBasicos, 0, ',', '.');
+        $tAuxiliosFormateado = number_format($tAuxilios, 0, ',', '.');
+        $tIngresosFormateado = number_format($tIngresos, 0, ',', '.');
+
+        Log::info('Valores formateados para mensaje de subsidio de vivienda', [
+            't_basicos_formateado' => $tBasicosFormateado,
+            't_auxilios_formateado' => $tAuxiliosFormateado,
+            't_ingresos_formateado' => $tIngresosFormateado,
+        ]);
+
+        // Convertir total a letras
+        $totalEnLetras = $this->numeroALetras($tIngresos);
+
+        Log::info('Total en letras generado para subsidio de vivienda', [
+            'total_numerico' => $tIngresos,
+            'total_letras' => $totalEnLetras,
+        ]);
+
+        // Construir primera parte con formato específico para subsidio de vivienda
+        // "Con una compensación Básica mensual variable de $X, más los beneficios económicos que no hacen parte integral de la compensación Básica por $Y, para un"
+        $parte1 = "Con una compensación Básica mensual variable de \${$tBasicosFormateado}";
+
+        if ($tAuxilios > 0) {
+            $parte1 .= ", más los beneficios económicos que no hacen parte integral de la compensación Básica por \${$tAuxiliosFormateado}";
+        }
+
+        $parte1 .= ", para un";
+
+        // Construir segunda parte: "Total de $X. En letras: [número en letras] pesos."
+        $parte2 = "Total de \${$tIngresosFormateado}. En letras: {$totalEnLetras} pesos.";
+
+        Log::info('Mensaje de compensaciones para subsidio de vivienda generado (dos partes)', [
+            'parte1' => $parte1,
+            'parte2' => $parte2,
+        ]);
+
+        return [
+            'parte1' => $parte1,
+            'parte2' => $parte2,
+        ];
+    }
+
+    /**
      * Convierte un número a letras en español
      *
      * @param int $numero Número a convertir
@@ -1379,6 +1565,175 @@ class CertificadoConvenioService
         }
 
         return trim($resultado);
+    }
+
+    /**
+     * Valida las reglas de negocio para el certificado de convenio
+     *
+     * @param array $data Datos de la solicitud (payload completo)
+     * @param string|null $estadoAfiliado Estado del afiliado ('activo' o 'retirado')
+     * @return array Array de mensajes de error (vacío si no hay errores)
+     */
+    public function validarCertificadoConvenio(array $data, ?string $estadoAfiliado = null): array
+    {
+        $errors = [];
+        $info = $data['infoCertificado'] ?? [];
+
+        // Parsear infoCertificado si viene como string JSON
+        if (is_string($info)) {
+            $info = json_decode($info, true);
+            if (!is_array($info)) {
+                $info = [];
+            }
+        }
+
+        // Helper para parsear valores booleanos (pueden venir como string "true"/"false", boolean, o int 1/0)
+        $parseBoolean = function ($value) {
+            if (is_bool($value)) {
+                return $value;
+            }
+            if (is_string($value)) {
+                return in_array(strtolower($value), ['true', '1', 'yes', 'on'], true);
+            }
+            if (is_numeric($value)) {
+                return (bool) $value;
+            }
+            return false;
+        };
+
+        // Extraer valores booleanos
+        $fechaIngresoRetiro = $parseBoolean($info['fechaIngresoRetiro'] ?? false);
+        $valorCompensaciones = $parseBoolean($info['valorCompensaciones'] ?? false);
+        $paraSubsidioVivienda = $parseBoolean($info['paraSubsidioVivienda'] ?? false);
+        $paraSubsidioDesempleo = $parseBoolean($info['paraSubsidioDesempleo'] ?? false);
+        $dirigidoAEntidad = $parseBoolean($info['dirigidoAEntidad'] ?? false);
+        $dirigidoFondoPensiones = $parseBoolean($info['dirigidoFondoPensiones'] ?? false);
+        $dirigidoBancolombia = $parseBoolean($info['dirigidoBancolombia'] ?? false);
+        $adicionarActividades = $parseBoolean($info['adicionarActividades'] ?? false);
+        $otros = $parseBoolean($info['otros'] ?? false);
+
+        // 1. Validación obligatoria: fechaIngresoRetiro siempre debe ser true
+        if (!$fechaIngresoRetiro) {
+            $errors[] = 'fechaIngresoRetiro debe estar siempre marcado';
+        }
+
+        // 2. Validaciones según estado del afiliado
+        $estado = $estadoAfiliado ? strtolower(trim($estadoAfiliado)) : null;
+        if ($estado === 'activo' && $paraSubsidioDesempleo) {
+            $errors[] = 'Para subsidio de desempleo no está disponible para afiliados activos';
+        }
+        if ($estado === 'retirado' && $paraSubsidioVivienda) {
+            $errors[] = 'Para subsidio de vivienda no está disponible para afiliados retirados';
+        }
+
+        // 3. Validación: Si hay subsidio, valorCompensaciones es obligatorio
+        $tieneSubsidio = $paraSubsidioVivienda || $paraSubsidioDesempleo;
+        if ($tieneSubsidio && !$valorCompensaciones) {
+            $errors[] = 'Valor de compensaciones es obligatorio cuando se selecciona un subsidio';
+        }
+
+        // 4. Validación: Subsidios son mutuamente excluyentes
+        if ($paraSubsidioVivienda && $paraSubsidioDesempleo) {
+            $errors[] = 'Para subsidio de vivienda y Para subsidio de desempleo son mutuamente excluyentes';
+        }
+
+        // 5. Validación: Dirigido a Bancolombia y Dirigido a entidad son excluyentes
+        if ($dirigidoBancolombia && $dirigidoAEntidad) {
+            $errors[] = 'Dirigido a Bancolombia y Dirigido a una entidad en particular son mutuamente excluyentes';
+        }
+
+        // 6. Validación: Si hay subsidio, no puede haber dirigidoAEntidad
+        if ($tieneSubsidio && $dirigidoAEntidad) {
+            $errors[] = 'Dirigido a una entidad en particular no puede seleccionarse con subsidios';
+        }
+
+        // 7. Validación: Si hay subsidio, no puede haber dirigidoBancolombia
+        if ($tieneSubsidio && $dirigidoBancolombia) {
+            $errors[] = 'Dirigido a Bancolombia no puede seleccionarse con subsidios';
+        }
+
+        // 8. Validación: Si hay subsidio, no puede haber dirigidoFondoPensiones
+        if ($tieneSubsidio && $dirigidoFondoPensiones) {
+            $errors[] = 'Dirigido al Fondo de Pensiones no puede seleccionarse con subsidios';
+        }
+
+        // 9. Validación: Si hay subsidio, no puede haber otros
+        if ($tieneSubsidio && $otros) {
+            $errors[] = 'Otros no puede seleccionarse con subsidios';
+        }
+
+        // 10. Validación: Si hay subsidio, no puede haber adicionarActividades
+        if ($tieneSubsidio && $adicionarActividades) {
+            $errors[] = 'Adicionar actividades no puede seleccionarse con subsidios';
+        }
+
+        // 11. Validación: valorCompensaciones sin subsidios no puede estar con dirigidoFondoPensiones
+        if ($valorCompensaciones && !$tieneSubsidio && $dirigidoFondoPensiones) {
+            $errors[] = 'Valor de compensaciones no puede seleccionarse con Dirigido al Fondo de Pensiones cuando no hay subsidios';
+        }
+
+        // 12. Validación: valorCompensaciones sin subsidios no puede estar con dirigidoBancolombia
+        if ($valorCompensaciones && !$tieneSubsidio && $dirigidoBancolombia) {
+            $errors[] = 'Valor de compensaciones no puede seleccionarse con Dirigido a Bancolombia cuando no hay subsidios';
+        }
+
+        // 13. Validación: dirigidoBancolombia no puede estar con otros
+        if ($dirigidoBancolombia && $otros) {
+            $errors[] = 'Dirigido a Bancolombia no puede seleccionarse con Otros';
+        }
+
+        // 14. Validación: dirigidoBancolombia no puede estar con adicionarActividades
+        if ($dirigidoBancolombia && $adicionarActividades) {
+            $errors[] = 'Dirigido a Bancolombia no puede seleccionarse con Adicionar actividades';
+        }
+
+        // 15. Validación: dirigidoFondoPensiones no puede estar con otros
+        if ($dirigidoFondoPensiones && $otros) {
+            $errors[] = 'Dirigido al Fondo de Pensiones no puede seleccionarse con Otros';
+        }
+
+        // 16. Validación: dirigidoFondoPensiones no puede estar con adicionarActividades
+        if ($dirigidoFondoPensiones && $adicionarActividades) {
+            $errors[] = 'Dirigido al Fondo de Pensiones no puede seleccionarse con Adicionar actividades';
+        }
+
+        // 17. Validación: dirigidoFondoPensiones no puede estar con valorCompensaciones (sin subsidios)
+        if ($dirigidoFondoPensiones && $valorCompensaciones && !$tieneSubsidio) {
+            $errors[] = 'Dirigido al Fondo de Pensiones no puede seleccionarse con Valor de compensaciones cuando no hay subsidios';
+        }
+
+        // 18. Validación: Campos dependientes - dirigidoAQuien es obligatorio si dirigidoAEntidad es true
+        if ($dirigidoAEntidad) {
+            $dirigidoAQuien = $data['dirigidoAQuien'] ?? '';
+            if (empty(trim($dirigidoAQuien))) {
+                $errors[] = 'dirigidoAQuien es obligatorio cuando se selecciona Dirigido a una entidad en particular';
+            }
+        }
+
+        // 19. Validación: Campos dependientes - actividadesPdf es obligatorio si adicionarActividades es true
+        if ($adicionarActividades) {
+            $actividadesPdf = $data['actividadesPdf'] ?? null;
+            // Verificar si viene en files o directamente
+            $hasActividadesPdf = false;
+            if (isset($data['files']['actividadesPdf'])) {
+                $hasActividadesPdf = true;
+            } elseif (isset($data['actividadesPdf'])) {
+                $hasActividadesPdf = true;
+            }
+            if (!$hasActividadesPdf) {
+                $errors[] = 'actividadesPdf es obligatorio cuando se selecciona Adicionar actividades';
+            }
+        }
+
+        // 20. Validación: Campos dependientes - otrosDescripcion es obligatorio si otros es true
+        if ($otros) {
+            $otrosDescripcion = $data['otrosDescripcion'] ?? '';
+            if (empty(trim($otrosDescripcion))) {
+                $errors[] = 'otrosDescripcion es obligatorio cuando se selecciona Otros';
+            }
+        }
+
+        return $errors;
     }
 }
 

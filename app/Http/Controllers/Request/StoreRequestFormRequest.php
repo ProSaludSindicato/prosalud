@@ -94,6 +94,26 @@ class StoreRequestFormRequest extends FormRequest
             ]);
         }
 
+        // Validaciones específicas para certificado-convenio
+        if ('certificado-convenio' === $requestType) {
+            $rules = array_merge($rules, [
+                'payload.infoCertificado' => 'nullable|array',
+                'payload.infoCertificado.fechaIngresoRetiro' => 'nullable',
+                'payload.infoCertificado.valorCompensaciones' => 'nullable',
+                'payload.infoCertificado.paraSubsidioVivienda' => 'nullable',
+                'payload.infoCertificado.paraSubsidioDesempleo' => 'nullable',
+                'payload.infoCertificado.dirigidoAEntidad' => 'nullable',
+                'payload.infoCertificado.dirigidoFondoPensiones' => 'nullable',
+                'payload.infoCertificado.dirigidoBancolombia' => 'nullable',
+                'payload.infoCertificado.adicionarActividades' => 'nullable',
+                'payload.infoCertificado.otros' => 'nullable',
+                'payload.dirigidoAQuien' => 'nullable|string|max:500',
+                'payload.otrosDescripcion' => 'nullable|string|max:1000',
+                'files.actividadesPdf' => 'nullable|file|max:4096|mimes:pdf',
+                'files.adjuntarArchivoAdicional' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,webp',
+            ]);
+        }
+
         return $rules;
     }
 
@@ -203,6 +223,82 @@ class StoreRequestFormRequest extends FormRequest
                 if (!empty($payload['afp'])) {
                     if (!$hasFile('files.certificadoAfp') && !$hasFile('certificadoAfp')) {
                         $validator->errors()->add('files.certificadoAfp', 'El certificado de AFP es obligatorio cuando se actualiza la AFP.');
+                    }
+                }
+            }
+
+            // Validaciones específicas para certificado-convenio
+            if ('certificado-convenio' === $requestType) {
+                $payload = $this->input('payload', []);
+                $documento = $this->input('id_number');
+
+                // Obtener estado del afiliado si tenemos el documento
+                $estadoAfiliado = null;
+                if ($documento) {
+                    try {
+                        $certificadoService = app(\App\Services\CertificadoConvenioService::class);
+                        $afiliadoData = $certificadoService->obtenerDatosAfiliado($documento);
+                        if ($afiliadoData && isset($afiliadoData['afiliado']['estado'])) {
+                            $estadoAfiliado = $afiliadoData['afiliado']['estado'];
+                        }
+                    } catch (\Exception $e) {
+                        // Si no se puede obtener el estado, continuar sin él
+                        // Las validaciones que no dependen del estado seguirán funcionando
+                        Log::warning('No se pudo obtener estado del afiliado para validación', [
+                            'documento' => $documento,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                // Preparar datos para validación
+                $validationData = array_merge($payload, [
+                    'files' => $allFiles,
+                ]);
+
+                // Llamar al método de validación del servicio
+                $certificadoService = app(\App\Services\CertificadoConvenioService::class);
+                $validationErrors = $certificadoService->validarCertificadoConvenio($validationData, $estadoAfiliado);
+
+                // Agregar errores al validador
+                foreach ($validationErrors as $error) {
+                    $validator->errors()->add('payload.infoCertificado', $error);
+                }
+
+                // Validaciones adicionales de archivos
+                // Validar actividadesPdf si viene
+                if (isset($allFiles['files']['actividadesPdf']) || isset($allFiles['actividadesPdf'])) {
+                    $actividadesPdf = $allFiles['files']['actividadesPdf'] ?? $allFiles['actividadesPdf'] ?? null;
+                    if ($actividadesPdf instanceof \Illuminate\Http\UploadedFile) {
+                        // Validar que sea PDF
+                        $mimeType = $actividadesPdf->getMimeType();
+                        if ($mimeType !== 'application/pdf') {
+                            $validator->errors()->add('files.actividadesPdf', 'El archivo de actividades debe ser un PDF');
+                        }
+                        // Validar tamaño (ya está en las reglas, pero verificamos aquí también)
+                        if ($actividadesPdf->getSize() > 4 * 1024 * 1024) {
+                            $validator->errors()->add('files.actividadesPdf', 'El archivo de actividades no puede exceder 4MB');
+                        }
+                    }
+                }
+
+                // Validar adjuntarArchivoAdicional si viene
+                if (isset($allFiles['files']['adjuntarArchivoAdicional']) || isset($allFiles['adjuntarArchivoAdicional'])) {
+                    $archivoAdicional = $allFiles['files']['adjuntarArchivoAdicional'] ?? $allFiles['adjuntarArchivoAdicional'] ?? null;
+                    if ($archivoAdicional instanceof \Illuminate\Http\UploadedFile) {
+                        // Validar tipos permitidos
+                        $mimeType = $archivoAdicional->getMimeType();
+                        $extension = strtolower($archivoAdicional->getClientOriginalExtension());
+                        $allowedMimes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png', 'image/webp'];
+                        $allowedExtensions = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp'];
+                        
+                        if (!in_array($mimeType, $allowedMimes) && !in_array($extension, $allowedExtensions)) {
+                            $validator->errors()->add('files.adjuntarArchivoAdicional', 'El archivo adicional debe ser PDF, Word o imagen (JPG, PNG, WEBP)');
+                        }
+                        // Validar tamaño
+                        if ($archivoAdicional->getSize() > 4 * 1024 * 1024) {
+                            $validator->errors()->add('files.adjuntarArchivoAdicional', 'El archivo adicional no puede exceder 4MB');
+                        }
                     }
                 }
             }

@@ -46,11 +46,15 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para Bancolombia
             $esParaBancolombia = $this->esParaBancolombia($requestForm);
+            
+            // Verificar si es para subsidio de vivienda
+            $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'esParaBancolombia' => $esParaBancolombia,
+                'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
                 'payload' => $requestForm->payload,
             ]);
 
@@ -59,7 +63,8 @@ class CertificadoConvenioAutomaticoService
                 $requestForm->document_number,
                 $dirigidoAEntidad,
                 $compensaciones,
-                $esParaBancolombia
+                $esParaBancolombia,
+                $esParaSubsidioVivienda
             );
 
             Log::info('Certificado PDF generado para solicitud automática con compensaciones', [
@@ -138,11 +143,15 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para Bancolombia
             $esParaBancolombia = $this->esParaBancolombia($requestForm);
+            
+            // Verificar si es para subsidio de vivienda
+            $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'esParaBancolombia' => $esParaBancolombia,
+                'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
                 'payload' => $requestForm->payload,
             ]);
 
@@ -151,7 +160,8 @@ class CertificadoConvenioAutomaticoService
                 $requestForm->document_number,
                 $dirigidoAEntidad,
                 null,
-                $esParaBancolombia
+                $esParaBancolombia,
+                $esParaSubsidioVivienda
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -236,13 +246,17 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para Bancolombia
             $esParaBancolombia = $this->esParaBancolombia($requestForm);
+            
+            // Verificar si es para subsidio de vivienda
+            $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
 
             // 3. Generar certificado PDF con el destinatario si está disponible
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
                 $solicitudData['documento'],
                 $dirigidoAEntidad,
                 null,
-                $esParaBancolombia
+                $esParaBancolombia,
+                $esParaSubsidioVivienda
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -624,6 +638,52 @@ class CertificadoConvenioAutomaticoService
         ]);
         
         return $dirigidoBancolombia;
+    }
+
+    /**
+     * Verifica si el certificado es para subsidio de vivienda
+     * 
+     * @param RequestForm $requestForm
+     * @return bool
+     */
+    private function esParaSubsidioVivienda(RequestForm $requestForm): bool
+    {
+        $payload = $requestForm->payload ?? [];
+        
+        // Verificar si tiene infoCertificado en el payload
+        if (!isset($payload['infoCertificado'])) {
+            Log::debug('esParaSubsidioVivienda: No tiene infoCertificado en payload', [
+                'request_id' => $requestForm->id,
+            ]);
+            return false;
+        }
+
+        // Parsear el JSON string si existe
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            Log::debug('esParaSubsidioVivienda: infoCertificado no es un array', [
+                'request_id' => $requestForm->id,
+                'infoCertificado_type' => gettype($payload['infoCertificado']),
+            ]);
+            return false;
+        }
+
+        // Verificar si paraSubsidioVivienda está activo usando parseBooleanValue
+        $paraSubsidioViviendaRaw = $infoCertificado['paraSubsidioVivienda'] ?? false;
+        $paraSubsidioVivienda = $requestForm->parseBooleanValue($paraSubsidioViviendaRaw);
+        
+        Log::info('esParaSubsidioVivienda: Verificando opción paraSubsidioVivienda', [
+            'request_id' => $requestForm->id,
+            'paraSubsidioVivienda_raw' => $paraSubsidioViviendaRaw,
+            'paraSubsidioVivienda_parsed' => $paraSubsidioVivienda,
+            'infoCertificado' => $infoCertificado,
+        ]);
+        
+        return $paraSubsidioVivienda;
     }
 }
 

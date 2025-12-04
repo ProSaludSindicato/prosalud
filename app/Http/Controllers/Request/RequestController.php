@@ -137,12 +137,66 @@ class RequestController extends Controller
 
             $debeProcesarAutomatico = $this->debeProcesarCertificadoAutomatico($requestForm);
             $tieneValorCompensaciones = $this->tieneValorCompensaciones($requestForm);
+            $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
 
             Log::info('RequestController: Resultados de verificación de procesamiento automático', [
                 'request_id' => $requestForm->id,
                 'debeProcesarAutomatico' => $debeProcesarAutomatico,
                 'tieneValorCompensaciones' => $tieneValorCompensaciones,
+                'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
             ]);
+
+            // Si es para subsidio de vivienda, intentar obtener compensaciones automáticamente del Excel
+            // ya que el certificado de subsidio de vivienda requiere compensaciones
+            if ($esParaSubsidioVivienda) {
+                // Intentar obtener compensaciones automáticamente del Excel
+                $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
+                
+                if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
+                    Log::info('Certificado de subsidio de vivienda con compensaciones detectado, iniciando procesamiento automático', [
+                        'request_id' => $requestForm->id,
+                        'documento' => $requestForm->document_number,
+                    ]);
+
+                    $certificadoService = $this->certificadoAutomaticoService;
+                    $requestFormId = $requestForm->id;
+                    $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
+
+                    dispatch(function () use ($certificadoService, $requestFormId, $compensaciones) {
+                        try {
+                            Log::info('Ejecutando procesamiento automático de certificado de subsidio de vivienda con compensaciones (background)', [
+                                'request_id' => $requestFormId,
+                                'compensaciones_recibidas' => $compensaciones,
+                            ]);
+
+                            $requestFormActualizado = RequestForm::find($requestFormId);
+                            if ($requestFormActualizado) {
+                                $certificadoService->procesarConRequestFormExistenteYCompensaciones($requestFormActualizado, $compensaciones);
+                            } else {
+                                Log::error('RequestForm no encontrado en background job', [
+                                    'request_id' => $requestFormId,
+                                ]);
+                            }
+                        } catch (\Throwable $e) {
+                            Log::error('Error en procesamiento automático de certificado de subsidio de vivienda con compensaciones (background)', [
+                                'request_id' => $requestFormId,
+                                'compensaciones' => $compensaciones,
+                                'error' => $e->getMessage(),
+                                'trace' => $e->getTraceAsString(),
+                            ]);
+                        }
+                    })->afterResponse();
+                    // Salir temprano para evitar procesamiento duplicado
+                    return response()->json($response, 201);
+                } else {
+                    // Si no hay compensaciones disponibles, procesar sin ellas (los campos quedarán vacíos)
+                    Log::info('Certificado de subsidio de vivienda sin compensaciones disponibles, procesando sin compensaciones', [
+                        'request_id' => $requestForm->id,
+                        'documento' => $requestForm->document_number,
+                        'razon' => $puedeProcesarConCompensaciones['razon'] ?? 'Compensaciones no disponibles',
+                    ]);
+                }
+            }
 
             if ($tieneValorCompensaciones) {
                 // Verificar si se puede procesar automáticamente con compensaciones
@@ -1291,6 +1345,7 @@ class RequestController extends Controller
      * Determina si un certificado de convenio debe procesarse automáticamente
      * Se procesa automáticamente si:
      * - Tiene dirigidoBancolombia activo (permite cualquier combinación de otros campos, priorizando automatización)
+     * - Tiene paraSubsidioVivienda activo (permite cualquier combinación de otros campos, priorizando automatización)
      * - Tiene solo fecha ingreso/retiro y/o dirigido a entidad (sin campos complejos)
      */
     private function debeProcesarCertificadoAutomatico(RequestForm $requestForm): bool
@@ -1324,12 +1379,14 @@ class RequestController extends Controller
         $fechaIngresoRetiro = $requestForm->parseBooleanValue($infoCertificado['fechaIngresoRetiro'] ?? false);
         $dirigidoAEntidad = $requestForm->parseBooleanValue($infoCertificado['dirigidoAEntidad'] ?? false);
         $dirigidoBancolombia = $requestForm->parseBooleanValue($infoCertificado['dirigidoBancolombia'] ?? false);
+        $paraSubsidioVivienda = $requestForm->parseBooleanValue($infoCertificado['paraSubsidioVivienda'] ?? false);
 
         Log::info('debeProcesarCertificadoAutomatico: Verificando opciones del certificado', [
             'request_id' => $requestForm->id,
             'fechaIngresoRetiro' => $fechaIngresoRetiro,
             'dirigidoAEntidad' => $dirigidoAEntidad,
             'dirigidoBancolombia' => $dirigidoBancolombia,
+            'paraSubsidioVivienda' => $paraSubsidioVivienda,
             'infoCertificado_raw' => $infoCertificado,
         ]);
 
@@ -1345,7 +1402,19 @@ class RequestController extends Controller
             return true;
         }
 
-        // Campos que NO deben estar activos para procesamiento automático (sin Bancolombia)
+        // Si tiene paraSubsidioVivienda activo, procesar automáticamente sin importar otros campos
+        // Priorizando la automatización y generación automática
+        if ($paraSubsidioVivienda) {
+            Log::info('debeProcesarCertificadoAutomatico: Certificado para Subsidio de Vivienda detectado - procesando automáticamente sin importar otros campos', [
+                'request_id' => $requestForm->id,
+                'fechaIngresoRetiro' => $fechaIngresoRetiro,
+                'dirigidoAEntidad' => $dirigidoAEntidad,
+                'otros_campos' => $infoCertificado,
+            ]);
+            return true;
+        }
+
+        // Campos que NO deben estar activos para procesamiento automático (sin Bancolombia ni Subsidio de Vivienda)
         $camposNoPermitidos = [
             'valorCompensaciones',
             'paraSubsidioDesempleo',
@@ -1401,6 +1470,32 @@ class RequestController extends Controller
         }
 
         return !empty($infoCertificado['valorCompensaciones'] ?? false);
+    }
+
+    /**
+     * Verifica si el certificado es para subsidio de vivienda
+     *
+     * @param RequestForm $requestForm
+     * @return bool
+     */
+    private function esParaSubsidioVivienda(RequestForm $requestForm): bool
+    {
+        $payload = $requestForm->payload ?? [];
+
+        if (!isset($payload['infoCertificado'])) {
+            return false;
+        }
+
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            return false;
+        }
+
+        return $requestForm->parseBooleanValue($infoCertificado['paraSubsidioVivienda'] ?? false);
     }
 
     /**
