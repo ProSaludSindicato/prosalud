@@ -34,7 +34,7 @@ class RequestController extends Controller
         // mediante RecaptchaRule. Los tokens de reCAPTCHA Enterprise solo pueden
         // usarse una vez, por lo que no debemos verificar nuevamente aquí.
         // Si llegamos a este punto, significa que la validación pasó exitosamente.
-        
+
         Log::info('Procesando solicitud después de validación exitosa de reCAPTCHA', [
             'request_type' => $request->input('request_type'),
             'ip' => $request->ip(),
@@ -62,11 +62,17 @@ class RequestController extends Controller
         try {
             Mail::to($requestForm->email)
                 ->send(new RequestFormReceived($requestForm, $originalFilesForEmail));
+
+            Log::info('Correo de confirmación de solicitud enviado exitosamente', [
+                'request_id' => $requestForm->id,
+                'email' => $requestForm->email,
+            ]);
         } catch (\Throwable $e) {
             Log::error('Error enviando correo de confirmación de solicitud', [
                 'request_id' => $requestForm->id,
                 'email' => $requestForm->email,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
         }
 
@@ -123,13 +129,25 @@ class RequestController extends Controller
         // Procesar automáticamente certificados de convenio simples (solo fecha ingreso/retiro y/o dirigido a entidad)
         // O con compensaciones si el afiliado está activo y tiene registro en el Excel
         if (RequestTypes::CERTIFICADO_CONVENIO === $requestForm->request_type) {
+            Log::info('RequestController: Verificando procesamiento automático para certificado de convenio', [
+                'request_id' => $requestForm->id,
+                'document_number' => $requestForm->document_number,
+                'payload' => $requestForm->payload,
+            ]);
+
             $debeProcesarAutomatico = $this->debeProcesarCertificadoAutomatico($requestForm);
             $tieneValorCompensaciones = $this->tieneValorCompensaciones($requestForm);
-            
+
+            Log::info('RequestController: Resultados de verificación de procesamiento automático', [
+                'request_id' => $requestForm->id,
+                'debeProcesarAutomatico' => $debeProcesarAutomatico,
+                'tieneValorCompensaciones' => $tieneValorCompensaciones,
+            ]);
+
             if ($tieneValorCompensaciones) {
                 // Verificar si se puede procesar automáticamente con compensaciones
                 $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
-                
+
                 if ($puedeProcesarConCompensaciones['puede_procesar']) {
                     Log::info('Certificado de convenio con compensaciones detectado, iniciando procesamiento automático', [
                         'request_id' => $requestForm->id,
@@ -140,7 +158,7 @@ class RequestController extends Controller
                     $certificadoService = $this->certificadoAutomaticoService;
                     $requestFormId = $requestForm->id;
                     $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
-                    
+
                     dispatch(function () use ($certificadoService, $requestFormId, $compensaciones) {
                         try {
                             Log::info('Ejecutando procesamiento automático de certificado con compensaciones (background)', [
@@ -184,7 +202,7 @@ class RequestController extends Controller
                 // Esto no requiere workers independientes
                 $certificadoService = $this->certificadoAutomaticoService;
                 $requestFormId = $requestForm->id;
-                
+
                 dispatch(function () use ($certificadoService, $requestFormId) {
                     try {
                         // Recargar el RequestForm desde la BD para asegurar que tenemos la versión más reciente
@@ -1271,14 +1289,20 @@ class RequestController extends Controller
 
     /**
      * Determina si un certificado de convenio debe procesarse automáticamente
-     * Solo se procesa automáticamente si tiene solo fecha ingreso/retiro y/o dirigido a entidad
+     * Se procesa automáticamente si:
+     * - Tiene dirigidoBancolombia activo (permite cualquier combinación de otros campos, priorizando automatización)
+     * - Tiene solo fecha ingreso/retiro y/o dirigido a entidad (sin campos complejos)
      */
     private function debeProcesarCertificadoAutomatico(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
-        
+
         // Verificar si tiene infoCertificado en el payload
         if (!isset($payload['infoCertificado'])) {
+            Log::debug('debeProcesarCertificadoAutomatico: No tiene infoCertificado en payload', [
+                'request_id' => $requestForm->id,
+                'payload_keys' => array_keys($payload),
+            ]);
             return false;
         }
 
@@ -1289,14 +1313,39 @@ class RequestController extends Controller
         }
 
         if (!is_array($infoCertificado)) {
+            Log::debug('debeProcesarCertificadoAutomatico: infoCertificado no es un array', [
+                'request_id' => $requestForm->id,
+                'infoCertificado_type' => gettype($payload['infoCertificado']),
+            ]);
             return false;
         }
 
-        // Verificar que solo tenga fechaIngresoRetiro y/o dirigidoAEntidad activos
-        $fechaIngresoRetiro = $infoCertificado['fechaIngresoRetiro'] ?? false;
-        $dirigidoAEntidad = $infoCertificado['dirigidoAEntidad'] ?? false;
+        // Parsear valores booleanos usando el método del modelo
+        $fechaIngresoRetiro = $requestForm->parseBooleanValue($infoCertificado['fechaIngresoRetiro'] ?? false);
+        $dirigidoAEntidad = $requestForm->parseBooleanValue($infoCertificado['dirigidoAEntidad'] ?? false);
+        $dirigidoBancolombia = $requestForm->parseBooleanValue($infoCertificado['dirigidoBancolombia'] ?? false);
 
-        // Campos que NO deben estar activos para procesamiento automático
+        Log::info('debeProcesarCertificadoAutomatico: Verificando opciones del certificado', [
+            'request_id' => $requestForm->id,
+            'fechaIngresoRetiro' => $fechaIngresoRetiro,
+            'dirigidoAEntidad' => $dirigidoAEntidad,
+            'dirigidoBancolombia' => $dirigidoBancolombia,
+            'infoCertificado_raw' => $infoCertificado,
+        ]);
+
+        // Si tiene dirigidoBancolombia activo, procesar automáticamente sin importar otros campos
+        // Priorizando la automatización y generación automática
+        if ($dirigidoBancolombia) {
+            Log::info('debeProcesarCertificadoAutomatico: Certificado para Bancolombia detectado - procesando automáticamente sin importar otros campos', [
+                'request_id' => $requestForm->id,
+                'fechaIngresoRetiro' => $fechaIngresoRetiro,
+                'dirigidoAEntidad' => $dirigidoAEntidad,
+                'otros_campos' => $infoCertificado,
+            ]);
+            return true;
+        }
+
+        // Campos que NO deben estar activos para procesamiento automático (sin Bancolombia)
         $camposNoPermitidos = [
             'valorCompensaciones',
             'paraSubsidioDesempleo',
@@ -1309,13 +1358,26 @@ class RequestController extends Controller
 
         // Verificar que ningún campo no permitido esté activo
         foreach ($camposNoPermitidos as $campo) {
-            if (!empty($infoCertificado[$campo] ?? false)) {
+            $valorCampo = $requestForm->parseBooleanValue($infoCertificado[$campo] ?? false);
+            if ($valorCampo) {
+                Log::debug('debeProcesarCertificadoAutomatico: Campo no permitido activo', [
+                    'request_id' => $requestForm->id,
+                    'campo' => $campo,
+                    'valor' => $infoCertificado[$campo] ?? null,
+                ]);
                 return false;
             }
         }
 
         // Si tiene fechaIngresoRetiro o dirigidoAEntidad activo, procesar automáticamente
-        return $fechaIngresoRetiro || $dirigidoAEntidad;
+        $resultado = $fechaIngresoRetiro || $dirigidoAEntidad;
+        Log::info('debeProcesarCertificadoAutomatico: Resultado final', [
+            'request_id' => $requestForm->id,
+            'puede_procesar_automatico' => $resultado,
+            'fechaIngresoRetiro' => $fechaIngresoRetiro,
+            'dirigidoAEntidad' => $dirigidoAEntidad,
+        ]);
+        return $resultado;
     }
 
     /**
@@ -1324,7 +1386,7 @@ class RequestController extends Controller
     private function tieneValorCompensaciones(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
-        
+
         if (!isset($payload['infoCertificado'])) {
             return false;
         }
@@ -1348,11 +1410,11 @@ class RequestController extends Controller
     private function puedeProcesarCertificadoConCompensaciones(RequestForm $requestForm): array
     {
         $documento = $requestForm->document_number;
-        
+
         // 1. Verificar que el afiliado esté activo
         try {
             $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($documento);
-            
+
             if (!$afiliadoData) {
                 return [
                     'puede_procesar' => false,

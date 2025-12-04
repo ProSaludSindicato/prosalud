@@ -11,11 +11,12 @@ use App\Models\CertificadoConvenioRecord;
 class CertificadoConvenioService
 {
     private const TEMPLATE_PATH = 'resources/templates/certificado_convenio_template.docx';
+    private const TEMPLATE_PATH_BANCOLOMBIA = 'resources/templates/certificado_convenio_cuenta_bancolombia_template.docx';
     private const TEMP_DIR = 'temp';
 
     public function __construct(
-        private readonly AfiliadoService $afiliadoService,
-        private readonly ExcelReaderService $excelReaderService
+        private AfiliadoService $afiliadoService,
+        private ExcelReaderService $excelReaderService
     ) {
     }
 
@@ -27,9 +28,10 @@ class CertificadoConvenioService
      * @param string $documento Número de documento del afiliado
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
      * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
      * @return array
      */
-    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null): array
+    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false): array
     {
         $startTime = microtime(true);
 
@@ -44,7 +46,7 @@ class CertificadoConvenioService
         $consecutivo = $this->generarConsecutivo($fechaCertificado);
 
         // Primero generar el Word desde la plantilla (pasar el consecutivo, destinatario y compensaciones para mantener consistencia)
-        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones);
+        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones, $esParaBancolombia);
 
         try {
             // Convertir Word a PDF usando CloudConvert
@@ -112,9 +114,10 @@ class CertificadoConvenioService
      * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
      * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
      * @return array
      */
-    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null): array
+    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false): array
     {
         // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
         // Esto evita problemas de zona horaria y cambios de día entre llamadas
@@ -132,13 +135,20 @@ class CertificadoConvenioService
             $consecutivo = $this->generarConsecutivo($fechaCertificado);
         }
 
-        // Preparar datos (pasar la fecha capturada, el consecutivo, el destinatario y las compensaciones)
-        $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad, $compensaciones);
+        // Preparar datos según el tipo de certificado
+        if ($esParaBancolombia) {
+            $datos = $this->prepararDatosCertificadoBancolombia($afiliadoData, $fechaCertificado, $consecutivo);
+        } else {
+            $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad, $compensaciones);
+        }
 
-        // Cargar plantilla
-        $templatePath = $this->obtenerRutaPlantilla();
+        // Cargar plantilla según el tipo de certificado
+        $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia);
         if (!file_exists($templatePath)) {
-            throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/certificado_convenio_template.docx");
+            $templateNombre = $esParaBancolombia
+                ? 'certificado_convenio_cuenta_bancolombia_template.docx'
+                : 'certificado_convenio_template.docx';
+            throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/{$templateNombre}");
         }
 
         // Crear procesador de plantilla
@@ -609,6 +619,55 @@ class CertificadoConvenioService
     }
 
     /**
+     * Prepara los datos del certificado específico para Bancolombia
+     * Esta plantilla usa placeholders más simples: FECHA_CERTIFICADO, NOMBRE_COMPLETO, DOCUMENTO, CONSECUTIVO
+     *
+     * @param array $afiliadoData
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
+     * @param string|null $consecutivo Número consecutivo
+     * @return array
+     */
+    private function prepararDatosCertificadoBancolombia(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null): array
+    {
+        $afiliado = $afiliadoData['afiliado'];
+
+        // Usar la fecha proporcionada o capturar una nueva si no se proporciona
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+
+        // Formatear fecha del certificado
+        $fechaCertificadoFormateada = $this->formatearFechaEspanol($fechaCertificado);
+
+        // Nombre completo en mayúsculas
+        $nombreCompleto = strtoupper(
+            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+        );
+
+        // Documento formateado con puntos
+        $documento = $this->formatearDocumento($afiliado['documento'] ?? '');
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        Log::info('Preparando datos para certificado de Bancolombia', [
+            'nombre_completo' => $nombreCompleto,
+            'documento' => $documento,
+            'fecha_certificado' => $fechaCertificadoFormateada,
+            'consecutivo' => $consecutivo,
+        ]);
+
+        return [
+            'FECHA_CERTIFICADO' => $fechaCertificadoFormateada,
+            'NOMBRE_COMPLETO' => $nombreCompleto,
+            'DOCUMENTO' => $documento,
+            'CONSECUTIVO' => $consecutivo,
+        ];
+    }
+
+    /**
      * Formatea fecha en español
      */
     private function formatearFechaEspanol($fecha): string
@@ -957,16 +1016,17 @@ class CertificadoConvenioService
     }
 
     /**
-     * Obtiene la ruta de la plantilla
+     * Obtiene la ruta de la plantilla según el tipo de certificado
+     *
+     * @param bool $esParaBancolombia Indica si es para certificado de Bancolombia
+     * @return string
      */
-    private function obtenerRutaPlantilla(): string
+    private function obtenerRutaPlantilla(bool $esParaBancolombia = false): string
     {
-        // La plantilla está en resources/templates (bajo control de versiones)
-        $templatePath = base_path(self::TEMPLATE_PATH);
-
-        if (!file_exists($templatePath)) {
-            throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/certificado_convenio_template.docx");
-        }
+        // Seleccionar la plantilla según el tipo de certificado
+        $templatePath = $esParaBancolombia
+            ? base_path(self::TEMPLATE_PATH_BANCOLOMBIA)
+            : base_path(self::TEMPLATE_PATH);
 
         return $templatePath;
     }

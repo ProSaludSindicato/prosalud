@@ -43,10 +43,14 @@ class CertificadoConvenioAutomaticoService
 
             // Extraer el valor de dirigidoAQuien del payload si existe
             $dirigidoAEntidad = $this->extraerDirigidoAEntidad($requestForm);
+            
+            // Verificar si es para Bancolombia
+            $esParaBancolombia = $this->esParaBancolombia($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
+                'esParaBancolombia' => $esParaBancolombia,
                 'payload' => $requestForm->payload,
             ]);
 
@@ -54,7 +58,8 @@ class CertificadoConvenioAutomaticoService
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
                 $requestForm->document_number,
                 $dirigidoAEntidad,
-                $compensaciones
+                $compensaciones,
+                $esParaBancolombia
             );
 
             Log::info('Certificado PDF generado para solicitud automática con compensaciones', [
@@ -130,17 +135,23 @@ class CertificadoConvenioAutomaticoService
 
             // Extraer el valor de dirigidoAQuien del payload si existe
             $dirigidoAEntidad = $this->extraerDirigidoAEntidad($requestForm);
+            
+            // Verificar si es para Bancolombia
+            $esParaBancolombia = $this->esParaBancolombia($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
+                'esParaBancolombia' => $esParaBancolombia,
                 'payload' => $requestForm->payload,
             ]);
 
             // 1. Generar certificado PDF con el destinatario si está disponible
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
                 $requestForm->document_number,
-                $dirigidoAEntidad
+                $dirigidoAEntidad,
+                null,
+                $esParaBancolombia
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -222,11 +233,16 @@ class CertificadoConvenioAutomaticoService
 
             // Extraer el valor de dirigidoAEntidad de los datos de la solicitud
             $dirigidoAEntidad = $solicitudData['dirigido_a_entidad'] ?? null;
+            
+            // Verificar si es para Bancolombia
+            $esParaBancolombia = $this->esParaBancolombia($requestForm);
 
             // 3. Generar certificado PDF con el destinatario si está disponible
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
                 $solicitudData['documento'],
-                $dirigidoAEntidad
+                $dirigidoAEntidad,
+                null,
+                $esParaBancolombia
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -562,6 +578,52 @@ class CertificadoConvenioAutomaticoService
         }
 
         return null;
+    }
+
+    /**
+     * Verifica si el certificado es para apertura de cuenta en Bancolombia
+     * 
+     * @param RequestForm $requestForm
+     * @return bool
+     */
+    private function esParaBancolombia(RequestForm $requestForm): bool
+    {
+        $payload = $requestForm->payload ?? [];
+        
+        // Verificar si tiene infoCertificado en el payload
+        if (!isset($payload['infoCertificado'])) {
+            Log::debug('esParaBancolombia: No tiene infoCertificado en payload', [
+                'request_id' => $requestForm->id,
+            ]);
+            return false;
+        }
+
+        // Parsear el JSON string si existe
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            Log::debug('esParaBancolombia: infoCertificado no es un array', [
+                'request_id' => $requestForm->id,
+                'infoCertificado_type' => gettype($payload['infoCertificado']),
+            ]);
+            return false;
+        }
+
+        // Verificar si dirigidoBancolombia está activo usando parseBooleanValue
+        $dirigidoBancolombiaRaw = $infoCertificado['dirigidoBancolombia'] ?? false;
+        $dirigidoBancolombia = $requestForm->parseBooleanValue($dirigidoBancolombiaRaw);
+        
+        Log::info('esParaBancolombia: Verificando opción dirigidoBancolombia', [
+            'request_id' => $requestForm->id,
+            'dirigidoBancolombia_raw' => $dirigidoBancolombiaRaw,
+            'dirigidoBancolombia_parsed' => $dirigidoBancolombia,
+            'infoCertificado' => $infoCertificado,
+        ]);
+        
+        return $dirigidoBancolombia;
     }
 }
 
