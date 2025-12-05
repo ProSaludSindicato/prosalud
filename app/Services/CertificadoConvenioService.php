@@ -13,6 +13,7 @@ class CertificadoConvenioService
     private const TEMPLATE_PATH = 'resources/templates/certificado_convenio_template.docx';
     private const TEMPLATE_PATH_BANCOLOMBIA = 'resources/templates/certificado_convenio_cuenta_bancolombia_template.docx';
     private const TEMPLATE_PATH_SUBSIDIO_VIVIENDA = 'resources/templates/certificado_convenio_subsidio_vivienda_template.docx';
+    private const TEMPLATE_PATH_SUBSIDIO_DESEMPLEO = 'resources/templates/certificado_convenio_subsidio_desempleo_template.docx';
     private const TEMP_DIR = 'temp';
 
     public function __construct(
@@ -31,9 +32,10 @@ class CertificadoConvenioService
      * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
      * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
+     * @param bool $esParaSubsidioDesempleo Indica si el certificado es para subsidio de desempleo (opcional)
      * @return array
      */
-    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false): array
+    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false): array
     {
         $startTime = microtime(true);
 
@@ -48,7 +50,7 @@ class CertificadoConvenioService
         $consecutivo = $this->generarConsecutivo($fechaCertificado);
 
         // Primero generar el Word desde la plantilla (pasar el consecutivo, destinatario y compensaciones para mantener consistencia)
-        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones, $esParaBancolombia, $esParaSubsidioVivienda);
+        $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones, $esParaBancolombia, $esParaSubsidioVivienda, $esParaSubsidioDesempleo);
 
         try {
             // Convertir Word a PDF usando CloudConvert
@@ -118,9 +120,10 @@ class CertificadoConvenioService
      * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
      * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
+     * @param bool $esParaSubsidioDesempleo Indica si el certificado es para subsidio de desempleo (opcional)
      * @return array
      */
-    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false): array
+    public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false): array
     {
         // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
         // Esto evita problemas de zona horaria y cambios de día entre llamadas
@@ -143,18 +146,22 @@ class CertificadoConvenioService
             $datos = $this->prepararDatosCertificadoBancolombia($afiliadoData, $fechaCertificado, $consecutivo);
         } elseif ($esParaSubsidioVivienda) {
             $datos = $this->prepararDatosCertificadoSubsidioVivienda($afiliadoData, $fechaCertificado, $consecutivo, $compensaciones);
+        } elseif ($esParaSubsidioDesempleo) {
+            $datos = $this->prepararDatosCertificadoSubsidioDesempleo($afiliadoData, $fechaCertificado, $consecutivo, $compensaciones);
         } else {
             $datos = $this->prepararDatosCertificado($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad, $compensaciones);
         }
 
         // Cargar plantilla según el tipo de certificado
-        $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia, $esParaSubsidioVivienda);
+        $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia, $esParaSubsidioVivienda, $esParaSubsidioDesempleo);
         if (!file_exists($templatePath)) {
             $templateNombre = $esParaBancolombia
                 ? 'certificado_convenio_cuenta_bancolombia_template.docx'
                 : ($esParaSubsidioVivienda
                     ? 'certificado_convenio_subsidio_vivienda_template.docx'
-                    : 'certificado_convenio_template.docx');
+                    : ($esParaSubsidioDesempleo
+                        ? 'certificado_convenio_subsidio_desempleo_template.docx'
+                        : 'certificado_convenio_template.docx'));
             throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/{$templateNombre}");
         }
 
@@ -790,6 +797,129 @@ class CertificadoConvenioService
     }
 
     /**
+     * Prepara los datos del certificado específico para Subsidio de Desempleo
+     * Similar al certificado de subsidio de vivienda pero con FECHA_HASTA y MOTIVO_RETIRO
+     *
+     * @param array $afiliadoData
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
+     * @param string|null $consecutivo Número consecutivo
+     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @return array
+     */
+    private function prepararDatosCertificadoSubsidioDesempleo(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?array $compensaciones = null): array
+    {
+        $afiliado = $afiliadoData['afiliado'];
+        $convenio = $afiliadoData['convenio'] ?? null;
+        $todosLosConvenios = $afiliadoData['todos_los_convenios'] ?? [];
+
+        // Usar la fecha proporcionada o capturar una nueva si no se proporciona
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+
+        // Formatear fechas
+        $fechaCertificadoFormateada = $this->formatearFechaEspanol($fechaCertificado);
+
+        // Nombre completo en mayúsculas
+        $nombreCompleto = strtoupper(
+            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+        );
+
+        // Documento formateado con puntos
+        $documento = $this->formatearDocumento($afiliado['documento'] ?? '');
+
+        // Hospital (transformar cliente)
+        $clienteRaw = $convenio['cliente'] ?? '';
+        $hospital = $this->transformarCliente($clienteRaw);
+
+        // Proceso
+        $proceso = $convenio['proceso'] ?? '';
+
+        // FECHA_HASTA: fecha de fin del convenio más actual/reciente (el que se usa para conocer el proceso)
+        $fechaHasta = '';
+        if ($convenio && !empty($convenio['fecha_fin'])) {
+            $fechaHasta = $this->formatearFechaEspanol($convenio['fecha_fin']);
+        }
+
+        // Campos adicionales
+        $sexo = $afiliado['sexo'] ?? '';
+        $estado = $afiliado['estado'] ?? '';
+
+        // Procesar condicionales basados en ESTADO
+        $estadoNormalizado = strtoupper(trim($estado));
+        $estaActivo = ($estadoNormalizado === 'ACTIVO' || $estadoNormalizado === 'ACTIVE');
+        $atiendeAtendio = $estaActivo ? 'atiende' : 'atendió';
+        $seEncuentraEstuvo = $estaActivo ? 'se encuentra' : 'estuvo';
+        $desarrollaActualmenteDesarrollo = $estaActivo ? 'desarrolla actualmente' : 'desarrolló';
+
+        // Generar lista de convenios formateada
+        $listaConvenios = $this->generarListaConvenios($todosLosConvenios, $convenio);
+
+        // Determinar si hay un convenio o varios
+        $cantidadConvenios = count($todosLosConvenios);
+        $unConvenioVariosConvenios = $cantidadConvenios === 1 ? 'un Convenio' : 'varios Convenios';
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Generar mensaje de compensaciones si están disponibles (en formato especial para subsidio de desempleo, igual que subsidio de vivienda)
+        $mensajeCompensacionesParte1 = '';
+        $mensajeCompensacionesParte2 = '';
+        if ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
+            Log::info('Compensaciones recibidas en prepararDatosCertificadoSubsidioDesempleo', [
+                'compensaciones' => $compensaciones,
+                't_basicos' => $compensaciones['t_basicos'],
+                't_auxilios' => $compensaciones['t_auxilios'],
+                't_ingresos' => $compensaciones['t_ingresos'],
+            ]);
+
+            $mensajeCompensaciones = $this->generarMensajeCompensacionesSubsidioVivienda(
+                (int) $compensaciones['t_basicos'],
+                (int) $compensaciones['t_auxilios'],
+                (int) $compensaciones['t_ingresos']
+            );
+
+            $mensajeCompensacionesParte1 = $mensajeCompensaciones['parte1'] ?? '';
+            $mensajeCompensacionesParte2 = $mensajeCompensaciones['parte2'] ?? '';
+        } else {
+            Log::warning('Compensaciones no disponibles o incompletas en prepararDatosCertificadoSubsidioDesempleo', [
+                'compensaciones' => $compensaciones,
+                'tiene_compensaciones' => !empty($compensaciones),
+            ]);
+        }
+
+        Log::info('Preparando datos para certificado de Subsidio de Desempleo', [
+            'nombre_completo' => $nombreCompleto,
+            'documento' => $documento,
+            'fecha_certificado' => $fechaCertificadoFormateada,
+            'fecha_hasta' => $fechaHasta,
+            'consecutivo' => $consecutivo,
+        ]);
+
+        return [
+            'NOMBRE_COMPLETO' => $nombreCompleto,
+            'DOCUMENTO' => $documento,
+            'HOSPITAL' => $hospital,
+            'PROCESO' => strtoupper($proceso),
+            'FECHA_CERTIFICADO' => $fechaCertificadoFormateada,
+            'FECHA_HASTA' => $fechaHasta,
+            'DIA_CERTIFICADO' => $fechaCertificado->day,
+            'MES_CERTIFICADO' => $this->obtenerMesEspanol($fechaCertificado->month),
+            'ANIO_CERTIFICADO' => $fechaCertificado->year,
+            'CONSECUTIVO' => $consecutivo,
+            'SE_ENCUENTRA_ESTUVO' => $seEncuentraEstuvo,
+            'UN_CONVENIO_VARIOS_CONVENIOS' => $unConvenioVariosConvenios,
+            'DESARROLLA_ACTUALMENTE_DESARROLLO' => $desarrollaActualmenteDesarrollo,
+            'ATIENDE_ATENDIO' => $atiendeAtendio,
+            'LISTA_CONVENIOS' => $listaConvenios,
+            'MENSAJE_COMPENSACIONES_PARTE1' => $mensajeCompensacionesParte1,
+            'MENSAJE_COMPENSACIONES_PARTE2' => $mensajeCompensacionesParte2,
+        ];
+    }
+
+    /**
      * Formatea fecha en español
      */
     private function formatearFechaEspanol($fecha): string
@@ -1142,15 +1272,18 @@ class CertificadoConvenioService
      *
      * @param bool $esParaBancolombia Indica si es para certificado de Bancolombia
      * @param bool $esParaSubsidioVivienda Indica si es para certificado de subsidio de vivienda
+     * @param bool $esParaSubsidioDesempleo Indica si es para certificado de subsidio de desempleo
      * @return string
      */
-    private function obtenerRutaPlantilla(bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false): string
+    private function obtenerRutaPlantilla(bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false): string
     {
         // Seleccionar la plantilla según el tipo de certificado
         if ($esParaBancolombia) {
             return base_path(self::TEMPLATE_PATH_BANCOLOMBIA);
         } elseif ($esParaSubsidioVivienda) {
             return base_path(self::TEMPLATE_PATH_SUBSIDIO_VIVIENDA);
+        } elseif ($esParaSubsidioDesempleo) {
+            return base_path(self::TEMPLATE_PATH_SUBSIDIO_DESEMPLEO);
         } else {
             return base_path(self::TEMPLATE_PATH);
         }

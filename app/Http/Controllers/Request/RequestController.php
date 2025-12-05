@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Request;
 use App\Constants\{RequestStatuses, RequestTypes};
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\RespondToRequestRequest;
+use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest};
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestSubtypeAssignment, RequestTypeAssignment};
 use App\Services\{AuditLogService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
@@ -808,6 +808,159 @@ class RequestController extends Controller
                 'formatted_processed_at' => $requestForm->formatted_processed_at,
             ],
         ]);
+    }
+
+    /**
+     * Respond to a certificado convenio request with manual compensation values.
+     * This endpoint allows responding to pending certificado convenio requests that require
+     * compensation values (T. Basicos and T. Auxilios) when they cannot be automatically
+     * extracted from the Excel file (e.g., for retired affiliates or missing records).
+     * 
+     * The endpoint will:
+     * 1. Validate the request is a certificado convenio and is pending
+     * 2. Calculate T. Ingresos as the sum of T. Basicos and T. Auxilios
+     * 3. Generate the certificate automatically using the compensation values
+     * 4. Send the response email with the certificate attached
+     * 5. Update the request status
+     */
+    public function respondWithCompensaciones(RespondToCertificadoConCompensacionesRequest $request, $requestId = null): JsonResponse
+    {
+        // Get the ID from the route parameter
+        if (!$requestId) {
+            $requestId = $request->route('request');
+        }
+
+        // Ensure requestId is a string
+        $requestId = (string) $requestId;
+
+        Log::info('Respond with compensaciones - buscando RequestForm', [
+            'route_id' => $requestId,
+            'route_id_length' => strlen($requestId),
+        ]);
+
+        // Find the request form manually
+        $requestForm = RequestForm::where('id', $requestId)->first();
+
+        if (!$requestForm) {
+            Log::error('RequestForm no encontrado en respondWithCompensaciones', [
+                'route_id' => $requestId,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Solicitud no encontrada',
+            ], 404);
+        }
+
+        // Validate that the request is a certificado convenio
+        if (RequestTypes::CERTIFICADO_CONVENIO !== $requestForm->request_type) {
+            Log::error('Request no es de tipo certificado convenio', [
+                'request_id' => $requestId,
+                'request_type' => $requestForm->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Esta funcionalidad solo está disponible para certificados de convenio',
+            ], 400);
+        }
+
+        // Validate that the request is pending (or in review)
+        if (!in_array($requestForm->status, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])) {
+            Log::error('Request no está en estado pendiente o en revisión', [
+                'request_id' => $requestId,
+                'status' => $requestForm->status,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo se pueden responder solicitudes pendientes o en revisión con compensaciones manuales',
+            ], 400);
+        }
+
+        $validated = $request->validated();
+        $status = $validated['status'];
+        $emailSubject = $validated['email_subject'];
+        $emailBody = $validated['email_body'];
+        $tBasicos = (int) $validated['t_basicos'];
+        $tAuxilios = (int) $validated['t_auxilios'];
+
+        // Calculate T. Ingresos as the sum of T. Basicos and T. Auxilios
+        $tIngresos = $tBasicos + $tAuxilios;
+
+        Log::info('Iniciando proceso de respuesta con compensaciones manuales', [
+            'request_id' => $requestId,
+            'request_type' => $requestForm->request_type,
+            'old_status' => $requestForm->status,
+            'new_status' => $status,
+            't_basicos' => $tBasicos,
+            't_auxilios' => $tAuxilios,
+            't_ingresos' => $tIngresos,
+        ]);
+
+        // Prepare compensaciones array
+        $compensaciones = [
+            't_basicos' => $tBasicos,
+            't_auxilios' => $tAuxilios,
+            't_ingresos' => $tIngresos,
+        ];
+
+        try {
+            // Generate certificate with compensation values
+            Log::info('Generando certificado con compensaciones manuales', [
+                'request_id' => $requestId,
+                'documento' => $requestForm->document_number,
+                'compensaciones' => $compensaciones,
+            ]);
+
+            // Process the certificate using CertificadoConvenioAutomaticoService
+            // Pass custom email subject and body if provided
+            $resultado = $this->certificadoAutomaticoService->procesarConRequestFormExistenteYCompensaciones(
+                $requestForm,
+                $compensaciones,
+                $emailSubject,
+                $emailBody,
+                $status
+            );
+
+            Log::info('Certificado generado exitosamente con compensaciones manuales', [
+                'request_id' => $requestId,
+                'consecutivo' => $resultado['consecutivo'] ?? null,
+            ]);
+
+            // The service already sends the email and updates the status, so we just need to return success
+            return response()->json([
+                'success' => true,
+                'message' => 'Certificado generado y respuesta enviada exitosamente',
+                'data' => [
+                    'id' => $requestForm->id,
+                    'request_type' => $requestForm->request_type,
+                    'document_type' => $requestForm->document_type,
+                    'document_number' => $requestForm->document_number,
+                    'name' => $requestForm->name,
+                    'last_name' => $requestForm->last_name,
+                    'full_name' => $requestForm->full_name,
+                    'email' => $requestForm->email,
+                    'status' => $requestForm->fresh()->status,
+                    'consecutivo' => $resultado['consecutivo'] ?? null,
+                    'compensaciones' => $compensaciones,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Error procesando respuesta con compensaciones manuales', [
+                'request_id' => $requestId,
+                'documento' => $requestForm->document_number,
+                'compensaciones' => $compensaciones,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el certificado con compensaciones: ' . $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'Error al procesar la solicitud',
+            ], 500);
+        }
     }
 
     /**

@@ -292,7 +292,8 @@ class RequestForm extends Model
             'adicionarActividades' => 'Adicionar actividades',
             'dirigidoTransitoPicoPlaca' => 'Dirigido a tránsito pico y placa',
             'dirigidoBancolombia' => 'Dirigido a Bancolombia',
-            // Update data fields
+            // Update data fields and certificado-convenio fields
+            'proceso' => 'Proceso',
             'dondeRealizaProceso' => 'Donde realiza el proceso',
             'estadoCivil' => 'Estado civil',
             'direccion' => 'Dirección',

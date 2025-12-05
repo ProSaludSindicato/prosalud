@@ -27,9 +27,12 @@ class CertificadoConvenioAutomaticoService
      *
      * @param RequestForm $requestForm RequestForm ya creado
      * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @param string|null $emailSubject Asunto del correo personalizado (opcional)
+     * @param string|null $emailBody Cuerpo del correo personalizado (opcional)
+     * @param string|null $status Estado final de la solicitud (opcional, por defecto COMPLETED)
      * @return array Resultado del proceso
      */
-    public function procesarConRequestFormExistenteYCompensaciones(RequestForm $requestForm, ?array $compensaciones = null): array
+    public function procesarConRequestFormExistenteYCompensaciones(RequestForm $requestForm, ?array $compensaciones = null, ?string $emailSubject = null, ?string $emailBody = null, ?string $status = null): array
     {
         DB::beginTransaction();
 
@@ -49,12 +52,16 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para subsidio de vivienda
             $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
+            
+            // Verificar si es para subsidio de desempleo
+            $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'esParaBancolombia' => $esParaBancolombia,
                 'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
+                'esParaSubsidioDesempleo' => $esParaSubsidioDesempleo,
                 'payload' => $requestForm->payload,
             ]);
 
@@ -64,7 +71,8 @@ class CertificadoConvenioAutomaticoService
                 $dirigidoAEntidad,
                 $compensaciones,
                 $esParaBancolombia,
-                $esParaSubsidioVivienda
+                $esParaSubsidioVivienda,
+                $esParaSubsidioDesempleo
             );
 
             Log::info('Certificado PDF generado para solicitud automática con compensaciones', [
@@ -146,12 +154,16 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para subsidio de vivienda
             $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
+            
+            // Verificar si es para subsidio de desempleo
+            $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'esParaBancolombia' => $esParaBancolombia,
                 'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
+                'esParaSubsidioDesempleo' => $esParaSubsidioDesempleo,
                 'payload' => $requestForm->payload,
             ]);
 
@@ -161,7 +173,8 @@ class CertificadoConvenioAutomaticoService
                 $dirigidoAEntidad,
                 null,
                 $esParaBancolombia,
-                $esParaSubsidioVivienda
+                $esParaSubsidioVivienda,
+                $esParaSubsidioDesempleo
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -249,6 +262,9 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para subsidio de vivienda
             $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
+            
+            // Verificar si es para subsidio de desempleo
+            $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
 
             // 3. Generar certificado PDF con el destinatario si está disponible
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
@@ -256,7 +272,8 @@ class CertificadoConvenioAutomaticoService
                 $dirigidoAEntidad,
                 null,
                 $esParaBancolombia,
-                $esParaSubsidioVivienda
+                $esParaSubsidioVivienda,
+                $esParaSubsidioDesempleo
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -437,16 +454,28 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Crea y envía la respuesta automática con el certificado adjunto
+     * 
+     * @param RequestForm $requestForm
+     * @param string $rutaPdf
+     * @param string $nombreArchivo
+     * @param string $consecutivo
+     * @param string|null $emailSubject Asunto del correo personalizado (opcional)
+     * @param string|null $emailBody Cuerpo del correo personalizado (opcional)
+     * @param string|null $status Estado final de la solicitud (opcional, por defecto COMPLETED)
      */
     private function crearYEnviarRespuestaAutomatica(
         RequestForm $requestForm,
         string $rutaPdf,
         string $nombreArchivo,
-        string $consecutivo
+        string $consecutivo,
+        ?string $emailSubject = null,
+        ?string $emailBody = null,
+        ?string $status = null
     ): void {
-        // Preparar contenido del correo
-        $emailSubject = "Certificado de Convenio - Consecutivo {$consecutivo}";
-        $emailBody = $this->generarCuerpoCorreo($requestForm, $consecutivo);
+        // Preparar contenido del correo (usar valores personalizados si se proporcionan, sino generar automáticamente)
+        $finalEmailSubject = $emailSubject ?? "Certificado de Convenio - Consecutivo {$consecutivo}";
+        $finalEmailBody = $emailBody ?? $this->generarCuerpoCorreo($requestForm, $consecutivo);
+        $finalStatus = $status ?? RequestStatuses::COMPLETED;
 
         // Crear un archivo temporal para adjuntar al correo con nombre personalizado
         $nombreArchivoAdjunto = $this->generarNombreArchivoAdjunto($requestForm->document_number, $consecutivo);
@@ -458,28 +487,35 @@ class CertificadoConvenioAutomaticoService
                 ->cc('juanpapabon@gmail.com') // Hardcoded as per requirements
                 ->send(new RequestFormResponse(
                     $requestForm,
-                    $emailSubject,
-                    $emailBody,
-                    RequestStatuses::COMPLETED,
+                    $finalEmailSubject,
+                    $finalEmailBody,
+                    $finalStatus,
                     [$archivoTemporal]
                 ));
 
             Log::info('Correo de respuesta automática enviado con certificado', [
                 'request_id' => $requestForm->id,
                 'consecutivo' => $consecutivo,
+                'status' => $finalStatus,
+                'email_subject_custom' => !empty($emailSubject),
+                'email_body_custom' => !empty($emailBody),
             ]);
 
-            // Actualizar estado de la solicitud a COMPLETED
-            $requestForm->status = RequestStatuses::COMPLETED;
-            $requestForm->processed_at = now();
+            // Actualizar estado de la solicitud
+            $requestForm->status = $finalStatus;
+            if (RequestStatuses::COMPLETED === $finalStatus || RequestStatuses::REJECTED === $finalStatus) {
+                $requestForm->processed_at = now();
+            } else {
+                $requestForm->processed_at = null;
+            }
             $requestForm->save();
 
             // Crear registro de respuesta para trazabilidad
             RequestResponse::create([
                 'request_form_id' => $requestForm->id,
-                'status' => RequestStatuses::COMPLETED,
-                'email_subject' => $emailSubject,
-                'email_body' => $emailBody,
+                'status' => $finalStatus,
+                'email_subject' => $finalEmailSubject,
+                'email_body' => $finalEmailBody,
                 'created_at' => now(),
             ]);
 
@@ -684,6 +720,52 @@ class CertificadoConvenioAutomaticoService
         ]);
         
         return $paraSubsidioVivienda;
+    }
+
+    /**
+     * Verifica si el certificado es para subsidio de desempleo
+     * 
+     * @param RequestForm $requestForm
+     * @return bool
+     */
+    private function esParaSubsidioDesempleo(RequestForm $requestForm): bool
+    {
+        $payload = $requestForm->payload ?? [];
+        
+        // Verificar si tiene infoCertificado en el payload
+        if (!isset($payload['infoCertificado'])) {
+            Log::debug('esParaSubsidioDesempleo: No tiene infoCertificado en payload', [
+                'request_id' => $requestForm->id,
+            ]);
+            return false;
+        }
+
+        // Parsear el JSON string si existe
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            Log::debug('esParaSubsidioDesempleo: infoCertificado no es un array', [
+                'request_id' => $requestForm->id,
+                'infoCertificado_type' => gettype($payload['infoCertificado']),
+            ]);
+            return false;
+        }
+
+        // Verificar si paraSubsidioDesempleo está activo usando parseBooleanValue
+        $paraSubsidioDesempleoRaw = $infoCertificado['paraSubsidioDesempleo'] ?? false;
+        $paraSubsidioDesempleo = $requestForm->parseBooleanValue($paraSubsidioDesempleoRaw);
+        
+        Log::info('esParaSubsidioDesempleo: Verificando opción paraSubsidioDesempleo', [
+            'request_id' => $requestForm->id,
+            'paraSubsidioDesempleo_raw' => $paraSubsidioDesempleoRaw,
+            'paraSubsidioDesempleo_parsed' => $paraSubsidioDesempleo,
+            'infoCertificado' => $infoCertificado,
+        ]);
+        
+        return $paraSubsidioDesempleo;
     }
 }
 

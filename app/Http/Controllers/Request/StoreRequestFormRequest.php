@@ -97,6 +97,8 @@ class StoreRequestFormRequest extends FormRequest
         // Validaciones específicas para certificado-convenio
         if ('certificado-convenio' === $requestType) {
             $rules = array_merge($rules, [
+                'payload.proceso' => 'nullable|string|max:255',
+                'payload.dondeRealizaProceso' => 'nullable|string|max:255',
                 'payload.infoCertificado' => 'nullable|array',
                 'payload.infoCertificado.fechaIngresoRetiro' => 'nullable',
                 'payload.infoCertificado.valorCompensaciones' => 'nullable',
@@ -419,17 +421,39 @@ class StoreRequestFormRequest extends FormRequest
 
         $allInput = $this->all();
 
-        // Build payload array from payload.* keys if payload is not already an array
-        if (!isset($allInput['payload']) || !is_array($allInput['payload'])) {
-            $payload = [];
-            foreach ($allInput as $key => $value) {
-                // Laravel converts payload[campo] to 'payload.campo' in the input
-                if (0 === strpos($key, 'payload.')) {
-                    $payloadKey = substr($key, 8); // Remove 'payload.' prefix
-                    $payload[$payloadKey] = $value;
-                }
+        // Build payload array from payload.* keys
+        // This handles cases where payload[campo] comes as payload.campo
+        $payloadFromKeys = [];
+        foreach ($allInput as $key => $value) {
+            // Laravel converts payload[campo] to 'payload.campo' in the input
+            if (0 === strpos($key, 'payload.')) {
+                $payloadKey = substr($key, 8); // Remove 'payload.' prefix
+                $payloadFromKeys[$payloadKey] = $value;
             }
-            if (!empty($payload)) {
+        }
+
+        // Get existing payload if it exists
+        $existingPayload = $this->input('payload', []);
+        if (!is_array($existingPayload)) {
+            $existingPayload = [];
+        }
+
+        // Merge existing payload with keys found from payload.* pattern
+        // This ensures all fields are captured even if Laravel didn't convert them properly
+        $payload = array_merge($existingPayload, $payloadFromKeys);
+
+        // Only merge if we have payload data
+        if (!empty($payload)) {
+            $this->merge(['payload' => $payload]);
+        }
+
+        // Convert payload.infoCertificado from JSON string to array if needed
+        $payload = $this->input('payload', []);
+        if (isset($payload['infoCertificado']) && is_string($payload['infoCertificado'])) {
+            $decoded = json_decode($payload['infoCertificado'], true);
+            // Only replace if JSON decode was successful and resulted in an array
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $payload['infoCertificado'] = $decoded;
                 $this->merge(['payload' => $payload]);
             }
         }
