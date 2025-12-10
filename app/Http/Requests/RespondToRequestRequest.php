@@ -30,6 +30,17 @@ class RespondToRequestRequest extends FormRequest
             'email_body' => 'required|string|max:1500',
         ];
 
+        // Validar actividades si vienen en el request (para certificados con actividades)
+        if ($this->has('actividades')) {
+            $rules['actividades'] = 'required|array|min:1';
+            $rules['actividades.*'] = 'required|string|min:1|max:500';
+        }
+
+        // Validar campo afp si viene en el request (para certificados dirigidos a fondo de pensiones)
+        if ($this->has('afp')) {
+            $rules['afp'] = 'nullable|string|max:100';
+        }
+
         if ($this->hasFile('attachments')) {
             $rules['attachments'] = 'nullable|array|max:4';
             $rules['attachments.*'] = 'file|max:5120|mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png,webp';
@@ -50,6 +61,15 @@ class RespondToRequestRequest extends FormRequest
             'email_subject.max' => 'El asunto del correo no puede exceder 100 caracteres.',
             'email_body.required' => 'El cuerpo del correo es obligatorio.',
             'email_body.max' => 'El cuerpo del correo no puede exceder 1500 caracteres.',
+            'actividades.required' => 'Debe incluir al menos una actividad.',
+            'actividades.array' => 'Las actividades deben ser un array.',
+            'actividades.min' => 'Debe incluir al menos una actividad.',
+            'actividades.*.required' => 'Cada actividad es obligatoria.',
+            'actividades.*.string' => 'Cada actividad debe ser texto.',
+            'actividades.*.min' => 'Cada actividad debe tener al menos 1 carácter.',
+            'actividades.*.max' => 'Cada actividad no puede exceder 500 caracteres.',
+            'afp.string' => 'El campo AFP debe ser texto.',
+            'afp.max' => 'El campo AFP no puede exceder 100 caracteres.',
             'attachments.array' => 'Los archivos adjuntos deben ser un array.',
             'attachments.max' => 'No se pueden adjuntar más de 4 archivos.',
             'attachments.*.file' => 'Cada archivo adjunto debe ser un archivo válido.',
@@ -67,6 +87,9 @@ class RespondToRequestRequest extends FormRequest
             'status' => 'estado',
             'email_subject' => 'asunto del correo',
             'email_body' => 'cuerpo del correo',
+            'actividades' => 'actividades',
+            'actividades.*' => 'actividad',
+            'afp' => 'AFP',
             'attachments' => 'archivos adjuntos',
         ];
     }
@@ -107,6 +130,21 @@ class RespondToRequestRequest extends FormRequest
                         "El tamaño total de los archivos adjuntos ({$totalSizeMB}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB. Esto podría causar problemas al enviar el correo electrónico."
                     );
                 }
+            }
+
+            // Validar que actividades no esté vacío si viene en el request
+            if ($this->has('actividades')) {
+                $actividades = $this->input('actividades', []);
+                if (empty($actividades) || (is_array($actividades) && count(array_filter($actividades, fn($a) => !empty(trim($a ?? '')))) === 0)) {
+                    $validator->errors()->add('actividades', 'Debe incluir al menos una actividad.');
+                }
+            }
+
+            // Validar que haya al menos 1 archivo adjunto si viene el campo afp (certificado dirigido a fondo de pensiones)
+            // Nota: La validación completa se hace en el controlador porque necesitamos verificar el payload de la solicitud
+            // Aquí solo validamos que si viene afp, debe haber archivos adjuntos
+            if ($this->has('afp') && !$this->hasFile('attachments')) {
+                $validator->errors()->add('attachments', 'Es requerido adjuntar las planillas de pagos de seguridad social.');
             }
         });
     }

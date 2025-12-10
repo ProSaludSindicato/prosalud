@@ -14,6 +14,8 @@ class CertificadoConvenioService
     private const TEMPLATE_PATH_BANCOLOMBIA = 'resources/templates/certificado_convenio_cuenta_bancolombia_template.docx';
     private const TEMPLATE_PATH_SUBSIDIO_VIVIENDA = 'resources/templates/certificado_convenio_subsidio_vivienda_template.docx';
     private const TEMPLATE_PATH_SUBSIDIO_DESEMPLEO = 'resources/templates/certificado_convenio_subsidio_desempleo_template.docx';
+    private const TEMPLATE_PATH_ACTIVIDADES = 'resources/templates/certificado_convenio_actividades_template.docx';
+    private const TEMPLATE_PATH_AFP = 'resources/templates/certificado_convenio_dirigido_afp_template.docx';
     private const TEMP_DIR = 'temp';
 
     public function __construct(
@@ -153,7 +155,7 @@ class CertificadoConvenioService
         }
 
         // Cargar plantilla según el tipo de certificado
-        $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia, $esParaSubsidioVivienda, $esParaSubsidioDesempleo);
+        $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia, $esParaSubsidioVivienda, $esParaSubsidioDesempleo, false);
         if (!file_exists($templatePath)) {
             $templateNombre = $esParaBancolombia
                 ? 'certificado_convenio_cuenta_bancolombia_template.docx'
@@ -191,6 +193,312 @@ class CertificadoConvenioService
             'nombre' => $nombreArchivo,
             'tipo' => 'docx',
         ];
+    }
+
+    /**
+     * Genera un certificado de convenio con actividades en formato Word
+     *
+     * @param string $documento Número de documento del afiliado
+     * @param array $actividades Array de actividades a incluir en el certificado
+     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @return array
+     */
+    public function generarCertificadoWordConActividades(string $documento, array $actividades, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
+    {
+        // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
+        $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+
+        // Obtener información del afiliado
+        $afiliadoData = $this->obtenerDatosAfiliado($documento);
+
+        if (!$afiliadoData) {
+            throw new \Exception("Afiliado con documento {$documento} no encontrado");
+        }
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Preparar datos para certificado con actividades
+        $datos = $this->prepararDatosCertificadoActividades($afiliadoData, $fechaCertificado, $consecutivo, $dirigidoAEntidad, $actividades);
+
+        // Cargar plantilla de actividades
+        $templatePath = $this->obtenerRutaPlantilla(false, false, false, true);
+        if (!file_exists($templatePath)) {
+            throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/certificado_convenio_actividades_template.docx");
+        }
+
+        // Crear procesador de plantilla
+        $templateProcessor = new TemplateProcessor($templatePath);
+
+        // Reemplazar placeholders
+        foreach ($datos as $key => $value) {
+            $templateProcessor->setValue($key, $value ?? '');
+        }
+
+        // Generar nombre de archivo (usar la misma fecha)
+        $nombreArchivo = $this->generarNombreArchivo($afiliadoData, $fechaCertificado);
+        $rutaSalida = storage_path("app/" . self::TEMP_DIR . "/{$nombreArchivo}");
+
+        // Crear directorio si no existe
+        $tempDir = storage_path("app/" . self::TEMP_DIR);
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        // Guardar documento
+        $templateProcessor->saveAs($rutaSalida);
+
+        return [
+            'ruta' => $rutaSalida,
+            'nombre' => $nombreArchivo,
+            'tipo' => 'docx',
+        ];
+    }
+
+    /**
+     * Genera un certificado de convenio con actividades en formato PDF
+     * Primero genera el Word desde la plantilla, luego lo convierte a PDF usando CloudConvert
+     *
+     * @param string $documento Número de documento del afiliado
+     * @param array $actividades Array de actividades a incluir en el certificado
+     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @return array
+     */
+    public function generarCertificadoPDFConActividades(string $documento, array $actividades, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
+    {
+        $startTime = microtime(true);
+
+        // Obtener información del afiliado primero para tener los datos necesarios
+        $afiliadoData = $this->obtenerDatosAfiliado($documento);
+        if (!$afiliadoData) {
+            throw new \Exception("Afiliado con documento {$documento} no encontrado");
+        }
+
+        // Capturar la fecha una sola vez para usar consistentemente
+        $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Primero generar el Word desde la plantilla
+        $resultadoWord = $this->generarCertificadoWordConActividades($documento, $actividades, $consecutivo, $dirigidoAEntidad);
+
+        try {
+            // Convertir Word a PDF usando CloudConvert
+            $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
+            $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
+
+            // Limpiar archivo Word temporal
+            if (file_exists($resultadoWord['ruta'])) {
+                @unlink($resultadoWord['ruta']);
+            }
+
+            // Generar nombre del archivo PDF con el formato estándar
+            // Formato: Certificado_Sindicato_ProSalud_{documento}_{consecutivo}.pdf
+            $documentoNormalizado = preg_replace('/[^0-9]/', '', $documento);
+            $nombrePDF = "Certificado_Sindicato_ProSalud_{$documentoNormalizado}_{$consecutivo}.pdf";
+
+            // Obtener ruta absoluta del PDF
+            $rutaPDF = storage_path('app/' . $resultadoPDF['path']);
+
+            // Guardar PDF en bucket privado y crear registro en BD
+            $bucketPath = $this->guardarCertificadoEnBucket($rutaPDF, $documento, $consecutivo, $fechaCertificado, $afiliadoData);
+
+            // Crear registro en base de datos
+            $record = $this->crearRegistroCertificado(
+                $documento,
+                $consecutivo,
+                $bucketPath,
+                $fechaCertificado,
+                $afiliadoData
+            );
+
+            // Agregar métricas en el procesamiento
+            Log::info('Recursos utilizados durante generación de certificado con actividades', [
+                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB',
+                'execution_time' => round(microtime(true) - $startTime, 2) . ' segundos',
+                'documento' => $documento,
+                'consecutivo' => $consecutivo,
+                'actividades_count' => count($actividades),
+            ]);
+
+            return [
+                'ruta' => $rutaPDF,
+                'nombre' => $nombrePDF,
+                'tipo' => 'pdf',
+                'consecutivo' => $consecutivo,
+                'bucket_path' => $bucketPath,
+                'record_id' => $record->id,
+            ];
+        } catch (\Exception $e) {
+            // Si falla la conversión, limpiar el Word temporal y relanzar el error
+            if (file_exists($resultadoWord['ruta'])) {
+                @unlink($resultadoWord['ruta']);
+            }
+
+            Log::error('Error en generarCertificadoPDFConActividades al convertir a PDF con CloudConvert', [
+                'documento' => $documento,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Genera un certificado de convenio dirigido a fondo de pensiones (AFP) en formato Word
+     *
+     * @param string $documento Número de documento del afiliado
+     * @param string|null $afp Nombre del fondo de pensiones (AFP)
+     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @return array
+     */
+    public function generarCertificadoWordDirigidoAFP(string $documento, ?string $afp = null, ?string $consecutivo = null): array
+    {
+        // Capturar la fecha una sola vez para usar consistentemente en todo el certificado
+        $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+
+        // Obtener información del afiliado
+        $afiliadoData = $this->obtenerDatosAfiliado($documento);
+
+        if (!$afiliadoData) {
+            throw new \Exception("Afiliado con documento {$documento} no encontrado");
+        }
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Preparar datos para certificado dirigido a AFP
+        $datos = $this->prepararDatosCertificadoAFP($afiliadoData, $fechaCertificado, $consecutivo, $afp);
+
+        // Cargar plantilla de AFP
+        $templatePath = $this->obtenerRutaPlantilla(false, false, false, false, true);
+        if (!file_exists($templatePath)) {
+            throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/certificado_convenio_dirigido_afp_template.docx");
+        }
+
+        // Crear procesador de plantilla
+        $templateProcessor = new TemplateProcessor($templatePath);
+
+        // Reemplazar placeholders
+        foreach ($datos as $key => $value) {
+            $templateProcessor->setValue($key, $value ?? '');
+        }
+
+        // Generar nombre de archivo (usar la misma fecha)
+        $nombreArchivo = $this->generarNombreArchivo($afiliadoData, $fechaCertificado);
+        $rutaSalida = storage_path("app/" . self::TEMP_DIR . "/{$nombreArchivo}");
+
+        // Crear directorio si no existe
+        $tempDir = storage_path("app/" . self::TEMP_DIR);
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        // Guardar documento
+        $templateProcessor->saveAs($rutaSalida);
+
+        return [
+            'ruta' => $rutaSalida,
+            'nombre' => $nombreArchivo,
+            'tipo' => 'docx',
+        ];
+    }
+
+    /**
+     * Genera un certificado de convenio dirigido a fondo de pensiones (AFP) en formato PDF
+     * Primero genera el Word desde la plantilla, luego lo convierte a PDF usando CloudConvert
+     *
+     * @param string $documento Número de documento del afiliado
+     * @param string|null $afp Nombre del fondo de pensiones (AFP)
+     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @return array
+     */
+    public function generarCertificadoPDFDirigidoAFP(string $documento, ?string $afp = null, ?string $consecutivo = null): array
+    {
+        $startTime = microtime(true);
+
+        // Obtener información del afiliado primero para tener los datos necesarios
+        $afiliadoData = $this->obtenerDatosAfiliado($documento);
+        if (!$afiliadoData) {
+            throw new \Exception("Afiliado con documento {$documento} no encontrado");
+        }
+
+        // Capturar la fecha una sola vez para usar consistentemente
+        $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Primero generar el Word desde la plantilla
+        $resultadoWord = $this->generarCertificadoWordDirigidoAFP($documento, $afp, $consecutivo);
+
+        try {
+            // Convertir Word a PDF usando CloudConvert
+            $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
+            $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
+
+            // Limpiar archivo Word temporal
+            if (file_exists($resultadoWord['ruta'])) {
+                @unlink($resultadoWord['ruta']);
+            }
+
+            // Generar nombre del archivo PDF con el formato estándar
+            // Formato: Certificado_Sindicato_ProSalud_{documento}_{consecutivo}.pdf
+            $documentoNormalizado = preg_replace('/[^0-9]/', '', $documento);
+            $nombrePDF = "Certificado_Sindicato_ProSalud_{$documentoNormalizado}_{$consecutivo}.pdf";
+
+            // Obtener ruta absoluta del PDF
+            $rutaPDF = storage_path('app/' . $resultadoPDF['path']);
+
+            // Guardar PDF en bucket privado y crear registro en BD
+            $bucketPath = $this->guardarCertificadoEnBucket($rutaPDF, $documento, $consecutivo, $fechaCertificado, $afiliadoData);
+
+            // Crear registro en base de datos
+            $record = $this->crearRegistroCertificado(
+                $documento,
+                $consecutivo,
+                $bucketPath,
+                $fechaCertificado,
+                $afiliadoData
+            );
+
+            // Agregar métricas en el procesamiento
+            Log::info('Recursos utilizados durante generación de certificado dirigido a AFP', [
+                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB',
+                'execution_time' => round(microtime(true) - $startTime, 2) . ' segundos',
+                'documento' => $documento,
+                'consecutivo' => $consecutivo,
+                'afp' => $afp,
+            ]);
+
+            return [
+                'ruta' => $rutaPDF,
+                'nombre' => $nombrePDF,
+                'tipo' => 'pdf',
+                'consecutivo' => $consecutivo,
+                'bucket_path' => $bucketPath,
+                'record_id' => $record->id,
+            ];
+        } catch (\Exception $e) {
+            // Si falla la conversión, limpiar el Word temporal y relanzar el error
+            if (file_exists($resultadoWord['ruta'])) {
+                @unlink($resultadoWord['ruta']);
+            }
+
+            Log::error('Error en generarCertificadoPDFDirigidoAFP al convertir a PDF con CloudConvert', [
+                'documento' => $documento,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
     }
 
     /**
@@ -267,8 +575,8 @@ class CertificadoConvenioService
                             if ($rowDocumento === $normalizedDocumento) {
                                 // Encontrado, leer solo las columnas necesarias
                                 $rowData = [];
-                                // Solo leer las columnas que necesitamos: 0,1,2,3,4,8,10,18,20
-                                $neededColumns = [0, 1, 2, 3, 4, 8, 10, 18, 20];
+                                // Solo leer las columnas que necesitamos: 0,1,2,3,4,8,10,18,20,32 (AFP)
+                                $neededColumns = [0, 1, 2, 3, 4, 8, 10, 18, 20, 32];
                                 foreach ($neededColumns as $colIndex) {
                                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
                                     $cell = $informacionSheet->getCell($colLetter . $rowIndex);
@@ -345,10 +653,20 @@ class CertificadoConvenioService
      * Extrae información del afiliado desde una fila del Excel
      * Columnas según AfiliadoService:
      * 0: tipo_documento, 1: documento, 2: nombres, 3: apellidos, 4: estado,
-     * 8: sexo, 10: fecha_ingreso, 18: correo_personal, 20: fecha_liquidacion
+     * 8: sexo, 10: fecha_ingreso, 18: correo_personal, 20: fecha_liquidacion,
+     * 32: afp (A.F.P)
      */
     private function extractAfiliadoInfo(array $row): array
     {
+        // Normalizar el valor de AFP
+        $afpRaw = $this->normalizeValue($row[32] ?? '');
+        $afp = trim($afpRaw);
+        
+        // Si está vacío o es "NINGUNA", dejarlo como string vacío
+        if (empty($afp) || strtoupper($afp) === 'NINGUNA') {
+            $afp = '';
+        }
+
         return [
             'tipo_documento' => $this->normalizeValue($row[0] ?? ''),
             'documento' => $this->normalizeValue($row[1] ?? ''),
@@ -359,6 +677,7 @@ class CertificadoConvenioService
             'fecha_ingreso' => $this->normalizeDate($row[10] ?? ''),
             'correo_personal' => $this->normalizeValue($row[18] ?? ''),
             'fecha_liquidacion' => $this->normalizeDate($row[20] ?? ''),
+            'afp' => $afp,
         ];
     }
 
@@ -920,6 +1239,270 @@ class CertificadoConvenioService
     }
 
     /**
+     * Prepara los datos del certificado con actividades
+     * Similar al certificado de convenio simple pero incluye lista de actividades
+     *
+     * @param array $afiliadoData
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
+     * @param string|null $consecutivo Número consecutivo
+     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
+     * @param array $actividades Array de actividades a incluir en el certificado
+     * @return array
+     */
+    private function prepararDatosCertificadoActividades(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, array $actividades = []): array
+    {
+        $afiliado = $afiliadoData['afiliado'];
+        $convenio = $afiliadoData['convenio'] ?? null;
+        $todosLosConvenios = $afiliadoData['todos_los_convenios'] ?? [];
+
+        // Usar la fecha proporcionada o capturar una nueva si no se proporciona
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+
+        // Formatear fechas
+        $fechaIngreso = $this->formatearFechaEspanol($afiliado['fecha_ingreso'] ?? null);
+        $fechaRetiro = $this->formatearFechaEspanol($afiliado['fecha_liquidacion'] ?? null);
+        $fechaCertificadoFormateada = $this->formatearFechaEspanol($fechaCertificado);
+
+        // Nombre completo en mayúsculas
+        $nombreCompleto = strtoupper(
+            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+        );
+
+        // Documento formateado con puntos
+        $documento = $this->formatearDocumento($afiliado['documento'] ?? '');
+
+        // Hospital (transformar cliente)
+        $clienteRaw = $convenio['cliente'] ?? '';
+        $hospital = $this->transformarCliente($clienteRaw);
+
+        // Proceso
+        $proceso = $convenio['proceso'] ?? '';
+
+        // Texto de fecha de retiro
+        $textoFechaRetiro = $fechaRetiro ? ", hasta {$fechaRetiro}" : '';
+
+        // Campos adicionales
+        $correoPersonal = $afiliado['correo_personal'] ?? '';
+        $sexo = $afiliado['sexo'] ?? '';
+        $estado = $afiliado['estado'] ?? '';
+
+        // Procesar condicionales basados en SEXO
+        $sexoNormalizado = strtoupper(trim($sexo));
+        $esMasculino = ($sexoNormalizado === 'M' || $sexoNormalizado === 'MASCULINO' || $sexoNormalizado === 'MALE');
+        $tituloPersona = $esMasculino ? 'el señor' : 'la señora';
+        $identificadoIdentificada = $esMasculino ? 'identificado' : 'identificada';
+        $afiliadoAfiliada = $esMasculino ? 'afiliado' : 'afiliada';
+        $delInteresadoDeLaInteresada = $esMasculino ? 'del interesado' : 'de la interesada';
+
+        // Procesar condicionales basados en ESTADO
+        $estadoNormalizado = strtoupper(trim($estado));
+        $estaActivo = ($estadoNormalizado === 'ACTIVO' || $estadoNormalizado === 'ACTIVE');
+        $atiendeAtendio = $estaActivo ? 'atiende' : 'atendió';
+        $seEncuentraEstuvo = $estaActivo ? 'se encuentra' : 'estuvo';
+        $desarrollaActualmenteDesarrollo = $estaActivo ? 'desarrolla actualmente' : 'desarrolló';
+
+        // Procesar DESTINATARIO
+        $destinatario = trim($dirigidoAEntidad ?? '');
+        $destinatarioCompleto = empty($destinatario)
+            ? 'A quien corresponda.'
+            : "Señores\n{$destinatario}";
+
+        // Generar lista de convenios formateada
+        $listaConvenios = $this->generarListaConvenios($todosLosConvenios, $convenio);
+
+        // Determinar si hay un convenio o varios
+        $cantidadConvenios = count($todosLosConvenios);
+        $unConvenioVariosConvenios = $cantidadConvenios === 1 ? 'un Convenio' : 'varios Convenios';
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // Generar lista de actividades formateada
+        $listaActividades = $this->formatearListaActividades($actividades);
+
+        return [
+            'NOMBRE_COMPLETO' => $nombreCompleto,
+            'DOCUMENTO' => $documento,
+            'FECHA_INGRESO' => $fechaIngreso,
+            'FECHA_RETIRO' => $textoFechaRetiro,
+            'HOSPITAL' => $hospital,
+            'PROCESO' => strtoupper($proceso),
+            'FECHA_CERTIFICADO' => $fechaCertificadoFormateada,
+            'DIA_CERTIFICADO' => $fechaCertificado->day,
+            'MES_CERTIFICADO' => $this->obtenerMesEspanol($fechaCertificado->month),
+            'ANIO_CERTIFICADO' => $fechaCertificado->year,
+            'CONSECUTIVO' => $consecutivo,
+            'CORREO_PERSONAL' => $correoPersonal,
+            'SEXO' => strtoupper($sexo),
+            'ESTADO' => strtoupper($estado),
+            'TITULO_PERSONA' => $tituloPersona,
+            'IDENTIFICADO_IDENTIFICADA' => $identificadoIdentificada,
+            'AFILIADO_AFILIADA' => $afiliadoAfiliada,
+            'DEL_INTERESADO_DE_LA_INTERESADA' => $delInteresadoDeLaInteresada,
+            'ATIENDE_ATENDIO' => $atiendeAtendio,
+            'SE_ENCUENTRA_ESTUVO' => $seEncuentraEstuvo,
+            'DESARROLLA_ACTUALMENTE_DESARROLLO' => $desarrollaActualmenteDesarrollo,
+            'DESTINATARIO_COMPLETO' => $destinatarioCompleto,
+            'LISTA_CONVENIOS' => $listaConvenios,
+            'UN_CONVENIO_VARIOS_CONVENIOS' => $unConvenioVariosConvenios,
+            'LISTA_ACTIVIDADES' => $listaActividades,
+        ];
+    }
+
+    /**
+     * Formatea la lista de actividades para el placeholder LISTA_ACTIVIDADES
+     * Genera una lista numerada de actividades con saltos de línea entre cada item
+     *
+     * @param array $actividades Array de strings con las actividades
+     * @return string Lista formateada con números y saltos de línea
+     */
+    private function formatearListaActividades(array $actividades): string
+    {
+        if (empty($actividades)) {
+            return '';
+        }
+
+        // Filtrar actividades vacías y limpiar espacios
+        $actividadesLimpias = array_filter(
+            array_map('trim', $actividades),
+            fn($actividad) => !empty($actividad)
+        );
+
+        if (empty($actividadesLimpias)) {
+            return '';
+        }
+
+        // Generar lista numerada con saltos de línea entre cada item
+        $lista = [];
+        $numero = 1;
+        foreach ($actividadesLimpias as $actividad) {
+            $lista[] = "{$numero}. {$actividad}";
+            $numero++;
+        }
+
+        // Unir con doble salto de línea para que haya espacio entre cada actividad
+        return implode("\n\n", $lista);
+    }
+
+    /**
+     * Prepara los datos del certificado dirigido a fondo de pensiones (AFP)
+     * Similar al certificado de convenio simple pero incluye placeholder AFP
+     *
+     * @param array $afiliadoData
+     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
+     * @param string|null $consecutivo Número consecutivo
+     * @param string|null $afp Nombre del fondo de pensiones (AFP)
+     * @return array
+     */
+    private function prepararDatosCertificadoAFP(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $afp = null): array
+    {
+        $afiliado = $afiliadoData['afiliado'];
+        $convenio = $afiliadoData['convenio'] ?? null;
+        $todosLosConvenios = $afiliadoData['todos_los_convenios'] ?? [];
+
+        // Usar la fecha proporcionada o capturar una nueva si no se proporciona
+        if ($fechaCertificado === null) {
+            $fechaCertificado = Carbon::now(config('app.timezone', 'America/Bogota'));
+        }
+
+        // Formatear fechas
+        $fechaIngreso = $this->formatearFechaEspanol($afiliado['fecha_ingreso'] ?? null);
+        $fechaRetiro = $this->formatearFechaEspanol($afiliado['fecha_liquidacion'] ?? null);
+        $fechaCertificadoFormateada = $this->formatearFechaEspanol($fechaCertificado);
+
+        // Nombre completo en mayúsculas
+        $nombreCompleto = strtoupper(
+            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+        );
+
+        // Documento formateado con puntos
+        $documento = $this->formatearDocumento($afiliado['documento'] ?? '');
+
+        // Hospital (transformar cliente)
+        $clienteRaw = $convenio['cliente'] ?? '';
+        $hospital = $this->transformarCliente($clienteRaw);
+
+        // Proceso
+        $proceso = $convenio['proceso'] ?? '';
+
+        // Texto de fecha de retiro
+        $textoFechaRetiro = $fechaRetiro ? ", hasta {$fechaRetiro}" : '';
+
+        // Campos adicionales
+        $correoPersonal = $afiliado['correo_personal'] ?? '';
+        $sexo = $afiliado['sexo'] ?? '';
+        $estado = $afiliado['estado'] ?? '';
+
+        // Procesar condicionales basados en SEXO
+        $sexoNormalizado = strtoupper(trim($sexo));
+        $esMasculino = ($sexoNormalizado === 'M' || $sexoNormalizado === 'MASCULINO' || $sexoNormalizado === 'MALE');
+        $tituloPersona = $esMasculino ? 'el señor' : 'la señora';
+        $identificadoIdentificada = $esMasculino ? 'identificado' : 'identificada';
+        $afiliadoAfiliada = $esMasculino ? 'afiliado' : 'afiliada';
+        $delInteresadoDeLaInteresada = $esMasculino ? 'del interesado' : 'de la interesada';
+
+        // Procesar condicionales basados en ESTADO
+        $estadoNormalizado = strtoupper(trim($estado));
+        $estaActivo = ($estadoNormalizado === 'ACTIVO' || $estadoNormalizado === 'ACTIVE');
+        $atiendeAtendio = $estaActivo ? 'atiende' : 'atendió';
+        $seEncuentraEstuvo = $estaActivo ? 'se encuentra' : 'estuvo';
+        $desarrollaActualmenteDesarrollo = $estaActivo ? 'desarrolla actualmente' : 'desarrolló';
+
+        // Procesar DESTINATARIO - Para AFP, siempre será "Señores [AFP]"
+        $destinatarioCompleto = 'A quien corresponda.';
+        if (!empty($afp)) {
+            $destinatarioCompleto = "Señores\n{$afp}";
+        }
+
+        // Generar lista de convenios formateada
+        $listaConvenios = $this->generarListaConvenios($todosLosConvenios, $convenio);
+
+        // Determinar si hay un convenio o varios
+        $cantidadConvenios = count($todosLosConvenios);
+        $unConvenioVariosConvenios = $cantidadConvenios === 1 ? 'un Convenio' : 'varios Convenios';
+
+        // Si no se proporcionó consecutivo, generarlo
+        if ($consecutivo === null) {
+            $consecutivo = $this->generarConsecutivo($fechaCertificado);
+        }
+
+        // AFP - usar el valor proporcionado o vacío
+        $afpValue = !empty($afp) ? trim($afp) : '';
+
+        return [
+            'NOMBRE_COMPLETO' => $nombreCompleto,
+            'DOCUMENTO' => $documento,
+            'FECHA_INGRESO' => $fechaIngreso,
+            'FECHA_RETIRO' => $textoFechaRetiro,
+            'HOSPITAL' => $hospital,
+            'PROCESO' => strtoupper($proceso),
+            'FECHA_CERTIFICADO' => $fechaCertificadoFormateada,
+            'DIA_CERTIFICADO' => $fechaCertificado->day,
+            'MES_CERTIFICADO' => $this->obtenerMesEspanol($fechaCertificado->month),
+            'ANIO_CERTIFICADO' => $fechaCertificado->year,
+            'CONSECUTIVO' => $consecutivo,
+            'CORREO_PERSONAL' => $correoPersonal,
+            'SEXO' => strtoupper($sexo),
+            'ESTADO' => strtoupper($estado),
+            'TITULO_PERSONA' => $tituloPersona,
+            'IDENTIFICADO_IDENTIFICADA' => $identificadoIdentificada,
+            'AFILIADO_AFILIADA' => $afiliadoAfiliada,
+            'DEL_INTERESADO_DE_LA_INTERESADA' => $delInteresadoDeLaInteresada,
+            'ATIENDE_ATENDIO' => $atiendeAtendio,
+            'SE_ENCUENTRA_ESTUVO' => $seEncuentraEstuvo,
+            'DESARROLLA_ACTUALMENTE_DESARROLLO' => $desarrollaActualmenteDesarrollo,
+            'DESTINATARIO_COMPLETO' => $destinatarioCompleto,
+            'LISTA_CONVENIOS' => $listaConvenios,
+            'UN_CONVENIO_VARIOS_CONVENIOS' => $unConvenioVariosConvenios,
+            'AFP' => $afpValue,
+        ];
+    }
+
+    /**
      * Formatea fecha en español
      */
     private function formatearFechaEspanol($fecha): string
@@ -1273,12 +1856,17 @@ class CertificadoConvenioService
      * @param bool $esParaBancolombia Indica si es para certificado de Bancolombia
      * @param bool $esParaSubsidioVivienda Indica si es para certificado de subsidio de vivienda
      * @param bool $esParaSubsidioDesempleo Indica si es para certificado de subsidio de desempleo
+     * @param bool $esConActividades Indica si es para certificado con actividades
      * @return string
      */
-    private function obtenerRutaPlantilla(bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false): string
+    private function obtenerRutaPlantilla(bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false, bool $esConActividades = false, bool $esParaAFP = false): string
     {
         // Seleccionar la plantilla según el tipo de certificado
-        if ($esParaBancolombia) {
+        if ($esParaAFP) {
+            return base_path(self::TEMPLATE_PATH_AFP);
+        } elseif ($esConActividades) {
+            return base_path(self::TEMPLATE_PATH_ACTIVIDADES);
+        } elseif ($esParaBancolombia) {
             return base_path(self::TEMPLATE_PATH_BANCOLOMBIA);
         } elseif ($esParaSubsidioVivienda) {
             return base_path(self::TEMPLATE_PATH_SUBSIDIO_VIVIENDA);

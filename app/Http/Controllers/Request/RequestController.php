@@ -653,7 +653,7 @@ class RequestController extends Controller
         $emailSubject = $validated['email_subject'];
         $emailBody = $validated['email_body'];
 
-        // Get attachments if provided
+        // Get attachments if provided (needed for validation of dirigidoFondoPensiones)
         // Laravel automatically handles attachments as array when sent as attachments[0], attachments[1], etc.
         $attachments = [];
         if ($request->hasFile('attachments')) {
@@ -672,9 +672,299 @@ class RequestController extends Controller
             }
         }
 
+        // Check if this is a certificado convenio with actividades or dirigido a fondo de pensiones
+        $tieneActividades = false;
+        $actividades = [];
+        $esDirigidoFondoPensiones = false;
+        $afp = null;
+        if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
+            $payload = $requestForm->payload ?? [];
+            if (isset($payload['infoCertificado'])) {
+                $infoCertificado = $payload['infoCertificado'];
+                if (is_string($infoCertificado)) {
+                    $infoCertificado = json_decode($infoCertificado, true);
+                }
+                
+                if (is_array($infoCertificado)) {
+                    $adicionarActividades = $requestForm->parseBooleanValue($infoCertificado['adicionarActividades'] ?? false);
+                    $dirigidoFondoPensiones = $requestForm->parseBooleanValue($infoCertificado['dirigidoFondoPensiones'] ?? false);
+                    
+                    if ($adicionarActividades && $request->has('actividades')) {
+                        $tieneActividades = true;
+                        $actividadesInput = $request->input('actividades', []);
+                        
+                        // Normalize actividades array - handle both array and indexed form data
+                        if (is_array($actividadesInput)) {
+                            // Filter out empty values and trim
+                            $actividades = array_filter(
+                                array_map('trim', $actividadesInput),
+                                fn($actividad) => !empty($actividad)
+                            );
+                        // Re-index array to ensure sequential numbering
+                        $actividades = array_values($actividades);
+                    }
+                    
+                    // Only force status to IN_REVIEW if status is PENDING (not if user explicitly set COMPLETED or REJECTED)
+                    // This allows users to complete or reject certificates with activities if needed
+                    if ($status === RequestStatuses::PENDING) {
+                        $status = RequestStatuses::IN_REVIEW;
+                    }
+                }
+                    
+                    if ($dirigidoFondoPensiones) {
+                        $esDirigidoFondoPensiones = true;
+                        
+                        // Obtener AFP del request si viene, sino del Excel del afiliado
+                        $afpDelRequest = $request->input('afp');
+                        if (!empty($afpDelRequest)) {
+                            $afp = trim($afpDelRequest);
+                        } else {
+                            // Intentar obtener del Excel del afiliado
+                            try {
+                                $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($requestForm->document_number);
+                                if ($afiliadoData && isset($afiliadoData['afiliado']['afp'])) {
+                                    $afpDelExcel = $afiliadoData['afiliado']['afp'] ?? '';
+                                    $afpDelExcel = trim($afpDelExcel);
+                                    
+                                    // Solo usar si no está vacío y no es "NINGUNA"
+                                    if (!empty($afpDelExcel) && strtoupper($afpDelExcel) !== 'NINGUNA') {
+                                        $afp = $afpDelExcel;
+                                    }
+                                }
+                            } catch (\Throwable $e) {
+                                Log::warning('Error obteniendo AFP del Excel del afiliado', [
+                                    'request_id' => $requestForm->id,
+                                    'documento' => $requestForm->document_number,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
+                        }
+                        
+                        // Validar que haya al menos 1 archivo adjunto (planillas de seguridad social)
+                        if (empty($attachments)) {
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Errores de validación',
+                                'errors' => [
+                                    'attachments' => ['Es requerido adjuntar las planillas de pagos de seguridad social'],
+                                ],
+                            ], 422);
+                        }
+                        
+                        // Validar que se tenga el valor de AFP
+                        if (empty($afp)) {
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'No se pudo obtener el valor del AFP. Por favor, envíe el campo "afp" en la solicitud o verifique que el afiliado tenga un AFP registrado en el sistema.',
+                                'errors' => [
+                                    'afp' => ['El campo AFP es requerido. No se encontró en el Excel del afiliado y no fue proporcionado en la solicitud.'],
+                                ],
+                            ], 422);
+                        }
+                        
+                        // Only force status to IN_REVIEW if status is PENDING (not if user explicitly set COMPLETED or REJECTED)
+                        // This allows users to complete or reject certificates directed to pension fund if needed
+                        if ($status === RequestStatuses::PENDING) {
+                            $status = RequestStatuses::IN_REVIEW;
+                        }
+                    }
+                }
+            }
+        }
+
         // Prepare data for logging
         $oldStatus = $requestForm->status;
         $requestFormId = (string) $requestForm->id;
+
+        // Generate certificate with activities if needed
+        if ($tieneActividades && !empty($actividades)) {
+            try {
+                Log::info('Generando certificado con actividades', [
+                    'request_id' => $requestFormId,
+                    'documento' => $requestForm->document_number,
+                    'actividades_count' => count($actividades),
+                ]);
+
+                // Get dirigidoAEntidad from payload if available
+                $dirigidoAEntidad = null;
+                $payload = $requestForm->payload ?? [];
+                if (isset($payload['dirigidoAQuien']) && !empty($payload['dirigidoAQuien'])) {
+                    $dirigidoAEntidad = $payload['dirigidoAQuien'];
+                }
+
+                // Generate PDF certificate with activities
+                $certificadoResult = $this->certificadoService->generarCertificadoPDFConActividades(
+                    $requestForm->document_number,
+                    $actividades,
+                    null, // consecutivo will be generated
+                    $dirigidoAEntidad
+                );
+
+                // Save the generated certificate to request files for traceability
+                if (file_exists($certificadoResult['ruta'])) {
+                    try {
+                        $archivoMetadata = $this->guardarCertificadoEnSolicitud(
+                            $requestFormId,
+                            $certificadoResult['ruta'],
+                            $certificadoResult['nombre']
+                        );
+
+                        // Update RequestForm with the certificate file
+                        $files = $requestForm->files ?? [];
+                        $files['certificado_convenio_actividades'] = $archivoMetadata;
+                        $requestForm->files = $files;
+                        $requestForm->save();
+
+                        Log::info('Certificado con actividades guardado en archivos de solicitud', [
+                            'request_id' => $requestFormId,
+                            'file_key' => 'certificado_convenio_actividades',
+                            'storage_path' => $archivoMetadata['path'] ?? null,
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::error('Error guardando certificado con actividades en archivos de solicitud', [
+                            'request_id' => $requestFormId,
+                            'error' => $e->getMessage(),
+                        ]);
+                        // Continue even if saving fails - we still want to attach it to email
+                    }
+                }
+
+                // Add the generated certificate to attachments
+                // Create an UploadedFile-like object for the Mail class
+                if (file_exists($certificadoResult['ruta'])) {
+                    // Read file content
+                    $fileContent = file_get_contents($certificadoResult['ruta']);
+                    $fileSize = filesize($certificadoResult['ruta']);
+                    
+                    // Create a temporary file in the system temp directory
+                    $tempPath = tempnam(sys_get_temp_dir(), 'cert_actividades_');
+                    file_put_contents($tempPath, $fileContent);
+                    
+                    // Create UploadedFile instance (using test mode to avoid validation)
+                    $uploadedFile = new \Illuminate\Http\UploadedFile(
+                        $tempPath,
+                        $certificadoResult['nombre'],
+                        'application/pdf',
+                        UPLOAD_ERR_OK,
+                        true // test mode - allows creating from existing file
+                    );
+                    
+                    $attachments[] = $uploadedFile;
+                    
+                    Log::info('Certificado con actividades generado exitosamente', [
+                        'request_id' => $requestFormId,
+                        'certificado_ruta' => $certificadoResult['ruta'],
+                        'certificado_nombre' => $certificadoResult['nombre'],
+                        'consecutivo' => $certificadoResult['consecutivo'],
+                        'file_size' => $fileSize,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::error('Error al generar certificado con actividades', [
+                    'request_id' => $requestFormId,
+                    'documento' => $requestForm->document_number,
+                    'error' => $e->getMessage(),
+                    'error_trace' => $e->getTraceAsString(),
+                ]);
+
+                // Don't fail the entire request, but log the error
+                // The user can still respond without the certificate attached
+            }
+        }
+
+        // Generate certificate directed to pension fund (AFP) if needed
+        if ($esDirigidoFondoPensiones && !empty($afp)) {
+            try {
+                Log::info('Generando certificado dirigido a fondo de pensiones', [
+                    'request_id' => $requestFormId,
+                    'documento' => $requestForm->document_number,
+                    'afp' => $afp,
+                ]);
+
+                // Generate PDF certificate directed to AFP
+                $certificadoResult = $this->certificadoService->generarCertificadoPDFDirigidoAFP(
+                    $requestForm->document_number,
+                    $afp,
+                    null // consecutivo will be generated
+                );
+
+                // Save the generated certificate to request files for traceability
+                if (file_exists($certificadoResult['ruta'])) {
+                    try {
+                        $archivoMetadata = $this->guardarCertificadoEnSolicitud(
+                            $requestFormId,
+                            $certificadoResult['ruta'],
+                            $certificadoResult['nombre']
+                        );
+
+                        // Update RequestForm with the certificate file
+                        $files = $requestForm->files ?? [];
+                        $files['certificado_convenio_afp'] = $archivoMetadata;
+                        $requestForm->files = $files;
+                        $requestForm->save();
+
+                        Log::info('Certificado dirigido a AFP guardado en archivos de solicitud', [
+                            'request_id' => $requestFormId,
+                            'file_key' => 'certificado_convenio_afp',
+                            'storage_path' => $archivoMetadata['path'] ?? null,
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::error('Error guardando certificado dirigido a AFP en archivos de solicitud', [
+                            'request_id' => $requestFormId,
+                            'error' => $e->getMessage(),
+                        ]);
+                        // Continue even if saving fails - we still want to attach it to email
+                    }
+                }
+
+                // Add the generated certificate to attachments
+                // Create an UploadedFile-like object for the Mail class
+                if (file_exists($certificadoResult['ruta'])) {
+                    // Read file content
+                    $fileContent = file_get_contents($certificadoResult['ruta']);
+                    $fileSize = filesize($certificadoResult['ruta']);
+                    
+                    // Create a temporary file in the system temp directory
+                    $tempPath = tempnam(sys_get_temp_dir(), 'cert_afp_');
+                    file_put_contents($tempPath, $fileContent);
+                    
+                    // Create UploadedFile instance (using test mode to avoid validation)
+                    $uploadedFile = new \Illuminate\Http\UploadedFile(
+                        $tempPath,
+                        $certificadoResult['nombre'],
+                        'application/pdf',
+                        UPLOAD_ERR_OK,
+                        true // test mode - allows creating from existing file
+                    );
+                    
+                    $attachments[] = $uploadedFile;
+                    
+                    Log::info('Certificado dirigido a AFP generado exitosamente', [
+                        'request_id' => $requestFormId,
+                        'certificado_ruta' => $certificadoResult['ruta'],
+                        'certificado_nombre' => $certificadoResult['nombre'],
+                        'consecutivo' => $certificadoResult['consecutivo'],
+                        'afp' => $afp,
+                        'file_size' => $fileSize,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::error('Error al generar certificado dirigido a AFP', [
+                    'request_id' => $requestFormId,
+                    'documento' => $requestForm->document_number,
+                    'afp' => $afp,
+                    'error' => $e->getMessage(),
+                    'error_trace' => $e->getTraceAsString(),
+                ]);
+
+                // Return error - this is critical for AFP certificates
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al generar el certificado dirigido a fondo de pensiones: ' . $e->getMessage(),
+                    'error' => config('app.debug') ? $e->getMessage() : 'Error al generar el certificado',
+                ], 500);
+            }
+        }
 
         Log::info('Iniciando proceso de respuesta a solicitud', [
             'request_id' => $requestFormId,
@@ -684,6 +974,10 @@ class RequestController extends Controller
             'email' => $requestForm->email,
             'has_attachments' => !empty($attachments),
             'attachments_count' => count($attachments),
+            'tiene_actividades' => $tieneActividades,
+            'actividades_count' => $tieneActividades ? count($actividades) : 0,
+            'es_dirigido_fondo_pensiones' => $esDirigidoFondoPensiones,
+            'afp' => $esDirigidoFondoPensiones ? $afp : null,
         ]);
 
         // IMPORTANT: Send email FIRST, before updating status or creating response record
@@ -1752,6 +2046,65 @@ class RequestController extends Controller
                 'razon' => 'Error al verificar compensaciones: ' . $e->getMessage(),
                 'compensaciones' => null,
             ];
+        }
+    }
+
+    /**
+     * Guarda un certificado generado en los archivos de la solicitud
+     * Similar al método en CertificadoConvenioAutomaticoService
+     *
+     * @param string $requestId ID de la solicitud
+     * @param string $rutaPdf Ruta local del archivo PDF
+     * @param string $nombreArchivo Nombre del archivo
+     * @return array Metadatos del archivo guardado
+     * @throws \Exception Si no se puede leer o guardar el archivo
+     */
+    private function guardarCertificadoEnSolicitud(string $requestId, string $rutaPdf, string $nombreArchivo): array
+    {
+        try {
+            // Leer el contenido del PDF
+            $contenidoPDF = file_get_contents($rutaPdf);
+            if ($contenidoPDF === false) {
+                throw new \Exception("No se pudo leer el archivo PDF desde: {$rutaPdf}");
+            }
+
+            // Crear un nombre único para el archivo
+            $nombreSinExtension = pathinfo($nombreArchivo, PATHINFO_FILENAME);
+            $extension = pathinfo($nombreArchivo, PATHINFO_EXTENSION) ?: 'pdf';
+            $nombreUnico = "certificado-convenio-actividades-{$requestId}-" . Str::random(8) . ".{$extension}";
+
+            // Guardar en el bucket privado
+            $disk = 'prosalud-private';
+            $directorio = 'request-forms/' . date('Y/m');
+            $rutaStorage = "{$directorio}/{$nombreUnico}";
+
+            $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
+
+            if (!$guardado) {
+                // Intentar con disco de fallback
+                $disk = 'local';
+                $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
+                
+                if (!$guardado) {
+                    throw new \Exception("No se pudo guardar el certificado en storage");
+                }
+            }
+
+            return [
+                'path' => $rutaStorage,
+                'disk' => $disk,
+                'original_name' => $nombreArchivo,
+                'mime_type' => 'application/pdf',
+                'size' => strlen($contenidoPDF),
+                'original_key' => 'certificado_convenio_actividades',
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error guardando certificado en archivos de solicitud', [
+                'request_id' => $requestId,
+                'ruta_pdf' => $rutaPdf,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
         }
     }
 

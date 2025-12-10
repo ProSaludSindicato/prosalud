@@ -254,17 +254,43 @@ class StoreRequestFormRequest extends FormRequest
                 }
 
                 // Preparar datos para validación
+                // Asegurar que los archivos estén en la estructura correcta para el servicio
+                // El servicio busca en $data['files']['actividadesPdf']
+                $filesForValidation = [];
+                
+                // Caso 1: Archivos vienen como array anidado files[actividadesPdf] -> allFiles['files']['actividadesPdf']
+                if (isset($allFiles['files']) && is_array($allFiles['files'])) {
+                    $filesForValidation = $allFiles['files'];
+                }
+                // Caso 2: Archivos vienen con notación de punto files.actividadesPdf -> allFiles['files.actividadesPdf']
+                // Laravel convierte files[actividadesPdf] a files.actividadesPdf en algunos casos
+                else {
+                    // Buscar archivos con prefijo 'files.'
+                    foreach ($allFiles as $key => $file) {
+                        if (strpos($key, 'files.') === 0 && $file instanceof \Illuminate\Http\UploadedFile) {
+                            $fileKey = substr($key, 6); // Remover 'files.' prefix
+                            $filesForValidation[$fileKey] = $file;
+                        }
+                    }
+                }
+                
                 $validationData = array_merge($payload, [
-                    'files' => $allFiles,
+                    'files' => $filesForValidation,
                 ]);
 
                 // Llamar al método de validación del servicio
                 $certificadoService = app(\App\Services\CertificadoConvenioService::class);
                 $validationErrors = $certificadoService->validarCertificadoConvenio($validationData, $estadoAfiliado);
 
-                // Agregar errores al validador
+                // Agregar errores al validador en el campo correcto
                 foreach ($validationErrors as $error) {
-                    $validator->errors()->add('payload.infoCertificado', $error);
+                    // Si el error es sobre actividadesPdf, agregarlo a files.actividadesPdf
+                    if (stripos($error, 'actividadesPdf') !== false) {
+                        $validator->errors()->add('files.actividadesPdf', $error);
+                    } else {
+                        // Otros errores van a payload.infoCertificado
+                        $validator->errors()->add('payload.infoCertificado', $error);
+                    }
                 }
 
                 // Validaciones adicionales de archivos
