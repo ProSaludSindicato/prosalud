@@ -676,7 +676,6 @@ class RequestController extends Controller
         $tieneActividades = false;
         $actividades = [];
         $esDirigidoFondoPensiones = false;
-        $afp = null;
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
             $payload = $requestForm->payload ?? [];
             if (isset($payload['infoCertificado'])) {
@@ -714,32 +713,6 @@ class RequestController extends Controller
                     if ($dirigidoFondoPensiones) {
                         $esDirigidoFondoPensiones = true;
                         
-                        // Obtener AFP del request si viene, sino del Excel del afiliado
-                        $afpDelRequest = $request->input('afp');
-                        if (!empty($afpDelRequest)) {
-                            $afp = trim($afpDelRequest);
-                        } else {
-                            // Intentar obtener del Excel del afiliado
-                            try {
-                                $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($requestForm->document_number);
-                                if ($afiliadoData && isset($afiliadoData['afiliado']['afp'])) {
-                                    $afpDelExcel = $afiliadoData['afiliado']['afp'] ?? '';
-                                    $afpDelExcel = trim($afpDelExcel);
-                                    
-                                    // Solo usar si no está vacío y no es "NINGUNA"
-                                    if (!empty($afpDelExcel) && strtoupper($afpDelExcel) !== 'NINGUNA') {
-                                        $afp = $afpDelExcel;
-                                    }
-                                }
-                            } catch (\Throwable $e) {
-                                Log::warning('Error obteniendo AFP del Excel del afiliado', [
-                                    'request_id' => $requestForm->id,
-                                    'documento' => $requestForm->document_number,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-                        }
-                        
                         // Validar que haya al menos 1 archivo adjunto (planillas de seguridad social)
                         if (empty($attachments)) {
                             return response()->json([
@@ -747,17 +720,6 @@ class RequestController extends Controller
                                 'message' => 'Errores de validación',
                                 'errors' => [
                                     'attachments' => ['Es requerido adjuntar las planillas de pagos de seguridad social'],
-                                ],
-                            ], 422);
-                        }
-                        
-                        // Validar que se tenga el valor de AFP
-                        if (empty($afp)) {
-                            return response()->json([
-                                'success' => false,
-                                'message' => 'No se pudo obtener el valor del AFP. Por favor, envíe el campo "afp" en la solicitud o verifique que el afiliado tenga un AFP registrado en el sistema.',
-                                'errors' => [
-                                    'afp' => ['El campo AFP es requerido. No se encontró en el Excel del afiliado y no fue proporcionado en la solicitud.'],
                                 ],
                             ], 422);
                         }
@@ -873,18 +835,18 @@ class RequestController extends Controller
         }
 
         // Generate certificate directed to pension fund (AFP) if needed
-        if ($esDirigidoFondoPensiones && !empty($afp)) {
+        if ($esDirigidoFondoPensiones) {
             try {
                 Log::info('Generando certificado dirigido a fondo de pensiones', [
                     'request_id' => $requestFormId,
                     'documento' => $requestForm->document_number,
-                    'afp' => $afp,
                 ]);
 
                 // Generate PDF certificate directed to AFP
+                // Ya no se requiere el AFP como parámetro ya que la plantilla Word tiene un valor genérico
                 $certificadoResult = $this->certificadoService->generarCertificadoPDFDirigidoAFP(
                     $requestForm->document_number,
-                    $afp,
+                    null, // AFP ya no se personaliza, se usa valor genérico de la plantilla
                     null // consecutivo will be generated
                 );
 
@@ -944,7 +906,6 @@ class RequestController extends Controller
                         'certificado_ruta' => $certificadoResult['ruta'],
                         'certificado_nombre' => $certificadoResult['nombre'],
                         'consecutivo' => $certificadoResult['consecutivo'],
-                        'afp' => $afp,
                         'file_size' => $fileSize,
                     ]);
                 }
@@ -952,7 +913,6 @@ class RequestController extends Controller
                 Log::error('Error al generar certificado dirigido a AFP', [
                     'request_id' => $requestFormId,
                     'documento' => $requestForm->document_number,
-                    'afp' => $afp,
                     'error' => $e->getMessage(),
                     'error_trace' => $e->getTraceAsString(),
                 ]);
@@ -1010,7 +970,6 @@ class RequestController extends Controller
             'tiene_actividades' => $tieneActividades,
             'actividades_count' => $tieneActividades ? count($actividades) : 0,
             'es_dirigido_fondo_pensiones' => $esDirigidoFondoPensiones,
-            'afp' => $esDirigidoFondoPensiones ? $afp : null,
         ]);
 
         // IMPORTANT: Send email FIRST, before updating status or creating response record

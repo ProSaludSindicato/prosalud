@@ -1452,7 +1452,8 @@ class CertificadoConvenioService
         $seEncuentraEstuvo = $estaActivo ? 'se encuentra' : 'estuvo';
         $desarrollaActualmenteDesarrollo = $estaActivo ? 'desarrolla actualmente' : 'desarrolló';
 
-        // Procesar DESTINATARIO - Para AFP, siempre será "Señores [AFP]"
+        // Procesar DESTINATARIO - Si no se proporciona AFP, usar valor genérico
+        // La plantilla Word ya tiene un valor genérico definido, por lo que no se personaliza
         $destinatarioCompleto = 'A quien corresponda.';
         if (!empty($afp)) {
             $destinatarioCompleto = "Señores\n{$afp}";
@@ -1471,6 +1472,7 @@ class CertificadoConvenioService
         }
 
         // AFP - usar el valor proporcionado o vacío
+        // La plantilla Word ya tiene un valor genérico definido, por lo que no se personaliza
         $afpValue = !empty($afp) ? trim($afp) : '';
 
         return [
