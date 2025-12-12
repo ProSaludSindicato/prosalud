@@ -966,12 +966,45 @@ class RequestController extends Controller
             }
         }
 
+        // Determine recipient email address
+        // For "actualizar-datos-personales" requests that are being completed/approved,
+        // if the payload contains a new email (correo), use that instead of the original email.
+        // This ensures the user receives the response at their new email address,
+        // especially useful if they no longer have access to the old one.
+        $recipientEmail = $requestForm->email;
+        $isPersonalDataUpdate = $requestForm->request_type === RequestTypes::ACTUALIZAR_DATOS_PERSONALES;
+        $isCompletedOrApproved = $status === RequestStatuses::COMPLETED;
+        
+        if ($isPersonalDataUpdate && $isCompletedOrApproved) {
+            $payload = $requestForm->payload ?? [];
+            $nuevoCorreo = $payload['correo'] ?? null;
+            
+            if (!empty($nuevoCorreo) && filter_var($nuevoCorreo, FILTER_VALIDATE_EMAIL)) {
+                $recipientEmail = $nuevoCorreo;
+                
+                Log::info('Usando nuevo correo del payload para solicitud de actualización de datos personales', [
+                    'request_id' => $requestFormId,
+                    'email_original' => $requestForm->email,
+                    'email_nuevo' => $recipientEmail,
+                    'status' => $status,
+                ]);
+            } else {
+                Log::info('No se encontró nuevo correo válido en el payload, usando correo original', [
+                    'request_id' => $requestFormId,
+                    'email_original' => $requestForm->email,
+                    'payload_correo' => $nuevoCorreo ?? 'no presente',
+                    'status' => $status,
+                ]);
+            }
+        }
+
         Log::info('Iniciando proceso de respuesta a solicitud', [
             'request_id' => $requestFormId,
             'request_type' => $requestForm->request_type,
             'old_status' => $oldStatus,
             'new_status' => $status,
-            'email' => $requestForm->email,
+            'email_original' => $requestForm->email,
+            'email_recipient' => $recipientEmail,
             'has_attachments' => !empty($attachments),
             'attachments_count' => count($attachments),
             'tiene_actividades' => $tieneActividades,
@@ -985,14 +1018,15 @@ class RequestController extends Controller
         try {
             Log::info('Intentando enviar correo de respuesta', [
                 'request_id' => $requestFormId,
-                'email_to' => $requestForm->email,
+                'email_to' => $recipientEmail,
+                'email_original' => $requestForm->email,
                 'email_cc' => 'juanpapabon@gmail.com',
                 'email_subject' => $emailSubject,
                 'email_body_length' => strlen($emailBody),
                 'attachments_count' => count($attachments),
             ]);
 
-            Mail::to($requestForm->email)
+            Mail::to($recipientEmail)
                 ->cc('juanpapabon@gmail.com') // Hardcoded as per requirements
                 ->send(new RequestFormResponse(
                     $requestForm,
@@ -1004,7 +1038,8 @@ class RequestController extends Controller
 
             Log::info('Correo de respuesta enviado exitosamente', [
                 'request_id' => $requestFormId,
-                'email' => $requestForm->email,
+                'email_recipient' => $recipientEmail,
+                'email_original' => $requestForm->email,
                 'status' => $status,
                 'has_attachments' => !empty($attachments),
                 'attachments_count' => count($attachments),
@@ -1014,7 +1049,8 @@ class RequestController extends Controller
             Log::error('FALLO AL ENVIAR CORREO DE RESPUESTA - NO SE ACTUALIZARÁ EL ESTADO', [
                 'request_id' => $requestFormId,
                 'request_type' => $requestForm->request_type,
-                'email' => $requestForm->email,
+                'email_recipient' => $recipientEmail,
+                'email_original' => $requestForm->email,
                 'email_subject' => $emailSubject,
                 'old_status' => $oldStatus,
                 'intended_new_status' => $status,
@@ -2106,6 +2142,71 @@ class RequestController extends Controller
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Get pending personal data update requests.
+     * This endpoint returns all requests with type "actualizar-datos-personales" 
+     * that have status PENDING. This is used to visually indicate and prioritize
+     * when an affiliate has a pending personal data update request, as responding
+     * to other requests before updating personal data (like email) could result
+     * in responses being sent to incorrect email addresses.
+     */
+    public function pendingPersonalDataUpdates(Request $request): JsonResponse
+    {
+        $query = RequestForm::query()
+            ->where('request_type', RequestTypes::ACTUALIZAR_DATOS_PERSONALES)
+            ->where('status', RequestStatuses::PENDING)
+            ->orderBy('created_at', 'desc');
+
+        // Eager load responses for better performance
+        $requests = $query->with('responses')->get();
+
+        Log::info('Lista de solicitudes pendientes de actualización de datos personales consultada', [
+            'total_requests' => $requests->count(),
+        ]);
+
+        // Return data WITHOUT obfuscation for administrative users
+        // This endpoint requires authentication and 'requests.view' permission
+        return response()->json([
+            'success' => true,
+            'data' => $requests->map(function ($requestForm) {
+                // Get raw attributes to avoid any accessor transformations
+                $attributes = $requestForm->getAttributes();
+
+                return [
+                    'id' => $requestForm->id,
+                    'request_type' => $requestForm->request_type,
+                    'document_type' => $requestForm->document_type,
+                    'document_number' => $requestForm->document_number,
+                    'name' => $requestForm->name,
+                    'last_name' => $requestForm->last_name,
+                    'full_name' => $requestForm->full_name,
+                    // Contact information returned WITHOUT obfuscation for administrative processes
+                    // Use getRawOriginal() to get raw value directly from database, bypassing any accessors or transformations
+                    'email' => $requestForm->getRawOriginal('email') ?? $requestForm->getAttribute('email'),
+                    'phone_number' => $requestForm->getRawOriginal('phone_number') ?? $requestForm->getAttribute('phone_number'),
+                    'status' => $requestForm->status,
+                    'payload' => $requestForm->payload,
+                    'created_at' => $requestForm->created_at,
+                    'formatted_created_at' => $requestForm->formatted_created_at,
+                    'processed_at' => $requestForm->processed_at,
+                    'formatted_processed_at' => $requestForm->formatted_processed_at,
+                    'responses' => $requestForm->responses->map(function ($response) {
+                        return [
+                            'id' => $response->id,
+                            'status' => $response->status,
+                            'email_subject' => $response->email_subject,
+                            'email_body' => $response->email_body,
+                            'created_at' => $response->created_at,
+                        ];
+                    }),
+                    'responses_count' => $requestForm->responses->count(),
+                    'files' => $this->formatFilesMetadata($requestForm->files, $requestForm->id),
+                    'files_count' => is_array($requestForm->files) ? count($requestForm->files) : 0,
+                ];
+            }),
+        ]);
     }
 
     /**
