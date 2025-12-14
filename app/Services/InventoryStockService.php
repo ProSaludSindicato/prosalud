@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\{Hospital, InventoryLocation, InventoryStockMovement, InventoryVariant, InventoryVariantStock};
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\{Cache, DB};
 use Illuminate\Support\Str;
 
 class InventoryStockService
@@ -53,6 +53,9 @@ class InventoryStockService
         $stock->save();
 
         $this->updateVariantTotalStock($variant);
+        
+        // Invalidar caché del dashboard de inventario
+        Cache::forget('inventory:dashboard:metrics');
 
         $this->createMovement(
             variant: $variant,
@@ -116,6 +119,9 @@ class InventoryStockService
             $toStock->increment('stock', $quantity);
 
             $this->updateVariantTotalStock($variant);
+            
+            // Invalidar caché del dashboard de inventario
+            Cache::forget('inventory:dashboard:metrics');
 
             $this->createMovement(
                 variant: $variant,
@@ -134,6 +140,8 @@ class InventoryStockService
     {
         $total = $variant->stocks()->sum('stock');
         $variant->update(['stock' => $total]);
+        // Invalidar caché del dashboard de inventario cuando se actualiza el stock total
+        Cache::forget('inventory:dashboard:metrics');
     }
 
     public function setVariantTotalStock(InventoryVariant $variant, int $desiredTotal): void

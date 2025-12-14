@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\{Log, Storage};
+use Illuminate\Support\Facades\{Cache, Log, Storage};
 use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
 
 class ExcelReaderService
@@ -150,7 +150,24 @@ class ExcelReaderService
      */
     public function readActivosFile(): array
     {
-        return $this->withStoredExcel(self::ACTIVOS_FILE_PATH, function (string $localPath, string $disk) {
+        $cacheKey = 'excel:activos:processed';
+        
+        // Verificar si existe en caché
+        $cachedData = Cache::get($cacheKey);
+        if ($cachedData !== null) {
+            Log::info('[CACHE HIT] Archivo ACTIVOS obtenido desde caché', [
+                'cache_key' => $cacheKey,
+                'rows_count' => count($cachedData),
+            ]);
+            return $cachedData;
+        }
+
+        Log::info('[CACHE MISS] Leyendo archivo ACTIVOS desde disco', [
+            'cache_key' => $cacheKey,
+        ]);
+        
+        $data = Cache::remember($cacheKey, now()->addHours(6), function () {
+            return $this->withStoredExcel(self::ACTIVOS_FILE_PATH, function (string $localPath, string $disk) {
             try {
                 $spreadsheet = IOFactory::load($localPath);
                 $worksheet = $spreadsheet->getActiveSheet();
@@ -182,6 +199,22 @@ class ExcelReaderService
                 return [];
             }
         }, []);
+        });
+        
+        Log::info('[CACHE STORED] Archivo ACTIVOS guardado en caché', [
+            'cache_key' => $cacheKey,
+            'rows_count' => count($data),
+        ]);
+        
+        return $data;
+    }
+
+    /**
+     * Clear cached activos file data.
+     */
+    public function clearActivosCache(): void
+    {
+        Cache::forget('excel:activos:processed');
     }
 
     /**

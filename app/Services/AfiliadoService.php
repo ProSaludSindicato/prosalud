@@ -88,7 +88,49 @@ class AfiliadoService
         string $documento,
         string $fechaExpedicion,
     ): ?array {
-        return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+        // Log de entrada al método
+        Log::info('[AFILIADO SERVICE] Iniciando autenticación de afiliado', [
+            'documento' => $documento,
+            'tipo_documento' => $tipoDocumento,
+            'fecha_expedicion' => $fechaExpedicion,
+        ]);
+        
+        // Normalizar valores para la clave de caché
+        $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
+        $normalizedDocumento = $this->normalizeValue($documento);
+        $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
+        
+        $cacheKey = sprintf(
+            'afiliado:auth:%s:%s:%s',
+            md5($normalizedTipoDocumento ?? ''),
+            md5($normalizedDocumento ?? ''),
+            md5($normalizedFechaExpedicion ?? '')
+        );
+
+        Log::debug('[AFILIADO SERVICE] Clave de caché generada', [
+            'cache_key' => $cacheKey,
+            'documento' => $documento,
+        ]);
+
+        // Verificar si existe en caché
+        $cachedData = Cache::get($cacheKey);
+        if ($cachedData !== null) {
+            Log::info('[CACHE HIT] Afiliado obtenido desde caché', [
+                'cache_key' => $cacheKey,
+                'documento' => $documento,
+                'tipo_documento' => $tipoDocumento,
+            ]);
+            return $cachedData;
+        }
+
+        Log::info('[CACHE MISS] Consultando afiliado desde Excel', [
+            'cache_key' => $cacheKey,
+            'documento' => $documento,
+            'tipo_documento' => $tipoDocumento,
+        ]);
+
+        $result = Cache::remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
+            return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
             $originalMemoryLimit = ini_get('memory_limit');
             $originalMaxExecutionTime = ini_get('max_execution_time');
 
@@ -192,6 +234,19 @@ class AfiliadoService
                 }
             }
         }, null);
+        });
+        
+        // Log cuando se guarda en caché (solo si se obtuvo resultado)
+        if ($result !== null) {
+            Log::info('[CACHE STORED] Afiliado guardado en caché', [
+                'cache_key' => $cacheKey,
+                'documento' => $documento,
+                'tipo_documento' => $tipoDocumento,
+                'ttl_hours' => 24,
+            ]);
+        }
+        
+        return $result;
     }
 
     /**
@@ -673,6 +728,37 @@ class AfiliadoService
     public function forgetAllAfiliadosBasicCache(): void
     {
         Cache::forget('afiliado_service.all_basic');
+    }
+
+    /**
+     * Clear cached affiliate information for a specific document.
+     */
+    public function forgetAfiliadoCache(string $tipoDocumento, string $documento, string $fechaExpedicion): void
+    {
+        $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
+        $normalizedDocumento = $this->normalizeValue($documento);
+        $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
+        
+        $cacheKey = sprintf(
+            'afiliado:auth:%s:%s:%s',
+            md5($normalizedTipoDocumento ?? ''),
+            md5($normalizedDocumento ?? ''),
+            md5($normalizedFechaExpedicion ?? '')
+        );
+
+        Cache::forget($cacheKey);
+    }
+
+    /**
+     * Clear all cached affiliate information.
+     */
+    public function forgetAllAfiliadoCache(): void
+    {
+        // Note: This is a simple implementation. For production, consider using cache tags if available
+        // Laravel Redis cache tags require Redis >= 2.2
+        Cache::forget('afiliado_service.all_basic');
+        // Individual cache keys would need to be tracked or use a pattern-based flush
+        // For now, we'll rely on TTL expiration
     }
 
     /**

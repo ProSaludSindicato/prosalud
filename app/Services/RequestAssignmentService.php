@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Constants\{RequestSubtypes, RequestTypes};
 use App\Models\{RequestForm, RequestSubtypeAssignment, RequestTypeAssignment, User};
-use Illuminate\Support\Facades\{DB, Log};
+use Illuminate\Support\Facades\{Cache, DB, Log};
 use Illuminate\Validation\ValidationException;
 
 class RequestAssignmentService
@@ -98,8 +98,29 @@ class RequestAssignmentService
                 'subtype_assignments_count' => count($subtypeAssignmentData),
             ]);
 
+            // Invalidar caché de asignaciones de todos los usuarios afectados
+            $this->clearAllUserAssignmentsCache();
+
             return $this->getAllAssignments();
         });
+    }
+
+    /**
+     * Clear cache for all user assignments.
+     * Note: This is a simple implementation. For production with many users,
+     * consider using cache tags or tracking affected user IDs.
+     */
+    private function clearAllUserAssignmentsCache(): void
+    {
+        // Get all unique user IDs that have assignments
+        $userIds = array_unique(array_merge(
+            RequestTypeAssignment::pluck('user_id')->toArray(),
+            RequestSubtypeAssignment::pluck('user_id')->toArray()
+        ));
+
+        foreach ($userIds as $userId) {
+            Cache::forget("user:{$userId}:request_assignments");
+        }
     }
 
     /**
@@ -139,10 +160,11 @@ class RequestAssignmentService
         $userId = $user->id;
         $requestType = $requestForm->request_type;
 
+        // Obtener asignaciones del usuario desde caché
+        $assignments = $this->getUserAssignments($userId);
+
         // Check if user has direct type assignment
-        $hasTypeAssignment = RequestTypeAssignment::where('user_id', $userId)
-            ->where('request_type', $requestType)
-            ->exists();
+        $hasTypeAssignment = in_array($requestType, $assignments['types']);
 
         if ($hasTypeAssignment) {
             // For types without subtypes, type assignment is enough
@@ -160,10 +182,8 @@ class RequestAssignmentService
             }
 
             // Check if user has specific subtype assignment
-            $hasSubtypeAssignment = RequestSubtypeAssignment::where('user_id', $userId)
-                ->where('request_type', $requestType)
-                ->where('subtype', $subtype)
-                ->exists();
+            $hasSubtypeAssignment = isset($assignments['subtypes'][$requestType]) 
+                && in_array($subtype, $assignments['subtypes'][$requestType]);
 
             if ($hasSubtypeAssignment) {
                 return true;
@@ -171,6 +191,7 @@ class RequestAssignmentService
 
             // Check if there's a general type assignment (fallback) but no specific subtype assignment
             // If no specific subtype assignments exist for this type, use type assignment as fallback
+            // Verificar si existen asignaciones de subtipos para este tipo (no necesariamente del usuario)
             $hasAnySubtypeAssignment = RequestSubtypeAssignment::where('request_type', $requestType)
                 ->exists();
 
@@ -188,14 +209,66 @@ class RequestAssignmentService
             $subtype = $this->getSubtypeFromRequest($requestForm);
 
             if (!empty($subtype)) {
-                return RequestSubtypeAssignment::where('user_id', $userId)
-                    ->where('request_type', $requestType)
-                    ->where('subtype', $subtype)
-                    ->exists();
+                return isset($assignments['subtypes'][$requestType]) 
+                    && in_array($subtype, $assignments['subtypes'][$requestType]);
             }
         }
 
         return false;
+    }
+
+    /**
+     * Get user assignments from cache or database.
+     */
+    private function getUserAssignments(int $userId): array
+    {
+        $cacheKey = "user:{$userId}:request_assignments";
+        
+        // Verificar si existe en caché
+        $cachedAssignments = Cache::get($cacheKey);
+        if ($cachedAssignments !== null) {
+            Log::debug('[CACHE HIT] Asignaciones obtenidas desde caché', [
+                'cache_key' => $cacheKey,
+                'user_id' => $userId,
+                'types_count' => count($cachedAssignments['types'] ?? []),
+                'subtypes_count' => count($cachedAssignments['subtypes'] ?? []),
+            ]);
+            return $cachedAssignments;
+        }
+
+        Log::debug('[CACHE MISS] Consultando asignaciones desde BD', [
+            'cache_key' => $cacheKey,
+            'user_id' => $userId,
+        ]);
+        
+        $assignments = Cache::remember($cacheKey, now()->addHours(1), function () use ($userId) {
+            $typeAssignments = RequestTypeAssignment::where('user_id', $userId)
+                ->pluck('request_type')
+                ->toArray();
+
+            $subtypeAssignments = RequestSubtypeAssignment::where('user_id', $userId)
+                ->select('request_type', 'subtype')
+                ->get()
+                ->groupBy('request_type')
+                ->map(function ($assignments) {
+                    return $assignments->pluck('subtype')->toArray();
+                })
+                ->toArray();
+
+            return [
+                'types' => $typeAssignments,
+                'subtypes' => $subtypeAssignments,
+            ];
+        });
+        
+        Log::debug('[CACHE STORED] Asignaciones guardadas en caché', [
+            'cache_key' => $cacheKey,
+            'user_id' => $userId,
+            'types_count' => count($assignments['types'] ?? []),
+            'subtypes_count' => count($assignments['subtypes'] ?? []),
+        ]);
+        
+        return $assignments;
     }
 
     /**

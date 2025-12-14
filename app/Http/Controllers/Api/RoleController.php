@@ -162,6 +162,11 @@ class RoleController extends Controller
         if ($request->has('permissions')) {
             $permissions = Permission::whereIn('id', $request->permissions)->get();
             $role->syncPermissions($permissions);
+            // Invalidar caché de permisos de todos los usuarios con este rol
+            $users = User::role($role->name)->get(['id']);
+            foreach ($users as $user) {
+                \Illuminate\Support\Facades\Cache::forget("user:{$user->id}:permissions");
+            }
         }
 
         $role->load('permissions');

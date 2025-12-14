@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\{AuditLogService, UserInvitationService};
 use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\{Cache, Log};
 use Illuminate\Support\Str;
 
 class UserController extends Controller
@@ -172,6 +172,8 @@ class UserController extends Controller
         if ($role !== null) {
             // Remove all existing roles and assign the new one
             $user->syncRoles([$role]);
+            // Invalidar caché de permisos del usuario
+            \Illuminate\Support\Facades\Cache::forget("user:{$user->id}:permissions");
         }
 
         Log::info('Usuario actualizado exitosamente', [

@@ -3,7 +3,7 @@
 namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\{Cache, Log};
 use Symfony\Component\HttpFoundation\Response;
 
 class CheckPermission
@@ -28,31 +28,59 @@ class CheckPermission
 
         $user = auth()->user();
 
-        // Forzar recarga de roles y permisos si no están cargados
-        if (!$user->relationLoaded('roles')) {
-            $user->load('roles');
-        }
-        if (!$user->relationLoaded('permissions')) {
-            $user->load('permissions');
+        // Cachear permisos del usuario para evitar múltiples consultas a la BD
+        $cacheKey = "user:{$user->id}:permissions";
+        
+        // Verificar si existe en caché
+        $cachedPermissions = Cache::get($cacheKey);
+        if ($cachedPermissions !== null) {
+            Log::debug('[CACHE HIT] Permisos obtenidos desde caché', [
+                'cache_key' => $cacheKey,
+                'user_id' => $user->id,
+                'permissions_count' => count($cachedPermissions),
+            ]);
+            $userPermissions = $cachedPermissions;
+        } else {
+            Log::debug('[CACHE MISS] Consultando permisos desde BD', [
+                'cache_key' => $cacheKey,
+                'user_id' => $user->id,
+            ]);
+            
+            $userPermissions = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($user) {
+                // Forzar recarga de roles y permisos si no están cargados
+                if (!$user->relationLoaded('roles')) {
+                    $user->load('roles');
+                }
+                if (!$user->relationLoaded('permissions')) {
+                    $user->load('permissions');
+                }
+
+                // Cargar permisos de los roles también
+                $user->loadMissing('roles.permissions');
+
+                // Obtener todos los permisos del usuario (directos y a través de roles)
+                return $user->getAllPermissions()->pluck('name')->toArray();
+            });
+            
+            Log::debug('[CACHE STORED] Permisos guardados en caché', [
+                'cache_key' => $cacheKey,
+                'user_id' => $user->id,
+                'permissions_count' => count($userPermissions),
+            ]);
         }
 
-        // Cargar permisos de los roles también
-        $user->loadMissing('roles.permissions');
-
-        // Verificar permiso usando el método can() de Spatie Permission
-        // El método can() verifica tanto permisos directos como permisos a través de roles
-        $hasPermission = $user->can($permission);
+        // Verificar si el usuario tiene el permiso requerido
+        $hasPermission = in_array($permission, $userPermissions);
 
         if (!$hasPermission) {
             $userRoles = $user->getRoleNames()->toArray();
-            $userPermissions = $user->getAllPermissions()->pluck('name')->toArray();
 
             Log::warning('[PERMISSION CHECK] Acceso denegado por permisos insuficientes', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
                 'required_permission' => $permission,
                 'user_roles' => $userRoles,
-                'user_permissions' => $userPermissions,
+                'user_permissions' => $userPermissions ?? [],
                 'path' => $request->path(),
                 'method' => $request->method(),
                 'ip' => $request->ip(),

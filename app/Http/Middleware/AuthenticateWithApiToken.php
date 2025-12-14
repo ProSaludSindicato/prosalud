@@ -4,7 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\ApiToken;
 use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{Auth, Log};
+use Illuminate\Support\Facades\{Auth, Cache, Log};
 
 class AuthenticateWithApiToken
 {
@@ -68,15 +68,53 @@ class AuthenticateWithApiToken
 
         $user = $apiToken->user;
 
-        // Asegurar que los roles y permisos estén cargados
+        // Cachear permisos del usuario para evitar múltiples consultas a la BD
+        $cacheKey = "user:{$user->id}:permissions";
+        
+        // Verificar si existe en caché
+        $cachedPermissions = Cache::get($cacheKey);
+        if ($cachedPermissions !== null) {
+            Log::debug('[CACHE HIT] Permisos obtenidos desde caché (API Token)', [
+                'cache_key' => $cacheKey,
+                'user_id' => $user->id,
+                'permissions_count' => count($cachedPermissions),
+            ]);
+            $userPermissions = $cachedPermissions;
+        } else {
+            Log::debug('[CACHE MISS] Consultando permisos desde BD (API Token)', [
+                'cache_key' => $cacheKey,
+                'user_id' => $user->id,
+            ]);
+            
+            $userPermissions = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($user) {
+                // Asegurar que los roles y permisos estén cargados
+                if (!$user->relationLoaded('roles')) {
+                    $user->load('roles');
+                }
+                if (!$user->relationLoaded('permissions')) {
+                    $user->load('permissions');
+                }
+                // Cargar permisos de los roles también
+                $user->loadMissing('roles.permissions');
+
+                // Obtener todos los permisos del usuario (directos y a través de roles)
+                return $user->getAllPermissions()->pluck('name')->toArray();
+            });
+            
+            Log::debug('[CACHE STORED] Permisos guardados en caché (API Token)', [
+                'cache_key' => $cacheKey,
+                'user_id' => $user->id,
+                'permissions_count' => count($userPermissions),
+            ]);
+        }
+
+        // Cargar relaciones básicas para compatibilidad con el resto del código
         if (!$user->relationLoaded('roles')) {
             $user->load('roles');
         }
         if (!$user->relationLoaded('permissions')) {
             $user->load('permissions');
         }
-        // Cargar permisos de los roles también
-        $user->loadMissing('roles.permissions');
 
         Auth::setUser($user);
         $request->setUserResolver(fn () => $user);
