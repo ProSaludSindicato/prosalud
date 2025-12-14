@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -14,4 +15,13 @@ Route::get('/test-certificado', function () {
 // Ruta temporal para consulta/validación de certificados
 Route::get('/consulta-certificado', function () {
     return view('consulta-certificado');
+});
+
+Route::get('/ses-test', function () {
+    Mail::raw('SES OK', function ($m) {
+        $m->to('juanpapabon@gmail.com')
+            ->subject('SES Test OK');
+    });
+
+    return 'sent';
 });
