@@ -25,3 +25,11 @@ Route::get('/ses-test', function () {
 
     return 'sent';
 });
+
+Route::get('/debug-aws', function () {
+    return [
+        'mailer' => config('mail.default'),
+        'aws_key' => substr(config('services.ses.key') ?? config('mail.mailers.ses.key'), 0, 6),
+        'aws_region' => config('services.ses.region') ?? config('mail.mailers.ses.region'),
+    ];
+});
