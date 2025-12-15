@@ -426,5 +426,54 @@ class CertificadoConvenioController extends Controller
         ];
     }
 
+    /**
+     * Obtiene estadísticas y métricas de certificados de convenio generados
+     * Permite filtrar por rango de fechas para análisis de períodos específicos
+     */
+    public function estadisticas(Request $request): JsonResponse
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'fecha_desde' => 'nullable|date|date_format:Y-m-d',
+                'fecha_hasta' => 'nullable|date|date_format:Y-m-d|after_or_equal:fecha_desde',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $fechaDesde = $request->input('fecha_desde');
+            $fechaHasta = $request->input('fecha_hasta');
+
+            $estadisticas = $this->certificadoService->obtenerEstadisticasCertificados($fechaDesde, $fechaHasta);
+
+            Log::info('Estadísticas de certificados consultadas', [
+                'fecha_desde' => $fechaDesde,
+                'fecha_hasta' => $fechaHasta,
+                'total_certificados' => $estadisticas['resumen']['total_certificados'],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $estadisticas,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error consultando estadísticas de certificados', [
+                'fecha_desde' => $request->input('fecha_desde'),
+                'fecha_hasta' => $request->input('fecha_hasta'),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al consultar las estadísticas: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
 }
 

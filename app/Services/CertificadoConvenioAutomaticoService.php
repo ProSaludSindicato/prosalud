@@ -55,6 +55,9 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para subsidio de desempleo
             $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
+            
+            // Verificar si es tipo "otros"
+            $esOtros = $this->esOtros($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
@@ -62,6 +65,7 @@ class CertificadoConvenioAutomaticoService
                 'esParaBancolombia' => $esParaBancolombia,
                 'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
                 'esParaSubsidioDesempleo' => $esParaSubsidioDesempleo,
+                'esOtros' => $esOtros,
                 'payload' => $requestForm->payload,
             ]);
 
@@ -72,7 +76,8 @@ class CertificadoConvenioAutomaticoService
                 $compensaciones,
                 $esParaBancolombia,
                 $esParaSubsidioVivienda,
-                $esParaSubsidioDesempleo
+                $esParaSubsidioDesempleo,
+                $esOtros
             );
 
             Log::info('Certificado PDF generado para solicitud automática con compensaciones', [
@@ -157,6 +162,9 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para subsidio de desempleo
             $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
+            
+            // Verificar si es tipo "otros"
+            $esOtros = $this->esOtros($requestForm);
 
             Log::info('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
@@ -164,6 +172,7 @@ class CertificadoConvenioAutomaticoService
                 'esParaBancolombia' => $esParaBancolombia,
                 'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
                 'esParaSubsidioDesempleo' => $esParaSubsidioDesempleo,
+                'esOtros' => $esOtros,
                 'payload' => $requestForm->payload,
             ]);
 
@@ -174,7 +183,8 @@ class CertificadoConvenioAutomaticoService
                 null,
                 $esParaBancolombia,
                 $esParaSubsidioVivienda,
-                $esParaSubsidioDesempleo
+                $esParaSubsidioDesempleo,
+                $esOtros
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -265,6 +275,9 @@ class CertificadoConvenioAutomaticoService
             
             // Verificar si es para subsidio de desempleo
             $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
+            
+            // Verificar si es tipo "otros"
+            $esOtros = $this->esOtros($requestForm);
 
             // 3. Generar certificado PDF con el destinatario si está disponible
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
@@ -273,7 +286,8 @@ class CertificadoConvenioAutomaticoService
                 null,
                 $esParaBancolombia,
                 $esParaSubsidioVivienda,
-                $esParaSubsidioDesempleo
+                $esParaSubsidioDesempleo,
+                $esOtros
             );
 
             Log::info('Certificado PDF generado para solicitud automática', [
@@ -766,6 +780,45 @@ class CertificadoConvenioAutomaticoService
         ]);
         
         return $paraSubsidioDesempleo;
+    }
+
+    /**
+     * Verifica si el certificado es tipo "otros" (necesidad específica descrita por el usuario)
+     * 
+     * @param RequestForm $requestForm
+     * @return bool
+     */
+    private function esOtros(RequestForm $requestForm): bool
+    {
+        $payload = $requestForm->payload ?? [];
+        
+        // Verificar si tiene infoCertificado en el payload
+        if (!isset($payload['infoCertificado'])) {
+            return false;
+        }
+
+        // Parsear el JSON string si existe
+        $infoCertificado = $payload['infoCertificado'];
+        if (is_string($infoCertificado)) {
+            $infoCertificado = json_decode($infoCertificado, true);
+        }
+
+        if (!is_array($infoCertificado)) {
+            return false;
+        }
+
+        // Verificar si "otros" está activo usando parseBooleanValue
+        $otrosRaw = $infoCertificado['otros'] ?? false;
+        $otros = $requestForm->parseBooleanValue($otrosRaw);
+        
+        Log::info('esOtros: Verificando opción otros', [
+            'request_id' => $requestForm->id,
+            'otros_raw' => $otrosRaw,
+            'otros_parsed' => $otros,
+            'infoCertificado' => $infoCertificado,
+        ]);
+        
+        return $otros;
     }
 }
 

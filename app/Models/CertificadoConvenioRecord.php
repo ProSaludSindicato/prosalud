@@ -18,10 +18,14 @@ class CertificadoConvenioRecord extends Model
         'consecutivo',
         'storage_path',
         'generated_at',
+        'tipo_certificado',
+        'tiene_compensaciones',
+        'dirigido_a_entidad',
     ];
 
     protected $casts = [
         'generated_at' => 'datetime',
+        'tiene_compensaciones' => 'boolean',
     ];
 
     /**

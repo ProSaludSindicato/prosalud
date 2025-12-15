@@ -35,9 +35,10 @@ class CertificadoConvenioService
      * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
      * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
      * @param bool $esParaSubsidioDesempleo Indica si el certificado es para subsidio de desempleo (opcional)
+     * @param bool $esOtros Indica si el certificado es tipo "otros" (necesidad específica descrita por el usuario) (opcional)
      * @return array
      */
-    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false): array
+    public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false, bool $esOtros = false): array
     {
         $startTime = microtime(true);
 
@@ -73,13 +74,28 @@ class CertificadoConvenioService
             // Guardar PDF en bucket privado y crear registro en BD
             $bucketPath = $this->guardarCertificadoEnBucket($rutaPDF, $documento, $consecutivo, $fechaCertificado, $afiliadoData);
 
+            // Determinar tipo de certificado
+            $tipoCertificado = 'basico';
+            if ($esParaBancolombia) {
+                $tipoCertificado = 'bancolombia';
+            } elseif ($esParaSubsidioVivienda) {
+                $tipoCertificado = 'subsidio_vivienda';
+            } elseif ($esParaSubsidioDesempleo) {
+                $tipoCertificado = 'subsidio_desempleo';
+            } elseif ($esOtros) {
+                $tipoCertificado = 'otros';
+            }
+
             // Crear registro en base de datos
             $record = $this->crearRegistroCertificado(
                 $documento,
                 $consecutivo,
                 $bucketPath,
                 $fechaCertificado,
-                $afiliadoData
+                $afiliadoData,
+                $tipoCertificado,
+                $compensaciones !== null && !empty($compensaciones),
+                $dirigidoAEntidad
             );
 
             // Agregar métricas en el procesamiento
@@ -314,7 +330,10 @@ class CertificadoConvenioService
                 $consecutivo,
                 $bucketPath,
                 $fechaCertificado,
-                $afiliadoData
+                $afiliadoData,
+                'con_actividades', // tipo_certificado
+                false, // tiene_compensaciones
+                $dirigidoAEntidad
             );
 
             // Agregar métricas en el procesamiento
@@ -466,7 +485,10 @@ class CertificadoConvenioService
                 $consecutivo,
                 $bucketPath,
                 $fechaCertificado,
-                $afiliadoData
+                $afiliadoData,
+                'dirigido_afp', // tipo_certificado
+                false, // tiene_compensaciones
+                null // dirigido_a_entidad
             );
 
             // Agregar métricas en el procesamiento
@@ -2033,6 +2055,9 @@ class CertificadoConvenioService
      * @param string $bucketPath Ruta del archivo en el bucket
      * @param Carbon $fechaCertificado Fecha de generación
      * @param array $afiliadoData Datos del afiliado
+     * @param string|null $tipoCertificado Tipo de certificado: 'basico', 'con_actividades', 'dirigido_afp', 'bancolombia', 'subsidio_vivienda', 'subsidio_desempleo', 'otros'
+     * @param bool $tieneCompensaciones Indica si el certificado tiene valores de compensaciones
+     * @param string|null $dirigidoAEntidad Entidad a la que está dirigido el certificado
      * @return CertificadoConvenioRecord
      */
     private function crearRegistroCertificado(
@@ -2040,19 +2065,27 @@ class CertificadoConvenioService
         string $consecutivo,
         string $bucketPath,
         Carbon $fechaCertificado,
-        array $afiliadoData
+        array $afiliadoData,
+        ?string $tipoCertificado = null,
+        bool $tieneCompensaciones = false,
+        ?string $dirigidoAEntidad = null
     ): CertificadoConvenioRecord {
         $record = CertificadoConvenioRecord::create([
             'document_number' => $documento,
             'consecutivo' => $consecutivo,
             'storage_path' => $bucketPath,
             'generated_at' => $fechaCertificado,
+            'tipo_certificado' => $tipoCertificado,
+            'tiene_compensaciones' => $tieneCompensaciones,
+            'dirigido_a_entidad' => $dirigidoAEntidad,
         ]);
 
         Log::info('Registro de certificado creado en BD', [
             'document_number' => $documento,
             'consecutivo' => $consecutivo,
             'record_id' => $record->id,
+            'tipo_certificado' => $tipoCertificado,
+            'tiene_compensaciones' => $tieneCompensaciones,
         ]);
 
         return $record;
@@ -2457,6 +2490,130 @@ class CertificadoConvenioService
         }
 
         return $errors;
+    }
+
+    /**
+     * Obtiene estadísticas y métricas de certificados de convenio generados
+     *
+     * @param string|null $fechaDesde Fecha desde (formato Y-m-d)
+     * @param string|null $fechaHasta Fecha hasta (formato Y-m-d)
+     * @return array Estadísticas agrupadas por tipo de certificado y características
+     */
+    public function obtenerEstadisticasCertificados(?string $fechaDesde = null, ?string $fechaHasta = null): array
+    {
+        // Función helper para crear una nueva consulta base con los filtros aplicados
+        $baseQuery = function () use ($fechaDesde, $fechaHasta) {
+            $query = CertificadoConvenioRecord::query();
+            if ($fechaDesde || $fechaHasta) {
+                $query->byFechaRango($fechaDesde, $fechaHasta);
+            }
+            return $query;
+        };
+
+        $totalCertificados = $baseQuery()->count();
+
+        // Estadísticas por tipo de certificado
+        $porTipo = $baseQuery()
+            ->selectRaw('tipo_certificado, COUNT(*) as cantidad')
+            ->groupBy('tipo_certificado')
+            ->get()
+            ->pluck('cantidad', 'tipo_certificado')
+            ->toArray();
+
+        // Certificados con compensaciones
+        $conCompensaciones = $baseQuery()
+            ->where('tiene_compensaciones', true)
+            ->count();
+
+        // Certificados con actividades
+        $conActividades = $baseQuery()
+            ->where('tipo_certificado', 'con_actividades')
+            ->count();
+
+        // Certificados dirigidos a AFP
+        $dirigidosAFP = $baseQuery()
+            ->where('tipo_certificado', 'dirigido_afp')
+            ->count();
+
+        // Certificados para subsidio de vivienda
+        $subsidioVivienda = $baseQuery()
+            ->where('tipo_certificado', 'subsidio_vivienda')
+            ->count();
+
+        // Certificados para Bancolombia
+        $bancolombia = $baseQuery()
+            ->where('tipo_certificado', 'bancolombia')
+            ->count();
+
+        // Certificados para subsidio de desempleo
+        $subsidioDesempleo = $baseQuery()
+            ->where('tipo_certificado', 'subsidio_desempleo')
+            ->count();
+
+        // Certificados básicos
+        $basicos = $baseQuery()
+            ->where('tipo_certificado', 'basico')
+            ->count();
+
+        // Certificados tipo "otros"
+        $otros = $baseQuery()
+            ->where('tipo_certificado', 'otros')
+            ->count();
+
+        // Top entidades a las que se dirigen los certificados
+        $topEntidades = $baseQuery()
+            ->whereNotNull('dirigido_a_entidad')
+            ->selectRaw('dirigido_a_entidad, COUNT(*) as cantidad')
+            ->groupBy('dirigido_a_entidad')
+            ->orderByDesc('cantidad')
+            ->limit(10)
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'entidad' => $item->dirigido_a_entidad,
+                    'cantidad' => $item->cantidad,
+                ];
+            })
+            ->toArray();
+
+        // Distribución por mes (últimos 12 meses)
+        $distribucionMensual = $baseQuery()
+            ->selectRaw('
+                DATE_FORMAT(generated_at, "%Y-%m") as mes,
+                COUNT(*) as cantidad
+            ')
+            ->where('generated_at', '>=', now()->subMonths(12))
+            ->groupBy('mes')
+            ->orderBy('mes')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'mes' => $item->mes,
+                    'cantidad' => $item->cantidad,
+                ];
+            })
+            ->toArray();
+
+        return [
+            'resumen' => [
+                'total_certificados' => $totalCertificados,
+                'con_compensaciones' => $conCompensaciones,
+                'con_actividades' => $conActividades,
+                'dirigidos_afp' => $dirigidosAFP,
+                'subsidio_vivienda' => $subsidioVivienda,
+                'bancolombia' => $bancolombia,
+                'subsidio_desempleo' => $subsidioDesempleo,
+                'basicos' => $basicos,
+                'otros' => $otros,
+            ],
+            'por_tipo' => $porTipo,
+            'top_entidades' => $topEntidades,
+            'distribucion_mensual' => $distribucionMensual,
+            'filtros_aplicados' => [
+                'fecha_desde' => $fechaDesde,
+                'fecha_hasta' => $fechaHasta,
+            ],
+        ];
     }
 }
 
