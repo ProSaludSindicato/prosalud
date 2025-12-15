@@ -577,8 +577,8 @@ class SstDeliveryReportService
 
                 $sheet->fromArray([$rowData], null, "A{$row}");
 
-                // Embed signature if available (only on first item row)
-                if ($includeSignatures && $record->signature_path && $item === $record->items->first()) {
+                // Embed signature if available (on all item rows for the same delivery)
+                if ($includeSignatures && $record->signature_path) {
                     try {
                         $this->embedSignature($sheet, $record, "P{$row}", $signatureWidth, $signatureHeight);
                     } catch (\Exception $e) {
@@ -589,8 +589,8 @@ class SstDeliveryReportService
                     }
                 }
 
-                // Set row height for signature (only on first item row)
-                if ($item === $record->items->first()) {
+                // Set row height for signature (on all item rows to display signature properly)
+                if ($includeSignatures && $record->signature_path) {
                     $sheet->getRowDimension($row)->setRowHeight(max(60, $signatureHeight + 10));
                 }
 
@@ -799,8 +799,8 @@ class SstDeliveryReportService
 
                 $sheet->fromArray([$rowData], null, "A{$row}");
 
-                // Embed signature if available (only on first item row)
-                if ($includeSignatures && $record->signature_path && $item === $record->items->first()) {
+                // Embed signature if available (on all item rows for the same return)
+                if ($includeSignatures && $record->signature_path) {
                     try {
                         $this->embedReturnSignature($sheet, $record, "P{$row}", $signatureWidth, $signatureHeight);
                     } catch (\Exception $e) {
@@ -811,8 +811,8 @@ class SstDeliveryReportService
                     }
                 }
 
-                // Set row height for signature (only on first item row)
-                if ($item === $record->items->first()) {
+                // Set row height for signature (on all item rows to display signature properly)
+                if ($includeSignatures && $record->signature_path) {
                     $sheet->getRowDimension($row)->setRowHeight(max(60, $signatureHeight + 10));
                 }
 

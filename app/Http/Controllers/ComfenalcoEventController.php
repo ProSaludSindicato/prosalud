@@ -119,21 +119,13 @@ class ComfenalcoEventController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show($id): \Illuminate\Http\JsonResponse
+    public function show(ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
     {
         try {
-            $comfenalcoEvent = ComfenalcoEvent::find($id);
-
-            if (!$comfenalcoEvent) {
-                return response()->json([
-                    'message' => 'Evento no encontrado',
-                ], 404);
-            }
-
             return response()->json($comfenalcoEvent);
         } catch (\Exception $e) {
             Log::error('Error obteniendo evento Comfenalco', [
-                'id' => $id,
+                'id' => $comfenalcoEvent->id,
                 'error' => $e->getMessage(),
             ]);
 
@@ -147,11 +139,11 @@ class ComfenalcoEventController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateComfenalcoEventRequest $request, $id): \Illuminate\Http\JsonResponse
+    public function update(UpdateComfenalcoEventRequest $request, ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
     {
         try {
             Log::info('Iniciando actualización de evento Comfenalco', [
-                'event_id' => $id,
+                'event_id' => $comfenalcoEvent->id,
                 'request_data' => $request->except(['banner_image']), // Exclude image from log for security
                 'has_banner_image' => $request->hasFile('banner_image'),
                 'user_id' => $request->user()?->id,
@@ -160,24 +152,10 @@ class ComfenalcoEventController extends Controller
                 'timestamp' => now()->toISOString(),
             ]);
 
-            $comfenalcoEvent = ComfenalcoEvent::find($id);
-
-            if (!$comfenalcoEvent) {
-                Log::warning('Evento Comfenalco no encontrado para actualización', [
-                    'event_id' => $id,
-                    'user_id' => $request->user()?->id,
-                    'timestamp' => now()->toISOString(),
-                ]);
-
-                return response()->json([
-                    'message' => 'Evento no encontrado',
-                ], 404);
-            }
-
             $data = $request->validated();
 
             Log::info('Datos validados para actualización de evento Comfenalco', [
-                'event_id' => $id,
+                'event_id' => $comfenalcoEvent->id,
                 'validated_data' => $data,
                 'has_banner_image' => $request->hasFile('banner_image'),
                 'timestamp' => now()->toISOString(),
@@ -272,7 +250,7 @@ class ComfenalcoEventController extends Controller
             return response()->json($comfenalcoEvent);
         } catch (\Exception $e) {
             Log::error('Error actualizando evento Comfenalco', [
-                'id' => $id,
+                'id' => $comfenalcoEvent->id ?? null,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'user_id' => $request->user()?->id,
@@ -288,32 +266,17 @@ class ComfenalcoEventController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Request $request, $id): \Illuminate\Http\JsonResponse
+    public function destroy(Request $request, ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
     {
         try {
             // Log incoming request data
             Log::info('Iniciando eliminación de evento Comfenalco', [
-                'event_id' => $id,
+                'event_id' => $comfenalcoEvent->id,
                 'user_id' => $request->user()?->id,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
             ]);
-
-            // Find the event manually to handle invalid IDs better
-            $comfenalcoEvent = ComfenalcoEvent::find($id);
-
-            if (!$comfenalcoEvent) {
-                Log::warning('Evento Comfenalco no encontrado para eliminación', [
-                    'event_id' => $id,
-                    'user_id' => $request->user()?->id,
-                    'timestamp' => now()->toISOString(),
-                ]);
-
-                return response()->json([
-                    'message' => 'Evento no encontrado',
-                ], 404);
-            }
 
             Log::info('Evento Comfenalco encontrado para eliminación', [
                 'event_id' => $comfenalcoEvent->id,
@@ -344,7 +307,7 @@ class ComfenalcoEventController extends Controller
             return response()->json(['message' => 'Evento eliminado exitosamente']);
         } catch (\Exception $e) {
             Log::error('Error eliminando evento Comfenalco', [
-                'id' => $id,
+                'id' => $comfenalcoEvent->id ?? null,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'user_id' => $request->user()?->id,
@@ -360,16 +323,9 @@ class ComfenalcoEventController extends Controller
     /**
      * Change the visibility of the specified resource.
      */
-    public function changeVisibility(Request $request, $id): \Illuminate\Http\JsonResponse
+    public function changeVisibility(Request $request, ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
     {
         try {
-            $comfenalcoEvent = ComfenalcoEvent::find($id);
-
-            if (!$comfenalcoEvent) {
-                return response()->json([
-                    'message' => 'Evento no encontrado',
-                ], 404);
-            }
 
             $request->validate([
                 'is_visible' => 'required|boolean',
@@ -388,7 +344,7 @@ class ComfenalcoEventController extends Controller
             return response()->json($comfenalcoEvent);
         } catch (\Exception $e) {
             Log::error('Error cambiando visibilidad de evento Comfenalco', [
-                'id' => $id,
+                'id' => $comfenalcoEvent->id ?? null,
                 'error' => $e->getMessage(),
                 'user_id' => $request->user()?->id,
             ]);
