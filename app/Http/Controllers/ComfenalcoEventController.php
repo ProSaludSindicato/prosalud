@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\{StoreComfenalcoEventRequest, UpdateComfenalcoEventRequest};
 use App\Models\ComfenalcoEvent;
 use Illuminate\Http\{Request, Response};
-use Illuminate\Support\Facades\{Log, Storage};
+use Illuminate\Support\Facades\{Cache, Log, Storage};
 use Illuminate\Support\Str;
 
 class ComfenalcoEventController extends Controller
@@ -15,7 +15,32 @@ class ComfenalcoEventController extends Controller
      */
     public function index(): \Illuminate\Http\JsonResponse
     {
-        $events = ComfenalcoEvent::orderBy('created_at', 'desc')->get();
+        $cacheKey = 'comfenalco_events:list';
+        
+        // Verificar si existe en caché
+        $cachedData = Cache::get($cacheKey);
+        if ($cachedData !== null) {
+            Log::info('[CACHE HIT] Lista de eventos Comfenalco obtenida desde caché', [
+                'cache_key' => $cacheKey,
+                'events_count' => count($cachedData),
+            ]);
+            return response()->json($cachedData);
+        }
+
+        Log::info('[CACHE MISS] Consultando eventos Comfenalco desde BD', [
+            'cache_key' => $cacheKey,
+        ]);
+        
+        // Cache por 24 horas (1 día)
+        $events = Cache::remember($cacheKey, now()->addDay(), function () {
+            return ComfenalcoEvent::orderBy('created_at', 'desc')->get();
+        });
+        
+        Log::info('[CACHE STORED] Lista de eventos Comfenalco guardada en caché', [
+            'cache_key' => $cacheKey,
+            'events_count' => count($events),
+            'expires_at' => now()->addDay()->toISOString(),
+        ]);
 
         return response()->json($events);
     }
@@ -87,6 +112,12 @@ class ComfenalcoEventController extends Controller
             }
 
             $event = ComfenalcoEvent::create($data);
+
+            // Invalidar cache de lista de eventos
+            Cache::forget('comfenalco_events:list');
+            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de crear evento', [
+                'event_id' => $event->id,
+            ]);
 
             Log::info('Evento Comfenalco creado', [
                 'event_id' => $event->id,
@@ -228,6 +259,12 @@ class ComfenalcoEventController extends Controller
 
             $comfenalcoEvent->update($data);
 
+            // Invalidar cache de lista de eventos
+            Cache::forget('comfenalco_events:list');
+            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de actualizar evento', [
+                'event_id' => $comfenalcoEvent->id,
+            ]);
+
             Log::info('Evento Comfenalco actualizado exitosamente', [
                 'event_id' => $comfenalcoEvent->id,
                 'title' => $comfenalcoEvent->title,
@@ -290,6 +327,12 @@ class ComfenalcoEventController extends Controller
 
             $comfenalcoEvent->delete();
 
+            // Invalidar cache de lista de eventos
+            Cache::forget('comfenalco_events:list');
+            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de eliminar evento', [
+                'event_id' => $comfenalcoEvent->id,
+            ]);
+
             Log::info('Evento Comfenalco eliminado exitosamente', [
                 'event_id' => $comfenalcoEvent->id,
                 'title' => $comfenalcoEvent->title,
@@ -332,6 +375,12 @@ class ComfenalcoEventController extends Controller
             ]);
 
             $comfenalcoEvent->update(['is_visible' => $request->is_visible]);
+
+            // Invalidar cache de lista de eventos
+            Cache::forget('comfenalco_events:list');
+            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de cambiar visibilidad', [
+                'event_id' => $comfenalcoEvent->id,
+            ]);
 
             Log::info('Visibilidad de evento Comfenalco cambiada', [
                 'event_id' => $comfenalcoEvent->id,

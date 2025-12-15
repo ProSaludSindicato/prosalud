@@ -12,7 +12,56 @@ class ComfenalcoEvent extends Model
     public $timestamps = true;
     protected $guarded = [];
 
+    protected $table = 'comfenalco_events';
+    protected $primaryKey = 'id';
+    
     protected $appends = ['banner_image_url'];
+
+    /**
+     * Retrieve the model for route model binding.
+     * Validates that the ID is not undefined or invalid.
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        // Validate that the value is not undefined or empty
+        if ($value === null || $value === 'undefined' || $value === '' || $value === 'null') {
+            \Illuminate\Support\Facades\Log::warning('ComfenalcoEvent route binding: Invalid ID value', [
+                'value' => $value,
+                'type' => gettype($value),
+            ]);
+            throw new \Illuminate\Database\Eloquent\ModelNotFoundException();
+        }
+
+        // Ensure value is numeric if it should be
+        if (!is_numeric($value)) {
+            \Illuminate\Support\Facades\Log::warning('ComfenalcoEvent route binding: Non-numeric ID value', [
+                'value' => $value,
+                'type' => gettype($value),
+            ]);
+            throw new \Illuminate\Database\Eloquent\ModelNotFoundException();
+        }
+
+        // Try to find by the primary key (default is 'id')
+        $field = $field ?: $this->getRouteKeyName();
+        
+        try {
+            return $this->where($field, $value)->firstOrFail();
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            \Illuminate\Support\Facades\Log::warning('ComfenalcoEvent route binding: Model not found', [
+                'value' => $value,
+                'field' => $field,
+            ]);
+            throw $e;
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('ComfenalcoEvent route binding: Database error', [
+                'value' => $value,
+                'field' => $field,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
+    }
 
     /**
      * Get the banner image URL.

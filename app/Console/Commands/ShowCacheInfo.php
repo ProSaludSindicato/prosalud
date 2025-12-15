@@ -14,7 +14,7 @@ class ShowCacheInfo extends Command
      * @var string
      */
     protected $signature = 'cache:info 
-                            {--type= : Filtrar por tipo (afiliado, permissions, assignments, excel, inventory)}
+                            {--type= : Filtrar por tipo (afiliado, permissions, assignments, excel, inventory, events)}
                             {--key= : Mostrar información de una clave específica}
                             {--stats : Mostrar solo estadísticas}
                             {--clear : Limpiar caché después de mostrar}';
@@ -141,6 +141,7 @@ class ShowCacheInfo extends Command
             $this->line('   php artisan cache:info --type=afiliado');
             $this->line('   php artisan cache:info --type=permissions');
             $this->line('   php artisan cache:info --type=assignments');
+            $this->line('   php artisan cache:info --type=events');
             return;
         }
 
@@ -196,7 +197,7 @@ class ShowCacheInfo extends Command
             
             // Buscar una clave que contenga patrones conocidos de caché
             foreach ($allKeys as $key) {
-                foreach (['afiliado:auth:', 'user:', 'excel:', 'inventory:', 'afiliado_service.'] as $pattern) {
+                foreach (['afiliado:auth:', 'user:', 'excel:', 'inventory:', 'afiliado_service.', 'comfenalco_events:'] as $pattern) {
                     $pos = strpos($key, $pattern);
                     if ($pos !== false) {
                         return substr($key, 0, $pos);
@@ -291,6 +292,7 @@ class ShowCacheInfo extends Command
             'user:',
             'excel:',
             'inventory:',
+            'comfenalco_events:',
         ];
         
         foreach ($cachePatterns as $pattern) {
@@ -442,6 +444,7 @@ class ShowCacheInfo extends Command
             'user:*:request_assignments' => 'Asignaciones de Solicitudes',
             'excel:activos:processed' => 'Excel ACTIVOS',
             'inventory:dashboard:metrics' => 'Dashboard de Inventario',
+            'comfenalco_events:list' => 'Eventos Comfenalco',
         ];
 
         if ($type === null) {
@@ -455,6 +458,7 @@ class ShowCacheInfo extends Command
             'assignments' => ['user:*:request_assignments'],
             'excel' => ['excel:activos:processed'],
             'inventory' => ['inventory:dashboard:metrics'],
+            'events' => ['comfenalco_events:list'],
         ];
 
         if (isset($typeMap[$type])) {
@@ -512,6 +516,8 @@ class ShowCacheInfo extends Command
                     $patternMatches = (strpos($key, 'excel:activos') !== false || strpos($keyWithoutPrefix, 'excel:activos') !== false);
                 } elseif (strpos($searchPattern, 'inventory:dashboard') !== false) {
                     $patternMatches = (strpos($key, 'inventory:dashboard') !== false || strpos($keyWithoutPrefix, 'inventory:dashboard') !== false);
+                } elseif (strpos($searchPattern, 'comfenalco_events') !== false) {
+                    $patternMatches = (strpos($key, 'comfenalco_events') !== false || strpos($keyWithoutPrefix, 'comfenalco_events') !== false);
                 }
                 
                 if ($patternMatches) {

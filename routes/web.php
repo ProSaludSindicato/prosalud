@@ -12,11 +12,6 @@ Route::get('/test-certificado', function () {
     return view('test-certificado');
 });
 
-// Ruta temporal para consulta/validación de certificados
-Route::get('/consulta-certificado', function () {
-    return view('consulta-certificado');
-});
-
 Route::get('/ses-test', function () {
     Mail::raw('SES OK', function ($m) {
         $m->to('juanpapabon@gmail.com')
@@ -24,12 +19,4 @@ Route::get('/ses-test', function () {
     });
 
     return 'sent';
-});
-
-Route::get('/debug-aws', function () {
-    return [
-        'mailer' => config('mail.default'),
-        'aws_key' => substr(config('services.ses.key') ?? config('mail.mailers.ses.key'), 0, 6),
-        'aws_region' => config('services.ses.region') ?? config('mail.mailers.ses.region'),
-    ];
 });
