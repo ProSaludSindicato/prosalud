@@ -95,16 +95,6 @@ class AuthController extends Controller
         // Asegurar que los roles y permisos estén cargados
         $user->loadMissing('roles', 'permissions', 'roles.permissions');
 
-        // Log para diagnóstico de permisos
-        Log::info('[AUTH ME] Información del usuario autenticado', [
-            'user_id' => $user->id,
-            'user_email' => $user->email,
-            'is_active' => $user->is_active,
-            'roles' => $user->getRoleNames()->toArray(),
-            'permissions_count' => $user->getAllPermissions()->count(),
-            'permissions' => $user->getAllPermissions()->pluck('name')->toArray(),
-        ]);
-
         return response()->json([
             'user' => new UserAuthResource($user),
         ]);

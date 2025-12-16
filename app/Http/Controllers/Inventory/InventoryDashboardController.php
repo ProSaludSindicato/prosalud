@@ -20,10 +20,6 @@ class InventoryDashboardController extends Controller
         // Verificar si existe en caché
         $cachedData = Cache::get($cacheKey);
         if ($cachedData !== null) {
-            Log::info('[CACHE HIT] Dashboard de inventario obtenido desde caché', [
-                'cache_key' => $cacheKey,
-                'categories_count' => count($cachedData['categories'] ?? []),
-            ]);
             return response()->json([
                 'success' => true,
                 'data' => $cachedData,

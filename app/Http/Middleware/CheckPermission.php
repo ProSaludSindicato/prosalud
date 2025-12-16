@@ -34,11 +34,6 @@ class CheckPermission
         // Verificar si existe en caché
         $cachedPermissions = Cache::get($cacheKey);
         if ($cachedPermissions !== null) {
-            Log::debug('[CACHE HIT] Permisos obtenidos desde caché', [
-                'cache_key' => $cacheKey,
-                'user_id' => $user->id,
-                'permissions_count' => count($cachedPermissions),
-            ]);
             $userPermissions = $cachedPermissions;
         } else {
             Log::debug('[CACHE MISS] Consultando permisos desde BD', [
@@ -92,13 +87,6 @@ class CheckPermission
                 'required_permission' => $permission,
             ], 403);
         }
-
-        Log::debug('[PERMISSION CHECK] Permiso verificado exitosamente', [
-            'user_id' => $user->id,
-            'user_email' => $user->email,
-            'permission' => $permission,
-            'path' => $request->path(),
-        ]);
 
         return $next($request);
     }

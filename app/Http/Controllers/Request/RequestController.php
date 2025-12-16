@@ -15,6 +15,7 @@ use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail, Storage};
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Carbon\Carbon;
 
 class RequestController extends Controller
 {
@@ -648,6 +649,56 @@ class RequestController extends Controller
             'request_form_exists' => $requestForm->exists,
         ]);
 
+        // Validar que no se pueda responder a ninguna solicitud si hay una actualización de correo pendiente
+        // Esto aplica a TODAS las solicitudes para evitar enviar respuestas al correo equivocado
+        if ($this->tieneActualizacionCorreoPendiente($requestForm)) {
+            // Buscar la solicitud de actualización pendiente para incluir su ID en el mensaje
+            $solicitudActualizacion = RequestForm::where('request_type', RequestTypes::ACTUALIZAR_DATOS_PERSONALES)
+                ->where('document_number', $requestForm->document_number)
+                ->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])
+                ->where('id', '!=', $requestForm->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            Log::warning('Intento de responder a solicitud con actualización de correo pendiente - rechazando', [
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+                'document_number' => $requestForm->document_number,
+                'solicitud_actualizacion_id' => $solicitudActualizacion->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede responder a esta solicitud mientras existe una solicitud pendiente o en revisión de actualización de datos personales que incluye cambio de correo electrónico.',
+                'errors' => [
+                    'actualizacion_pendiente' => [
+                        'Primero debe resolver la solicitud de actualización de datos personales pendiente antes de responder a esta solicitud.',
+                        $solicitudActualizacion ? "Solicitud de actualización ID: {$solicitudActualizacion->id}" : null,
+                    ],
+                ],
+                'solicitud_actualizacion_id' => $solicitudActualizacion->id ?? null,
+            ], 422);
+        }
+
+        // Verificar características del certificado de convenio antes de validar
+        // Esto se reutiliza más adelante en el método
+        $tieneActividades = false;
+        $esDirigidoFondoPensiones = false;
+        if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
+            $payload = $requestForm->payload ?? [];
+            if (isset($payload['infoCertificado'])) {
+                $infoCertificado = $payload['infoCertificado'];
+                if (is_string($infoCertificado)) {
+                    $infoCertificado = json_decode($infoCertificado, true);
+                }
+                
+                if (is_array($infoCertificado)) {
+                    $tieneActividades = $requestForm->parseBooleanValue($infoCertificado['adicionarActividades'] ?? false);
+                    $esDirigidoFondoPensiones = $requestForm->parseBooleanValue($infoCertificado['dirigidoFondoPensiones'] ?? false);
+                }
+            }
+        }
+
         $validated = $request->validated();
         $status = $validated['status'];
         $emailSubject = $validated['email_subject'];
@@ -672,10 +723,9 @@ class RequestController extends Controller
             }
         }
 
-        // Check if this is a certificado convenio with actividades or dirigido a fondo de pensiones
-        $tieneActividades = false;
+        // Verificar si tiene actividades y procesarlas (ya verificamos $tieneActividades arriba)
+        // Ahora solo necesitamos obtener el array de actividades si está presente
         $actividades = [];
-        $esDirigidoFondoPensiones = false;
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
             $payload = $requestForm->payload ?? [];
             if (isset($payload['infoCertificado'])) {
@@ -685,11 +735,8 @@ class RequestController extends Controller
                 }
                 
                 if (is_array($infoCertificado)) {
-                    $adicionarActividades = $requestForm->parseBooleanValue($infoCertificado['adicionarActividades'] ?? false);
-                    $dirigidoFondoPensiones = $requestForm->parseBooleanValue($infoCertificado['dirigidoFondoPensiones'] ?? false);
-                    
-                    if ($adicionarActividades && $request->has('actividades')) {
-                        $tieneActividades = true;
+                    // Procesar actividades si están presentes
+                    if ($tieneActividades && $request->has('actividades')) {
                         $actividadesInput = $request->input('actividades', []);
                         
                         // Normalize actividades array - handle both array and indexed form data
@@ -699,20 +746,19 @@ class RequestController extends Controller
                                 array_map('trim', $actividadesInput),
                                 fn($actividad) => !empty($actividad)
                             );
-                        // Re-index array to ensure sequential numbering
-                        $actividades = array_values($actividades);
-                    }
-                    
-                    // Only force status to IN_REVIEW if status is PENDING (not if user explicitly set COMPLETED or REJECTED)
-                    // This allows users to complete or reject certificates with activities if needed
-                    if ($status === RequestStatuses::PENDING) {
-                        $status = RequestStatuses::IN_REVIEW;
-                    }
-                }
-                    
-                    if ($dirigidoFondoPensiones) {
-                        $esDirigidoFondoPensiones = true;
+                            // Re-index array to ensure sequential numbering
+                            $actividades = array_values($actividades);
+                        }
                         
+                        // Only force status to IN_REVIEW if status is PENDING (not if user explicitly set COMPLETED or REJECTED)
+                        // This allows users to complete or reject certificates with activities if needed
+                        if ($status === RequestStatuses::PENDING) {
+                            $status = RequestStatuses::IN_REVIEW;
+                        }
+                    }
+                    
+                    // Procesar validación de dirigido a fondo de pensiones
+                    if ($esDirigidoFondoPensiones) {
                         // Validar que haya al menos 1 archivo adjunto (planillas de seguridad social)
                         if (empty($attachments)) {
                             return response()->json([
@@ -737,6 +783,160 @@ class RequestController extends Controller
         // Prepare data for logging
         $oldStatus = $requestForm->status;
         $requestFormId = (string) $requestForm->id;
+
+        // Si es un certificado de convenio simple (sin actividades, sin dirigido a fondo de pensiones)
+        // que quedó pendiente o en revisión y debería procesarse automáticamente, generar el certificado y anexarlo
+        // Esto cubre el caso donde quedó pendiente porque había una actualización de correo pendiente
+        if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO 
+            && !$tieneActividades 
+            && !$esDirigidoFondoPensiones
+            && in_array($oldStatus, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])
+            && $this->debeProcesarCertificadoAutomatico($requestForm)
+        ) {
+            try {
+                Log::info('Generando certificado automáticamente para solicitud pendiente que quedó bloqueada por actualización de correo', [
+                    'request_id' => $requestFormId,
+                    'documento' => $requestForm->document_number,
+                ]);
+
+                // Extraer información del payload para generar el certificado
+                $payload = $requestForm->payload ?? [];
+                $dirigidoAEntidad = null;
+                
+                // Extraer dirigidoAEntidad del payload
+                if (isset($payload['dirigidoAQuien']) && !empty($payload['dirigidoAQuien'])) {
+                    $dirigidoAEntidad = $payload['dirigidoAQuien'];
+                } elseif (isset($payload['infoCertificado'])) {
+                    $infoCertificado = $payload['infoCertificado'];
+                    if (is_string($infoCertificado)) {
+                        $infoCertificado = json_decode($infoCertificado, true);
+                    }
+                    if (is_array($infoCertificado) && isset($infoCertificado['dirigidoAQuien'])) {
+                        $dirigidoAEntidad = $infoCertificado['dirigidoAQuien'];
+                    }
+                }
+
+                // Verificar tipo de certificado para determinar parámetros
+                $esParaBancolombia = false;
+                $esParaSubsidioVivienda = false;
+                $esParaSubsidioDesempleo = false;
+                $esOtros = false;
+
+                if (isset($payload['infoCertificado'])) {
+                    $infoCertificado = $payload['infoCertificado'];
+                    if (is_string($infoCertificado)) {
+                        $infoCertificado = json_decode($infoCertificado, true);
+                    }
+                    if (is_array($infoCertificado)) {
+                        $esParaBancolombia = $requestForm->parseBooleanValue($infoCertificado['dirigidoBancolombia'] ?? false);
+                        $esParaSubsidioVivienda = $requestForm->parseBooleanValue($infoCertificado['paraSubsidioVivienda'] ?? false);
+                        $esParaSubsidioDesempleo = $requestForm->parseBooleanValue($infoCertificado['paraSubsidioDesempleo'] ?? false);
+                        $esOtros = $requestForm->parseBooleanValue($infoCertificado['otros'] ?? false);
+                    }
+                }
+
+                // Generar certificado PDF
+                $certificadoResult = $this->certificadoService->generarCertificadoPDF(
+                    $requestForm->document_number,
+                    $dirigidoAEntidad,
+                    null, // sin compensaciones
+                    $esParaBancolombia,
+                    $esParaSubsidioVivienda,
+                    $esParaSubsidioDesempleo,
+                    $esOtros
+                );
+
+                // Guardar el certificado en los archivos de la solicitud
+                if (file_exists($certificadoResult['ruta'])) {
+                    try {
+                        $archivoMetadata = $this->guardarCertificadoEnSolicitud(
+                            $requestFormId,
+                            $certificadoResult['ruta'],
+                            $certificadoResult['nombre']
+                        );
+
+                        // Update RequestForm with the certificate file
+                        $files = $requestForm->files ?? [];
+                        $files['certificado_convenio'] = $archivoMetadata;
+                        $requestForm->files = $files;
+                        $requestForm->save();
+
+                        Log::info('Certificado generado automáticamente guardado en archivos de solicitud', [
+                            'request_id' => $requestFormId,
+                            'file_key' => 'certificado_convenio',
+                            'storage_path' => $archivoMetadata['path'] ?? null,
+                            'consecutivo' => $certificadoResult['consecutivo'] ?? null,
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::error('Error guardando certificado generado automáticamente en archivos de solicitud', [
+                            'request_id' => $requestFormId,
+                            'error' => $e->getMessage(),
+                        ]);
+                        // Continue even if saving fails - we still want to attach it to email
+                    }
+                }
+
+                // Agregar el certificado generado a los adjuntos
+                if (file_exists($certificadoResult['ruta'])) {
+                    // Generar nombre de archivo en formato estándar con consecutivo
+                    $consecutivo = $certificadoResult['consecutivo'] ?? '';
+                    $documentoNormalizado = preg_replace('/[^0-9]/', '', $requestForm->document_number);
+                    $nombreArchivoEstandar = "Certificado_Sindicato_ProSalud_{$documentoNormalizado}_{$consecutivo}.pdf";
+                    
+                    // Leer contenido del archivo
+                    $fileContent = file_get_contents($certificadoResult['ruta']);
+                    $fileSize = filesize($certificadoResult['ruta']);
+                    
+                    // Crear un archivo temporal en el directorio temporal del sistema
+                    $tempPath = tempnam(sys_get_temp_dir(), 'cert_auto_');
+                    file_put_contents($tempPath, $fileContent);
+                    
+                    // Crear instancia UploadedFile (usando modo test para evitar validación)
+                    $uploadedFile = new \Illuminate\Http\UploadedFile(
+                        $tempPath,
+                        $nombreArchivoEstandar,
+                        'application/pdf',
+                        UPLOAD_ERR_OK,
+                        true // test mode - permite crear desde archivo existente
+                    );
+                    
+                    $attachments[] = $uploadedFile;
+                    
+                    // Modificar emailSubject y emailBody para incluir el consecutivo si no lo tienen
+                    if (!empty($consecutivo)) {
+                        // Verificar si el asunto ya incluye el consecutivo
+                        if (stripos($emailSubject, $consecutivo) === false) {
+                            $emailSubject = "Certificado de Convenio - Consecutivo {$consecutivo}";
+                        }
+                        
+                        // Verificar si el cuerpo ya incluye el consecutivo
+                        if (stripos($emailBody, $consecutivo) === false) {
+                            $fecha = Carbon::now(config('app.timezone', 'America/Bogota'))->locale('es')->isoFormat('D [de] MMMM [de] YYYY');
+                            $emailBody = "Adjunto encontrará su certificado en formato PDF con el siguiente consecutivo: {$consecutivo}.\n\nEste certificado ha sido generado automáticamente y contiene la información solicitada sobre su convenio.\n\nFecha de generación: {$fecha}\nConsecutivo: {$consecutivo}";
+                        }
+                    }
+                    
+                    Log::info('Certificado generado automáticamente y agregado a adjuntos', [
+                        'request_id' => $requestFormId,
+                        'certificado_ruta' => $certificadoResult['ruta'],
+                        'certificado_nombre_original' => $certificadoResult['nombre'],
+                        'certificado_nombre_estandar' => $nombreArchivoEstandar,
+                        'consecutivo' => $consecutivo,
+                        'file_size' => $fileSize,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::error('Error al generar certificado automáticamente para solicitud pendiente', [
+                    'request_id' => $requestFormId,
+                    'documento' => $requestForm->document_number,
+                    'error' => $e->getMessage(),
+                    'error_trace' => $e->getTraceAsString(),
+                ]);
+
+                // No fallar toda la solicitud, pero registrar el error
+                // El usuario aún puede responder sin el certificado adjunto
+            }
+        }
 
         // Generate certificate with activities if needed
         if ($tieneActividades && !empty($actividades)) {
@@ -1152,6 +1352,37 @@ class RequestController extends Controller
                 'success' => false,
                 'message' => 'Esta funcionalidad solo está disponible para certificados de convenio',
             ], 400);
+        }
+
+        // Validar que no se pueda responder a ninguna solicitud si hay una actualización de correo pendiente
+        // Esto aplica a TODAS las solicitudes para evitar enviar respuestas al correo equivocado
+        if ($this->tieneActualizacionCorreoPendiente($requestForm)) {
+            // Buscar la solicitud de actualización pendiente para incluir su ID en el mensaje
+            $solicitudActualizacion = RequestForm::where('request_type', RequestTypes::ACTUALIZAR_DATOS_PERSONALES)
+                ->where('document_number', $requestForm->document_number)
+                ->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])
+                ->where('id', '!=', $requestForm->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            Log::warning('Intento de responder a solicitud con actualización de correo pendiente - rechazando', [
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+                'document_number' => $requestForm->document_number,
+                'solicitud_actualizacion_id' => $solicitudActualizacion->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede responder a esta solicitud mientras existe una solicitud pendiente o en revisión de actualización de datos personales que incluye cambio de correo electrónico.',
+                'errors' => [
+                    'actualizacion_pendiente' => [
+                        'Primero debe resolver la solicitud de actualización de datos personales pendiente antes de responder a esta solicitud.',
+                        $solicitudActualizacion ? "Solicitud de actualización ID: {$solicitudActualizacion->id}" : null,
+                    ],
+                ],
+                'solicitud_actualizacion_id' => $solicitudActualizacion->id ?? null,
+            ], 422);
         }
 
         // Validate that the request is pending (or in review)
@@ -1784,14 +2015,69 @@ class RequestController extends Controller
     }
 
     /**
+     * Verifica si existe una solicitud pendiente o en revisión de actualización de datos personales
+     * que incluya actualización de correo electrónico para el mismo documento.
+     * 
+     * @param RequestForm $requestForm La solicitud de certificado de convenio a verificar
+     * @return bool true si existe una actualización de correo pendiente, false en caso contrario
+     */
+    private function tieneActualizacionCorreoPendiente(RequestForm $requestForm): bool
+    {
+        // Buscar solicitudes de actualización de datos personales pendientes o en revisión
+        // para el mismo número de documento
+        $solicitudActualizacion = RequestForm::where('request_type', RequestTypes::ACTUALIZAR_DATOS_PERSONALES)
+            ->where('document_number', $requestForm->document_number)
+            ->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])
+            ->where('id', '!=', $requestForm->id) // Excluir la solicitud actual si fuera de actualización
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (!$solicitudActualizacion) {
+            Log::debug('tieneActualizacionCorreoPendiente: No se encontró solicitud de actualización pendiente', [
+                'request_id' => $requestForm->id,
+                'document_number' => $requestForm->document_number,
+            ]);
+            return false;
+        }
+
+        // Verificar si el payload incluye actualización de correo electrónico
+        $payload = $solicitudActualizacion->payload ?? [];
+        $tieneCorreo = !empty($payload['correo'] ?? null);
+
+        Log::info('tieneActualizacionCorreoPendiente: Solicitud de actualización encontrada', [
+            'request_id' => $requestForm->id,
+            'solicitud_actualizacion_id' => $solicitudActualizacion->id,
+            'solicitud_actualizacion_status' => $solicitudActualizacion->status,
+            'tiene_correo' => $tieneCorreo,
+            'correo_nuevo' => $tieneCorreo ? ($payload['correo'] ?? null) : null,
+            'document_number' => $requestForm->document_number,
+        ]);
+
+        return $tieneCorreo;
+    }
+
+    /**
      * Determina si un certificado de convenio debe procesarse automáticamente
      * Se procesa automáticamente si:
      * - Tiene dirigidoBancolombia activo (permite cualquier combinación de otros campos, priorizando automatización)
      * - Tiene paraSubsidioVivienda activo (permite cualquier combinación de otros campos, priorizando automatización)
      * - Tiene solo fecha ingreso/retiro y/o dirigido a entidad (sin campos complejos)
+     * 
+     * NO se procesa automáticamente si:
+     * - Existe una solicitud pendiente o en revisión de actualización de datos personales que incluya cambio de correo
      */
     private function debeProcesarCertificadoAutomatico(RequestForm $requestForm): bool
     {
+        // Verificar primero si hay una actualización de correo pendiente
+        // Si existe, no procesar automáticamente para evitar enviar el certificado al correo anterior
+        if ($this->tieneActualizacionCorreoPendiente($requestForm)) {
+            Log::info('debeProcesarCertificadoAutomatico: Existe actualización de correo pendiente - NO procesando automáticamente', [
+                'request_id' => $requestForm->id,
+                'document_number' => $requestForm->document_number,
+            ]);
+            return false;
+        }
+
         $payload = $requestForm->payload ?? [];
 
         // Verificar si tiene infoCertificado en el payload

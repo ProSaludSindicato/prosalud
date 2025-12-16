@@ -74,11 +74,6 @@ class AuthenticateWithApiToken
         // Verificar si existe en caché
         $cachedPermissions = Cache::get($cacheKey);
         if ($cachedPermissions !== null) {
-            Log::debug('[CACHE HIT] Permisos obtenidos desde caché (API Token)', [
-                'cache_key' => $cacheKey,
-                'user_id' => $user->id,
-                'permissions_count' => count($cachedPermissions),
-            ]);
             $userPermissions = $cachedPermissions;
         } else {
             Log::debug('[CACHE MISS] Consultando permisos desde BD (API Token)', [
@@ -118,14 +113,6 @@ class AuthenticateWithApiToken
 
         Auth::setUser($user);
         $request->setUserResolver(fn () => $user);
-
-        Log::debug('[API TOKEN AUTH] Usuario autenticado', [
-            'user_id' => $user->id,
-            'user_email' => $user->email,
-            'roles_count' => $user->roles->count(),
-            'permissions_count' => $user->getAllPermissions()->count(),
-            'path' => $request->path(),
-        ]);
 
         return $next($request);
     }
