@@ -138,6 +138,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::put('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
     Route::patch('/users/{user}', [UserController::class, 'update'])->middleware('permission:users.edit');
     Route::patch('/users/{user}/status', [UserController::class, 'changeStatus'])->middleware('permission:users.change_status');
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('permission:users.change_status');
 
     // Request assignment routes
     Route::get('/request-assignments', [RequestAssignmentController::class, 'index'])->middleware('permission:users.view');

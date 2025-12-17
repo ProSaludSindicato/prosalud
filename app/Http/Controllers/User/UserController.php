@@ -249,4 +249,45 @@ class UserController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Remove the specified user from storage.
+     */
+    public function destroy(Request $request, User $user): JsonResponse
+    {
+        // Guardar información del usuario antes de eliminarlo para el log
+        $userData = [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'is_active' => $user->is_active,
+            'role' => $user->roles->first()?->name ?? null,
+        ];
+
+        // Invalidar caché de permisos del usuario antes de eliminarlo
+        Cache::forget("user:{$user->id}:permissions");
+
+        // Eliminar el usuario
+        $user->delete();
+
+        Log::info('Usuario eliminado exitosamente', [
+            'user_id' => $userData['id'],
+            'name' => $userData['name'],
+            'email' => $userData['email'],
+        ]);
+
+        $this->auditLogService->logAdministrativeAction('user_deleted', $this->auditLogService->addRequestContext($request, [
+            'target_user_id' => $userData['id'],
+            'target_user_email' => $userData['email'],
+            'target_user_name' => $userData['name'],
+            'target_user_role' => $userData['role'],
+            'target_user_status' => $userData['is_active'],
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Usuario eliminado exitosamente',
+            'data' => $userData,
+        ]);
+    }
 }
