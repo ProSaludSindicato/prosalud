@@ -502,11 +502,7 @@ class HospitalRequestController extends Controller
         try {
             $requesterEmail = $this->resolveRequesterEmail($hospitalRequest->requested_by);
 
-            $mail = Mail::to($requesterEmail ?? 'juanpapabon@gmail.com');
-
-            if ($requesterEmail && 'juanpapabon@gmail.com' !== $requesterEmail) {
-                $mail->cc('juanpapabon@gmail.com');
-            }
+            $mail = Mail::to($requesterEmail);
 
             $mail->send(new HospitalRequestStatusUpdated(
                 $hospitalRequest,

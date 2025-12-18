@@ -152,7 +152,7 @@ class RequestController extends Controller
             if ($esParaSubsidioVivienda) {
                 // Intentar obtener compensaciones automáticamente del Excel
                 $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
-                
+
                 if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
                     Log::info('Certificado de subsidio de vivienda con compensaciones detectado, iniciando procesamiento automático', [
                         'request_id' => $requestForm->id,
@@ -691,7 +691,7 @@ class RequestController extends Controller
                 if (is_string($infoCertificado)) {
                     $infoCertificado = json_decode($infoCertificado, true);
                 }
-                
+
                 if (is_array($infoCertificado)) {
                     $tieneActividades = $requestForm->parseBooleanValue($infoCertificado['adicionarActividades'] ?? false);
                     $esDirigidoFondoPensiones = $requestForm->parseBooleanValue($infoCertificado['dirigidoFondoPensiones'] ?? false);
@@ -733,12 +733,12 @@ class RequestController extends Controller
                 if (is_string($infoCertificado)) {
                     $infoCertificado = json_decode($infoCertificado, true);
                 }
-                
+
                 if (is_array($infoCertificado)) {
                     // Procesar actividades si están presentes
                     if ($tieneActividades && $request->has('actividades')) {
                         $actividadesInput = $request->input('actividades', []);
-                        
+
                         // Normalize actividades array - handle both array and indexed form data
                         if (is_array($actividadesInput)) {
                             // Filter out empty values and trim
@@ -749,14 +749,14 @@ class RequestController extends Controller
                             // Re-index array to ensure sequential numbering
                             $actividades = array_values($actividades);
                         }
-                        
+
                         // Only force status to IN_REVIEW if status is PENDING (not if user explicitly set COMPLETED or REJECTED)
                         // This allows users to complete or reject certificates with activities if needed
                         if ($status === RequestStatuses::PENDING) {
                             $status = RequestStatuses::IN_REVIEW;
                         }
                     }
-                    
+
                     // Procesar validación de dirigido a fondo de pensiones
                     if ($esDirigidoFondoPensiones) {
                         // Validar que haya al menos 1 archivo adjunto (planillas de seguridad social)
@@ -769,7 +769,7 @@ class RequestController extends Controller
                                 ],
                             ], 422);
                         }
-                        
+
                         // Only force status to IN_REVIEW if status is PENDING (not if user explicitly set COMPLETED or REJECTED)
                         // This allows users to complete or reject certificates directed to pension fund if needed
                         if ($status === RequestStatuses::PENDING) {
@@ -787,8 +787,8 @@ class RequestController extends Controller
         // Si es un certificado de convenio simple (sin actividades, sin dirigido a fondo de pensiones)
         // que quedó pendiente o en revisión y debería procesarse automáticamente, generar el certificado y anexarlo
         // Esto cubre el caso donde quedó pendiente porque había una actualización de correo pendiente
-        if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO 
-            && !$tieneActividades 
+        if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO
+            && !$tieneActividades
             && !$esDirigidoFondoPensiones
             && in_array($oldStatus, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])
             && $this->debeProcesarCertificadoAutomatico($requestForm)
@@ -802,7 +802,7 @@ class RequestController extends Controller
                 // Extraer información del payload para generar el certificado
                 $payload = $requestForm->payload ?? [];
                 $dirigidoAEntidad = null;
-                
+
                 // Extraer dirigidoAEntidad del payload
                 if (isset($payload['dirigidoAQuien']) && !empty($payload['dirigidoAQuien'])) {
                     $dirigidoAEntidad = $payload['dirigidoAQuien'];
@@ -882,15 +882,15 @@ class RequestController extends Controller
                     $consecutivo = $certificadoResult['consecutivo'] ?? '';
                     $documentoNormalizado = preg_replace('/[^0-9]/', '', $requestForm->document_number);
                     $nombreArchivoEstandar = "Certificado_Sindicato_ProSalud_{$documentoNormalizado}_{$consecutivo}.pdf";
-                    
+
                     // Leer contenido del archivo
                     $fileContent = file_get_contents($certificadoResult['ruta']);
                     $fileSize = filesize($certificadoResult['ruta']);
-                    
+
                     // Crear un archivo temporal en el directorio temporal del sistema
                     $tempPath = tempnam(sys_get_temp_dir(), 'cert_auto_');
                     file_put_contents($tempPath, $fileContent);
-                    
+
                     // Crear instancia UploadedFile (usando modo test para evitar validación)
                     $uploadedFile = new \Illuminate\Http\UploadedFile(
                         $tempPath,
@@ -899,23 +899,23 @@ class RequestController extends Controller
                         UPLOAD_ERR_OK,
                         true // test mode - permite crear desde archivo existente
                     );
-                    
+
                     $attachments[] = $uploadedFile;
-                    
+
                     // Modificar emailSubject y emailBody para incluir el consecutivo si no lo tienen
                     if (!empty($consecutivo)) {
                         // Verificar si el asunto ya incluye el consecutivo
                         if (stripos($emailSubject, $consecutivo) === false) {
                             $emailSubject = "Certificado de Convenio - Consecutivo {$consecutivo}";
                         }
-                        
+
                         // Verificar si el cuerpo ya incluye el consecutivo
                         if (stripos($emailBody, $consecutivo) === false) {
                             $fecha = Carbon::now(config('app.timezone', 'America/Bogota'))->locale('es')->isoFormat('D [de] MMMM [de] YYYY');
                             $emailBody = "Adjunto encontrará su certificado en formato PDF con el siguiente consecutivo: {$consecutivo}.\n\nEste certificado ha sido generado automáticamente y contiene la información solicitada sobre su convenio.\n\nFecha de generación: {$fecha}\nConsecutivo: {$consecutivo}";
                         }
                     }
-                    
+
                     Log::info('Certificado generado automáticamente y agregado a adjuntos', [
                         'request_id' => $requestFormId,
                         'certificado_ruta' => $certificadoResult['ruta'],
@@ -997,11 +997,11 @@ class RequestController extends Controller
                     // Read file content
                     $fileContent = file_get_contents($certificadoResult['ruta']);
                     $fileSize = filesize($certificadoResult['ruta']);
-                    
+
                     // Create a temporary file in the system temp directory
                     $tempPath = tempnam(sys_get_temp_dir(), 'cert_actividades_');
                     file_put_contents($tempPath, $fileContent);
-                    
+
                     // Create UploadedFile instance (using test mode to avoid validation)
                     $uploadedFile = new \Illuminate\Http\UploadedFile(
                         $tempPath,
@@ -1010,9 +1010,9 @@ class RequestController extends Controller
                         UPLOAD_ERR_OK,
                         true // test mode - allows creating from existing file
                     );
-                    
+
                     $attachments[] = $uploadedFile;
-                    
+
                     Log::info('Certificado con actividades generado exitosamente', [
                         'request_id' => $requestFormId,
                         'certificado_ruta' => $certificadoResult['ruta'],
@@ -1085,11 +1085,11 @@ class RequestController extends Controller
                     // Read file content
                     $fileContent = file_get_contents($certificadoResult['ruta']);
                     $fileSize = filesize($certificadoResult['ruta']);
-                    
+
                     // Create a temporary file in the system temp directory
                     $tempPath = tempnam(sys_get_temp_dir(), 'cert_afp_');
                     file_put_contents($tempPath, $fileContent);
-                    
+
                     // Create UploadedFile instance (using test mode to avoid validation)
                     $uploadedFile = new \Illuminate\Http\UploadedFile(
                         $tempPath,
@@ -1098,9 +1098,9 @@ class RequestController extends Controller
                         UPLOAD_ERR_OK,
                         true // test mode - allows creating from existing file
                     );
-                    
+
                     $attachments[] = $uploadedFile;
-                    
+
                     Log::info('Certificado dirigido a AFP generado exitosamente', [
                         'request_id' => $requestFormId,
                         'certificado_ruta' => $certificadoResult['ruta'],
@@ -1134,14 +1134,14 @@ class RequestController extends Controller
         $recipientEmail = $requestForm->email;
         $isPersonalDataUpdate = $requestForm->request_type === RequestTypes::ACTUALIZAR_DATOS_PERSONALES;
         $isCompletedOrApproved = $status === RequestStatuses::COMPLETED;
-        
+
         if ($isPersonalDataUpdate && $isCompletedOrApproved) {
             $payload = $requestForm->payload ?? [];
             $nuevoCorreo = $payload['correo'] ?? null;
-            
+
             if (!empty($nuevoCorreo) && filter_var($nuevoCorreo, FILTER_VALIDATE_EMAIL)) {
                 $recipientEmail = $nuevoCorreo;
-                
+
                 Log::info('Usando nuevo correo del payload para solicitud de actualización de datos personales', [
                     'request_id' => $requestFormId,
                     'email_original' => $requestForm->email,
@@ -1179,14 +1179,12 @@ class RequestController extends Controller
                 'request_id' => $requestFormId,
                 'email_to' => $recipientEmail,
                 'email_original' => $requestForm->email,
-                'email_cc' => 'juanpapabon@gmail.com',
                 'email_subject' => $emailSubject,
                 'email_body_length' => strlen($emailBody),
                 'attachments_count' => count($attachments),
             ]);
 
             Mail::to($recipientEmail)
-                ->cc('juanpapabon@gmail.com') // Hardcoded as per requirements
                 ->send(new RequestFormResponse(
                     $requestForm,
                     $emailSubject,
@@ -1304,7 +1302,7 @@ class RequestController extends Controller
      * This endpoint allows responding to pending certificado convenio requests that require
      * compensation values (T. Basicos and T. Auxilios) when they cannot be automatically
      * extracted from the Excel file (e.g., for retired affiliates or missing records).
-     * 
+     *
      * The endpoint will:
      * 1. Validate the request is a certificado convenio and is pending
      * 2. Calculate T. Ingresos as the sum of T. Basicos and T. Auxilios
@@ -2017,7 +2015,7 @@ class RequestController extends Controller
     /**
      * Verifica si existe una solicitud pendiente o en revisión de actualización de datos personales
      * que incluya actualización de correo electrónico para el mismo documento.
-     * 
+     *
      * @param RequestForm $requestForm La solicitud de certificado de convenio a verificar
      * @return bool true si existe una actualización de correo pendiente, false en caso contrario
      */
@@ -2062,7 +2060,7 @@ class RequestController extends Controller
      * - Tiene dirigidoBancolombia activo (permite cualquier combinación de otros campos, priorizando automatización)
      * - Tiene paraSubsidioVivienda activo (permite cualquier combinación de otros campos, priorizando automatización)
      * - Tiene solo fecha ingreso/retiro y/o dirigido a entidad (sin campos complejos)
-     * 
+     *
      * NO se procesa automáticamente si:
      * - Existe una solicitud pendiente o en revisión de actualización de datos personales que incluya cambio de correo
      */
@@ -2365,7 +2363,7 @@ class RequestController extends Controller
                 // Intentar con disco de fallback
                 $disk = 'local';
                 $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
-                
+
                 if (!$guardado) {
                     throw new \Exception("No se pudo guardar el certificado en storage");
                 }
@@ -2391,7 +2389,7 @@ class RequestController extends Controller
 
     /**
      * Get pending personal data update requests.
-     * This endpoint returns all requests with type "actualizar-datos-personales" 
+     * This endpoint returns all requests with type "actualizar-datos-personales"
      * that have status PENDING. This is used to visually indicate and prioritize
      * when an affiliate has a pending personal data update request, as responding
      * to other requests before updating personal data (like email) could result

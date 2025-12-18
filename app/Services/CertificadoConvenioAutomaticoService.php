@@ -46,16 +46,16 @@ class CertificadoConvenioAutomaticoService
 
             // Extraer el valor de dirigidoAQuien del payload si existe
             $dirigidoAEntidad = $this->extraerDirigidoAEntidad($requestForm);
-            
+
             // Verificar si es para Bancolombia
             $esParaBancolombia = $this->esParaBancolombia($requestForm);
-            
+
             // Verificar si es para subsidio de vivienda
             $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
-            
+
             // Verificar si es para subsidio de desempleo
             $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
-            
+
             // Verificar si es tipo "otros"
             $esOtros = $this->esOtros($requestForm);
 
@@ -153,16 +153,16 @@ class CertificadoConvenioAutomaticoService
 
             // Extraer el valor de dirigidoAQuien del payload si existe
             $dirigidoAEntidad = $this->extraerDirigidoAEntidad($requestForm);
-            
+
             // Verificar si es para Bancolombia
             $esParaBancolombia = $this->esParaBancolombia($requestForm);
-            
+
             // Verificar si es para subsidio de vivienda
             $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
-            
+
             // Verificar si es para subsidio de desempleo
             $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
-            
+
             // Verificar si es tipo "otros"
             $esOtros = $this->esOtros($requestForm);
 
@@ -266,16 +266,16 @@ class CertificadoConvenioAutomaticoService
 
             // Extraer el valor de dirigidoAEntidad de los datos de la solicitud
             $dirigidoAEntidad = $solicitudData['dirigido_a_entidad'] ?? null;
-            
+
             // Verificar si es para Bancolombia
             $esParaBancolombia = $this->esParaBancolombia($requestForm);
-            
+
             // Verificar si es para subsidio de vivienda
             $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
-            
+
             // Verificar si es para subsidio de desempleo
             $esParaSubsidioDesempleo = $this->esParaSubsidioDesempleo($requestForm);
-            
+
             // Verificar si es tipo "otros"
             $esOtros = $this->esOtros($requestForm);
 
@@ -350,9 +350,9 @@ class CertificadoConvenioAutomaticoService
     {
         // Obtener datos del afiliado para completar la información
         $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($solicitudData['documento']);
-        
+
         $afiliado = $afiliadoData['afiliado'] ?? [];
-        
+
         $payload = [
             'solicitud_automatica' => true,
             'tipo_certificado' => $solicitudData['tipo_certificado'] ?? 'fecha_ingreso_retiro',
@@ -442,7 +442,7 @@ class CertificadoConvenioAutomaticoService
                 // Intentar con disco de fallback
                 $disk = self::FALLBACK_DISK;
                 $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
-                
+
                 if (!$guardado) {
                     throw new \Exception("No se pudo guardar el certificado en storage");
                 }
@@ -468,7 +468,7 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Crea y envía la respuesta automática con el certificado adjunto
-     * 
+     *
      * @param RequestForm $requestForm
      * @param string $rutaPdf
      * @param string $nombreArchivo
@@ -496,9 +496,7 @@ class CertificadoConvenioAutomaticoService
         $archivoTemporal = $this->crearArchivoTemporalParaCorreo($rutaPdf, $nombreArchivoAdjunto);
 
         try {
-            // Enviar correo con el certificado adjunto
             Mail::to($requestForm->email)
-                ->cc('juanpapabon@gmail.com') // Hardcoded as per requirements
                 ->send(new RequestFormResponse(
                     $requestForm,
                     $finalEmailSubject,
@@ -600,14 +598,14 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Extrae el valor de dirigidoAQuien del payload del RequestForm
-     * 
+     *
      * @param RequestForm $requestForm
      * @return string|null Nombre de la entidad destinataria o null si no existe
      */
     private function extraerDirigidoAEntidad(RequestForm $requestForm): ?string
     {
         $payload = $requestForm->payload ?? [];
-        
+
         // Primero buscar dirigidoAQuien en el nivel superior del payload
         // (es donde el frontend lo envía cuando dirigidoAEntidad está activo)
         if (isset($payload['dirigidoAQuien']) && !empty(trim($payload['dirigidoAQuien']))) {
@@ -631,11 +629,11 @@ class CertificadoConvenioAutomaticoService
 
         // Verificar si dirigidoAEntidad está activo
         $dirigidoAEntidad = $infoCertificado['dirigidoAEntidad'] ?? false;
-        
+
         if ($dirigidoAEntidad) {
             // Buscar dirigidoAQuien dentro de infoCertificado (fallback)
             $dirigidoAQuien = $infoCertificado['dirigidoAQuien'] ?? null;
-            
+
             if (!empty($dirigidoAQuien)) {
                 return trim($dirigidoAQuien);
             }
@@ -646,14 +644,14 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Verifica si el certificado es para apertura de cuenta en Bancolombia
-     * 
+     *
      * @param RequestForm $requestForm
      * @return bool
      */
     private function esParaBancolombia(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
-        
+
         // Verificar si tiene infoCertificado en el payload
         if (!isset($payload['infoCertificado'])) {
             Log::debug('esParaBancolombia: No tiene infoCertificado en payload', [
@@ -679,27 +677,27 @@ class CertificadoConvenioAutomaticoService
         // Verificar si dirigidoBancolombia está activo usando parseBooleanValue
         $dirigidoBancolombiaRaw = $infoCertificado['dirigidoBancolombia'] ?? false;
         $dirigidoBancolombia = $requestForm->parseBooleanValue($dirigidoBancolombiaRaw);
-        
+
         Log::info('esParaBancolombia: Verificando opción dirigidoBancolombia', [
             'request_id' => $requestForm->id,
             'dirigidoBancolombia_raw' => $dirigidoBancolombiaRaw,
             'dirigidoBancolombia_parsed' => $dirigidoBancolombia,
             'infoCertificado' => $infoCertificado,
         ]);
-        
+
         return $dirigidoBancolombia;
     }
 
     /**
      * Verifica si el certificado es para subsidio de vivienda
-     * 
+     *
      * @param RequestForm $requestForm
      * @return bool
      */
     private function esParaSubsidioVivienda(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
-        
+
         // Verificar si tiene infoCertificado en el payload
         if (!isset($payload['infoCertificado'])) {
             Log::debug('esParaSubsidioVivienda: No tiene infoCertificado en payload', [
@@ -725,27 +723,27 @@ class CertificadoConvenioAutomaticoService
         // Verificar si paraSubsidioVivienda está activo usando parseBooleanValue
         $paraSubsidioViviendaRaw = $infoCertificado['paraSubsidioVivienda'] ?? false;
         $paraSubsidioVivienda = $requestForm->parseBooleanValue($paraSubsidioViviendaRaw);
-        
+
         Log::info('esParaSubsidioVivienda: Verificando opción paraSubsidioVivienda', [
             'request_id' => $requestForm->id,
             'paraSubsidioVivienda_raw' => $paraSubsidioViviendaRaw,
             'paraSubsidioVivienda_parsed' => $paraSubsidioVivienda,
             'infoCertificado' => $infoCertificado,
         ]);
-        
+
         return $paraSubsidioVivienda;
     }
 
     /**
      * Verifica si el certificado es para subsidio de desempleo
-     * 
+     *
      * @param RequestForm $requestForm
      * @return bool
      */
     private function esParaSubsidioDesempleo(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
-        
+
         // Verificar si tiene infoCertificado en el payload
         if (!isset($payload['infoCertificado'])) {
             Log::debug('esParaSubsidioDesempleo: No tiene infoCertificado en payload', [
@@ -771,27 +769,27 @@ class CertificadoConvenioAutomaticoService
         // Verificar si paraSubsidioDesempleo está activo usando parseBooleanValue
         $paraSubsidioDesempleoRaw = $infoCertificado['paraSubsidioDesempleo'] ?? false;
         $paraSubsidioDesempleo = $requestForm->parseBooleanValue($paraSubsidioDesempleoRaw);
-        
+
         Log::info('esParaSubsidioDesempleo: Verificando opción paraSubsidioDesempleo', [
             'request_id' => $requestForm->id,
             'paraSubsidioDesempleo_raw' => $paraSubsidioDesempleoRaw,
             'paraSubsidioDesempleo_parsed' => $paraSubsidioDesempleo,
             'infoCertificado' => $infoCertificado,
         ]);
-        
+
         return $paraSubsidioDesempleo;
     }
 
     /**
      * Verifica si el certificado es tipo "otros" (necesidad específica descrita por el usuario)
-     * 
+     *
      * @param RequestForm $requestForm
      * @return bool
      */
     private function esOtros(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
-        
+
         // Verificar si tiene infoCertificado en el payload
         if (!isset($payload['infoCertificado'])) {
             return false;
@@ -810,14 +808,14 @@ class CertificadoConvenioAutomaticoService
         // Verificar si "otros" está activo usando parseBooleanValue
         $otrosRaw = $infoCertificado['otros'] ?? false;
         $otros = $requestForm->parseBooleanValue($otrosRaw);
-        
+
         Log::info('esOtros: Verificando opción otros', [
             'request_id' => $requestForm->id,
             'otros_raw' => $otrosRaw,
             'otros_parsed' => $otros,
             'infoCertificado' => $infoCertificado,
         ]);
-        
+
         return $otros;
     }
 }

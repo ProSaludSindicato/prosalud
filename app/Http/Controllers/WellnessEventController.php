@@ -284,21 +284,25 @@ class WellnessEventController extends Controller
                 }
             }
 
-            Log::info('Datos validados para actualización de evento de bienestar', [
-                'event_id' => $wellnessEvent->id,
-                'validated_data' => $data,
-                'has_images' => isset($data['images']),
-                'data_count' => count($data),
-                'timestamp' => now()->toISOString(),
-            ]);
-
             // Remove attendance_list from data (it's a file, not a database field)
             unset($data['attendance_list']);
 
-            // Handle image uploads if provided
+            // Track if we have any actual data to update (excluding files)
+            $hasFileUpdates = false;
+            $updateData = $data;
+
+            // Handle image uploads if provided (check both validated data and direct request)
+            $images = null;
             if (isset($data['images'])) {
                 $images = $data['images'];
-                unset($data['images']);
+                unset($updateData['images']);
+            } elseif ($request->hasFile('images')) {
+                // If images are in request but not in validated data, get them directly
+                $images = $request->file('images');
+            }
+
+            if ($images !== null && !empty($images)) {
+                $hasFileUpdates = true;
 
                 Log::info('Procesando imágenes para actualización de evento de bienestar', [
                     'event_id' => $wellnessEvent->id,
@@ -310,13 +314,12 @@ class WellnessEventController extends Controller
                 $this->deleteEventImages($wellnessEvent);
 
                 // Upload new images
-                if (!empty($images)) {
-                    $this->handleImageUploads($wellnessEvent, $images);
-                }
+                $this->handleImageUploads($wellnessEvent, $images);
             }
 
             // Handle attendance_list file if provided
             if ($request->hasFile('attendance_list')) {
+                $hasFileUpdates = true;
                 // Delete old file if exists
                 if ($wellnessEvent->attendance_list_path) {
                     try {
@@ -339,7 +342,7 @@ class WellnessEventController extends Controller
                 
                 try {
                     $attendanceListFile = $request->file('attendance_list');
-                    $data['attendance_list_path'] = $this->storeAttendanceList($attendanceListFile, $wellnessEvent->id);
+                    $updateData['attendance_list_path'] = $this->storeAttendanceList($attendanceListFile, $wellnessEvent->id);
                 } finally {
                     // Restore original timeout
                     if ($originalTimeout) {
@@ -350,6 +353,7 @@ class WellnessEventController extends Controller
 
             // Handle delete attendance_list (if sent as a flag)
             if ('true' === $request->input('eliminar_attendance_list')) {
+                $hasFileUpdates = true;
                 if ($wellnessEvent->attendance_list_path) {
                     try {
                         Storage::disk('prosalud-private')->delete($wellnessEvent->attendance_list_path);
@@ -363,10 +367,29 @@ class WellnessEventController extends Controller
                         ]);
                     }
                 }
-                $data['attendance_list_path'] = null;
+                $updateData['attendance_list_path'] = null;
             }
 
-            $wellnessEvent->update($data);
+            Log::info('Datos validados para actualización de evento de bienestar', [
+                'event_id' => $wellnessEvent->id,
+                'validated_data' => $updateData,
+                'has_images' => isset($data['images']),
+                'has_file_updates' => $hasFileUpdates,
+                'data_count' => count($updateData),
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Only update if we have actual data to update or file changes
+            if (!empty($updateData) || $hasFileUpdates) {
+                if (!empty($updateData)) {
+                    $wellnessEvent->update($updateData);
+                }
+            } else {
+                Log::warning('No hay datos para actualizar, retornando evento sin cambios', [
+                    'event_id' => $wellnessEvent->id,
+                    'timestamp' => now()->toISOString(),
+                ]);
+            }
             $wellnessEvent->load('images');
 
             Log::info('Evento de bienestar actualizado exitosamente', [

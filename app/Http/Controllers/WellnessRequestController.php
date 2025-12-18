@@ -132,16 +132,14 @@ class WellnessRequestController extends Controller
                 $requester = User::find($request->input('solicitanteId'));
                 $requesterEmail = $requester ? $requester->email : null;
 
-                // Send email to Human Resources with copy to requester
-                Mail::to('juanpapabon@gmail.com')
-                    ->when($requesterEmail, function ($mail) use ($requesterEmail) {
-                        return $mail->cc($requesterEmail);
-                    })
-                    ->send(new WellnessRequestReceived($wellnessRequest));
+                // Send email to requester
+                if ($requesterEmail) {
+                    Mail::to($requesterEmail)
+                        ->send(new WellnessRequestReceived($wellnessRequest));
+                }
 
                 Log::info('Wellness request email sent successfully', [
                     'wellness_request_id' => $wellnessRequest->id,
-                    'email_human_resources' => 'juanpapabon@gmail.com',
                     'email_requester' => $requesterEmail,
                 ]);
             } catch (\Throwable $e) {
@@ -325,27 +323,25 @@ class WellnessRequestController extends Controller
                         && isset($changes['status'])
                         && null === $oldDetailsForEmail;
 
-                    // Send email to Human Resources with copy to requester
-                    Mail::to('juanpapabon@gmail.com')
-                        ->when($requesterEmail, function ($mail) use ($requesterEmail) {
-                            return $mail->cc($requesterEmail);
-                        })
-                        ->send(new WellnessRequestUpdated(
-                            $wellnessRequest,
-                            $changes,
-                            $oldDetailsForEmail,
-                            $newDetailsForEmail,
-                            $statusOnly
-                        ));
+                    // Send email to requester
+                    if ($requesterEmail) {
+                        Mail::to($requesterEmail)
+                            ->send(new WellnessRequestUpdated(
+                                $wellnessRequest,
+                                $changes,
+                                $oldDetailsForEmail,
+                                $newDetailsForEmail,
+                                $statusOnly
+                            ));
 
-                    Log::info('Wellness request update email sent successfully', [
-                        'wellness_request_id' => $wellnessRequest->id,
-                        'email_human_resources' => 'juanpapabon@gmail.com',
-                        'email_requester' => $requesterEmail,
-                        'changes_count' => count($changes),
-                        'details_changed' => null !== $oldDetailsForEmail,
-                        'status_only' => $statusOnly,
-                    ]);
+                        Log::info('Wellness request update email sent successfully', [
+                            'wellness_request_id' => $wellnessRequest->id,
+                            'email_requester' => $requesterEmail,
+                            'changes_count' => count($changes),
+                            'details_changed' => null !== $oldDetailsForEmail,
+                            'status_only' => $statusOnly,
+                        ]);
+                    }
                 } catch (\Throwable $e) {
                     Log::error('Error sending wellness request update email', [
                         'wellness_request_id' => $wellnessRequest->id,
