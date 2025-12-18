@@ -28,8 +28,13 @@ Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospit
 // Public read-only endpoints
 Route::get('/comfenalco-events', [ComfenalcoEventController::class, 'index']);
 Route::get('/comfenalco-events/{comfenalco_event}', [ComfenalcoEventController::class, 'show']);
-Route::get('/wellness-events', [WellnessEventController::class, 'index']);
-Route::get('/wellness-events/{wellness_event}', [WellnessEventController::class, 'show']);
+// Public API - Wellness Events (for public website)
+Route::get('/public/wellness-events', [WellnessEventController::class, 'publicIndex']);
+Route::get('/public/wellness-events/{wellness_event}', [WellnessEventController::class, 'publicShow']);
+
+// Private API - Wellness Events (requires authentication and permissions)
+Route::get('/wellness-events', [WellnessEventController::class, 'index'])->middleware('permission:wellness_events.view');
+Route::get('/wellness-events/{wellness_event}', [WellnessEventController::class, 'show'])->middleware('permission:wellness_events.view');
 Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show']);
 Route::post('/votes', [VoteController::class, 'store']);
 Route::get('/votes/check', [VoteController::class, 'checkVote']);

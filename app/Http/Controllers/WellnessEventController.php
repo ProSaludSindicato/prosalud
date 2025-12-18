@@ -11,7 +11,45 @@ use Illuminate\Support\Facades\{Log, Storage};
 class WellnessEventController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Display a listing of the resource (Public API - for public website).
+     * Only returns visible events without attendance_list information.
+     */
+    public function publicIndex(Request $request)
+    {
+        $query = WellnessEvent::query()->with('images');
+
+        // Always filter by visible events only
+        $query->where('is_visible', true);
+
+        // Optional filters
+        if ($request->filled('category')) {
+            $query->where('category', $request->input('category'));
+        }
+        if ($request->filled('from_date')) {
+            $from = $request->date('from_date');
+            $query->whereDate('date', '>=', $from->format('Y-m-d'));
+        }
+        if ($request->filled('to_date')) {
+            $to = $request->date('to_date');
+            $query->whereDate('date', '<=', $to->format('Y-m-d'));
+        }
+
+        // Pagination with default of 50 and max of 100
+        $perPage = $request->integer('per_page', 50);
+        $perPage = min($perPage, 100); // Cap at 100 to prevent abuse
+        $events = $query->orderByDesc('date')->paginate($perPage);
+
+        // Format events WITHOUT attendance_list URLs (public API)
+        $events->getCollection()->transform(function ($event) {
+            return $this->formatPublicEventResponse($event);
+        });
+
+        return response()->json($events);
+    }
+
+    /**
+     * Display a listing of the resource (Private API - requires authentication and permissions).
+     * Returns all events with attendance_list information.
      */
     public function index(Request $request)
     {
@@ -155,7 +193,26 @@ class WellnessEventController extends Controller
     }
 
     /**
-     * Display the specified resource.
+     * Display the specified resource (Public API - for public website).
+     * Only returns visible events without attendance_list information.
+     */
+    public function publicShow(WellnessEvent $wellnessEvent)
+    {
+        // Only show visible events in public API
+        if (!$wellnessEvent->is_visible) {
+            return response()->json([
+                'message' => 'Evento no encontrado o no disponible',
+            ], 404);
+        }
+
+        $wellnessEvent->load('images');
+
+        return response()->json($this->formatPublicEventResponse($wellnessEvent));
+    }
+
+    /**
+     * Display the specified resource (Private API - requires authentication and permissions).
+     * Returns event with attendance_list information.
      */
     public function show(WellnessEvent $wellnessEvent)
     {
@@ -943,6 +1000,22 @@ class WellnessEventController extends Controller
                 'url_expires_at' => $urlExpiresAt,
             ];
         }
+
+        return $eventArray;
+    }
+
+    /**
+     * Format event response for public API (without attendance_list information)
+     */
+    private function formatPublicEventResponse(WellnessEvent $event): array
+    {
+        $eventArray = $event->toArray();
+
+        // Remove attendance_list_path from public response
+        unset($eventArray['attendance_list_path']);
+
+        // Do NOT include attendance_list information in public API
+        // This ensures sensitive data is not exposed
 
         return $eventArray;
     }
