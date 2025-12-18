@@ -42,7 +42,7 @@
                             <table width="100%" cellspacing="0" cellpadding="0" border="0" class="header-content">
                                 <tr>
                                     <td class="logo-cell" style="vertical-align:middle; width:120px;">
-                                        <img src="https://prosalud-spa.lovable.app/images/logo_prosalud_fondo.png" alt="ProSalud" width="108" height="80" style="display:block; border:0; border-radius:12px;" />
+                                        <img src="https://www.prosalud.org.co/images/logo_prosalud_fondo.png" alt="ProSalud" width="108" height="80" style="display:block; border:0; border-radius:12px;" />
                                     </td>
                                     <td class="text-cell" style="vertical-align:middle; padding-left:16px;">
                                         <h1 style="margin:0; font-size:24px; color:#00529B; font-weight:700; letter-spacing:-0.5px;">ProSalud</h1>
@@ -59,11 +59,11 @@
                             <p style="margin:0 0 20px; font-size:16px; color:#1f2937; line-height:1.6;">
                                 Hola <strong style="color:#00529B;">{{ $nombreAfiliado }}</strong>,
                             </p>
-                            
+
                             <p style="margin:0 0 28px; font-size:15px; color:#4b5563; line-height:1.7;">
                                 Hemos recibido una solicitud de autenticación para tu cuenta. Utiliza el siguiente código de verificación de 6 dígitos para completar el proceso de inicio de sesión:
                             </p>
-                            
+
                             <!-- OTP Code Box -->
                             <table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 32px;">
                                 <tr>
@@ -76,7 +76,7 @@
                                     </td>
                                 </tr>
                             </table>
-                            
+
                             <!-- Important Notice -->
                             <div style="background:#f9fafb; padding:20px; border-radius:12px; margin:0 0 28px; border:1px solid #e5e7eb; border-left: 3px solid #00529B;">
                                 <p style="margin:0 0 16px; font-size:15px; font-weight:600; color:#1f2937;">
@@ -89,7 +89,7 @@
                                     <li style="margin-bottom:0;">Solo puedes usar este código <strong>una vez</strong> para completar tu autenticación</li>
                                 </ul>
                             </div>
-                            
+
                             <p style="margin:0 0 24px; font-size:15px; color:#4b5563; line-height:1.7;">
                                 Este código es válido únicamente para esta sesión de autenticación. Una vez utilizado, expirará automáticamente.
                             </p>
@@ -100,7 +100,7 @@
                                     <strong style="color:#00529B;">¿Necesitas ayuda?</strong>
                                 </p>
                                 <p style="margin:0; font-size:14px; color:#4b5563; line-height:1.7;">
-                                    Si tienes alguna pregunta o necesitas asistencia, no dudes en contactarnos a través de nuestros <strong>canales de atención oficiales</strong>. Visita nuestro sitio web en <a href="https://prosalud-spa.lovable.app/" style="color:#00529B; text-decoration:none; font-weight:600;">prosalud-spa.lovable.app</a> para más información.
+                                    Si tienes alguna pregunta o necesitas asistencia, no dudes en contactarnos a través de nuestros <strong>canales de atención oficiales</strong>. Visita nuestro sitio web en <a href="https://www.prosalud.org.co/" style="color:#00529B; text-decoration:none; font-weight:600;">prosalud.org.co/</a> para más información.
                                 </p>
                             </div>
                         </td>
@@ -121,7 +121,7 @@
                                             Este es un mensaje automático generado por el sistema de autenticación de ProSalud.
                                         </p>
                                         <p style="margin:0 0 12px; font-size:13px; color:#64748b; line-height:1.6;">
-                                            Si tienes alguna pregunta, comunícate con nuestro equipo de soporte a través de los canales oficiales o visita <a href="https://prosalud-spa.lovable.app/" style="color:#00529B; text-decoration:none; font-weight:600;">nuestro sitio web</a>.
+                                            Si tienes alguna pregunta, comunícate con nuestro equipo de soporte a través de los canales oficiales o visita <a href="https://www.prosalud.org.co/" style="color:#00529B; text-decoration:none; font-weight:600;">nuestro sitio web</a>.
                                         </p>
                                         <p style="margin:0; font-size:12px; color:#94a3b8;">
                                             © {{ date('Y') }} ProSalud. Todos los derechos reservados.

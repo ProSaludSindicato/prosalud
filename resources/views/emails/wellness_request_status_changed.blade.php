@@ -42,7 +42,7 @@
                             <table width="100%" cellspacing="0" cellpadding="0" border="0" class="header-content">
                                 <tr>
                                     <td class="logo-cell" style="vertical-align:middle; width:120px;">
-                                        <img src="https://prosalud-spa.lovable.app/images/logo_prosalud_fondo.png" alt="ProSalud" width="108" height="80" style="display:block; border:0; border-radius:12px;" />
+                                        <img src="https://www.prosalud.org.co/images/logo_prosalud_fondo.png" alt="ProSalud" width="108" height="80" style="display:block; border:0; border-radius:12px;" />
                                     </td>
                                     <td class="text-cell" style="vertical-align:middle; padding-left:16px;">
                                         <h1 style="margin:0; font-size:24px; color:#00529B; font-weight:700; letter-spacing:-0.5px;">ProSalud</h1>

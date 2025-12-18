@@ -28,7 +28,7 @@
                         <td class="content" style="padding:32px;">
                             <!-- Logo at top (subtle) -->
                             <div style="text-align:center; margin-bottom:24px;">
-                                <img src="https://prosalud-spa.lovable.app/images/logo_prosalud_fondo.png" alt="ProSalud" width="120" height="90" style="display:inline-block; border:0; border-radius:8px;" />
+                                <img src="https://www.prosalud.org.co/images/logo_prosalud_fondo.png" alt="ProSalud" width="120" height="90" style="display:inline-block; border:0; border-radius:8px;" />
                             </div>
 
                             <!-- Greeting -->
@@ -64,7 +64,7 @@
                                         'bg_color' => '#fffbeb'
                                     ]
                                 ];
-                                
+
                                 $statusInfo = $statusMessages[$status] ?? $statusMessages['PENDING'];
                             @endphp
 
