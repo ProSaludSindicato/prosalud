@@ -33,8 +33,7 @@ Route::get('/public/wellness-events', [WellnessEventController::class, 'publicIn
 Route::get('/public/wellness-events/{wellness_event}', [WellnessEventController::class, 'publicShow']);
 
 // Private API - Wellness Events (requires authentication and permissions)
-Route::get('/wellness-events', [WellnessEventController::class, 'index'])->middleware('permission:wellness_events.view');
-Route::get('/wellness-events/{wellness_event}', [WellnessEventController::class, 'show'])->middleware('permission:wellness_events.view');
+// These routes are moved inside the authenticated group below
 Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show']);
 Route::post('/votes', [VoteController::class, 'store']);
 Route::get('/votes/check', [VoteController::class, 'checkVote']);
@@ -151,6 +150,8 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::post('/request-assignments', [RequestAssignmentController::class, 'store'])->middleware('permission:users.edit');
 
     // Wellness Events management routes
+    Route::get('/wellness-events', [WellnessEventController::class, 'index'])->middleware('permission:wellness_events.view');
+    Route::get('/wellness-events/{wellness_event}', [WellnessEventController::class, 'show'])->middleware('permission:wellness_events.view');
     Route::post('/wellness-events', [WellnessEventController::class, 'store'])->middleware('permission:wellness_events.create');
     Route::put('/wellness-events/{wellness_event}', [WellnessEventController::class, 'update'])->middleware('permission:wellness_events.edit');
     Route::patch('/wellness-events/{wellness_event}', [WellnessEventController::class, 'update'])->middleware('permission:wellness_events.edit');

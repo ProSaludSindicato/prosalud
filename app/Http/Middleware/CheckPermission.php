@@ -15,12 +15,26 @@ class CheckPermission
      */
     public function handle(Request $request, \Closure $next, string $permission): Response
     {
+        // Enhanced logging for authentication debugging
+        $bearerToken = $request->bearerToken();
+        $authHeader = $request->header('Authorization');
+        $hasAuth = auth()->check();
+        $user = auth()->user();
+
         if (!auth()->check()) {
             Log::warning('[PERMISSION CHECK] Usuario no autenticado', [
                 'permission' => $permission,
                 'path' => $request->path(),
                 'method' => $request->method(),
                 'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'has_bearer_token' => !empty($bearerToken),
+                'bearer_token_length' => $bearerToken ? strlen($bearerToken) : 0,
+                'bearer_token_preview' => $bearerToken ? substr($bearerToken, 0, 20) . '...' : null,
+                'authorization_header' => $authHeader ? substr($authHeader, 0, 30) . '...' : null,
+                'auth_check' => $hasAuth,
+                'auth_user_id' => $user?->id,
+                'all_headers' => $request->headers->all(),
             ]);
 
             return response()->json(['message' => 'No autenticado'], 401);
