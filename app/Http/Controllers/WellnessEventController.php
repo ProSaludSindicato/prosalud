@@ -33,7 +33,15 @@ class WellnessEventController extends Controller
             $query->whereDate('date', '<=', $to->format('Y-m-d'));
         }
 
-        $events = $query->orderByDesc('date')->paginate((int) $request->integer('per_page', 15));
+        // Pagination with default of 50 and max of 100
+        $perPage = $request->integer('per_page', 50);
+        $perPage = min($perPage, 100); // Cap at 100 to prevent abuse
+        $events = $query->orderByDesc('date')->paginate($perPage);
+
+        // Format events to include attendance_list URLs
+        $events->getCollection()->transform(function ($event) {
+            return $this->formatEventResponse($event);
+        });
 
         return response()->json($events);
     }
@@ -64,13 +72,35 @@ class WellnessEventController extends Controller
             $images = $data['images'] ?? [];
             unset($data['images']);
 
+            // Remove attendance_list from data (we'll handle it after creating the event)
+            $attendanceListFile = $request->file('attendance_list');
+            unset($data['attendance_list']);
+
             Log::info('Datos validados para evento de bienestar', [
                 'validated_data' => $data,
                 'images_count' => count($images),
+                'has_attendance_list' => $attendanceListFile !== null,
                 'timestamp' => now()->toISOString(),
             ]);
 
             $event = WellnessEvent::create($data);
+
+            // Handle attendance_list file if provided (after event is created so we have the ID)
+            if ($attendanceListFile) {
+                // Increase timeout for file upload (S3 operations can take time)
+                $originalTimeout = ini_get('max_execution_time');
+                set_time_limit(120); // 2 minutes for file upload
+                
+                try {
+                    $attendanceListPath = $this->storeAttendanceList($attendanceListFile, $event->id);
+                    $event->update(['attendance_list_path' => $attendanceListPath]);
+                } finally {
+                    // Restore original timeout
+                    if ($originalTimeout) {
+                        set_time_limit((int) $originalTimeout);
+                    }
+                }
+            }
 
             // Handle image uploads
             if (!empty($images)) {
@@ -92,6 +122,7 @@ class WellnessEventController extends Controller
                 'is_visible' => $event->is_visible,
                 'provider' => $event->provider,
                 'images_count' => $event->images->count(),
+                'has_attendance_list' => !empty($event->attendance_list_path),
                 'user_id' => $request->user()?->id,
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
@@ -105,7 +136,7 @@ class WellnessEventController extends Controller
                 'timestamp' => now()->toISOString(),
             ]);
 
-            return response()->json($event, Response::HTTP_CREATED);
+            return response()->json($this->formatEventResponse($event), Response::HTTP_CREATED);
         } catch (\Exception $e) {
             Log::error('Error creando evento de bienestar', [
                 'error' => $e->getMessage(),
@@ -130,7 +161,7 @@ class WellnessEventController extends Controller
     {
         $wellnessEvent->load('images');
 
-        return response()->json($wellnessEvent);
+        return response()->json($this->formatEventResponse($wellnessEvent));
     }
 
     /**
@@ -158,12 +189,54 @@ class WellnessEventController extends Controller
 
             $data = $request->validated();
 
+            // If validated data is empty, try to get data from input
+            // This can happen with multipart/form-data when Laravel doesn't parse it correctly
+            if (empty($data)) {
+                Log::warning('Validated data is empty, checking input data', [
+                    'event_id' => $wellnessEvent->id,
+                    'all_data' => $request->all(),
+                    'input_data' => $request->input(),
+                    'has_files' => $request->hasFile('images') || $request->hasFile('attendance_list'),
+                    'content_type' => $request->header('Content-Type'),
+                    'timestamp' => now()->toISOString(),
+                ]);
+                
+                // Try to get data from input
+                $inputData = $request->only([
+                    'title', 'date', 'category', 'description', 'location',
+                    'attendees', 'gift', 'provider', 'is_visible'
+                ]);
+                
+                // Remove null/empty values to avoid overwriting with null
+                $data = array_filter($inputData, function ($value) {
+                    return $value !== null && $value !== '';
+                });
+                
+                // If we got data from input, validate it manually
+                if (!empty($data)) {
+                    Log::info('Using input data after validation failed', [
+                        'event_id' => $wellnessEvent->id,
+                        'data_from_input' => $data,
+                        'timestamp' => now()->toISOString(),
+                    ]);
+                } else {
+                    Log::warning('No data found in validated or input, update will be skipped', [
+                        'event_id' => $wellnessEvent->id,
+                        'timestamp' => now()->toISOString(),
+                    ]);
+                }
+            }
+
             Log::info('Datos validados para actualización de evento de bienestar', [
                 'event_id' => $wellnessEvent->id,
                 'validated_data' => $data,
                 'has_images' => isset($data['images']),
+                'data_count' => count($data),
                 'timestamp' => now()->toISOString(),
             ]);
+
+            // Remove attendance_list from data (it's a file, not a database field)
+            unset($data['attendance_list']);
 
             // Handle image uploads if provided
             if (isset($data['images'])) {
@@ -185,6 +258,57 @@ class WellnessEventController extends Controller
                 }
             }
 
+            // Handle attendance_list file if provided
+            if ($request->hasFile('attendance_list')) {
+                // Delete old file if exists
+                if ($wellnessEvent->attendance_list_path) {
+                    try {
+                        Storage::disk('prosalud-private')->delete($wellnessEvent->attendance_list_path);
+                        // Try fallback disk if not found
+                        if (Storage::disk('local')->exists($wellnessEvent->attendance_list_path)) {
+                            Storage::disk('local')->delete($wellnessEvent->attendance_list_path);
+                        }
+                    } catch (\Exception $e) {
+                        Log::warning('Error eliminando listado de asistencia anterior', [
+                            'path' => $wellnessEvent->attendance_list_path,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                // Increase timeout for file upload (S3 operations can take time)
+                $originalTimeout = ini_get('max_execution_time');
+                set_time_limit(120); // 2 minutes for file upload
+                
+                try {
+                    $attendanceListFile = $request->file('attendance_list');
+                    $data['attendance_list_path'] = $this->storeAttendanceList($attendanceListFile, $wellnessEvent->id);
+                } finally {
+                    // Restore original timeout
+                    if ($originalTimeout) {
+                        set_time_limit((int) $originalTimeout);
+                    }
+                }
+            }
+
+            // Handle delete attendance_list (if sent as a flag)
+            if ('true' === $request->input('eliminar_attendance_list')) {
+                if ($wellnessEvent->attendance_list_path) {
+                    try {
+                        Storage::disk('prosalud-private')->delete($wellnessEvent->attendance_list_path);
+                        // Try fallback disk if not found
+                        if (Storage::disk('local')->exists($wellnessEvent->attendance_list_path)) {
+                            Storage::disk('local')->delete($wellnessEvent->attendance_list_path);
+                        }
+                    } catch (\Exception $e) {
+                        Log::warning('Error eliminando listado de asistencia', [
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+                $data['attendance_list_path'] = null;
+            }
+
             $wellnessEvent->update($data);
             $wellnessEvent->load('images');
 
@@ -195,6 +319,7 @@ class WellnessEventController extends Controller
                 'date' => $wellnessEvent->date,
                 'is_visible' => $wellnessEvent->is_visible,
                 'images_count' => $wellnessEvent->images->count(),
+                'has_attendance_list' => !empty($wellnessEvent->attendance_list_path),
                 'user_id' => $request->user()?->id,
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
@@ -207,7 +332,7 @@ class WellnessEventController extends Controller
                 'timestamp' => now()->toISOString(),
             ]);
 
-            return response()->json($wellnessEvent);
+            return response()->json($this->formatEventResponse($wellnessEvent));
         } catch (\Exception $e) {
             Log::error('Error actualizando evento de bienestar', [
                 'event_id' => $wellnessEvent->id,
@@ -253,6 +378,22 @@ class WellnessEventController extends Controller
                     'timestamp' => now()->toISOString(),
                 ]);
                 $this->deleteEventImages($wellnessEvent);
+            }
+
+            // Delete attendance_list file if exists
+            if ($wellnessEvent->attendance_list_path) {
+                try {
+                    Storage::disk('prosalud-private')->delete($wellnessEvent->attendance_list_path);
+                    // Try fallback disk if not found
+                    if (Storage::disk('local')->exists($wellnessEvent->attendance_list_path)) {
+                        Storage::disk('local')->delete($wellnessEvent->attendance_list_path);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Error eliminando listado de asistencia al eliminar evento', [
+                        'path' => $wellnessEvent->attendance_list_path,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
 
             // Delete the event
@@ -643,5 +784,166 @@ class WellnessEventController extends Controller
         ];
 
         return $mimeToExt[$mimeType] ?? 'bin';
+    }
+
+    /**
+     * Store attendance_list file in private bucket
+     * Returns the stored path (always uses prosalud-private bucket).
+     */
+    private function storeAttendanceList($file, ?int $eventId): string
+    {
+        $disk = 'prosalud-private';
+        $fallbackDisk = 'local';
+
+        $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
+        $filename = $this->generateDescriptiveFilenameForAttendanceList($file, $eventId, $extension);
+        $directory = 'wellness-events/listados/' . date('Y/m');
+
+        Log::info('Iniciando almacenamiento de listado de asistencia', [
+            'event_id' => $eventId,
+            'filename' => $filename,
+            'file_size' => $file->getSize(),
+            'mime_type' => $file->getMimeType(),
+            'disk' => $disk,
+            'timestamp' => now()->toISOString(),
+        ]);
+
+        // Try to store in S3 first, with error handling
+        try {
+            $storedPath = Storage::disk($disk)->putFileAs(
+                $directory,
+                $file,
+                $filename
+            );
+
+            if (false === $storedPath) {
+                throw new \Exception('putFileAs returned false');
+            }
+
+            Log::info('Listado de asistencia guardado exitosamente en S3', [
+                'event_id' => $eventId,
+                'filename' => $filename,
+                'stored_path' => $storedPath,
+                'disk' => $disk,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            return $storedPath;
+        } catch (\Exception $e) {
+            Log::warning('Error al guardar listado de asistencia en S3, usando disco local', [
+                'event_id' => $eventId,
+                'filename' => $filename,
+                'error' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'fallback_disk' => $fallbackDisk,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            // Try fallback disk
+            try {
+                $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                    $directory,
+                    $file,
+                    $filename
+                );
+
+                if (!$storedPath) {
+                    throw new \Exception('No se pudo guardar el listado de asistencia en el disco local');
+                }
+
+                Log::info('Listado de asistencia guardado exitosamente en disco local', [
+                    'event_id' => $eventId,
+                    'filename' => $filename,
+                    'stored_path' => $storedPath,
+                    'disk' => $fallbackDisk,
+                    'timestamp' => now()->toISOString(),
+                ]);
+
+                return $storedPath;
+            } catch (\Exception $fallbackError) {
+                Log::error('Error también en disco local', [
+                    'event_id' => $eventId,
+                    'filename' => $filename,
+                    'fallback_error' => $fallbackError->getMessage(),
+                    'timestamp' => now()->toISOString(),
+                ]);
+                throw new \Exception('No se pudo guardar el listado de asistencia en ningún disco disponible: ' . $fallbackError->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Generate a descriptive filename for attendance list
+     * Format: Listado-Evento[ID]-[UniqueId].[ext] or Listado-Evento-[UniqueId].[ext] if no ID yet
+     */
+    private function generateDescriptiveFilenameForAttendanceList(
+        \Illuminate\Http\UploadedFile $file,
+        ?int $eventId,
+        string $extension,
+    ): string {
+        $uniqueId = substr(\Illuminate\Support\Str::uuid()->toString(), 0, 6);
+
+        if ($eventId) {
+            // Build filename: Listado-Evento[ID]-[UniqueId].[ext]
+            return sprintf(
+                'Listado-Evento%d-%s.%s',
+                $eventId,
+                $uniqueId,
+                $extension
+            );
+        } else {
+            // Build filename: Listado-Evento-[UniqueId].[ext] (for new events)
+            return sprintf(
+                'Listado-Evento-%s.%s',
+                $uniqueId,
+                $extension
+            );
+        }
+    }
+
+    /**
+     * Format event response with attendance_list URL if exists
+     */
+    private function formatEventResponse(WellnessEvent $event): array
+    {
+        $eventArray = $event->toArray();
+
+        // Add attendance_list URL if exists
+        if ($event->attendance_list_path) {
+            $fileUrl = null;
+            $urlExpiresAt = null;
+
+            try {
+                // Generate temporary signed URL for private bucket file (valid for 1 hour)
+                $storage = Storage::disk('prosalud-private');
+                $fileUrl = $storage->temporaryUrl($event->attendance_list_path, now()->addHours(1));
+                $urlExpiresAt = now()->addHours(1)->toIso8601String();
+            } catch (\Exception $e) {
+                Log::warning('Failed to generate temporary URL for attendance_list', [
+                    'event_id' => $event->id,
+                    'path' => $event->attendance_list_path,
+                    'error' => $e->getMessage(),
+                ]);
+                // If temporary URL generation fails, try fallback disk
+                try {
+                    $storage = Storage::disk('local');
+                    if (method_exists($storage, 'temporaryUrl')) {
+                        $fileUrl = $storage->temporaryUrl($event->attendance_list_path, now()->addHours(1));
+                        $urlExpiresAt = now()->addHours(1)->toIso8601String();
+                    }
+                } catch (\Exception $fallbackError) {
+                    Log::error('Failed to generate temporary URL from fallback disk', [
+                        'error' => $fallbackError->getMessage(),
+                    ]);
+                }
+            }
+
+            $eventArray['attendance_list'] = [
+                'file_url' => $fileUrl,
+                'url_expires_at' => $urlExpiresAt,
+            ];
+        }
+
+        return $eventArray;
     }
 }

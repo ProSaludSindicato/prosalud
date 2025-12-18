@@ -28,6 +28,7 @@ class UpdateWellnessEventRequest extends FormRequest
             'is_visible' => ['sometimes', 'boolean'],
             'images' => ['sometimes', 'nullable', 'array'],
             'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,gif,webp', 'max:5120'], // 5MB max
+            'attendance_list' => ['sometimes', 'nullable', 'file', 'mimes:pdf,xls,xlsx', 'max:10240'], // 10MB max
         ];
     }
 
@@ -70,6 +71,11 @@ class UpdateWellnessEventRequest extends FormRequest
 
             // is_visible
             'is_visible.boolean' => 'El campo de visibilidad debe ser verdadero o falso.',
+
+            // attendance_list
+            'attendance_list.file' => 'El listado de asistencia debe ser un archivo válido.',
+            'attendance_list.mimes' => 'El listado de asistencia debe ser de tipo: pdf, xls, xlsx.',
+            'attendance_list.max' => 'El listado de asistencia no puede exceder 10MB.',
         ];
     }
 
@@ -81,18 +87,33 @@ class UpdateWellnessEventRequest extends FormRequest
             'raw_data' => $this->all(),
             'json_data' => $this->json()->all(),
             'input_data' => $this->input(),
-            'has_files' => $this->hasFile('images'),
+            'has_files' => $this->hasFile('images') || $this->hasFile('attendance_list'),
             'files_count' => count($this->file('images', [])),
+            'has_attendance_list_file' => $this->hasFile('attendance_list'),
+            'request_body' => $this->getContent(),
             'ip_address' => $this->ip(),
             'user_agent' => $this->userAgent(),
             'timestamp' => now()->toISOString(),
         ]);
 
         // Parse is_visible from string to boolean if needed
-        if ($this->has('is_visible') && is_string($this->input('is_visible'))) {
-            $this->merge([
-                'is_visible' => filter_var($this->input('is_visible'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
-            ]);
+        if ($this->has('is_visible')) {
+            $isVisible = $this->input('is_visible');
+            if (is_string($isVisible)) {
+                $this->merge([
+                    'is_visible' => filter_var($isVisible, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
+                ]);
+            }
+        }
+
+        // Parse attendees from string to integer if needed
+        if ($this->has('attendees') && is_string($this->input('attendees'))) {
+            $attendees = $this->input('attendees');
+            if ($attendees !== null && $attendees !== '') {
+                $this->merge([
+                    'attendees' => (int) $attendees,
+                ]);
+            }
         }
     }
 

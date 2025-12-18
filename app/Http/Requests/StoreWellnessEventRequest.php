@@ -28,6 +28,7 @@ class StoreWellnessEventRequest extends FormRequest
             'is_visible' => ['nullable', 'boolean'],
             'images' => ['nullable', 'array'],
             'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,gif,webp', 'max:5120'], // 5MB max
+            'attendance_list' => ['nullable', 'file', 'mimes:pdf,xls,xlsx', 'max:10240'], // 10MB max
         ];
     }
 
@@ -78,6 +79,11 @@ class StoreWellnessEventRequest extends FormRequest
             'images.*.image' => 'Cada archivo debe ser una imagen válida.',
             'images.*.mimes' => 'Las imágenes deben ser de tipo: jpeg, png, jpg, gif, webp.',
             'images.*.max' => 'Cada imagen no puede exceder 5MB.',
+
+            // attendance_list
+            'attendance_list.file' => 'El listado de asistencia debe ser un archivo válido.',
+            'attendance_list.mimes' => 'El listado de asistencia debe ser de tipo: pdf, xls, xlsx.',
+            'attendance_list.max' => 'El listado de asistencia no puede exceder 10MB.',
         ];
     }
 
