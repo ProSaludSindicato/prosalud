@@ -5,7 +5,7 @@ namespace App\Models;
 use App\Constants\{RequestStatuses, RequestTypes};
 use Illuminate\Database\Eloquent\{Builder, Model};
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
 
 /**
  * @property string      $id
@@ -45,6 +45,8 @@ class RequestForm extends Model
         'files',
         'status',
         'processed_at',
+        'validated_at',
+        'validated_by',
     ];
 
     protected $casts = [
@@ -53,6 +55,7 @@ class RequestForm extends Model
         'files' => 'array',
         'created_at' => 'datetime',
         'processed_at' => 'datetime',
+        'validated_at' => 'datetime',
     ];
     protected $keyType = 'string';
 
@@ -341,6 +344,14 @@ class RequestForm extends Model
     {
         return $this->hasMany(RequestResponse::class, 'request_form_id', 'id')
                     ->orderBy('created_at', 'desc');
+    }
+
+    /**
+     * Get the user who validated this request.
+     */
+    public function validator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'validated_by');
     }
 
     /**

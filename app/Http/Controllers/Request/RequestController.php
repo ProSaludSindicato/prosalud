@@ -412,10 +412,12 @@ class RequestController extends Controller
                     'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
                     'status' => $request->status,
                     'payload' => $request->payload,
-                    'created_at' => $request->created_at,
+                    'created_at' => $request->created_at?->toIso8601String(),
                     'formatted_created_at' => $request->formatted_created_at,
-                    'processed_at' => $request->processed_at,
+                    'processed_at' => $request->processed_at?->toIso8601String(),
                     'formatted_processed_at' => $request->formatted_processed_at,
+                    'validated_at' => $request->validated_at?->toIso8601String(),
+                    'validated_by' => $request->validator?->email,
                     'responses' => $request->responses->map(function ($response) {
                         return [
                             'id' => $response->id,
@@ -441,8 +443,8 @@ class RequestController extends Controller
      */
     public function show(RequestForm $request): JsonResponse
     {
-        // Load responses relationship
-        $request->load('responses');
+        // Load responses and validator relationships
+        $request->load('responses', 'validator');
 
         Log::info('Solicitud consultada', [
             'request_id' => $request->id,
@@ -477,10 +479,12 @@ class RequestController extends Controller
                 'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
                 'payload' => json_encode($request->payload ?? (object) [], JSON_UNESCAPED_UNICODE),
                 'status' => $request->status,
-                'created_at' => $request->created_at,
+                'created_at' => $request->created_at?->toIso8601String(),
                 'formatted_created_at' => $request->formatted_created_at,
-                'processed_at' => $request->processed_at,
+                'processed_at' => $request->processed_at?->toIso8601String(),
                 'formatted_processed_at' => $request->formatted_processed_at,
+                'validated_at' => $request->validated_at?->toIso8601String(),
+                'validated_by' => $request->validator?->email,
                 'responses' => $request->responses->map(function ($response) {
                     return [
                         'id' => $response->id,
@@ -492,6 +496,64 @@ class RequestController extends Controller
                 }),
                 'responses_count' => $request->responses->count(),
                 'files' => $this->formatFilesMetadata($request->files, $request->id),
+                'files_count' => is_array($request->files) ? count($request->files) : 0,
+            ],
+        ]);
+    }
+
+    /**
+     * Validate a request.
+     * Marks the request as validated by the authenticated user.
+     */
+    public function validate(RequestForm $request): JsonResponse
+    {
+        // Check if request is already validated
+        if ($request->validated_at !== null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La solicitud ya ha sido validada',
+            ], 422);
+        }
+
+        $user = auth()->user();
+
+        // Update request with validation information
+        $request->validated_at = now();
+        $request->validated_by = $user->id;
+        $request->save();
+
+        // Load relationships for response
+        $request->load('validator', 'responses');
+
+        Log::info('Solicitud validada', [
+            'request_id' => $request->id,
+            'validated_by' => $user->id,
+            'validated_by_email' => $user->email,
+        ]);
+
+        // Return response in the expected format
+        return response()->json([
+            'success' => true,
+            'message' => 'Solicitud validada exitosamente',
+            'data' => [
+                'id' => $request->id,
+                'request_type' => $request->request_type,
+                'document_type' => $request->document_type,
+                'document_number' => $request->document_number,
+                'name' => $request->name,
+                'last_name' => $request->last_name,
+                'full_name' => $request->full_name,
+                'email' => $request->getRawOriginal('email') ?? $request->getAttribute('email'),
+                'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
+                'payload' => $request->payload,
+                'status' => $request->status,
+                'created_at' => $request->created_at?->toIso8601String(),
+                'formatted_created_at' => $request->formatted_created_at,
+                'processed_at' => $request->processed_at?->toIso8601String(),
+                'formatted_processed_at' => $request->formatted_processed_at,
+                'validated_at' => $request->validated_at?->toIso8601String(),
+                'validated_by' => $request->validator?->email,
+                'responses_count' => $request->responses->count(),
                 'files_count' => is_array($request->files) ? count($request->files) : 0,
             ],
         ]);
@@ -2402,8 +2464,8 @@ class RequestController extends Controller
             ->where('status', RequestStatuses::PENDING)
             ->orderBy('created_at', 'desc');
 
-        // Eager load responses for better performance
-        $requests = $query->with('responses')->get();
+        // Eager load responses and validator for better performance
+        $requests = $query->with('responses', 'validator')->get();
 
         Log::info('Lista de solicitudes pendientes de actualización de datos personales consultada', [
             'total_requests' => $requests->count(),
@@ -2431,10 +2493,12 @@ class RequestController extends Controller
                     'phone_number' => $requestForm->getRawOriginal('phone_number') ?? $requestForm->getAttribute('phone_number'),
                     'status' => $requestForm->status,
                     'payload' => $requestForm->payload,
-                    'created_at' => $requestForm->created_at,
+                    'created_at' => $requestForm->created_at?->toIso8601String(),
                     'formatted_created_at' => $requestForm->formatted_created_at,
-                    'processed_at' => $requestForm->processed_at,
+                    'processed_at' => $requestForm->processed_at?->toIso8601String(),
                     'formatted_processed_at' => $requestForm->formatted_processed_at,
+                    'validated_at' => $requestForm->validated_at?->toIso8601String(),
+                    'validated_by' => $requestForm->validator?->email,
                     'responses' => $requestForm->responses->map(function ($response) {
                         return [
                             'id' => $response->id,

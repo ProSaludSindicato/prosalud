@@ -121,6 +121,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/requests', [RequestController::class, 'index'])->middleware('permission:requests.view');
     Route::get('/requests/pending-personal-data-updates', [RequestController::class, 'pendingPersonalDataUpdates'])->middleware('permission:requests.view');
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
+    Route::post('/requests/{request}/validate', [RequestController::class, 'validate'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus'])->middleware('permission:requests.respond');
     Route::post('/requests/{request}/respond', [RequestController::class, 'respond'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/respond', [RequestController::class, 'respond'])->middleware('permission:requests.respond');
