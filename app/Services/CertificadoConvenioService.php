@@ -1613,6 +1613,7 @@ class CertificadoConvenioService
         }
 
         $lineas = [];
+        $lineasUnicas = []; // Array asociativo para rastrear líneas únicas
         $convenioActualCliente = $convenioActual['cliente'] ?? null;
         $convenioActualFechaFin = $convenioActual['fecha_fin'] ?? null;
         $convenioActualFechaIngreso = $convenioActual['fecha_ingreso'] ?? null;
@@ -1654,7 +1655,12 @@ class CertificadoConvenioService
                 $linea .= " {$fechaFinFormateada}";
             }
 
-            $lineas[] = $linea;
+            // Solo agregar si la línea no existe ya (deduplicación)
+            // Usar la línea completa como clave para detectar duplicados
+            if (!isset($lineasUnicas[$linea])) {
+                $lineasUnicas[$linea] = true;
+                $lineas[] = $linea;
+            }
         }
 
         return implode("\n", $lineas);
