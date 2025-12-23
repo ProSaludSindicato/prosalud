@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, ConvertDocumentController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -9,21 +9,27 @@ use App\Http\Controllers\User\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
-    Route::post('/login', [ApiAuthController::class, 'login']);
+    // Endpoints de autenticación con rate limiting + reCAPTCHA
+    Route::post('/login', [ApiAuthController::class, 'login'])
+        ->middleware(['throttle:5,1', 'recaptcha:login']);
     Route::post('/set-password', [ApiAuthController::class, 'setPasswordFromInvitation']);
-    Route::post('/forgot-password', [ApiAuthController::class, 'forgotPassword']);
-    Route::post('/reset-password', [ApiAuthController::class, 'resetPassword']);
+    Route::post('/forgot-password', [ApiAuthController::class, 'forgotPassword'])
+        ->middleware(['throttle:5,1', 'recaptcha:forgot_password']);
+    Route::post('/reset-password', [ApiAuthController::class, 'resetPassword'])
+        ->middleware(['throttle:5,1', 'recaptcha:reset_password']);
     Route::middleware('auth.token')->group(function () {
         Route::post('/logout', [ApiAuthController::class, 'logout']);
         Route::get('/me', [ApiAuthController::class, 'me']);
     });
 });
 
-// Request management routes
-Route::post('/chatbot-conversations', [ChatbotConversationController::class, 'store']);
-Route::post('/incapacidades/search', [IncapacidadesController::class, 'search']);
-Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search']);
-Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital']);
+// Request management routes - Rate limiting: 20 requests per minute
+Route::middleware('throttle:public-endpoints')->group(function () {
+    Route::post('/chatbot-conversations', [ChatbotConversationController::class, 'store']);
+    Route::post('/incapacidades/search', [IncapacidadesController::class, 'search']);
+    Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search']);
+    Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital']);
+});
 
 // Public read-only endpoints
 Route::get('/comfenalco-events', [ComfenalcoEventController::class, 'index']);
@@ -41,27 +47,37 @@ Route::get('/delegados', [DelegadosController::class, 'index']);
 Route::get('/delegados/by-sede', [DelegadosController::class, 'getBySede']);
 Route::get('/delegados/by-cedula', [DelegadosController::class, 'getByCedula']);
 Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupedBySede']);
-Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
-Route::post('/afiliados/authenticate-for-data-update', [AfiliadoController::class, 'authenticateForDataUpdate']);
-Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp']);
-Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
 
-// Public route for creating requests (used by affiliates from public site)
-Route::post('/requests', [RequestController::class, 'store']);
+// Afiliados authentication routes - Rate limiting aplicado
+Route::middleware('throttle:public-endpoints')->group(function () {
+    Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
+    Route::post('/afiliados/authenticate-for-data-update', [AfiliadoController::class, 'authenticateForDataUpdate']);
+    Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
+});
+
+// OTP requests - Rate limiting híbrido (doble capa) + reCAPTCHA
+// Capa 1: 5/min por documento | Capa 2: 30/min por IP
+Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp'])
+    ->middleware(['dual-rate-limit:otp', 'recaptcha:request_otp']);
+
+// Public route for creating requests (used by affiliates from public site) - Rate limiting: 20 requests per minute
+Route::post('/requests', [RequestController::class, 'store'])->middleware('throttle:public-endpoints');
 
 // Certificados de Convenio routes (públicas, sin autenticación)
 Route::prefix('certificados')->group(function () {
-    // Route::post('/convenio/generar', [CertificadoConvenioController::class, 'generar']);
-    // Route::post('/convenio/generar-word', [CertificadoConvenioController::class, 'generarWord']);
-    Route::post('/convenio/consultar', [CertificadoConvenioController::class, 'consultar']);
-    Route::post('/convenio/solicitar', [CertificadoConvenioController::class, 'solicitarAutomatico']);
-    Route::get('/convenio/estadisticas', [CertificadoConvenioController::class, 'estadisticas']);
-});
+    // Endpoints críticos con rate limiting híbrido (doble capa) + reCAPTCHA
+    // Capa 1: 5/min por documento | Capa 2: 50/min por IP
+    Route::middleware(['dual-rate-limit:critical', 'recaptcha:solicitar_certificado'])->group(function () {
+        // Route::post('/convenio/generar', [CertificadoConvenioController::class, 'generar']);
+        // Route::post('/convenio/generar-word', [CertificadoConvenioController::class, 'generarWord']);
+        Route::post('/convenio/solicitar', [CertificadoConvenioController::class, 'solicitarAutomatico']);
+    });
 
-// Document Conversion routes (públicas, sin autenticación)
-Route::prefix('convert')->group(function () {
-    Route::post('/docx-to-pdf', [ConvertDocumentController::class, 'convertDocxToPdf']);
-    Route::get('/test', [ConvertDocumentController::class, 'test']);
+    // Endpoints menos críticos con rate limiting moderado (20 por minuto)
+    Route::middleware('throttle:public-endpoints')->group(function () {
+        Route::post('/convenio/consultar', [CertificadoConvenioController::class, 'consultar']);
+        Route::get('/convenio/estadisticas', [CertificadoConvenioController::class, 'estadisticas']);
+    });
 });
 
 // Assembly Voting System Routes

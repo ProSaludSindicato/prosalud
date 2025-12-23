@@ -40,11 +40,32 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => \App\Http\Middleware\CheckPermission::class,
             'auth.token' => \App\Http\Middleware\AuthenticateWithApiToken::class,
             'ensure.api.user' => \App\Http\Middleware\EnsureApiTokenIsValid::class,
+            'recaptcha' => \App\Http\Middleware\VerifyRecaptcha::class,
+            'dual-rate-limit' => \App\Http\Middleware\DualRateLimit::class,
         ]);
+        
+        // La configuración de rate limiters ahora está en AppServiceProvider::boot()
+        // para evitar el error "A facade root has not been set"
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Manejar excepciones de rate limiting (ThrottleRequestsException)
+        // Asegurar que las rutas API siempre retornen JSON, incluso sin header Accept
+        $exceptions->render(function (\Illuminate\Http\Exceptions\ThrottleRequestsException $e, Request $request) {
+            // Para rutas API, siempre retornar JSON
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Demasiadas solicitudes. Intenta nuevamente más tarde.',
+                    'error' => 'rate_limit_exceeded',
+                ], 429);
+            }
+            
+            // Para rutas web, retornar la respuesta por defecto de Laravel
+            return null;
+        });
+        
         $exceptions->render(function (\Throwable $e, Request $request) {
-            if (!$request->expectsJson()) {
+            if (!$request->expectsJson() && !$request->is('api/*')) {
                 return null;
             }
 
