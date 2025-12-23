@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\{AfiliadoRequestOtpRequest, AfiliadoVerifyOtpRequest};
 use App\Mail\AfiliadoOtpCode;
-use App\Services\{AfiliadoService, ObfuscationService, OtpService};
+use App\Services\{AfiliadoService, LogSanitizationService, ObfuscationService, OtpService};
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail};
 
@@ -38,15 +38,15 @@ class AfiliadoController extends Controller
             $documento = trim($request->input('documento'));
             $fechaExpedicion = trim($request->input('fecha_expedicion'));
 
-            // Log the authentication attempt
-            Log::info('Intento de autenticación de afiliado', [
+            // Log the authentication attempt (sanitized)
+            Log::info('Intento de autenticación de afiliado', LogSanitizationService::sanitize([
                 'tipo_documento' => $tipoDocumento,
                 'documento' => $documento,
                 'fecha_expedicion' => $fechaExpedicion,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             // Check if the file is available
             if (!$this->afiliadoService->isFileAvailable()) {
@@ -67,13 +67,13 @@ class AfiliadoController extends Controller
             );
 
             if (null === $afiliado) {
-                Log::warning('Autenticación fallida - afiliado no encontrado', [
+                Log::warning('Autenticación fallida - afiliado no encontrado', LogSanitizationService::sanitize([
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
                     'fecha_expedicion' => $fechaExpedicion,
                     'ip_address' => $request->ip(),
                     'timestamp' => now()->toISOString(),
-                ]);
+                ]));
 
                 return response()->json([
                     'success' => false,
@@ -82,13 +82,13 @@ class AfiliadoController extends Controller
                 ], 401);
             }
 
-            // Log successful authentication
-            Log::info('Autenticación exitosa', [
+            // Log successful authentication (sanitized)
+            Log::info('Autenticación exitosa', LogSanitizationService::sanitize([
                 'documento' => $documento,
                 'ip_address' => $request->ip(),
                 'convenios_count' => count($afiliado['convenios'] ?? []),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => true,
@@ -96,11 +96,11 @@ class AfiliadoController extends Controller
                 'afiliado' => $afiliado,
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::warning('Validación fallida en autenticación de afiliado', [
+            Log::warning('Validación fallida en autenticación de afiliado', LogSanitizationService::sanitize([
                 'errors' => $e->errors(),
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => false,
@@ -109,14 +109,14 @@ class AfiliadoController extends Controller
                 'afiliado' => null,
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Error inesperado en autenticación de afiliado', [
+            Log::error('Error inesperado en autenticación de afiliado', LogSanitizationService::sanitize([
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'tipo_documento' => $request->input('tipo_documento'),
                 'documento' => $request->input('documento'),
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => false,
@@ -137,22 +137,22 @@ class AfiliadoController extends Controller
             $documento = trim($request->input('documento'));
             $fechaExpedicion = trim($request->input('fecha_expedicion'));
 
-            // Log the OTP request attempt
-            Log::info('Solicitud de código OTP para afiliado', [
+            // Log the OTP request attempt (sanitized)
+            Log::info('Solicitud de código OTP para afiliado', LogSanitizationService::sanitize([
                 'tipo_documento' => $tipoDocumento,
                 'documento' => $documento,
                 'fecha_expedicion' => $fechaExpedicion,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             // Check rate limiting
             if (!$this->otpService->checkRateLimit($documento)) {
-                Log::warning('Rate limit excedido para solicitud OTP', [
+                Log::warning('Rate limit excedido para solicitud OTP', LogSanitizationService::sanitize([
                     'documento' => $documento,
                     'ip_address' => $request->ip(),
-                ]);
+                ]));
 
                 return response()->json([
                     'success' => false,
@@ -178,13 +178,13 @@ class AfiliadoController extends Controller
             );
 
             if (null === $afiliadoData) {
-                Log::warning('Solicitud OTP fallida - credenciales inválidas o sin correo', [
+                Log::warning('Solicitud OTP fallida - credenciales inválidas o sin correo', LogSanitizationService::sanitize([
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
                     'fecha_expedicion' => $fechaExpedicion,
                     'ip_address' => $request->ip(),
                     'timestamp' => now()->toISOString(),
-                ]);
+                ]));
 
                 return response()->json([
                     'success' => false,
@@ -202,13 +202,13 @@ class AfiliadoController extends Controller
                     new AfiliadoOtpCode($otpCode, $afiliadoData['nombre'])
                 );
 
-                Log::info('Código OTP enviado exitosamente', [
+                Log::info('Código OTP enviado exitosamente', LogSanitizationService::sanitize([
                     'documento' => $documento,
                     'correo' => $afiliadoData['correo'],
                     'session_id' => $sessionId,
                     'ip_address' => $request->ip(),
                     'timestamp' => now()->toISOString(),
-                ]);
+                ]));
 
                 // Obfuscate email for frontend display
                 $obfuscatedEmail = $this->obfuscateEmail($afiliadoData['correo']);
@@ -220,13 +220,13 @@ class AfiliadoController extends Controller
                     'email_obfuscated' => $obfuscatedEmail,
                 ]);
             } catch (\Exception $e) {
-                Log::error('Error al enviar código OTP por correo', [
+                Log::error('Error al enviar código OTP por correo', LogSanitizationService::sanitize([
                     'error' => $e->getMessage(),
                     'documento' => $documento,
                     'correo' => $afiliadoData['correo'],
                     'trace' => $e->getTraceAsString(),
                     'timestamp' => now()->toISOString(),
-                ]);
+                ]));
 
                 return response()->json([
                     'success' => false,
@@ -234,14 +234,14 @@ class AfiliadoController extends Controller
                 ], 500);
             }
         } catch (\Exception $e) {
-            Log::error('Error inesperado en solicitud de OTP', [
+            Log::error('Error inesperado en solicitud de OTP', LogSanitizationService::sanitize([
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'tipo_documento' => $request->input('tipo_documento'),
                 'documento' => $request->input('documento'),
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => false,
@@ -262,25 +262,25 @@ class AfiliadoController extends Controller
             $sessionId = trim($request->input('session_id'));
             $otp = trim($request->input('otp'));
 
-            // Log the OTP verification attempt
-            Log::info('Intento de verificación OTP', [
+            // Log the OTP verification attempt (sanitized)
+            Log::info('Intento de verificación OTP', LogSanitizationService::sanitize([
                 'documento' => $documento,
                 'session_id' => $sessionId,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             // Verify OTP
             $isValid = $this->otpService->verifyOtp($documento, $sessionId, $otp);
 
             if (!$isValid) {
-                Log::warning('Verificación OTP fallida', [
+                Log::warning('Verificación OTP fallida', LogSanitizationService::sanitize([
                     'documento' => $documento,
                     'session_id' => $sessionId,
                     'ip_address' => $request->ip(),
                     'timestamp' => now()->toISOString(),
-                ]);
+                ]));
 
                 return response()->json([
                     'success' => false,
@@ -306,11 +306,11 @@ class AfiliadoController extends Controller
             );
 
             if (null === $afiliadoInfo) {
-                Log::error('Error al obtener información completa del afiliado después de verificación OTP', [
+                Log::error('Error al obtener información completa del afiliado después de verificación OTP', LogSanitizationService::sanitize([
                     'documento' => $documento,
                     'session_id' => $sessionId,
                     'ip_address' => $request->ip(),
-                ]);
+                ]));
 
                 return response()->json([
                     'success' => false,
@@ -336,15 +336,15 @@ class AfiliadoController extends Controller
                 $afiliadoInfo['afiliado'] = $obfuscatedData;
             }
 
-            // Log successful verification
-            Log::info('Verificación OTP exitosa y datos del afiliado obtenidos', [
+            // Log successful verification (sanitized)
+            Log::info('Verificación OTP exitosa y datos del afiliado obtenidos', LogSanitizationService::sanitize([
                 'documento' => $documento,
                 'session_id' => $sessionId,
                 'ip_address' => $request->ip(),
                 'convenios_count' => count($afiliadoInfo['convenios'] ?? []),
                 'beneficiarios_count' => count($afiliadoInfo['beneficiarios'] ?? []),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => true,
@@ -352,7 +352,7 @@ class AfiliadoController extends Controller
                 'data' => $afiliadoInfo,
             ]);
         } catch (\Exception $e) {
-            Log::error('Error inesperado en verificación de OTP', [
+            Log::error('Error inesperado en verificación de OTP', LogSanitizationService::sanitize([
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'tipo_documento' => $request->input('tipo_documento'),
@@ -360,7 +360,7 @@ class AfiliadoController extends Controller
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
                 'session_id' => $request->input('session_id'),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => false,
@@ -388,15 +388,15 @@ class AfiliadoController extends Controller
             $documento = trim($request->input('documento'));
             $fechaExpedicion = trim($request->input('fecha_expedicion'));
 
-            // Log the authentication attempt
-            Log::info('Intento de autenticación de afiliado para actualización de datos', [
+            // Log the authentication attempt (sanitized)
+            Log::info('Intento de autenticación de afiliado para actualización de datos', LogSanitizationService::sanitize([
                 'tipo_documento' => $tipoDocumento,
                 'documento' => $documento,
                 'fecha_expedicion' => $fechaExpedicion,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             // Check if the file is available
             if (!$this->afiliadoService->isFileAvailable()) {
@@ -416,13 +416,13 @@ class AfiliadoController extends Controller
             );
 
             if (null === $afiliadoInfo) {
-                Log::warning('Autenticación fallida para actualización de datos - afiliado no encontrado', [
+                Log::warning('Autenticación fallida para actualización de datos - afiliado no encontrado', LogSanitizationService::sanitize([
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
                     'fecha_expedicion' => $fechaExpedicion,
                     'ip_address' => $request->ip(),
                     'timestamp' => now()->toISOString(),
-                ]);
+                ]));
 
                 return response()->json([
                     'success' => false,
@@ -446,14 +446,14 @@ class AfiliadoController extends Controller
                 $afiliadoInfo['afiliado'] = $obfuscatedData;
             }
 
-            // Log successful authentication
-            Log::info('Autenticación exitosa para actualización de datos', [
+            // Log successful authentication (sanitized)
+            Log::info('Autenticación exitosa para actualización de datos', LogSanitizationService::sanitize([
                 'documento' => $documento,
                 'ip_address' => $request->ip(),
                 'convenios_count' => count($afiliadoInfo['convenios'] ?? []),
                 'beneficiarios_count' => count($afiliadoInfo['beneficiarios'] ?? []),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => true,
@@ -461,11 +461,11 @@ class AfiliadoController extends Controller
                 'data' => $afiliadoInfo,
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::warning('Validación fallida en autenticación de afiliado para actualización de datos', [
+            Log::warning('Validación fallida en autenticación de afiliado para actualización de datos', LogSanitizationService::sanitize([
                 'errors' => $e->errors(),
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => false,
@@ -473,14 +473,14 @@ class AfiliadoController extends Controller
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Error inesperado en autenticación de afiliado para actualización de datos', [
+            Log::error('Error inesperado en autenticación de afiliado para actualización de datos', LogSanitizationService::sanitize([
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'tipo_documento' => $request->input('tipo_documento'),
                 'documento' => $request->input('documento'),
                 'fecha_expedicion' => $request->input('fecha_expedicion'),
                 'timestamp' => now()->toISOString(),
-            ]);
+            ]));
 
             return response()->json([
                 'success' => false,

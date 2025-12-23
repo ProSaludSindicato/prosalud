@@ -16,6 +16,7 @@ class ExcelReaderService
 
     private const PRIMARY_STORAGE_DISK = 'prosalud-private';
     private const FALLBACK_STORAGE_DISK = 'local';
+    private const COMPENSACIONES_SHEET_NAME = 'DINAMICA';
 
     /**
      * Read the incapacidades Excel file.
@@ -804,12 +805,24 @@ class ExcelReaderService
             }
 
             $spreadsheet = IOFactory::load($filePath);
-            $worksheet = $spreadsheet->getActiveSheet();
+            
+            // Obtener la hoja específica por nombre
+            $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
+            
+            if ($worksheet === null) {
+                Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
+                    'file_path' => $filePath,
+                    'hojas_disponibles' => $spreadsheet->getSheetNames(),
+                ]);
+                return [];
+            }
+            
             $data = $worksheet->toArray();
 
             Log::info('Archivo de compensaciones leído exitosamente', [
                 'rows_count' => count($data),
                 'file_path' => $filePath,
+                'sheet_name' => self::COMPENSACIONES_SHEET_NAME,
             ]);
 
             return $data;

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\LogSanitizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\{Cache, Log};
 use Symfony\Component\HttpFoundation\Response;
@@ -15,27 +16,16 @@ class CheckPermission
      */
     public function handle(Request $request, \Closure $next, string $permission): Response
     {
-        // Enhanced logging for authentication debugging
-        $bearerToken = $request->bearerToken();
-        $authHeader = $request->header('Authorization');
-        $hasAuth = auth()->check();
-        $user = auth()->user();
-
         if (!auth()->check()) {
-            Log::warning('[PERMISSION CHECK] Usuario no autenticado', [
+            Log::warning('[PERMISSION CHECK] Usuario no autenticado', LogSanitizationService::sanitize([
                 'permission' => $permission,
                 'path' => $request->path(),
                 'method' => $request->method(),
                 'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'has_bearer_token' => !empty($bearerToken),
-                'bearer_token_length' => $bearerToken ? strlen($bearerToken) : 0,
-                'bearer_token_preview' => $bearerToken ? substr($bearerToken, 0, 20) . '...' : null,
-                'authorization_header' => $authHeader ? substr($authHeader, 0, 30) . '...' : null,
-                'auth_check' => $hasAuth,
-                'auth_user_id' => $user?->id,
-                'all_headers' => $request->headers->all(),
-            ]);
+                'has_bearer_token' => !empty($request->bearerToken()),
+                'bearer_token_length' => $request->bearerToken() ? strlen($request->bearerToken()) : 0,
+            ]));
 
             return response()->json(['message' => 'No autenticado'], 401);
         }

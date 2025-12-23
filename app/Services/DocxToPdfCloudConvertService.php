@@ -33,11 +33,11 @@ class DocxToPdfCloudConvertService
         $this->timeout = config('cloudconvert.timeout', 60);
         $this->maxFileSize = config('cloudconvert.max_file_size', 25 * 1024 * 1024);
 
-        Log::info('CloudConvert inicializado correctamente', [
+        Log::info('CloudConvert inicializado correctamente', LogSanitizationService::sanitize([
             'api_key_length' => strlen($this->apiKey),
-            'api_key_prefix' => substr($this->apiKey, 0, 20) . '...',
+            'api_key' => $this->apiKey, // Will be sanitized by the service
             'base_url' => $this->baseUrl,
-        ]);
+        ]));
     }
 
     /**
