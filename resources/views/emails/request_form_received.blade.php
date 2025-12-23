@@ -108,7 +108,7 @@
                             <table class="info-table" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 28px; background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
                                 <tr>
                                     <td style="padding:14px 18px; font-size:13px; color:#6b7280; font-weight:600; width:40%; background:#f9fafb; border-bottom:1px solid #e5e7eb;">Tipo de solicitud</td>
-                                    <td style="padding:14px 18px; font-size:14px; color:#1f2937; border-bottom:1px solid #e5e7eb;">{{ $requestForm->request_type }}</td>
+                                    <td style="padding:14px 18px; font-size:14px; color:#1f2937; border-bottom:1px solid #e5e7eb;">{{ $requestForm->translated_request_type }}</td>
                                 </tr>
                                 <tr>
                                     <td style="padding:14px 18px; font-size:13px; color:#6b7280; font-weight:600; background:#f9fafb; border-bottom:1px solid #e5e7eb;">Documento</td>

@@ -204,6 +204,49 @@ class RequestForm extends Model
     }
 
     /**
+     * Get the translated request type in Spanish.
+     */
+    public function getTranslatedRequestTypeAttribute(): string
+    {
+        $requestTypeLabels = [
+            RequestTypes::CERTIFICADO_CONVENIO => 'Certificado de Convenio',
+            RequestTypes::COMPENSACION_ANUAL => 'Compensación Anual Diferida',
+            RequestTypes::COMPENSACION_DESCANSO => 'Compensación por Descanso',
+            RequestTypes::VERIFICACION_PAGOS => 'Verificación de Pagos',
+            RequestTypes::SOLICITUD_RETIRO_SINDICAL => 'Retiro Sindical',
+            RequestTypes::ACTUALIZAR_DATOS_PERSONALES => 'Actualizar Datos Personales',
+            RequestTypes::SOLICITUD_MICROCREDITO => 'Microcrédito CEII',
+            RequestTypes::INCAPACIDADES_LICENCIAS => 'Incapacidades y Licencias',
+            // Alias para compatibilidad con datos antiguos
+            'retiro-sindical' => 'Retiro Sindical',
+            'incapacidad-licencia' => 'Incapacidades y Licencias',
+            'incapacidad-laboral' => 'Incapacidades y Licencias',
+            // Tipos adicionales mencionados en la documentación
+            'permisos-turnos' => 'Permisos y Cambio de Turnos',
+            'solicitud-bienestar' => 'Solicitud de Bienestar',
+        ];
+
+        return $requestTypeLabels[$this->request_type] ?? ucfirst(str_replace('-', ' ', $this->request_type));
+    }
+
+    /**
+     * Get the translated document type in Spanish.
+     */
+    public function getTranslatedDocumentTypeAttribute(): string
+    {
+        $documentTypeLabels = [
+            'CC' => 'Cédula de Ciudadanía',
+            'CE' => 'Cédula de Extranjería',
+            'TI' => 'Tarjeta de Identidad',
+            'PA' => 'Pasaporte',
+            'PT' => 'Pasaporte',
+        ];
+
+        $docType = strtoupper(trim($this->document_type ?? ''));
+        return $documentTypeLabels[$docType] ?? $this->document_type;
+    }
+
+    /**
      * Format payload value for display in email.
      */
     public function formatPayloadValue(string $key, $value): string
@@ -217,7 +260,7 @@ class RequestForm extends Model
                     $value = $decoded;
                 }
             }
-            
+
             if (is_array($value)) {
                 return $this->formatCertificadoInfo($value);
             }
@@ -564,8 +607,8 @@ class RequestForm extends Model
         }
 
         // Retornar como lista vertical compacta con mejor formato
-        return '<div style="line-height:1.6; word-wrap:break-word; max-width:100%;">' . 
-               implode('<br>', $formatted) . 
+        return '<div style="line-height:1.6; word-wrap:break-word; max-width:100%;">' .
+               implode('<br>', $formatted) .
                '</div>';
     }
 
@@ -597,7 +640,7 @@ class RequestForm extends Model
     /**
      * Verifica si este RequestForm es un certificado de convenio simple
      * que será procesado automáticamente (solo fecha ingreso/retiro y/o dirigido a entidad)
-     * 
+     *
      * @return bool
      */
     public function esCertificadoConvenioSimple(): bool
@@ -608,7 +651,7 @@ class RequestForm extends Model
         }
 
         $payload = $this->payload ?? [];
-        
+
         // Verificar si tiene infoCertificado en el payload
         if (!isset($payload['infoCertificado'])) {
             return false;

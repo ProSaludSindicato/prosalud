@@ -60,7 +60,7 @@ class RequestFormReceived extends Mailable
         $logoCid = file_exists($logoPath) ? $this->embed($logoPath) : '';
 
         $mail = $this
-            ->subject("Confirmación de recepción {$this->requestForm->request_type} – ProSalud")
+            ->subject("Confirmación de recepción {$this->requestForm->translated_request_type} – ProSalud")
             ->view('emails.request_form_received')
             ->with([
                 'requestForm' => $this->requestForm,
