@@ -51,8 +51,8 @@ Route::post('/requests', [RequestController::class, 'store']);
 
 // Certificados de Convenio routes (públicas, sin autenticación)
 Route::prefix('certificados')->group(function () {
-    Route::post('/convenio/generar', [CertificadoConvenioController::class, 'generar']);
-    Route::post('/convenio/generar-word', [CertificadoConvenioController::class, 'generarWord']);
+    // Route::post('/convenio/generar', [CertificadoConvenioController::class, 'generar']);
+    // Route::post('/convenio/generar-word', [CertificadoConvenioController::class, 'generarWord']);
     Route::post('/convenio/consultar', [CertificadoConvenioController::class, 'consultar']);
     Route::post('/convenio/solicitar', [CertificadoConvenioController::class, 'solicitarAutomatico']);
     Route::get('/convenio/estadisticas', [CertificadoConvenioController::class, 'estadisticas']);
@@ -91,7 +91,7 @@ Route::prefix('assembly')->group(function () {
         Route::put('/assemblies/{id}', [AssemblyController::class, 'update'])->middleware('permission:assembly.questions.manage');
         Route::post('/assemblies/{id}/activate', [AssemblyController::class, 'activate'])->middleware('permission:assembly.questions.manage');
         Route::post('/assemblies/{id}/deactivate', [AssemblyController::class, 'deactivate'])->middleware('permission:assembly.questions.manage');
-        
+
         // Admin routes - Questions management
         // Admin routes - Questions management
         Route::post('/questions', [AssemblyQuestionController::class, 'store'])->middleware('permission:assembly.questions.manage');
