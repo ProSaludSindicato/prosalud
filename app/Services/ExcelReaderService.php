@@ -790,58 +790,55 @@ class ExcelReaderService
     }
 
     /**
-     * Read the compensaciones Excel file from public directory.
+     * Read the compensaciones Excel file from private storage (or fallback to local).
      */
     public function readCompensacionesFile(): array
     {
-        try {
-            $filePath = public_path(self::COMPENSACIONES_FILE_PATH);
-            
-            if (!file_exists($filePath)) {
-                Log::error('Archivo de compensaciones no encontrado', [
-                    'file_path' => $filePath,
+        return $this->withStoredExcel(self::COMPENSACIONES_FILE_PATH, function (string $localPath, string $disk) {
+            try {
+                $spreadsheet = IOFactory::load($localPath);
+                
+                // Obtener la hoja específica por nombre
+                $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
+                
+                if ($worksheet === null) {
+                    Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
+                        'file_path' => $localPath,
+                        'disk' => $disk,
+                        'hojas_disponibles' => $spreadsheet->getSheetNames(),
+                    ]);
+                    return [];
+                }
+                
+                $data = $worksheet->toArray();
+
+                Log::info('Archivo de compensaciones leído exitosamente', [
+                    'rows_count' => count($data),
+                    'file_path' => self::COMPENSACIONES_FILE_PATH,
+                    'disk' => $disk,
+                    'sheet_name' => self::COMPENSACIONES_SHEET_NAME,
                 ]);
+
+                return $data;
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de compensaciones', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::COMPENSACIONES_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo de compensaciones', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::COMPENSACIONES_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
                 return [];
             }
-
-            $spreadsheet = IOFactory::load($filePath);
-            
-            // Obtener la hoja específica por nombre
-            $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
-            
-            if ($worksheet === null) {
-                Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
-                    'file_path' => $filePath,
-                    'hojas_disponibles' => $spreadsheet->getSheetNames(),
-                ]);
-                return [];
-            }
-            
-            $data = $worksheet->toArray();
-
-            Log::info('Archivo de compensaciones leído exitosamente', [
-                'rows_count' => count($data),
-                'file_path' => $filePath,
-                'sheet_name' => self::COMPENSACIONES_SHEET_NAME,
-            ]);
-
-            return $data;
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de compensaciones', [
-                'error' => $e->getMessage(),
-                'file_path' => self::COMPENSACIONES_FILE_PATH,
-            ]);
-
-            return [];
-        } catch (\Throwable $e) {
-            Log::error('Error inesperado al leer archivo de compensaciones', [
-                'error' => $e->getMessage(),
-                'file_path' => self::COMPENSACIONES_FILE_PATH,
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return [];
-        }
+        }, []);
     }
 
     /**
@@ -849,8 +846,7 @@ class ExcelReaderService
      */
     public function isCompensacionesFileAvailable(): bool
     {
-        $filePath = public_path(self::COMPENSACIONES_FILE_PATH);
-        return file_exists($filePath) && is_readable($filePath);
+        return $this->storedExcelExists(self::COMPENSACIONES_FILE_PATH);
     }
 
     /**

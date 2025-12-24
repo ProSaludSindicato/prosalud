@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -209,10 +209,13 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     // Afiliados file management routes (for uploading PROSANET afiliados file)
     Route::post('/afiliados-file/upload', [AfiliadosFileController::class, 'upload'])->middleware('permission:afiliados_files.manage');
 
-    // Incapacidades, Liquidaciones y Delegados file management routes
+    // Incapacidades, Liquidaciones, Delegados y Compensaciones file management routes
     Route::post('/incapacidades-file/upload', [IncapacidadesFileController::class, 'upload'])->middleware('permission:incapacidades_files.manage');
     Route::post('/liquidaciones-file/upload', [LiquidacionesFileController::class, 'upload'])->middleware('permission:liquidaciones_files.manage');
     Route::post('/delegados-file/upload', [DelegadosFileController::class, 'upload'])->middleware('permission:delegados_files.manage');
+    Route::post('/compensaciones-file/upload', [CompensacionesFileController::class, 'upload'])->middleware('permission:compensaciones_files.manage');
+    Route::get('/compensaciones-file/info', [CompensacionesFileController::class, 'info'])->middleware('permission:compensaciones_files.manage');
+    Route::get('/compensaciones-file/download', [CompensacionesFileController::class, 'download'])->middleware('permission:compensaciones_files.manage');
 
     // Roles and Permissions management routes
     Route::apiResource('roles', RoleController::class)->middleware('permission:roles.manage');

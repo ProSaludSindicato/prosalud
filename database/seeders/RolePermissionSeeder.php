@@ -2,7 +2,9 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Cache;
 use Spatie\Permission\Models\{Permission, Role};
 
 class RolePermissionSeeder extends Seeder
@@ -60,6 +62,7 @@ class RolePermissionSeeder extends Seeder
             'incapacidades_files.manage' => 'Subir y gestionar archivos de incapacidades',
             'liquidaciones_files.manage' => 'Subir y gestionar archivos de liquidaciones',
             'delegados_files.manage' => 'Subir y gestionar archivos de delegados',
+            'compensaciones_files.manage' => 'Subir y gestionar archivos de compensaciones',
 
             // Roles / permissions
             'roles.manage' => 'Gestionar roles y permisos del sistema (crear, editar, asignar permisos)',
@@ -149,6 +152,7 @@ class RolePermissionSeeder extends Seeder
             'incapacidades_files.manage' => 'Subir y gestionar archivos de incapacidades', // SI
             'liquidaciones_files.manage' => 'Subir y gestionar archivos de liquidaciones', // SI
             'delegados_files.manage' => 'Subir y gestionar archivos de delegados', // SI
+            'compensaciones_files.manage' => 'Subir y gestionar archivos de compensaciones', // SI
 
             // Roles / permissions (nuevo formato)
             'roles.manage' => 'Gestionar roles del sistema (crear, editar, asignar permisos)', // SI
@@ -247,6 +251,35 @@ class RolePermissionSeeder extends Seeder
                 ['description' => $roleData['description']]
             );
             $role->syncPermissions($roleData['permissions']);
+        }
+
+        // Limpiar caché de permisos de Spatie
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+        // Limpiar caché de permisos de todos los usuarios
+        // Esto asegura que los usuarios vean los nuevos permisos inmediatamente
+        $this->clearAllUsersPermissionCache();
+    }
+
+    /**
+     * Clear permission cache for all users.
+     * This ensures that users see new permissions immediately after running the seeder.
+     */
+    private function clearAllUsersPermissionCache(): void
+    {
+        try {
+            $users = User::all();
+            $clearedCount = 0;
+
+            foreach ($users as $user) {
+                $cacheKey = "user:{$user->id}:permissions";
+                Cache::forget($cacheKey);
+                $clearedCount++;
+            }
+
+            $this->command->info("✓ Caché de permisos limpiado para {$clearedCount} usuarios");
+        } catch (\Exception $e) {
+            $this->command->warn("⚠ No se pudo limpiar el caché de permisos de usuarios: " . $e->getMessage());
         }
     }
 }
