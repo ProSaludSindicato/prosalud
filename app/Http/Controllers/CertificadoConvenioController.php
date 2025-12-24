@@ -42,7 +42,7 @@ class CertificadoConvenioController extends Controller
                 if (!str_ends_with($nombreArchivo, '.pdf')) {
                     $nombreArchivo .= '.pdf';
                 }
-                
+
                 return response()->download(
                     $resultado['ruta'],
                     $nombreArchivo,
@@ -144,7 +144,7 @@ class CertificadoConvenioController extends Controller
 
             // Generar URL temporal usando el método privado
             $urlData = $this->generarUrlTemporalCertificado($certificado);
-            
+
             if (!$urlData['pdf_url']) {
                 Log::error('Certificado encontrado en BD pero no se pudo generar URL', [
                     'documento' => $documento,
@@ -226,7 +226,7 @@ class CertificadoConvenioController extends Controller
             // Filtro por rango de fechas
             $fechaDesde = $request->input('fecha_desde');
             $fechaHasta = $request->input('fecha_hasta');
-            
+
             if ($fechaDesde || $fechaHasta) {
                 $query->byFechaRango($fechaDesde, $fechaHasta);
             }
@@ -241,7 +241,7 @@ class CertificadoConvenioController extends Controller
             // Formatear los resultados con URLs temporales
             $certificadosFormateados = $certificados->getCollection()->map(function ($certificado) {
                 $urlData = $this->generarUrlTemporalCertificado($certificado);
-                
+
                 return [
                     'id' => $certificado->id,
                     'document_number' => $certificado->document_number,
@@ -351,7 +351,7 @@ class CertificadoConvenioController extends Controller
     /**
      * Genera una URL temporal para un certificado
      * Retorna la URL y la fecha de expiración, o null si hay error
-     * 
+     *
      * @param CertificadoConvenioRecord $certificado
      * @return array{pdf_url: string|null, url_expires_at: string|null}
      */
@@ -360,7 +360,7 @@ class CertificadoConvenioController extends Controller
         // Intentar encontrar el archivo en los discos disponibles
         $disks = ['prosalud-private', 'local'];
         $storage = null;
-        
+
         foreach ($disks as $diskName) {
             $testStorage = Storage::disk($diskName);
             if ($testStorage->exists($certificado->storage_path)) {
@@ -368,7 +368,7 @@ class CertificadoConvenioController extends Controller
                 break;
             }
         }
-        
+
         if (!$storage) {
             Log::warning('Archivo de certificado no encontrado en storage', [
                 'certificado_id' => $certificado->id,
