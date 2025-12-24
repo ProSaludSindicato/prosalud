@@ -9,6 +9,7 @@ class IncapacidadService
     public function __construct(
         private ExcelReaderService $excelReader,
         private DateFormatterService $dateFormatter,
+        private AfiliadoService $afiliadoService,
     ) {
     }
 
@@ -46,7 +47,24 @@ class IncapacidadService
                 'numero_documento' => $numeroDocumento,
             ]);
 
-            $matches = $this->findMatchingRecords($excelData, $tipo, $numeroDocumento, $fechaExpedicion);
+            // First, validate the document and date against PROSANET_INFORMACION_AFILIADOS.xlsx
+            $afiliadoInfo = $this->afiliadoService->authenticateAndGetAfiliado($tipo, $numeroDocumento, $fechaExpedicion);
+            
+            if (null === $afiliadoInfo) {
+                Log::warning('Validación fallida: documento y/o fecha de expedición no coinciden con PROSANET_INFORMACION_AFILIADOS.xlsx', [
+                    'tipo' => $tipo,
+                    'numero_documento' => $numeroDocumento,
+                    'fecha_expedicion' => $fechaExpedicion,
+                ]);
+
+                return [
+                    'status' => 'error',
+                    'message' => 'El documento o la fecha de expedición no son válidos. Por favor, verifique la información proporcionada.',
+                ];
+            }
+
+            // If validation passes, search for matching records in the incapacidades file
+            $matches = $this->findMatchingRecords($excelData, $tipo, $numeroDocumento);
 
             if (empty($matches)) {
                 Log::info('No se encontraron registros coincidentes', [
@@ -97,8 +115,9 @@ class IncapacidadService
 
     /**
      * Find records that match the search criteria.
+     * Note: Date validation is done before calling this method.
      */
-    private function findMatchingRecords(array $excelData, string $tipo, string $numeroDocumento, string $fechaExpedicion): array
+    private function findMatchingRecords(array $excelData, string $tipo, string $numeroDocumento): array
     {
         $headers = array_shift($excelData);
         $matches = [];
@@ -110,17 +129,9 @@ class IncapacidadService
 
             $rowTipo = $row[2] ?? '';
             $rowNumeroDocumento = $row[3] ?? '';
-            $rowFechaExpedicion = $row[4] ?? ''; // Fecha Expedicion is at index 4
 
             // Check if document type and number match
             if (trim($rowTipo) === trim($tipo) && trim($rowNumeroDocumento) === trim($numeroDocumento)) {
-                // Validate date if provided
-                if (!empty($fechaExpedicion) && !empty($rowFechaExpedicion)) {
-                    if (!$this->validateDateMatch($fechaExpedicion, $rowFechaExpedicion)) {
-                        continue; // Skip this record if dates don't match
-                    }
-                }
-
                 $record = [];
                 foreach ($headers as $index => $header) {
                     $record[trim($header)] = $row[$index] ?? '';
@@ -158,6 +169,7 @@ class IncapacidadService
         $internalFields = [
             'REPORTE FACTURA',
             'REPORTE VIVI',
+            'valor Incapacidad Recibido',
         ];
 
         return array_filter($record, function ($value, $key) use ($internalFields) {
