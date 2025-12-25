@@ -37,42 +37,72 @@ class UserController extends Controller
             $query->where('is_active', $request->boolean('is_active'));
         }
 
-        // Pagination
-        $perPage = $request->get('per_page', 15);
-        $users = $query->with('roles')->paginate($perPage);
-
-        Log::info('Lista de usuarios consultada', [
-            'total_users' => $users->total(),
-            'current_page' => $users->currentPage(),
-            'per_page' => $users->perPage(),
-            'filters' => $request->only(['search', 'is_active']),
-        ]);
-
-        // Format users data to include role
-        $formattedUsers = $users->getCollection()->map(function ($user) {
-            return [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'is_active' => $user->is_active,
-                'role' => $user->roles->first()?->name ?? null,
-                'created_at' => $user->created_at,
-                'updated_at' => $user->updated_at,
-            ];
-        });
-
-        return response()->json([
-            'success' => true,
-            'data' => $formattedUsers->values()->all(),
-            'pagination' => [
+        // Pagination: only paginate if per_page is explicitly requested
+        $perPage = $request->get('per_page');
+        $paginationRequested = $request->has('per_page');
+        
+        if ($paginationRequested) {
+            $users = $query->with('roles')->paginate($perPage);
+            
+            Log::info('Lista de usuarios consultada', [
+                'total_users' => $users->total(),
                 'current_page' => $users->currentPage(),
                 'per_page' => $users->perPage(),
-                'total' => $users->total(),
-                'last_page' => $users->lastPage(),
-                'from' => $users->firstItem(),
-                'to' => $users->lastItem(),
-            ],
-        ]);
+                'filters' => $request->only(['search', 'is_active']),
+            ]);
+
+            // Format users data to include role
+            $formattedUsers = $users->getCollection()->map(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'is_active' => $user->is_active,
+                    'role' => $user->roles->first()?->name ?? null,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at,
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $formattedUsers->values()->all(),
+                'pagination' => [
+                    'current_page' => $users->currentPage(),
+                    'per_page' => $users->perPage(),
+                    'total' => $users->total(),
+                    'last_page' => $users->lastPage(),
+                    'from' => $users->firstItem(),
+                    'to' => $users->lastItem(),
+                ],
+            ]);
+        } else {
+            // Return all users without pagination
+            $users = $query->with('roles')->get();
+            
+            Log::info('Lista de usuarios consultada (sin paginación)', [
+                'total_users' => $users->count(),
+                'filters' => $request->only(['search', 'is_active']),
+            ]);
+
+            // Format users data to include role
+            $formattedUsers = $users->map(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'is_active' => $user->is_active,
+                    'role' => $user->roles->first()?->name ?? null,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at,
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $formattedUsers->values()->all(),
+            ]);
+        }
     }
 
     /**
