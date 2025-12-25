@@ -17,7 +17,7 @@ class ClearRequestFormsCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'request-forms:clear 
+    protected $signature = 'request-forms:clear
                             {--force : Skip confirmation prompt}
                             {--backup : Create backup before clearing}
                             {--dry-run : Show what would be deleted without actually deleting}';

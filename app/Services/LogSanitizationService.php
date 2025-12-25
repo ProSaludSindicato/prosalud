@@ -109,8 +109,8 @@ class LogSanitizationService
         }
 
         // Token/Bearer/Authorization: Show only length and hash
-        if (str_contains($lowerKey, 'token') || 
-            str_contains($lowerKey, 'bearer') || 
+        if (str_contains($lowerKey, 'token') ||
+            str_contains($lowerKey, 'bearer') ||
             str_contains($lowerKey, 'authorization')) {
             $length = strlen($stringValue);
             $hash = substr(hash('sha256', $stringValue), 0, 8);
@@ -196,7 +196,7 @@ class LogSanitizationService
         $sanitized = [];
         foreach ($headers as $key => $value) {
             $lowerKey = strtolower($key);
-            
+
             // Skip sensitive headers entirely
             $isSensitive = false;
             foreach ($sensitiveHeaderKeys as $sensitiveKey) {

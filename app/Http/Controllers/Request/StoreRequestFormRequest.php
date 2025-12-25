@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Request;
 
+use App\Constants\RequestTypes;
 use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -165,6 +166,57 @@ class StoreRequestFormRequest extends FormRequest
                 );
             }
 
+            // Validación: Afiliados con estado "Retirado" no pueden realizar ciertos trámites
+            $restrictedRequestTypes = [
+                RequestTypes::COMPENSACION_DESCANSO,
+                RequestTypes::COMPENSACION_ANUAL,
+                RequestTypes::INCAPACIDADES_LICENCIAS,
+                RequestTypes::SOLICITUD_MICROCREDITO,
+                RequestTypes::SOLICITUD_RETIRO_SINDICAL,
+                'solicitud-microcredito',
+                'permisos-turnos', // Tipo mencionado en labels pero no definido como constante
+            ];
+
+            if (in_array($requestType, $restrictedRequestTypes, true)) {
+                $documento = $this->input('id_number');
+
+                if ($documento) {
+                    try {
+                        $certificadoService = app(\App\Services\CertificadoConvenioService::class);
+                        $afiliadoData = $certificadoService->obtenerDatosAfiliado($documento);
+
+                        if ($afiliadoData && isset($afiliadoData['afiliado']['estado'])) {
+                            $estadoAfiliado = strtolower(trim($afiliadoData['afiliado']['estado']));
+
+                            if ($estadoAfiliado === 'retirado') {
+                                $requestTypeLabel = match($requestType) {
+                                    RequestTypes::COMPENSACION_DESCANSO => 'Compensación por descanso',
+                                    RequestTypes::COMPENSACION_ANUAL => 'Compensación anual diferida',
+                                    RequestTypes::INCAPACIDADES_LICENCIAS => 'Incapacidades y licencias',
+                                    RequestTypes::SOLICITUD_MICROCREDITO => 'Solicitud de microcrédito',
+                                    RequestTypes::SOLICITUD_RETIRO_SINDICAL => 'Solicitud de retiro sindical',
+                                    'permisos-turnos' => 'Permisos y cambio de turnos',
+                                    default => 'este trámite',
+                                };
+
+                                $validator->errors()->add(
+                                    'request_type',
+                                    "Los afiliados con estado 'Retirado' no pueden realizar la solicitud de {$requestTypeLabel}. Este trámite está disponible únicamente para afiliados activos."
+                                );
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // Si no se puede obtener el estado del afiliado, registrar el error pero no bloquear la solicitud
+                        // Esto permite que el sistema continúe funcionando aunque haya problemas temporales con el servicio
+                        Log::warning('No se pudo obtener estado del afiliado para validación de trámites restringidos', [
+                            'documento' => $documento,
+                            'request_type' => $requestType,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+
             if ('actualizar-datos-personales' === $requestType) {
                 $payload = $this->input('payload', []);
 
@@ -257,7 +309,7 @@ class StoreRequestFormRequest extends FormRequest
                 // Asegurar que los archivos estén en la estructura correcta para el servicio
                 // El servicio busca en $data['files']['actividadesPdf']
                 $filesForValidation = [];
-                
+
                 // Caso 1: Archivos vienen como array anidado files[actividadesPdf] -> allFiles['files']['actividadesPdf']
                 if (isset($allFiles['files']) && is_array($allFiles['files'])) {
                     $filesForValidation = $allFiles['files'];
@@ -273,7 +325,7 @@ class StoreRequestFormRequest extends FormRequest
                         }
                     }
                 }
-                
+
                 $validationData = array_merge($payload, [
                     'files' => $filesForValidation,
                 ]);
@@ -319,7 +371,7 @@ class StoreRequestFormRequest extends FormRequest
                         $extension = strtolower($archivoAdicional->getClientOriginalExtension());
                         $allowedMimes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png', 'image/webp'];
                         $allowedExtensions = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp'];
-                        
+
                         if (!in_array($mimeType, $allowedMimes) && !in_array($extension, $allowedExtensions)) {
                             $validator->errors()->add('files.adjuntarArchivoAdicional', 'El archivo adicional debe ser PDF, Word o imagen (JPG, PNG, WEBP)');
                         }

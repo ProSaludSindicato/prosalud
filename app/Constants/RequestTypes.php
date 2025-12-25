@@ -10,7 +10,7 @@ class RequestTypes
     public const VERIFICACION_PAGOS = 'verificacion-pagos';
     public const ACTUALIZAR_DATOS_PERSONALES = 'actualizar-datos-personales';
     public const INCAPACIDADES_LICENCIAS = 'incapacidades-licencias';
-    public const SOLICITUD_MICROCREDITO = 'solicitud-microcredito';
+    public const SOLICITUD_MICROCREDITO = 'microcredito';
     public const SOLICITUD_RETIRO_SINDICAL = 'solicitud-retiro-sindical';
 
     /**

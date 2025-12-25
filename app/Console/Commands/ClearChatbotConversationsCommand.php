@@ -13,7 +13,7 @@ class ClearChatbotConversationsCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'chatbot:clear 
+    protected $signature = 'chatbot:clear
                             {--force : Skip confirmation prompt}
                             {--backup : Create backup before clearing}
                             {--dry-run : Show what would be deleted without actually deleting}';
