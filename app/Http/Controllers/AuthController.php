@@ -156,22 +156,28 @@ class AuthController extends Controller
             ]);
         }
 
-        // Enviar email de restablecimiento usando el servicio
-        try {
-            $this->passwordResetService->sendResetLink($user);
-        } catch (\Throwable $e) {
-            Log::error('Error enviando email de restablecimiento de contraseña', [
-                'user_id' => $user->id,
-                'email' => $user->email,
-                'error' => $e->getMessage(),
-            ]);
-            // No exponemos el error al cliente por seguridad
-        }
-
-        // Siempre devolvemos el mismo mensaje por seguridad
-        return response()->json([
+        // Preparar la respuesta antes de enviar el correo
+        $response = response()->json([
             'message' => 'Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.',
         ]);
+
+        // Enviar email de restablecimiento de forma asíncrona después de enviar la respuesta HTTP
+        // Esto evita que el envío de correo bloquee la respuesta al frontend
+        $userForEmail = $user;
+        dispatch(function () use ($userForEmail) {
+            try {
+                $this->passwordResetService->sendResetLink($userForEmail);
+            } catch (\Throwable $e) {
+                Log::error('Error enviando email de restablecimiento de contraseña', [
+                    'user_id' => $userForEmail->id,
+                    'email' => $userForEmail->email,
+                    'error' => $e->getMessage(),
+                ]);
+                // No exponemos el error al cliente por seguridad
+            }
+        })->afterResponse();
+
+        return $response;
     }
 
     /**

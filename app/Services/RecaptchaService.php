@@ -84,7 +84,9 @@ class RecaptchaService
 
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
-            ])->post($this->verifyUrl, $payload);
+            ])
+            ->timeout(30)
+            ->post($this->verifyUrl, $payload);
 
             $result = $response->json();
 

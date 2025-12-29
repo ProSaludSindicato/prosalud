@@ -60,23 +60,6 @@ class RequestController extends Controller
         $requestForm->save();
         $requestForm->refresh(); // Ensure files metadata is loaded
 
-        try {
-            Mail::to($requestForm->email)
-                ->send(new RequestFormReceived($requestForm, $originalFilesForEmail));
-
-            Log::info('Correo de confirmación de solicitud enviado exitosamente', [
-                'request_id' => $requestForm->id,
-                'email' => $requestForm->email,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('Error enviando correo de confirmación de solicitud', [
-                'request_id' => $requestForm->id,
-                'email' => $requestForm->email,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-        }
-
         Log::info('Nueva solicitud procesada', [
             'request_id' => $requestForm->id,
             'request_type' => $requestForm->request_type,
@@ -102,6 +85,28 @@ class RequestController extends Controller
             'affiliate_document' => $requestForm->document_number,
             'affiliate_email' => $requestForm->email,
         ]));
+
+        // Enviar correo de confirmación de forma asíncrona después de enviar la respuesta HTTP
+        // Esto evita que el envío de correo bloquee la respuesta al frontend
+        $requestFormForEmail = $requestForm;
+        dispatch(function () use ($requestFormForEmail, $originalFilesForEmail) {
+            try {
+                Mail::to($requestFormForEmail->email)
+                    ->send(new RequestFormReceived($requestFormForEmail, $originalFilesForEmail));
+
+                Log::info('Correo de confirmación de solicitud enviado exitosamente', [
+                    'request_id' => $requestFormForEmail->id,
+                    'email' => $requestFormForEmail->email,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('Error enviando correo de confirmación de solicitud', [
+                    'request_id' => $requestFormForEmail->id,
+                    'email' => $requestFormForEmail->email,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+        })->afterResponse();
 
         $response = [
             'success' => true,

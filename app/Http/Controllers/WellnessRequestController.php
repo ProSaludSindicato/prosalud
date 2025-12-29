@@ -127,30 +127,6 @@ class WellnessRequestController extends Controller
             // Load relationships for email
             $wellnessRequest->load('requester', 'details');
 
-            // Send email notification
-            try {
-                $requester = User::find($request->input('solicitanteId'));
-                $requesterEmail = $requester ? $requester->email : null;
-
-                // Send email to requester
-                if ($requesterEmail) {
-                    Mail::to($requesterEmail)
-                        ->send(new WellnessRequestReceived($wellnessRequest));
-                }
-
-                Log::info('Wellness request email sent successfully', [
-                    'wellness_request_id' => $wellnessRequest->id,
-                    'email_requester' => $requesterEmail,
-                ]);
-            } catch (\Throwable $e) {
-                Log::error('Error sending wellness request email', [
-                    'wellness_request_id' => $wellnessRequest->id,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-                // Don't fail transaction if email fails
-            }
-
             DB::commit();
 
             Log::info('New wellness request created', [
@@ -163,11 +139,40 @@ class WellnessRequestController extends Controller
                 'status' => $wellnessRequest->status,
             ]);
 
-            return response()->json([
+            // Preparar la respuesta antes de enviar el correo
+            $response = response()->json([
                 'success' => true,
                 'message' => 'Solicitud de bienestar creada exitosamente',
                 'data' => $this->formatWellnessRequestResponse($wellnessRequest),
             ], 200);
+
+            // Enviar correo de notificación de forma asíncrona después de enviar la respuesta HTTP
+            // Esto evita que el envío de correo bloquee la respuesta al frontend
+            $requester = User::find($request->input('solicitanteId'));
+            $requesterEmail = $requester ? $requester->email : null;
+            $wellnessRequestForEmail = $wellnessRequest;
+
+            if ($requesterEmail) {
+                dispatch(function () use ($wellnessRequestForEmail, $requesterEmail) {
+                    try {
+                        Mail::to($requesterEmail)
+                            ->send(new WellnessRequestReceived($wellnessRequestForEmail));
+
+                        Log::info('Wellness request email sent successfully', [
+                            'wellness_request_id' => $wellnessRequestForEmail->id,
+                            'email_requester' => $requesterEmail,
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::error('Error sending wellness request email', [
+                            'wellness_request_id' => $wellnessRequestForEmail->id,
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString(),
+                        ]);
+                    }
+                })->afterResponse();
+            }
+
+            return $response;
         } catch (\Throwable $e) {
             DB::rollBack();
 

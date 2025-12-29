@@ -34,10 +34,11 @@ return [
     |
     | Tiempo máximo de espera para la conversión (en segundos).
     | CloudConvert puede tardar ~10-30 segundos dependiendo del tamaño del archivo.
+    | Aumentado a 120 segundos para permitir procesamiento de múltiples archivos.
     |
     */
 
-    'timeout' => env('CLOUDCONVERT_TIMEOUT', 60),
+    'timeout' => env('CLOUDCONVERT_TIMEOUT', 120),
 
     /*
     |--------------------------------------------------------------------------

@@ -196,43 +196,47 @@ class AfiliadoController extends Controller
             $otpCode = $this->otpService->generateOtp();
             $sessionId = $this->otpService->storeOtp($documento, $otpCode);
 
-            // Send OTP via email
-            try {
-                Mail::to($afiliadoData['correo'])->send(
-                    new AfiliadoOtpCode($otpCode, $afiliadoData['nombre'])
-                );
+            // Obfuscate email for frontend display
+            $obfuscatedEmail = $this->obfuscateEmail($afiliadoData['correo']);
 
-                Log::info('Código OTP enviado exitosamente', LogSanitizationService::sanitize([
-                    'documento' => $documento,
-                    'correo' => $afiliadoData['correo'],
-                    'session_id' => $sessionId,
-                    'ip_address' => $request->ip(),
-                    'timestamp' => now()->toISOString(),
-                ]));
+            // Preparar la respuesta antes de enviar el correo
+            $response = response()->json([
+                'success' => true,
+                'message' => 'Código de verificación enviado exitosamente a tu correo electrónico',
+                'session_id' => $sessionId,
+                'email_obfuscated' => $obfuscatedEmail,
+            ]);
 
-                // Obfuscate email for frontend display
-                $obfuscatedEmail = $this->obfuscateEmail($afiliadoData['correo']);
+            // Enviar OTP por correo de forma asíncrona después de enviar la respuesta HTTP
+            // Esto evita que el envío de correo bloquee la respuesta al frontend
+            $otpCodeForEmail = $otpCode;
+            $afiliadoDataForEmail = $afiliadoData;
+            $requestIp = $request->ip();
+            dispatch(function () use ($otpCodeForEmail, $afiliadoDataForEmail, $sessionId, $requestIp) {
+                try {
+                    Mail::to($afiliadoDataForEmail['correo'])->send(
+                        new AfiliadoOtpCode($otpCodeForEmail, $afiliadoDataForEmail['nombre'])
+                    );
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Código de verificación enviado exitosamente a tu correo electrónico',
-                    'session_id' => $sessionId,
-                    'email_obfuscated' => $obfuscatedEmail,
-                ]);
-            } catch (\Exception $e) {
-                Log::error('Error al enviar código OTP por correo', LogSanitizationService::sanitize([
-                    'error' => $e->getMessage(),
-                    'documento' => $documento,
-                    'correo' => $afiliadoData['correo'],
-                    'trace' => $e->getTraceAsString(),
-                    'timestamp' => now()->toISOString(),
-                ]));
+                    Log::info('Código OTP enviado exitosamente', LogSanitizationService::sanitize([
+                        'documento' => $afiliadoDataForEmail['documento'] ?? 'N/A',
+                        'correo' => $afiliadoDataForEmail['correo'],
+                        'session_id' => $sessionId,
+                        'ip_address' => $requestIp,
+                        'timestamp' => now()->toISOString(),
+                    ]));
+                } catch (\Exception $e) {
+                    Log::error('Error al enviar código OTP por correo', LogSanitizationService::sanitize([
+                        'error' => $e->getMessage(),
+                        'documento' => $afiliadoDataForEmail['documento'] ?? 'N/A',
+                        'correo' => $afiliadoDataForEmail['correo'],
+                        'trace' => $e->getTraceAsString(),
+                        'timestamp' => now()->toISOString(),
+                    ]));
+                }
+            })->afterResponse();
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Error al enviar el código de verificación. Por favor, intenta nuevamente más tarde.',
-                ], 500);
-            }
+            return $response;
         } catch (\Exception $e) {
             Log::error('Error inesperado en solicitud de OTP', LogSanitizationService::sanitize([
                 'error' => $e->getMessage(),

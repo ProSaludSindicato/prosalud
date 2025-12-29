@@ -125,9 +125,6 @@ class UserController extends Controller
 
         $user->assignRole($role);
 
-        // Enviar invitación para que el usuario defina su contraseña y active su cuenta.
-        $this->userInvitationService->sendInvitation($user);
-
         Log::info('Usuario creado exitosamente', [
             'user_id' => $user->id,
             'name' => $user->name,
@@ -144,7 +141,8 @@ class UserController extends Controller
             'assigned_role' => $role,
         ]));
 
-        return response()->json([
+        // Preparar la respuesta antes de enviar el correo
+        $response = response()->json([
             'success' => true,
             'message' => 'Usuario creado exitosamente',
             'data' => [
@@ -156,6 +154,14 @@ class UserController extends Controller
                 'created_at' => $user->created_at,
             ],
         ], 201);
+
+        // Enviar invitación de forma asíncrona después de enviar la respuesta HTTP
+        // Esto evita que el envío de correo bloquee la respuesta al frontend
+        dispatch(function () use ($user) {
+            $this->userInvitationService->sendInvitation($user);
+        })->afterResponse();
+
+        return $response;
     }
 
     /**
