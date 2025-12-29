@@ -15,13 +15,23 @@ class AuthenticateWithApiToken
      */
     public function handle(Request $request, \Closure $next)
     {
-        $token = $request->bearerToken();
+        // Obtener el token de la cookie HttpOnly
+        $token = $request->cookie('prosalud_auth_token');
 
+        // Logging para diagnóstico
         if (!$token) {
+            Log::debug('[API TOKEN AUTH] Cookie no encontrada', [
+                'ip' => $request->ip(),
+                'path' => $request->path(),
+                'method' => $request->method(),
+                'all_cookies' => $request->cookies->all(),
+                'has_cookie_header' => $request->headers->has('Cookie'),
+                'cookie_header' => $request->headers->get('Cookie'),
+            ]);
+            
             return $this->unauthorizedResponse('Token no proporcionado', [
                 'ip' => $request->ip(),
                 'path' => $request->path(),
-                'headers' => $request->headers->all(),
             ]);
         }
 

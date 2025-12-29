@@ -25,7 +25,8 @@ return [
 
     'max_age' => 86400, // 24 hours
 
-    // Supports credentials must be false when using wildcard origins
-    // Set to false by default (change to true if cookies/sessions are needed)
-    'supports_credentials' => false,
+    // Supports credentials must be true to allow cookies (HttpOnly tokens)
+    // IMPORTANT: When supports_credentials is true, allowed_origins cannot contain '*'
+    // Must specify exact origins in CORS_ALLOWED_ORIGINS environment variable
+    'supports_credentials' => true,
 ];
