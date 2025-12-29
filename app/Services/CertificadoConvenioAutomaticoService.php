@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Constants\{RequestStatuses, RequestTypes};
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Mail\{RequestFormReceived, RequestFormResponse};
-use App\Models\{RequestForm, RequestResponse};
+use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment};
 use Carbon\Carbon;
 use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
 use Illuminate\Http\UploadedFile;
@@ -534,19 +534,56 @@ class CertificadoConvenioAutomaticoService
             }
             $requestForm->save();
 
+            // Get authenticated user for traceability (if available)
+            $user = auth()->user();
+            $userId = $user ? $user->id : null;
+
             // Crear registro de respuesta para trazabilidad
-            RequestResponse::create([
+            $requestResponse = RequestResponse::create([
                 'request_form_id' => $requestForm->id,
+                'responded_by' => $userId,
                 'status' => $finalStatus,
                 'email_subject' => $finalEmailSubject,
                 'email_body' => $finalEmailBody,
                 'created_at' => now(),
             ]);
 
+            // Store certificate as attachment for traceability
+            // The certificate is already stored in request_forms.files, but we also store it as a response attachment
+            $files = $requestForm->files ?? [];
+            $certificadoMetadata = $files['certificado_convenio'] ?? null;
+            
+            if ($certificadoMetadata && isset($certificadoMetadata['path'])) {
+                try {
+                    RequestResponseAttachment::create([
+                        'request_response_id' => $requestResponse->id,
+                        'path' => $certificadoMetadata['path'],
+                        'original_name' => $certificadoMetadata['original_name'] ?? $nombreArchivoAdjunto,
+                        'created_at' => now(),
+                    ]);
+
+                    Log::info('Certificado guardado como attachment de respuesta', [
+                        'response_id' => $requestResponse->id,
+                        'certificate_path' => $certificadoMetadata['path'],
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Error guardando certificado como attachment de respuesta', [
+                        'response_id' => $requestResponse->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                    // Don't fail the entire operation if attachment storage fails
+                }
+            }
+
+            // Log with user information for easy searching
             Log::info('Respuesta automática creada y solicitud cerrada', [
                 'request_id' => $requestForm->id,
                 'status' => RequestStatuses::COMPLETED,
+                'user_id' => $userId,
+                'user_email' => $user ? $user->email : null,
+                'user_name' => $user ? $user->name : null,
             ]);
+
         } catch (\Throwable $e) {
             Log::error('Error enviando correo de respuesta automática', [
                 'request_id' => $requestForm->id,

@@ -398,6 +398,25 @@ class RequestForm extends Model
     }
 
     /**
+     * Get the latest response for this request form.
+     */
+    public function latestResponse()
+    {
+        return $this->hasOne(RequestResponse::class, 'request_form_id', 'id')
+                    ->latest('created_at');
+    }
+
+    /**
+     * Get the user who last responded to this request.
+     * This is a helper method that returns the responder from the latest response.
+     */
+    public function getLastResponderAttribute()
+    {
+        $latestResponse = $this->latestResponse;
+        return $latestResponse ? $latestResponse->responder : null;
+    }
+
+    /**
      * Get the user who validated this request.
      */
     public function validator(): BelongsTo

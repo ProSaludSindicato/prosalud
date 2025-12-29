@@ -144,6 +144,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::post('/requests/{request}/respond-with-compensaciones', [RequestController::class, 'respondWithCompensaciones'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/respond-with-compensaciones', [RequestController::class, 'respondWithCompensaciones'])->middleware('permission:requests.respond');
     Route::get('/requests/{request}/files/{fileKey}', [RequestController::class, 'downloadFile'])->middleware('permission:requests.view');
+    Route::get('/requests/responses/{response}/attachments/{attachment}', [RequestController::class, 'downloadResponseAttachment'])->middleware('permission:requests.view');
     Route::post('/requests/export/excel', [RequestController::class, 'exportExcel'])->middleware('permission:requests.view');
 
     // Votes admin reporting routes

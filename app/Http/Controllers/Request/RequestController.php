@@ -7,7 +7,7 @@ use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest};
 use App\Mail\{RequestFormReceived, RequestFormResponse};
-use App\Models\{RequestForm, RequestResponse, RequestSubtypeAssignment, RequestTypeAssignment};
+use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestSubtypeAssignment, RequestTypeAssignment};
 use App\Services\{AuditLogService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
 use App\Services\CertificadoConvenioService;
 use App\Http\Requests\ExportRequestsExcelRequest;
@@ -393,8 +393,8 @@ class RequestController extends Controller
         // Order by created_at desc by default
         $query->orderBy('created_at', 'desc');
 
-        // Eager load responses for better performance
-        $requests = $query->with('responses')->get();
+        // Eager load responses with attachments and responder for better performance
+        $requests = $query->with('responses.attachments', 'responses.responder')->get();
 
         Log::info('Lista de solicitudes consultada', [
             'total_requests' => $requests->count(),
@@ -431,14 +431,45 @@ class RequestController extends Controller
                     'validated_at' => $request->validated_at?->toIso8601String(),
                     'validated_by' => $request->validator?->email,
                     'responses' => $request->responses->map(function ($response) {
-                        return [
-                            'id' => $response->id,
-                            'status' => $response->status,
-                            'email_subject' => $response->email_subject,
-                            'email_body' => $response->email_body,
-                            'created_at' => $response->created_at,
-                        ];
-                    }),
+                        $attachments = $response->relationLoaded('attachments') 
+                            ? $response->attachments 
+                            : $response->attachments()->get();
+                        
+                        // Load responder if not already loaded
+                        $responder = $response->relationLoaded('responder') 
+                            ? $response->responder 
+                            : $response->responder;
+                        
+                    // Handle created_at - cast should convert it to Carbon, but handle both cases defensively
+                    $responseCreatedAt = $response->created_at;
+                    if ($responseCreatedAt instanceof \DateTime || $responseCreatedAt instanceof \Carbon\Carbon) {
+                        $responseCreatedAt = $responseCreatedAt->toIso8601String();
+                    } elseif (is_string($responseCreatedAt) && !empty($responseCreatedAt)) {
+                        // If it's still a string, try to parse and format it
+                        try {
+                            $responseCreatedAt = \Carbon\Carbon::parse($responseCreatedAt)->toIso8601String();
+                        } catch (\Exception $e) {
+                            $responseCreatedAt = $responseCreatedAt; // Keep as is if parsing fails
+                        }
+                    } else {
+                        $responseCreatedAt = null;
+                    }
+
+                    return [
+                        'id' => $response->id,
+                        'status' => $response->status,
+                        'email_subject' => $response->email_subject,
+                        'email_body' => $response->email_body,
+                        'created_at' => $responseCreatedAt,
+                        'responded_by' => $responder ? [
+                            'id' => $responder->id,
+                            'name' => $responder->name,
+                            'email' => $responder->email,
+                        ] : null,
+                        'attachments' => $this->formatResponseAttachments($attachments, $response->id),
+                        'attachments_count' => $attachments->count(),
+                    ];
+                }),
                     'responses_count' => $request->responses->count(),
                     'files' => $this->formatFilesMetadata($request->files, $request->id),
                     'files_count' => is_array($request->files) ? count($request->files) : 0,
@@ -455,8 +486,8 @@ class RequestController extends Controller
      */
     public function show(RequestForm $request): JsonResponse
     {
-        // Load responses and validator relationships
-        $request->load('responses', 'validator');
+        // Load responses with attachments, responder and validator relationships
+        $request->load('responses.attachments', 'responses.responder', 'validator');
 
         Log::info('Solicitud consultada', [
             'request_id' => $request->id,
@@ -498,12 +529,43 @@ class RequestController extends Controller
                 'validated_at' => $request->validated_at?->toIso8601String(),
                 'validated_by' => $request->validator?->email,
                 'responses' => $request->responses->map(function ($response) {
+                    $attachments = $response->relationLoaded('attachments') 
+                        ? $response->attachments 
+                        : $response->attachments()->get();
+                    
+                    // Load responder if not already loaded
+                    $responder = $response->relationLoaded('responder') 
+                        ? $response->responder 
+                        : $response->responder;
+                    
+                    // Handle created_at - cast should convert it to Carbon, but handle both cases defensively
+                    $responseCreatedAt = $response->created_at;
+                    if ($responseCreatedAt instanceof \DateTime || $responseCreatedAt instanceof \Carbon\Carbon) {
+                        $responseCreatedAt = $responseCreatedAt->toIso8601String();
+                    } elseif (is_string($responseCreatedAt) && !empty($responseCreatedAt)) {
+                        // If it's still a string, try to parse and format it
+                        try {
+                            $responseCreatedAt = \Carbon\Carbon::parse($responseCreatedAt)->toIso8601String();
+                        } catch (\Exception $e) {
+                            $responseCreatedAt = $responseCreatedAt; // Keep as is if parsing fails
+                        }
+                    } else {
+                        $responseCreatedAt = null;
+                    }
+
                     return [
                         'id' => $response->id,
                         'status' => $response->status,
                         'email_subject' => $response->email_subject,
                         'email_body' => $response->email_body,
-                        'created_at' => $response->created_at,
+                        'created_at' => $responseCreatedAt,
+                        'responded_by' => $responder ? [
+                            'id' => $responder->id,
+                            'name' => $responder->name,
+                            'email' => $responder->email,
+                        ] : null,
+                        'attachments' => $this->formatResponseAttachments($attachments, $response->id),
+                        'attachments_count' => $attachments->count(),
                     ];
                 }),
                 'responses_count' => $request->responses->count(),
@@ -535,7 +597,7 @@ class RequestController extends Controller
         $request->save();
 
         // Load relationships for response
-        $request->load('validator', 'responses');
+        $request->load('validator', 'responses.attachments');
 
         Log::info('Solicitud validada', [
             'request_id' => $request->id,
@@ -1232,9 +1294,16 @@ class RequestController extends Controller
             }
         }
 
+        // Get authenticated user for logging
+        $user = auth()->user();
+        $userId = $user ? $user->id : null;
+
         Log::info('Iniciando proceso de respuesta a solicitud', [
             'request_id' => $requestFormId,
             'request_type' => $requestForm->request_type,
+            'user_id' => $userId,
+            'user_email' => $user ? $user->email : null,
+            'user_name' => $user ? $user->name : null,
             'old_status' => $oldStatus,
             'new_status' => $status,
             'email_original' => $requestForm->email,
@@ -1321,19 +1390,67 @@ class RequestController extends Controller
         $requestForm->update($updateData);
         $requestForm->refresh(); // Refresh to ensure we have the latest data
 
+        // Get authenticated user for traceability
+        $user = auth()->user();
+        $userId = $user ? $user->id : null;
+
         // Store the response for traceability (only after email is sent successfully)
         $requestResponse = RequestResponse::create([
             'request_form_id' => $requestFormId,
+            'responded_by' => $userId,
             'status' => $status,
             'email_subject' => $emailSubject,
             'email_body' => $emailBody,
             'created_at' => now(),
         ]);
 
+        // Store attachments if any (for traceability and audit)
+        if (!empty($attachments)) {
+            $this->storeResponseAttachments($requestResponse, $attachments);
+        }
+
+        // Also store certificates that were generated and saved to request_forms.files
+        // These are already in storage, so we create attachment records pointing to them
+        $files = $requestForm->files ?? [];
+        $certificateKeys = ['certificado_convenio', 'certificado_convenio_actividades', 'certificado_convenio_afp'];
+
+        foreach ($certificateKeys as $key) {
+            if (isset($files[$key]) && is_array($files[$key])) {
+                $certMetadata = $files[$key];
+                if (isset($certMetadata['path'])) {
+                    try {
+                        RequestResponseAttachment::create([
+                            'request_response_id' => $requestResponse->id,
+                            'path' => $certMetadata['path'],
+                            'original_name' => $certMetadata['original_name'] ?? $certMetadata['original_key'] ?? $key,
+                            'created_at' => now(),
+                        ]);
+
+                        Log::info('Certificado guardado como attachment de respuesta', [
+                            'response_id' => $requestResponse->id,
+                            'certificate_key' => $key,
+                            'certificate_path' => $certMetadata['path'],
+                        ]);
+                    } catch (\Exception $e) {
+                        Log::error('Error guardando certificado como attachment de respuesta', [
+                            'response_id' => $requestResponse->id,
+                            'certificate_key' => $key,
+                            'error' => $e->getMessage(),
+                        ]);
+                        // Don't fail the entire operation if attachment storage fails
+                    }
+                }
+            }
+        }
+
+        // Log with user information for easy searching
         Log::info('Respuesta de solicitud procesada exitosamente', [
             'request_id' => $requestFormId,
             'response_id' => $requestResponse->id,
             'request_type' => $requestForm->request_type,
+            'user_id' => $userId,
+            'user_email' => $user ? $user->email : null,
+            'user_name' => $user ? $user->name : null,
             'affiliate_info' => [
                 'document_type' => $requestForm->document_type,
                 'document_number' => $requestForm->document_number,
@@ -1350,6 +1467,9 @@ class RequestController extends Controller
             'request_id' => $requestForm->id,
             'response_id' => $requestResponse->id,
             'request_type' => $requestForm->request_type,
+            'responded_by_user_id' => $userId,
+            'responded_by_user_email' => $user ? $user->email : null,
+            'responded_by_user_name' => $user ? $user->name : null,
             'old_status' => $oldStatus,
             'new_status' => $status,
             'affiliate_document' => $requestForm->document_number,
@@ -1486,9 +1606,16 @@ class RequestController extends Controller
         // Calculate T. Ingresos as the sum of T. Basicos and T. Auxilios
         $tIngresos = $tBasicos + $tAuxilios;
 
+        // Get authenticated user for logging
+        $user = auth()->user();
+        $userId = $user ? $user->id : null;
+
         Log::info('Iniciando proceso de respuesta con compensaciones manuales', [
             'request_id' => $requestId,
             'request_type' => $requestForm->request_type,
+            'user_id' => $userId,
+            'user_email' => $user ? $user->email : null,
+            'user_name' => $user ? $user->name : null,
             'old_status' => $requestForm->status,
             'new_status' => $status,
             't_basicos' => $tBasicos,
@@ -1909,6 +2036,85 @@ class RequestController extends Controller
     }
 
     /**
+     * Store attachments for a request response.
+     * This method saves uploaded files to storage and creates database records for traceability.
+     *
+     * @param RequestResponse $requestResponse The response to attach files to
+     * @param array $attachments Array of UploadedFile instances
+     */
+    private function storeResponseAttachments(RequestResponse $requestResponse, array $attachments): void
+    {
+        $disk = 'prosalud-private';
+        $fallbackDisk = 'local';
+
+        foreach ($attachments as $attachment) {
+            if (!($attachment instanceof \Illuminate\Http\UploadedFile) || !$attachment->isValid()) {
+                continue;
+            }
+
+            try {
+                // Generate a descriptive filename
+                $extension = $attachment->getClientOriginalExtension() 
+                    ?: $this->getExtensionFromMimeType($attachment->getMimeType());
+                $originalName = $attachment->getClientOriginalName();
+                
+                // Generate unique filename for storage
+                $uniqueId = substr(Str::uuid()->toString(), 0, 8);
+                $filename = "response-attachment-{$requestResponse->id}-{$uniqueId}.{$extension}";
+                $storagePath = 'request-responses/' . date('Y/m') . '/' . $filename;
+
+                // Store file
+                $storedPath = Storage::disk($disk)->putFileAs(
+                    'request-responses/' . date('Y/m'),
+                    $attachment,
+                    $filename
+                );
+
+                if (false === $storedPath) {
+                    Log::warning('Failed to store response attachment in private bucket, trying fallback', [
+                        'response_id' => $requestResponse->id,
+                        'original_name' => $originalName,
+                    ]);
+                    $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                        'request-responses/' . date('Y/m'),
+                        $attachment,
+                        $filename
+                    );
+                    if (false === $storedPath) {
+                        Log::error('Failed to store response attachment in fallback disk', [
+                            'response_id' => $requestResponse->id,
+                            'original_name' => $originalName,
+                        ]);
+                        continue;
+                    }
+                }
+
+                // Create database record
+                RequestResponseAttachment::create([
+                    'request_response_id' => $requestResponse->id,
+                    'path' => $storedPath,
+                    'original_name' => $originalName,
+                    'created_at' => now(),
+                ]);
+
+                Log::info('Response attachment stored successfully', [
+                    'response_id' => $requestResponse->id,
+                    'original_name' => $originalName,
+                    'storage_path' => $storedPath,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error storing response attachment', [
+                    'response_id' => $requestResponse->id,
+                    'original_name' => $attachment->getClientOriginalName() ?? 'unknown',
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                // Continue with next attachment instead of failing entire operation
+            }
+        }
+    }
+
+    /**
      * Generate a simple but descriptive filename for base64 encoded files
      * Format: [Key]-[UniqueId].[ext].
      */
@@ -2013,6 +2219,127 @@ class RequestController extends Controller
         }
 
         return $formatted;
+    }
+
+    /**
+     * Format response attachments with temporary URLs for private bucket files.
+     *
+     * @param \Illuminate\Database\Eloquent\Collection|null $attachments
+     * @param int $responseId
+     * @return array
+     */
+    private function formatResponseAttachments($attachments, int $responseId): array
+    {
+        if (!$attachments || $attachments->isEmpty()) {
+            return [];
+        }
+
+        $formatted = [];
+        foreach ($attachments as $attachment) {
+            $downloadUrl = null;
+            $urlExpiresAt = null;
+
+            try {
+                // Generate temporary URL for private bucket files (valid for 1 hour)
+                $storage = Storage::disk('prosalud-private');
+                $downloadUrl = $storage->temporaryUrl($attachment->path, now()->addHours(1));
+                $urlExpiresAt = now()->addHours(1)->toIso8601String();
+            } catch (\Exception $e) {
+                // Fallback to download endpoint if temporary URL fails
+                Log::warning('Failed to generate temporary URL for response attachment', [
+                    'attachment_id' => $attachment->id,
+                    'response_id' => $responseId,
+                    'path' => $attachment->path,
+                    'error' => $e->getMessage(),
+                ]);
+                $downloadUrl = url("/api/requests/responses/{$responseId}/attachments/{$attachment->id}");
+            }
+
+            // Handle created_at - it might be a string or DateTime object
+            $createdAt = $attachment->created_at;
+            if ($createdAt instanceof \DateTime || $createdAt instanceof \Carbon\Carbon) {
+                $createdAt = $createdAt->toIso8601String();
+            } elseif (is_string($createdAt)) {
+                // If it's already a string, try to format it
+                try {
+                    $createdAt = \Carbon\Carbon::parse($createdAt)->toIso8601String();
+                } catch (\Exception $e) {
+                    $createdAt = $createdAt; // Keep as is if parsing fails
+                }
+            } else {
+                $createdAt = null;
+            }
+
+            $formatted[] = [
+                'id' => $attachment->id,
+                'original_name' => $attachment->original_name,
+                'download_url' => $downloadUrl,
+                'url_expires_at' => $urlExpiresAt,
+                'created_at' => $createdAt,
+            ];
+        }
+
+        return $formatted;
+    }
+
+    /**
+     * Download a response attachment file.
+     */
+    public function downloadResponseAttachment(int $responseId, int $attachmentId): \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
+    {
+        $attachment = RequestResponseAttachment::where('request_response_id', $responseId)
+            ->where('id', $attachmentId)
+            ->first();
+
+        if (!$attachment) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anexo no encontrado',
+            ], 404);
+        }
+
+        $disk = 'prosalud-private';
+        $path = $attachment->path;
+
+        if (!Storage::disk($disk)->exists($path)) {
+            // Try fallback disk
+            $disk = 'local';
+            if (!Storage::disk($disk)->exists($path)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Archivo no existe en el almacenamiento',
+                ], 404);
+            }
+        }
+
+        try {
+            $fileContent = Storage::disk($disk)->get($path);
+            $mimeType = Storage::disk($disk)->mimeType($path) ?? 'application/octet-stream';
+
+            Log::info('Anexo de respuesta descargado', [
+                'response_id' => $responseId,
+                'attachment_id' => $attachmentId,
+                'path' => $path,
+                'disk' => $disk,
+            ]);
+
+            return response()->streamDownload(function () use ($fileContent) {
+                echo $fileContent;
+            }, $attachment->original_name, [
+                'Content-Type' => $mimeType,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al descargar anexo de respuesta', [
+                'response_id' => $responseId,
+                'attachment_id' => $attachmentId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al descargar el archivo',
+            ], 500);
+        }
     }
 
     /**
