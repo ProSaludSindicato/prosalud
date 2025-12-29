@@ -165,9 +165,11 @@
                                 }
                             } else {
                                 // Para otros tipos de solicitud, usar las claves preferidas originales
-                                // Nota: 'proceso' y 'dondeRealizaProceso' se excluyen porque son obtenidos automáticamente por el sistema
+                                // Nota: 'proceso', 'dondeRealizaProceso' y 'sedeProceso' se excluyen porque no son públicos para los afiliados
                                 $preferredKeys = [
                                     'motivoSolicitud',
+                                    'montoSolicitado',
+                                    'numeroCuotas',
                                     'dirigidoAQuien', 'tipoVehiculo', 'placaVehiculo',
                                     'infoCertificado', 'otrosDescripcion'
                                 ];
@@ -177,8 +179,8 @@
                                     }
                                 }
                                 if (empty($payloadSummary)) {
-                                    // fallback: take first 5 entries, excluyendo campos obtenidos automáticamente por el sistema
-                                    $excludedKeys = ['proceso', 'dondeRealizaProceso'];
+                                    // fallback: take first 5 entries, excluyendo campos obtenidos automáticamente por el sistema y campos no públicos
+                                    $excludedKeys = ['proceso', 'dondeRealizaProceso', 'sedeProceso'];
                                     $filteredPayload = array_filter($payload, function($key) use ($excludedKeys) {
                                         return !in_array($key, $excludedKeys);
                                     }, ARRAY_FILTER_USE_KEY);

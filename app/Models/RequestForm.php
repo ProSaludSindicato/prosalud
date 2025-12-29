@@ -252,6 +252,11 @@ class RequestForm extends Model
      */
     public function formatPayloadValue(string $key, $value): string
     {
+        // Special handling for montoSolicitado - format as COP currency
+        if ('montoSolicitado' === $key && is_numeric($value)) {
+            return $this->formatCurrencyCOP($value);
+        }
+
         // Special handling for certificado info
         if ('infoCertificado' === $key) {
             // Parse JSON string if needed
@@ -357,6 +362,8 @@ class RequestForm extends Model
             'eps' => 'EPS',
             'afp' => 'AFP',
             'beneficiariosNuevos' => 'Beneficiarios nuevos',
+            'montoSolicitado' => 'Monto Solicitado',
+            'numeroCuotas' => 'Número de Cuotas',
         ];
 
         if (isset($specialCases[$field])) {
@@ -636,6 +643,19 @@ class RequestForm extends Model
         }
 
         return (string) $value;
+    }
+
+    /**
+     * Format a numeric value as COP currency without decimals.
+     */
+    private function formatCurrencyCOP($amount): string
+    {
+        if (!is_numeric($amount)) {
+            return (string) $amount;
+        }
+
+        // Format as COP currency without decimals: $1.234.567
+        return '$' . number_format((float)$amount, 0, ',', '.');
     }
 
     /**

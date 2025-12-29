@@ -398,8 +398,14 @@ class CertificadoConvenioAutomaticoService
     private function enviarCorreoConfirmacion(RequestForm $requestForm): void
     {
         try {
-            Mail::to($requestForm->email)
-                ->send(new RequestFormReceived($requestForm, []));
+            $mail = Mail::to($requestForm->email);
+            
+            // Agregar CC para solicitudes de microcrédito
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+                $mail->cc('ceiisas@hotmail.com');
+            }
+            
+            $mail->send(new RequestFormReceived($requestForm, []));
 
             Log::info('Correo de confirmación enviado para solicitud automática', [
                 'request_id' => $requestForm->id,
@@ -496,14 +502,20 @@ class CertificadoConvenioAutomaticoService
         $archivoTemporal = $this->crearArchivoTemporalParaCorreo($rutaPdf, $nombreArchivoAdjunto);
 
         try {
-            Mail::to($requestForm->email)
-                ->send(new RequestFormResponse(
-                    $requestForm,
-                    $finalEmailSubject,
-                    $finalEmailBody,
-                    $finalStatus,
-                    [$archivoTemporal]
-                ));
+            $mail = Mail::to($requestForm->email);
+            
+            // Agregar CC para solicitudes de microcrédito
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+                $mail->cc('ceiisas@hotmail.com');
+            }
+            
+            $mail->send(new RequestFormResponse(
+                $requestForm,
+                $finalEmailSubject,
+                $finalEmailBody,
+                $finalStatus,
+                [$archivoTemporal]
+            ));
 
             Log::info('Correo de respuesta automática enviado con certificado', [
                 'request_id' => $requestForm->id,

@@ -91,8 +91,14 @@ class RequestController extends Controller
         $requestFormForEmail = $requestForm;
         dispatch(function () use ($requestFormForEmail, $originalFilesForEmail) {
             try {
-                Mail::to($requestFormForEmail->email)
-                    ->send(new RequestFormReceived($requestFormForEmail, $originalFilesForEmail));
+                $mail = Mail::to($requestFormForEmail->email);
+                
+                // Agregar CC para solicitudes de microcrédito
+                if ($requestFormForEmail->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+                    $mail->cc('ceiisas@hotmail.com');
+                }
+                
+                $mail->send(new RequestFormReceived($requestFormForEmail, $originalFilesForEmail));
 
                 Log::info('Correo de confirmación de solicitud enviado exitosamente', [
                     'request_id' => $requestFormForEmail->id,
@@ -1252,14 +1258,20 @@ class RequestController extends Controller
                 'attachments_count' => count($attachments),
             ]);
 
-            Mail::to($recipientEmail)
-                ->send(new RequestFormResponse(
-                    $requestForm,
-                    $emailSubject,
-                    $emailBody,
-                    $status,
-                    $attachments // This parameter is renamed to $uploadedFiles in RequestFormResponse constructor
-                ));
+            $mail = Mail::to($recipientEmail);
+            
+            // Agregar CC para solicitudes de microcrédito
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+                $mail->cc('ceiisas@hotmail.com');
+            }
+            
+            $mail->send(new RequestFormResponse(
+                $requestForm,
+                $emailSubject,
+                $emailBody,
+                $status,
+                $attachments // This parameter is renamed to $uploadedFiles in RequestFormResponse constructor
+            ));
 
             Log::info('Correo de respuesta enviado exitosamente', [
                 'request_id' => $requestFormId,
