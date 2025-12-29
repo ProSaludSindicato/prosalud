@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\ApiToken;
+use App\Services\LogSanitizationService;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Auth, Cache, Log};
 
@@ -20,57 +21,83 @@ class AuthenticateWithApiToken
 
         // Logging para diagnóstico
         if (!$token) {
-            Log::debug('[API TOKEN AUTH] Cookie no encontrada', [
-                'ip' => $request->ip(),
-                'path' => $request->path(),
-                'method' => $request->method(),
-                'all_cookies' => $request->cookies->all(),
-                'has_cookie_header' => $request->headers->has('Cookie'),
-                'cookie_header' => $request->headers->get('Cookie'),
-            ]);
+            $cookieNames = array_keys($request->cookies->all());
+            $hasCookieHeader = $request->headers->has('Cookie');
+            $cookieCount = count($request->cookies->all());
             
-            return $this->unauthorizedResponse('Token no proporcionado', [
-                'ip' => $request->ip(),
+            Log::warning('[API TOKEN AUTH] Cookie de autenticación no encontrada', LogSanitizationService::sanitize([
+                'reason' => 'Cookie prosalud_auth_token ausente en la petición',
+                'ip_address' => $request->ip(),
+                'ip_forwarded' => $request->header('X-Forwarded-For'),
                 'path' => $request->path(),
+                'full_url' => $request->fullUrl(),
+                'method' => $request->method(),
+                'user_agent' => $request->userAgent(),
+                'referer' => $request->header('Referer'),
+                'origin' => $request->header('Origin'),
+                'cookie_count' => $cookieCount,
+                'cookie_names_present' => $cookieNames,
+                'has_cookie_header' => $hasCookieHeader,
+                'accept_header' => $request->header('Accept'),
+                'content_type' => $request->header('Content-Type'),
+                'timestamp' => now()->toISOString(),
+            ]));
+            
+            return $this->unauthorizedResponse('Cookie de autenticación no encontrada', $request, [
+                'cookie_count' => $cookieCount,
+                'has_cookie_header' => $hasCookieHeader,
+                'cookie_names_present' => $cookieNames,
             ]);
         }
 
         $hashedToken = hash('sha256', $token);
+        $tokenLength = strlen($token);
+        $tokenHash = substr($hashedToken, 0, 12);
 
         $apiToken = ApiToken::with('user.roles', 'user.permissions')
             ->where('token', $hashedToken)
             ->first();
 
         if (!$apiToken) {
-            return $this->unauthorizedResponse('Token no encontrado', [
-                'hashed_token' => $hashedToken,
-                'ip' => $request->ip(),
-                'path' => $request->path(),
+            return $this->unauthorizedResponse('Token inválido o no encontrado en la base de datos', $request, [
+                'token_length' => $tokenLength,
+                'token_hash_preview' => $tokenHash,
+                'token_created_at' => null,
+                'token_expires_at' => null,
             ]);
         }
 
         if (!$apiToken->user) {
-            return $this->unauthorizedResponse('Token sin usuario asociado', [
+            return $this->unauthorizedResponse('Token sin usuario asociado', $request, [
                 'token_id' => $apiToken->id,
-                'hashed_token' => $hashedToken,
+                'token_hash_preview' => $tokenHash,
+                'token_created_at' => $apiToken->created_at?->toISOString(),
+                'token_expires_at' => $apiToken->expires_at?->toISOString(),
             ]);
         }
 
         if ($apiToken->isExpired()) {
+            $expiredAt = $apiToken->expires_at?->toISOString();
+            $expiredMinutesAgo = $apiToken->expires_at ? abs(now()->diffInMinutes($apiToken->expires_at, false)) : null;
             $apiToken->delete();
 
-            return $this->unauthorizedResponse('Token expirado', [
+            return $this->unauthorizedResponse('Token expirado', $request, [
                 'token_id' => $apiToken->id,
                 'user_id' => $apiToken->user_id,
+                'user_email' => $apiToken->user->email,
+                'token_expired_at' => $expiredAt,
+                'expired_minutes_ago' => $expiredMinutesAgo,
             ]);
         }
 
         if (false === $apiToken->user->is_active) {
             $apiToken->delete();
 
-            return $this->unauthorizedResponse('Usuario inactivo', [
+            return $this->unauthorizedResponse('Usuario inactivo', $request, [
                 'token_id' => $apiToken->id,
                 'user_id' => $apiToken->user_id,
+                'user_email' => $apiToken->user->email,
+                'user_is_active' => $apiToken->user->is_active,
             ]);
         }
 
@@ -127,11 +154,24 @@ class AuthenticateWithApiToken
         return $next($request);
     }
 
-    private function unauthorizedResponse(string $message, array $context = []): JsonResponse
+    private function unauthorizedResponse(string $message, Request $request, array $additionalContext = []): JsonResponse
     {
-        Log::warning('[API TOKEN AUTH] acceso no autorizado', array_merge($context, [
-            'message' => $message,
-        ]));
+        $context = LogSanitizationService::sanitize(array_merge([
+            'reason' => $message,
+            'ip_address' => $request->ip(),
+            'ip_forwarded' => $request->header('X-Forwarded-For'),
+            'path' => $request->path(),
+            'full_url' => $request->fullUrl(),
+            'method' => $request->method(),
+            'user_agent' => $request->userAgent(),
+            'referer' => $request->header('Referer'),
+            'origin' => $request->header('Origin'),
+            'accept_header' => $request->header('Accept'),
+            'content_type' => $request->header('Content-Type'),
+            'timestamp' => now()->toISOString(),
+        ], $additionalContext));
+
+        Log::warning('[API TOKEN AUTH] Acceso no autorizado', $context);
 
         return response()->json([
             'message' => 'No autorizado',

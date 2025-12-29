@@ -4,12 +4,17 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\AuditLogService;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\{Permission, Role};
 
 class RoleController extends Controller
 {
+    public function __construct(
+        private AuditLogService $auditLogService,
+    ) {
+    }
     /**
      * Display a listing of roles with their permissions.
      */
@@ -66,13 +71,23 @@ class RoleController extends Controller
             'guard_name' => 'web',
         ]);
 
+        $permissionsData = [];
         if ($request->has('permissions')) {
             $permissions = Permission::whereIn('id', $request->permissions)->get();
             $role->syncPermissions($permissions);
+            $permissionsData = $permissions->pluck('name')->toArray();
         }
 
         $role->load('permissions');
         $users = User::role($role->name)->get(['id', 'name', 'email']);
+
+        // Registrar en logs de auditoría
+        $this->auditLogService->logAdministrativeAction('role_created', $this->auditLogService->addRequestContext($request, [
+            'role_id' => $role->id,
+            'role_name' => $role->name,
+            'role_description' => $role->description,
+            'permissions' => $permissionsData,
+        ]));
 
         return response()->json([
             'success' => true,
@@ -154,14 +169,31 @@ class RoleController extends Controller
             'permissions.*' => 'exists:permissions,id',
         ]);
 
+        // Capturar permisos anteriores antes de la actualización
+        $previousPermissions = $role->permissions->pluck('name')->toArray();
+        $previousName = $role->name;
+        $previousDescription = $role->description;
+
         $role->update([
             'name' => $request->name,
             'description' => $request->description,
         ]);
 
+        $permissionsChanged = false;
+        $newPermissions = [];
+        $addedPermissions = [];
+        $removedPermissions = [];
+
         if ($request->has('permissions')) {
             $permissions = Permission::whereIn('id', $request->permissions)->get();
+            $newPermissions = $permissions->pluck('name')->toArray();
             $role->syncPermissions($permissions);
+            
+            // Calcular permisos agregados y eliminados
+            $addedPermissions = array_diff($newPermissions, $previousPermissions);
+            $removedPermissions = array_diff($previousPermissions, $newPermissions);
+            $permissionsChanged = !empty($addedPermissions) || !empty($removedPermissions);
+            
             // Invalidar caché de permisos de todos los usuarios con este rol
             $users = User::role($role->name)->get(['id']);
             foreach ($users as $user) {
@@ -171,6 +203,34 @@ class RoleController extends Controller
 
         $role->load('permissions');
         $users = User::role($role->name)->get(['id', 'name', 'email']);
+
+        // Registrar en logs de auditoría
+        $logContext = [
+            'role_id' => $role->id,
+            'role_name' => $role->name,
+            'previous_name' => $previousName,
+            'previous_description' => $previousDescription,
+            'new_description' => $role->description,
+        ];
+
+        // Si el nombre o descripción cambiaron
+        if ($previousName !== $role->name || $previousDescription !== $role->description) {
+            $logContext['name_changed'] = $previousName !== $role->name;
+            $logContext['description_changed'] = $previousDescription !== $role->description;
+        }
+
+        // Si los permisos cambiaron, agregar información detallada
+        if ($permissionsChanged) {
+            $logContext['permissions_changed'] = true;
+            $logContext['previous_permissions'] = $previousPermissions;
+            $logContext['new_permissions'] = $newPermissions;
+            $logContext['added_permissions'] = array_values($addedPermissions);
+            $logContext['removed_permissions'] = array_values($removedPermissions);
+        } else {
+            $logContext['permissions_changed'] = false;
+        }
+
+        $this->auditLogService->logAdministrativeAction('role_updated', $this->auditLogService->addRequestContext($request, $logContext));
 
         return response()->json([
             'success' => true,

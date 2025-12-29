@@ -201,57 +201,16 @@ class RolePermissionSeeder extends Seeder
             }
         }
 
-        // Crear/actualizar roles con sus descripciones
-        $roles = [
-            'admin' => [
-                'description' => 'Administrador del sistema con acceso completo a todas las funcionalidades',
-                'permissions' => Permission::all(), // Todos los permisos
-            ],
-            'auxiliar' => [
-                'description' => 'Auxiliar de gestión con acceso a solicitudes, eventos de bienestar y eventos Comfenalco',
-                'permissions' => Permission::whereIn('name', [
-                    'requests.view',
-                    'requests.create',
-                    'requests.update_status',
-                    'requests.respond',
-                    'requests.download_files',
-                    'wellness_events.manage',
-                    'wellness_requests.view',
-                    'wellness_requests.manage',
-                    'wellness_activity.manage',
-                    'comfenalco_events.manage',
-                ])->get(),
-            ],
-            'sst' => [
-                'description' => 'Especialista en Seguridad y Salud en el Trabajo con acceso a eventos de bienestar y eventos Comfenalco',
-                'permissions' => Permission::whereIn('name', [
-                    'wellness_events.manage',
-                    'wellness_requests.view',
-                    'wellness_requests.manage',
-                    'wellness_activity.manage',
-                    'comfenalco_events.manage',
-                ])->get(),
-            ],
-            'técnico' => [
-                'description' => 'Técnico de sistemas con acceso a gestión de usuarios, eventos de bienestar y eventos Comfenalco',
-                'permissions' => Permission::whereIn('name', [
-                    'users.manage',
-                    'wellness_events.manage',
-                    'wellness_requests.view',
-                    'wellness_requests.manage',
-                    'wellness_activity.manage',
-                    'comfenalco_events.manage',
-                ])->get(),
-            ],
-        ];
-
-        foreach ($roles as $roleName => $roleData) {
-            $role = Role::updateOrCreate(
-                ['name' => $roleName, 'guard_name' => 'web'],
-                ['description' => $roleData['description']]
-            );
-            $role->syncPermissions($roleData['permissions']);
-        }
+        // Crear/actualizar el rol admin con todos los permisos (incluidos los nuevos)
+        // Se obtienen TODOS los permisos de la BD después de crear/actualizar los del seeder
+        $adminRole = Role::updateOrCreate(
+            ['name' => 'admin', 'guard_name' => 'web'],
+            ['description' => 'Administrador del sistema con acceso completo a todas las funcionalidades']
+        );
+        
+        // Asignar TODOS los permisos existentes al rol admin (incluidos los nuevos que puedan existir)
+        $allPermissions = Permission::where('guard_name', 'web')->get();
+        $adminRole->syncPermissions($allPermissions);
 
         // Limpiar caché de permisos de Spatie
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();

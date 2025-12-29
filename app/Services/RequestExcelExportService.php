@@ -493,6 +493,8 @@ class RequestExcelExportService
         $headers = [
             'ID Solicitud',
             'Solicitante',
+            'Tipo Documento',
+            'Número Documento',
             'Tipo',
             'Detalles Específicos',
         ];
@@ -500,7 +502,7 @@ class RequestExcelExportService
         $sheet->fromArray([$headers], null, 'A1');
 
         // Estilizar encabezados
-        $headerRange = 'A1:D1';
+        $headerRange = 'A1:F1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -519,28 +521,32 @@ class RequestExcelExportService
         // Ajustar anchos de columna
         $sheet->getColumnDimension('A')->setWidth(15); // ID Solicitud
         $sheet->getColumnDimension('B')->setWidth(35); // Solicitante
-        $sheet->getColumnDimension('C')->setWidth(30); // Tipo
-        $sheet->getColumnDimension('D')->setWidth(80); // Detalles Específicos
+        $sheet->getColumnDimension('C')->setWidth(18); // Tipo Documento
+        $sheet->getColumnDimension('D')->setWidth(20); // Número Documento
+        $sheet->getColumnDimension('E')->setWidth(30); // Tipo
+        $sheet->getColumnDimension('F')->setWidth(80); // Detalles Específicos
 
         $row = 2;
 
         foreach ($requests as $request) {
-            $payloadJson = 'N/A';
+            $payloadFormatted = 'N/A';
             if ($request->payload && is_array($request->payload)) {
-                $payloadJson = json_encode($request->payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $payloadFormatted = $this->formatPayloadAsReadableText($request->payload);
             }
 
             $rowData = [
                 $request->id,
                 $request->full_name,
+                $request->document_type ?? '',
+                $request->document_number ?? '',
                 $this->getRequestTypeLabel($request->request_type),
-                $payloadJson,
+                $payloadFormatted,
             ];
 
             $sheet->fromArray([$rowData], null, "A{$row}");
 
             // Configurar formato de texto para la columna de payload (para que el JSON se vea mejor)
-            $sheet->getStyle("D{$row}")->getAlignment()->setWrapText(true);
+            $sheet->getStyle("F{$row}")->getAlignment()->setWrapText(true);
             $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
 
             $row++;
@@ -548,7 +554,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:D" . ($row - 1);
+            $dataRange = "A1:F" . ($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -559,7 +565,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:D" . ($row - 1));
+            $sheet->setAutoFilter("A1:F" . ($row - 1));
         }
 
         // Congelar primera fila
@@ -1194,6 +1200,103 @@ class RequestExcelExportService
         $chart->setBottomRightPosition($bottomRight);
 
         $sheet->addChart($chart);
+    }
+
+    /**
+     * Formatear payload como texto legible en lugar de JSON.
+     */
+    private function formatPayloadAsReadableText(array $payload, int $indentLevel = 0): string
+    {
+        $lines = [];
+        $indent = str_repeat('  ', $indentLevel);
+
+        foreach ($payload as $key => $value) {
+            $formattedKey = $this->formatKeyAsLabel($key);
+
+            if (is_array($value)) {
+                // Si es un array, mostrar el título y luego los elementos
+                if (empty($value)) {
+                    $lines[] = "{$indent}{$formattedKey}: (vacío)";
+                } else {
+                    $lines[] = "{$indent}{$formattedKey}:";
+                    $lines[] = $this->formatPayloadAsReadableText($value, $indentLevel + 1);
+                }
+            } else {
+                // Formatear el valor según su tipo
+                $formattedValue = $this->formatValue($key, $value);
+                $lines[] = "{$indent}{$formattedKey}: {$formattedValue}";
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Formatear una clave de array como etiqueta legible.
+     */
+    private function formatKeyAsLabel(string $key): string
+    {
+        // Reemplazar camelCase por espacios y capitalizar
+        $label = preg_replace('/([a-z])([A-Z])/', '$1 $2', $key);
+        // Reemplazar guiones bajos por espacios
+        $label = str_replace('_', ' ', $label);
+        // Capitalizar primera letra de cada palabra
+        return ucwords(strtolower($label));
+    }
+
+    /**
+     * Formatear un valor según su tipo y clave.
+     */
+    private function formatValue(string $key, $value): string
+    {
+        if ($value === null) {
+            return '(no especificado)';
+        }
+
+        if ($value === '') {
+            return '(vacío)';
+        }
+
+        // Formatear montoSolicitado como moneda
+        if ($key === 'montoSolicitado' && is_numeric($value)) {
+            return $this->formatCurrencyCOP($value);
+        }
+
+        // Formatear valores booleanos
+        if (is_bool($value)) {
+            return $value ? 'Sí' : 'No';
+        }
+
+        // Formatear números
+        if (is_numeric($value)) {
+            return (string)$value;
+        }
+
+        // Formatear fechas si parecen ser fechas
+        if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
+            try {
+                $date = Carbon::parse($value);
+                return $date->format('d/m/Y');
+            } catch (\Exception $e) {
+                // Si no es una fecha válida, devolver el valor original
+            }
+        }
+
+        // Devolver el valor como string
+        return (string)$value;
+    }
+
+    /**
+     * Formatear un valor numérico a formato de moneda COP.
+     */
+    private function formatCurrencyCOP($amount): string
+    {
+        if (!is_numeric($amount)) {
+            return (string)$amount;
+        }
+
+        // Formatear como moneda COP sin decimales: $1.234.567
+        return '$' . number_format((float)$amount, 0, ',', '.');
     }
 }
 
