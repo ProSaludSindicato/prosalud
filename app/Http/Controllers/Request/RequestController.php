@@ -380,7 +380,8 @@ class RequestController extends Controller
 
         // Filter by request type
         if ($request->has('request_type')) {
-            $query->where('request_type', $request->get('request_type'));
+            $requestType = RequestTypes::normalize($request->get('request_type'));
+            $query->where('request_type', $requestType);
         }
 
         // Order by created_at desc by default
@@ -2012,8 +2013,13 @@ class RequestController extends Controller
 
             // Preparar filtros
             $dateRange = $request->input('date_range', []);
+            $requestType = $request->input('request_type', 'all');
+            // Normalize request_type if it's not 'all'
+            if ($requestType !== 'all') {
+                $requestType = RequestTypes::normalize($requestType);
+            }
             $filters = [
-                'request_type' => $request->input('request_type', 'all'),
+                'request_type' => $requestType,
                 'date_range' => [
                     'include_all' => $dateRange['include_all'] ?? true,
                     'start_date' => $dateRange['start_date'] ?? null,

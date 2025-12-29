@@ -17,6 +17,21 @@ class ExportRequestsExcelRequest extends FormRequest
     }
 
     /**
+     * Prepare the data for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        // Normalize request_type to canonical value
+        $requestType = $this->input('request_type');
+        if ($requestType && $requestType !== 'all') {
+            $normalizedRequestType = RequestTypes::normalize($requestType);
+            if ($normalizedRequestType !== $requestType) {
+                $this->merge(['request_type' => $normalizedRequestType]);
+            }
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      */
     public function rules(): array

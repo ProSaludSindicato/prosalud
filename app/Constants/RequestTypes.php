@@ -47,4 +47,19 @@ class RequestTypes
     {
         return in_array($requestType, self::withSubtypes());
     }
+
+    /**
+     * Normalize request type to canonical value.
+     * Converts aliases/variants to their canonical form.
+     *
+     * @param string $requestType The request type to normalize
+     * @return string The normalized (canonical) request type
+     */
+    public static function normalize(string $requestType): string
+    {
+        return match($requestType) {
+            'solicitud-microcredito' => self::SOLICITUD_MICROCREDITO,
+            default => $requestType,
+        };
+    }
 }

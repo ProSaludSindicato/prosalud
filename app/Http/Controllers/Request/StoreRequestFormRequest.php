@@ -167,13 +167,13 @@ class StoreRequestFormRequest extends FormRequest
             }
 
             // Validación: Afiliados con estado "Retirado" no pueden realizar ciertos trámites
+            // Note: request_type is already normalized in prepareForValidation()
             $restrictedRequestTypes = [
                 RequestTypes::COMPENSACION_DESCANSO,
                 RequestTypes::COMPENSACION_ANUAL,
                 RequestTypes::INCAPACIDADES_LICENCIAS,
                 RequestTypes::SOLICITUD_MICROCREDITO,
                 RequestTypes::SOLICITUD_RETIRO_SINDICAL,
-                'solicitud-microcredito',
                 'permisos-turnos', // Tipo mencionado en labels pero no definido como constante
             ];
 
@@ -189,6 +189,7 @@ class StoreRequestFormRequest extends FormRequest
                             $estadoAfiliado = strtolower(trim($afiliadoData['afiliado']['estado']));
 
                             if ($estadoAfiliado === 'retirado') {
+                                // request_type is already normalized, so we only need to handle canonical types
                                 $requestTypeLabel = match($requestType) {
                                     RequestTypes::COMPENSACION_DESCANSO => 'Compensación por descanso',
                                     RequestTypes::COMPENSACION_ANUAL => 'Compensación anual diferida',
@@ -493,6 +494,15 @@ class StoreRequestFormRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        // Normalize request_type to canonical value
+        $requestType = $this->input('request_type');
+        if ($requestType) {
+            $normalizedRequestType = RequestTypes::normalize($requestType);
+            if ($normalizedRequestType !== $requestType) {
+                $this->merge(['request_type' => $normalizedRequestType]);
+            }
+        }
+
         // Laravel automatically handles FormData payload[campo] as payload.campo
         // When we access $this->input('payload'), it should already be an array
         // But we need to ensure it's properly structured for validation

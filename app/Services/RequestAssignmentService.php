@@ -47,6 +47,10 @@ class RequestAssignmentService
      */
     public function saveAssignments(array $assignments, array $subtypeAssignments): array
     {
+        // Normalize request types before validation and saving
+        $assignments = $this->normalizeAssignments($assignments);
+        $subtypeAssignments = $this->normalizeSubtypeAssignments($subtypeAssignments);
+
         // Validate assignments first (before starting transaction)
         $this->validateAssignments($assignments, $subtypeAssignments);
 
@@ -269,6 +273,37 @@ class RequestAssignmentService
         ]);
         
         return $assignments;
+    }
+
+    /**
+     * Normalize assignments by converting aliases to canonical request types.
+     */
+    private function normalizeAssignments(array $assignments): array
+    {
+        $normalized = [];
+        foreach ($assignments as $requestType => $userIds) {
+            $normalizedType = RequestTypes::normalize($requestType);
+            // If multiple aliases map to the same canonical type, merge user IDs
+            if (isset($normalized[$normalizedType])) {
+                $normalized[$normalizedType] = array_unique(array_merge($normalized[$normalizedType], $userIds));
+            } else {
+                $normalized[$normalizedType] = $userIds;
+            }
+        }
+        return $normalized;
+    }
+
+    /**
+     * Normalize subtype assignments by converting aliases to canonical request types.
+     */
+    private function normalizeSubtypeAssignments(array $subtypeAssignments): array
+    {
+        $normalized = [];
+        foreach ($subtypeAssignments as $requestType => $subtypes) {
+            $normalizedType = RequestTypes::normalize($requestType);
+            $normalized[$normalizedType] = $subtypes;
+        }
+        return $normalized;
     }
 
     /**

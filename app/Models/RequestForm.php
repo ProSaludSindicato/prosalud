@@ -221,6 +221,7 @@ class RequestForm extends Model
             'retiro-sindical' => 'Retiro Sindical',
             'incapacidad-licencia' => 'Incapacidades y Licencias',
             'incapacidad-laboral' => 'Incapacidades y Licencias',
+            'solicitud-microcredito' => 'Microcrédito CEII', // Alias normalizado a 'microcredito'
             // Tipos adicionales mencionados en la documentación
             'permisos-turnos' => 'Permisos y Cambio de Turnos',
             'solicitud-bienestar' => 'Solicitud de Bienestar',
