@@ -21,7 +21,7 @@
         <tr>
             <td align="center">
                 <!-- Main Container -->
-                <table class="container" role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width: 600px; background:#ffffff; border-radius:8px; overflow:hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <table class="container" role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:600px; max-width: 600px; background:#ffffff; border-radius:8px; overflow:hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 
                     <!-- Content -->
                     <tr>
@@ -78,10 +78,102 @@
                                 </p>
                             </div>
 
-                            <!-- Main Message Body - Fixed line breaks -->
-                            <div style="margin:0 0 24px;">
-                                <div style="font-size:15px; color:#1f2937; line-height:1.7;">{!! nl2br(e($emailBody)) !!}</div>
+                            <!-- Main Message Body - HTML content -->
+                            <!-- CRITICAL: Isolate email body content to prevent table absorption -->
+                            <div class="email-body-container" style="margin:0 0 24px; display: block; clear: both;">
+                                <div class="email-body-content" style="font-size:15px; color:#1f2937; line-height:1.7; display: block;">
+                                    {!! $emailBody !!}
+                                </div>
+                                <!-- Force closure of any open table tags -->
+                                <div style="clear:both; height:0; display:block; margin:0; padding:0; border:0; font-size:0; line-height:0;"></div>
                             </div>
+                            
+                            <style>
+                                /* CRITICAL: Only apply styles to email body content, not the entire email structure */
+                                /* Tables should fit their content, not stretch to full width */
+                                .email-body-container table {
+                                    display: table !important;
+                                    width: auto !important;
+                                    max-width: 100% !important;
+                                    margin: 16px auto !important;
+                                    border-collapse: collapse !important;
+                                    border-spacing: 0 !important;
+                                    table-layout: auto !important;
+                                }
+                                
+                                /* Ensure table cells don't stretch unnecessarily and are properly aligned */
+                                /* Force consistent vertical alignment, line-height, and padding for all cells */
+                                .email-body-container table td, 
+                                .email-body-container table th {
+                                    padding: 8px 12px !important;
+                                    vertical-align: middle !important;
+                                    text-align: left !important;
+                                    line-height: 1.5 !important;
+                                    height: auto !important;
+                                }
+                                
+                                /* Allow text wrapping in cells but maintain alignment */
+                                .email-body-container table td {
+                                    white-space: normal !important;
+                                    vertical-align: middle !important;
+                                    line-height: 1.5 !important;
+                                }
+                                
+                                /* Ensure table headers are also aligned */
+                                .email-body-container table th {
+                                    vertical-align: middle !important;
+                                    line-height: 1.5 !important;
+                                }
+                                
+                                /* Force all cells in a row to have the same baseline */
+                                .email-body-container table tr {
+                                    vertical-align: middle !important;
+                                }
+                                
+                                /* Ensure content inside cells is consistently aligned */
+                                .email-body-container table td *,
+                                .email-body-container table th * {
+                                    vertical-align: baseline !important;
+                                    line-height: inherit !important;
+                                }
+                                
+                                /* Remove any top/bottom margins from content in cells that could cause misalignment */
+                                .email-body-container table td p,
+                                .email-body-container table th p {
+                                    margin: 0 !important;
+                                    padding: 0 !important;
+                                    line-height: 1.5 !important;
+                                }
+                                
+                                /* Ensure table closing tag is respected */
+                                .email-body-container table + * {
+                                    display: block !important;
+                                    clear: both !important;
+                                }
+                                
+                                /* Ensure paragraphs in email body are block-level but don't force width */
+                                .email-body-content p {
+                                    display: block !important;
+                                    margin: 12px 0 !important;
+                                    padding: 0 !important;
+                                    clear: both !important;
+                                    width: auto !important;
+                                    max-width: 100% !important;
+                                }
+                                
+                                /* Preserve line breaks */
+                                .email-body-container br {
+                                    display: block !important;
+                                    content: "" !important;
+                                    margin: 4px 0 !important;
+                                }
+                                
+                                /* Ensure strong/bold tags don't break layout */
+                                .email-body-container strong, 
+                                .email-body-container b {
+                                    font-weight: bold !important;
+                                }
+                            </style>
 
                             <!-- Request Reference (subtle, not in a card) -->
                             <div style="padding:16px 0; margin:24px 0; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb;">
@@ -98,13 +190,13 @@
                             </div>
 
                             <!-- Closing -->
-                            <p style="margin:24px 0 0; font-size:15px; color:#4b5563; line-height:1.7;">
+                            <p style="margin:24px 0 0; font-size:15px; color:#4b5563; line-height:1.7; font-weight:normal;">
                                 Si tiene alguna pregunta o necesita aclaraciones adicionales, no dude en comunicarse con nosotros.
                             </p>
 
-                            <p style="margin:16px 0 0; font-size:15px; color:#4b5563; line-height:1.7;">
+                            <p style="margin:16px 0 0; font-size:15px; color:#4b5563; line-height:1.7; font-weight:normal;">
                                 Saludos cordiales,<br>
-                                <strong style="color:#1f2937;">Equipo ProSalud</strong>
+                                <strong style="color:#1f2937; font-weight:bold;">Equipo ProSalud</strong>
                             </p>
                         </td>
                     </tr>

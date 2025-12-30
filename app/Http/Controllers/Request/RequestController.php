@@ -838,7 +838,7 @@ class RequestController extends Controller
         $validated = $request->validated();
         $status = $validated['status'];
         $emailSubject = $validated['email_subject'];
-        $emailBody = $validated['email_body'];
+        $emailBody = $this->sanitizeHtmlContent($validated['email_body']);
 
         // Get attachments if provided (needed for validation of dirigidoFondoPensiones)
         // Laravel automatically handles attachments as array when sent as attachments[0], attachments[1], etc.
@@ -1599,7 +1599,7 @@ class RequestController extends Controller
         $validated = $request->validated();
         $status = $validated['status'];
         $emailSubject = $validated['email_subject'];
-        $emailBody = $validated['email_body'];
+        $emailBody = $this->sanitizeHtmlContent($validated['email_body']);
         $tBasicos = (int) $validated['t_basicos'];
         $tAuxilios = (int) $validated['t_auxilios'];
 
@@ -2878,5 +2878,321 @@ class RequestController extends Controller
             RequestStatuses::COMPLETED => 'completada',
             default => 'desconocido',
         };
+    }
+
+    /**
+     * Sanitize HTML content to prevent XSS attacks while allowing safe HTML tags and attributes.
+     * 
+     * This method sanitizes HTML content to allow safe formatting tags and basic styling attributes
+     * while preventing XSS attacks. It preserves table attributes like border, cellpadding, cellspacing,
+     * and style attributes for proper table rendering in emails.
+     * 
+     * Allowed tags: p, br, strong, b, em, i, u, table, tr, td, th, thead, tbody, ul, ol, li, div, span, h1-h6
+     * Allowed attributes: border, cellpadding, cellspacing, style (with safe CSS only)
+     * 
+     * @param string $html The HTML content to sanitize
+     * @return string The sanitized HTML content
+     */
+    private function sanitizeHtmlContent(string $html): string
+    {
+        // List of allowed HTML tags for email content
+        $allowedTagNames = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'ul', 'ol', 'li', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+        $allowedAttributes = ['border', 'cellpadding', 'cellspacing', 'style', 'align', 'valign', 'colspan', 'rowspan'];
+        
+        // Step 1: Sanitize attributes of allowed tags first
+        $pattern = '/<(' . implode('|', $allowedTagNames) . ')(\s[^>]*)?>/i';
+        $result = preg_replace_callback($pattern, function ($matches) use ($allowedAttributes) {
+            $tagName = strtolower($matches[1]);
+            $attributes = $matches[2] ?? '';
+            $sanitizedAttrs = $this->sanitizeTagAttributes($attributes, $allowedAttributes);
+            return '<' . $tagName . ($sanitizedAttrs ? ' ' . $sanitizedAttrs : '') . '>';
+        }, $html);
+        
+        // Step 2: Remove dangerous tags (tags not in allowed list)
+        $dangerousTagPattern = '/<\/?(?!' . implode('|', $allowedTagNames) . ')[^>]*>/i';
+        $result = preg_replace($dangerousTagPattern, '', $result);
+        
+        // Step 3: CRITICAL - Separate tables from text content to prevent text from being absorbed into tables
+        // Extract all tables with their complete structure
+        // Use a balanced regex approach to match opening and closing table tags
+        $tables = [];
+        $placeholders = [];
+        $offset = 0;
+        
+        // Find all table opening tags
+        while (preg_match('/<table[^>]*>/i', $result, $match, PREG_OFFSET_CAPTURE, $offset)) {
+            $tableStart = $match[0][1];
+            $tableTag = $match[0][0];
+            $offset = $tableStart + strlen($tableTag);
+            
+            // Find the matching closing tag by counting nested tables
+            $depth = 1;
+            $tableContent = $tableTag;
+            $searchOffset = $offset;
+            
+            while ($depth > 0 && $searchOffset < strlen($result)) {
+                if (preg_match('/<\/?table[^>]*>/i', $result, $tagMatch, PREG_OFFSET_CAPTURE, $searchOffset)) {
+                    $tagPos = $tagMatch[0][1];
+                    $tag = $tagMatch[0][0];
+                    
+                    if (preg_match('/^<\/table/i', $tag)) {
+                        $depth--;
+                    } elseif (preg_match('/^<table/i', $tag)) {
+                        $depth++;
+                    }
+                    
+                    $tableContent .= substr($result, $searchOffset, $tagPos + strlen($tag) - $searchOffset);
+                    $searchOffset = $tagPos + strlen($tag);
+                    
+                    if ($depth === 0) {
+                        break; // Found matching closing tag
+                    }
+                } else {
+                    break; // No more table tags found
+                }
+            }
+            
+            // If we found a complete table, store it
+            if ($depth === 0 && !empty($tableContent)) {
+                // Ensure table is properly closed
+                $tableContent = rtrim($tableContent);
+                if (!preg_match('/<\/table>\s*$/i', $tableContent)) {
+                    $tableContent .= '</table>';
+                }
+                
+                $index = count($tables);
+                $placeholder = "{{TABLE_PLACEHOLDER_{$index}}}";
+                $tables[] = $tableContent;
+                $placeholders[$placeholder] = $tableContent;
+                
+                // Replace table with placeholder
+                $result = substr_replace($result, $placeholder, $tableStart, strlen($tableContent));
+                $offset = $tableStart + strlen($placeholder);
+            } else {
+                // Table not properly closed, skip it
+                break;
+            }
+        }
+        
+        // Step 4: Process text content (everything that's not a table)
+        // Split by placeholders and process text blocks separately
+        $parts = preg_split('/(\{\{TABLE_PLACEHOLDER_\d+\}\})/', $result, -1, PREG_SPLIT_DELIM_CAPTURE);
+        $normalized = '';
+        
+        foreach ($parts as $part) {
+            // Check if this is a table placeholder
+            if (preg_match('/\{\{TABLE_PLACEHOLDER_(\d+)\}\}/', $part, $placeholderMatch)) {
+                // Restore the table and add a clear separator after it
+                $table = $placeholders[$part] ?? '';
+                if (!empty($table)) {
+                    // Ensure table is properly closed
+                    $table = rtrim($table);
+                    if (!preg_match('/<\/table>\s*$/i', $table)) {
+                        $table .= '</table>';
+                    }
+                    
+                    // Add inline styles to table to control width (more compatible with email clients)
+                    // Modify the table tag to include width control
+                    if (preg_match('/<table([^>]*)>/i', $table, $tableMatch)) {
+                        $tableAttrs = $tableMatch[1];
+                        // Check if style attribute already exists
+                        if (preg_match('/style\s*=\s*["\']([^"\']*)["\']/i', $tableAttrs, $styleMatch)) {
+                            // Remove width:100% if present and replace with auto
+                            $existingStyle = $styleMatch[1];
+                            // Remove width:100% and width:100% !important
+                            $existingStyle = preg_replace('/width\s*:\s*100%\s*!important;?/i', '', $existingStyle);
+                            $existingStyle = preg_replace('/width\s*:\s*100%;?/i', '', $existingStyle);
+                            $existingStyle = trim($existingStyle, '; ');
+                            // Append new width control styles
+                            $newStyle = (!empty($existingStyle) ? $existingStyle . '; ' : '') . 'width:auto !important; max-width:100% !important; margin:16px auto !important;';
+                            $table = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="' . htmlspecialchars($newStyle, ENT_QUOTES) . '"', $table, 1);
+                        } else {
+                            // Add new style attribute
+                            $table = preg_replace('/<table([^>]*)>/i', '<table$1 style="width:auto !important; max-width:100% !important; margin:16px auto !important;">', $table, 1);
+                        }
+                    }
+                    
+                    // Ensure all table rows have consistent alignment
+                    $table = preg_replace_callback('/<tr([^>]*)>/i', function($matches) {
+                        $attrs = $matches[1];
+                        
+                        // Check if style attribute exists
+                        if (preg_match('/style\s*=\s*["\']([^"\']*)["\']/i', $attrs, $styleMatch)) {
+                            $existingStyle = $styleMatch[1];
+                            // Remove any existing vertical-align
+                            $existingStyle = preg_replace('/vertical-align\s*:\s*[^;]+;?/i', '', $existingStyle);
+                            $existingStyle = trim($existingStyle, '; ');
+                            $newStyle = (!empty($existingStyle) ? $existingStyle . '; ' : '') . 'vertical-align:middle;';
+                            $attrs = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="' . htmlspecialchars($newStyle, ENT_QUOTES) . '"', $attrs, 1);
+                        } else {
+                            $attrs = rtrim($attrs) . ' style="vertical-align:middle;"';
+                        }
+                        
+                        return '<tr' . $attrs . '>';
+                    }, $table);
+                    
+                    // Ensure all table cells (td/th) have proper vertical alignment
+                    // This prevents vertical misalignment issues in email clients
+                    // Force consistent vertical alignment, line-height, and padding for all cells
+                    $table = preg_replace_callback('/<(td|th)([^>]*)>/i', function($matches) {
+                        $tagName = $matches[1];
+                        $attrs = $matches[2];
+                        
+                        // Check if style attribute exists
+                        if (preg_match('/style\s*=\s*["\']([^"\']*)["\']/i', $attrs, $styleMatch)) {
+                            $existingStyle = $styleMatch[1];
+                            // Remove any existing vertical-align to force our own
+                            $existingStyle = preg_replace('/vertical-align\s*:\s*[^;]+;?/i', '', $existingStyle);
+                            // Remove any existing line-height that might cause issues
+                            $existingStyle = preg_replace('/line-height\s*:\s*[^;]+;?/i', '', $existingStyle);
+                            // Clean up and add consistent styles
+                            $existingStyle = trim($existingStyle, '; ');
+                            // Force consistent vertical alignment and line-height - use !important to override any conflicting styles
+                            $newStyle = (!empty($existingStyle) ? $existingStyle . '; ' : '') . 'vertical-align:middle !important; line-height:1.5 !important;';
+                            $attrs = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="' . htmlspecialchars($newStyle, ENT_QUOTES) . '"', $attrs, 1);
+                        } else {
+                            // Add style attribute with vertical-align and line-height
+                            $attrs = rtrim($attrs) . ' style="vertical-align:middle !important; line-height:1.5 !important;"';
+                        }
+                        
+                        return '<' . $tagName . $attrs . '>';
+                    }, $table);
+                    
+                    // Add a clear separator after the table to prevent content absorption
+                    $normalized .= $table . '<p style="margin:16px 0; padding:0; clear:both; display:block; height:0; line-height:0; font-size:0;"></p>';
+                }
+            } else {
+                // This is text content - process it
+                $text = $part; // Don't trim yet, preserve whitespace structure
+                
+                if (!empty(trim($text))) {
+                    // Check if text already starts with a block-level tag (p, div, h1-h6, etc.)
+                    $startsWithBlock = preg_match('/^\s*<(?:p|div|h[1-6]|ul|ol)/i', $text);
+                    
+                    if ($startsWithBlock) {
+                        // Text already has block-level structure, just ensure line breaks are preserved
+                        // Convert line breaks in text nodes to <br>
+                        $text = preg_replace('/([^<>\n]+\n[^<>\n]+)/', function($m) {
+                            return nl2br($m[1], false);
+                        }, $text);
+                        $normalized .= $text;
+                    } else {
+                        // Text needs to be wrapped in paragraphs
+                        // Split by double line breaks (paragraph breaks) first
+                        $paragraphs = preg_split('/\r?\n\s*\r?\n/', $text);
+                        
+                        foreach ($paragraphs as $para) {
+                            $para = trim($para);
+                            if (empty($para)) {
+                                continue;
+                            }
+                            
+                            // Check if this paragraph already has HTML tags
+                            if (preg_match('/<[^>]+>/', $para)) {
+                                // Has HTML tags like <strong>, <br>, etc.
+                                // Convert line breaks in plain text portions to <br>
+                                $para = preg_replace_callback('/([^<>\n]+)/', function($m) {
+                                    $content = $m[1];
+                                    if (trim($content) !== '') {
+                                        return nl2br($content, false);
+                                    }
+                                    return $content;
+                                }, $para);
+                            } else {
+                                // Plain text - convert line breaks to <br>
+                                $para = nl2br($para, false);
+                            }
+                            
+                            // Wrap in <p> tag
+                            $normalized .= '<p>' . $para . '</p>';
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Step 5: Final sanitization pass - ensure all tags have sanitized attributes
+        $final = preg_replace_callback($pattern, function ($matches) use ($allowedAttributes) {
+            $tagName = strtolower($matches[1]);
+            $attributes = $matches[2] ?? '';
+            $sanitizedAttrs = $this->sanitizeTagAttributes($attributes, $allowedAttributes);
+            return '<' . $tagName . ($sanitizedAttrs ? ' ' . $sanitizedAttrs : '') . '>';
+        }, $normalized);
+        
+        // Step 6: Additional security - Remove dangerous URLs and event handlers
+        $final = preg_replace('/(javascript|data|vbscript):/i', '', $final);
+        $final = preg_replace('/\s*on\w+\s*=\s*["\'][^"\']*["\']/i', '', $final);
+        
+        // Step 7: CRITICAL - Ensure all tables are properly closed and content after tables is isolated
+        // Count opening and closing table tags
+        $openTables = preg_match_all('/<table[^>]*>/i', $final);
+        $closeTables = preg_match_all('/<\/table>/i', $final);
+        
+        // If there are unclosed tables, close them
+        while ($openTables > $closeTables) {
+            $final .= '</table>';
+            $closeTables++;
+        }
+        
+        // Add a final separator to ensure nothing after gets absorbed
+        // This is a safety measure for email clients that might misinterpret the HTML
+        if ($openTables > 0) {
+            $final .= '<!-- END_TABLES -->';
+        }
+        
+        return $final;
+    }
+
+    /**
+     * Sanitize HTML tag attributes, allowing only safe attributes with safe values.
+     * 
+     * @param string $attributesString The attributes string from an HTML tag
+     * @param array $allowedAttributes List of allowed attribute names
+     * @return string Sanitized attributes string
+     */
+    private function sanitizeTagAttributes(string $attributesString, array $allowedAttributes): string
+    {
+        if (empty(trim($attributesString))) {
+            return '';
+        }
+        
+        $sanitized = [];
+        
+        // Extract attributes using regex
+        preg_match_all('/(\w+)\s*=\s*["\']([^"\']*)["\']/', $attributesString, $attrMatches, PREG_SET_ORDER);
+        
+        foreach ($attrMatches as $attrMatch) {
+            $attrName = strtolower(trim($attrMatch[1]));
+            $attrValue = $attrMatch[2];
+            
+            // Only allow specified attributes
+            if (!in_array($attrName, $allowedAttributes)) {
+                continue;
+            }
+            
+            // Sanitize attribute values based on attribute type
+            if ($attrName === 'style') {
+                // Allow safe CSS properties only (colors, borders, padding, etc.)
+                // Remove dangerous CSS like expression(), javascript:, etc.
+                $attrValue = preg_replace('/(expression|javascript|@import|behavior|binding)/i', '', $attrValue);
+                $attrValue = preg_replace('/url\s*\(\s*["\']?(javascript|data|vbscript):/i', '', $attrValue);
+            } elseif (in_array($attrName, ['border', 'cellpadding', 'cellspacing', 'colspan', 'rowspan'])) {
+                // Numeric attributes - only allow digits
+                $attrValue = preg_replace('/[^0-9]/', '', $attrValue);
+            } elseif (in_array($attrName, ['align', 'valign'])) {
+                // Alignment attributes - only allow safe values
+                $safeAlignValues = ['left', 'right', 'center', 'justify', 'top', 'middle', 'bottom'];
+                if (!in_array(strtolower($attrValue), $safeAlignValues)) {
+                    continue;
+                }
+            }
+            
+            // Escape quotes in attribute values
+            $attrValue = htmlspecialchars($attrValue, ENT_QUOTES, 'UTF-8');
+            
+            $sanitized[] = $attrName . '="' . $attrValue . '"';
+        }
+        
+        return implode(' ', $sanitized);
     }
 }

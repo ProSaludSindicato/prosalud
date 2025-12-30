@@ -27,7 +27,7 @@ class RespondToRequestRequest extends FormRequest
         $rules = [
             'status' => 'required|string|in:PENDING,IN_REVIEW,REJECTED,COMPLETED',
             'email_subject' => 'required|string|max:100',
-            'email_body' => 'required|string|max:1500',
+            'email_body' => 'required|string|max:5000',
         ];
 
         // Validar actividades si vienen en el request (para certificados con actividades)
@@ -55,7 +55,7 @@ class RespondToRequestRequest extends FormRequest
             'email_subject.required' => 'El asunto del correo es obligatorio.',
             'email_subject.max' => 'El asunto del correo no puede exceder 100 caracteres.',
             'email_body.required' => 'El cuerpo del correo es obligatorio.',
-            'email_body.max' => 'El cuerpo del correo no puede exceder 1500 caracteres.',
+            'email_body.max' => 'El cuerpo del correo no puede exceder 5000 caracteres.',
             'actividades.required' => 'Debe incluir al menos una actividad.',
             'actividades.array' => 'Las actividades deben ser un array.',
             'actividades.min' => 'Debe incluir al menos una actividad.',
