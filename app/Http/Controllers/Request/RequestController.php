@@ -331,7 +331,17 @@ class RequestController extends Controller
                     });
 
                     if (!empty($typesWithoutSubtypes)) {
-                        $q->whereIn('request_type', $typesWithoutSubtypes);
+                        // For each type, also include its aliases/variants
+                        $typesToSearch = [];
+                        foreach ($typesWithoutSubtypes as $type) {
+                            $typesToSearch[] = $type;
+                            // Add aliases/variants for backward compatibility
+                            if ($type === RequestTypes::INCAPACIDADES_LICENCIAS) {
+                                $typesToSearch[] = 'incapacidad-licencia';
+                                $typesToSearch[] = 'incapacidad-laboral';
+                            }
+                        }
+                        $q->whereIn('request_type', array_unique($typesToSearch));
                     }
 
                     // Handle types with subtypes

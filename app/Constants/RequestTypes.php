@@ -59,6 +59,8 @@ class RequestTypes
     {
         return match($requestType) {
             'solicitud-microcredito' => self::SOLICITUD_MICROCREDITO,
+            'incapacidad-licencia' => self::INCAPACIDADES_LICENCIAS,
+            'incapacidad-laboral' => self::INCAPACIDADES_LICENCIAS,
             default => $requestType,
         };
     }

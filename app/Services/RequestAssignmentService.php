@@ -163,12 +163,34 @@ class RequestAssignmentService
 
         $userId = $user->id;
         $requestType = $requestForm->request_type;
+        
+        // Normalize request type to handle aliases/variants
+        $normalizedRequestType = RequestTypes::normalize($requestType);
 
         // Obtener asignaciones del usuario desde caché
         $assignments = $this->getUserAssignments($userId);
 
-        // Check if user has direct type assignment
-        $hasTypeAssignment = in_array($requestType, $assignments['types']);
+        // Check if user has direct type assignment (check both original and normalized)
+        $hasTypeAssignment = in_array($requestType, $assignments['types']) 
+            || in_array($normalizedRequestType, $assignments['types']);
+        
+        // Also check if the assignment has aliases that match this request type
+        if (!$hasTypeAssignment) {
+            foreach ($assignments['types'] as $assignedType) {
+                $normalizedAssigned = RequestTypes::normalize($assignedType);
+                // Check if the normalized assigned type matches the normalized request type
+                if ($normalizedAssigned === $normalizedRequestType) {
+                    $hasTypeAssignment = true;
+                    break;
+                }
+                // Also check aliases: if assigned type is incapacidades-licencias, also match incapacidad-licencia
+                if ($assignedType === RequestTypes::INCAPACIDADES_LICENCIAS 
+                    && in_array($requestType, ['incapacidad-licencia', 'incapacidad-laboral'])) {
+                    $hasTypeAssignment = true;
+                    break;
+                }
+            }
+        }
 
         if ($hasTypeAssignment) {
             // If user has type assignment, they can access ALL requests of that type
