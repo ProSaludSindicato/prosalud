@@ -2567,6 +2567,8 @@ class CertificadoConvenioService
             ->count();
 
         // Top entidades a las que se dirigen los certificados
+        // Temporalmente comentado - no se comparte este dato por ahora
+        /*
         $topEntidades = $baseQuery()
             ->whereNotNull('dirigido_a_entidad')
             ->selectRaw('dirigido_a_entidad, COUNT(*) as cantidad')
@@ -2581,6 +2583,8 @@ class CertificadoConvenioService
                 ];
             })
             ->toArray();
+        */
+        $topEntidades = [];
 
         // Distribución por mes (últimos 12 meses)
         $distribucionMensual = $baseQuery()
@@ -2613,7 +2617,7 @@ class CertificadoConvenioService
                 'otros' => $otros,
             ],
             'por_tipo' => $porTipo,
-            'top_entidades' => $topEntidades,
+            // 'top_entidades' => $topEntidades, // Temporalmente comentado - no se comparte este dato por ahora
             'distribucion_mensual' => $distribucionMensual,
             'filtros_aplicados' => [
                 'fecha_desde' => $fechaDesde,

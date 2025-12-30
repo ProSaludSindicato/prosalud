@@ -92,12 +92,12 @@ class RequestController extends Controller
         dispatch(function () use ($requestFormForEmail, $originalFilesForEmail) {
             try {
                 $mail = Mail::to($requestFormForEmail->email);
-                
+
                 // Agregar CC para solicitudes de microcrédito
                 if ($requestFormForEmail->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
                     $mail->cc('ceiisas@hotmail.com');
                 }
-                
+
                 $mail->send(new RequestFormReceived($requestFormForEmail, $originalFilesForEmail));
 
                 Log::info('Correo de confirmación de solicitud enviado exitosamente', [
@@ -319,53 +319,58 @@ class RequestController extends Controller
                 })
                 ->toArray();
 
-            // Build query conditions
-            $query->where(function ($q) use ($assignedTypes, $assignedSubtypes) {
-                // Handle types without subtypes
-                $typesWithoutSubtypes = array_filter($assignedTypes, function ($type) {
-                    return !RequestTypes::hasSubtypes($type);
-                });
-
-                if (!empty($typesWithoutSubtypes)) {
-                    $q->whereIn('request_type', $typesWithoutSubtypes);
-                }
-
-                // Handle types with subtypes
-                $typesWithSubtypes = array_filter($assignedTypes, function ($type) {
-                    return RequestTypes::hasSubtypes($type);
-                });
-
-                foreach ($typesWithSubtypes as $type) {
-                    $q->orWhere(function ($typeQ) use ($type, $assignedSubtypes) {
-                        $typeQ->where('request_type', $type);
-
-                        // If user has specific subtype assignments, filter by them
-                        if (isset($assignedSubtypes[$type]) && !empty($assignedSubtypes[$type])) {
-                            $typeQ->where(function ($subtypeQ) use ($assignedSubtypes, $type) {
-                                foreach ($assignedSubtypes[$type] as $subtype) {
-                                    $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
-                                }
-                            });
-                        }
-                        // If user has type assignment but no subtype assignments,
-                        // they can see all requests of that type (type assignment as fallback)
+            // This prevents users with permissions but no assignments from seeing all requests
+            if (empty($assignedTypes) && empty($assignedSubtypes)) {
+                $query->whereRaw('1 = 0'); // Always false condition - returns no results
+            } else {
+                // Build query conditions
+                $query->where(function ($q) use ($assignedTypes, $assignedSubtypes) {
+                    // Handle types without subtypes
+                    $typesWithoutSubtypes = array_filter($assignedTypes, function ($type) {
+                        return !RequestTypes::hasSubtypes($type);
                     });
-                }
 
-                // Handle cases where user only has subtype assignments (no type assignment)
-                foreach ($assignedSubtypes as $type => $subtypes) {
-                    if (!in_array($type, $assignedTypes)) {
-                        $q->orWhere(function ($typeQ) use ($type, $subtypes) {
+                    if (!empty($typesWithoutSubtypes)) {
+                        $q->whereIn('request_type', $typesWithoutSubtypes);
+                    }
+
+                    // Handle types with subtypes
+                    $typesWithSubtypes = array_filter($assignedTypes, function ($type) {
+                        return RequestTypes::hasSubtypes($type);
+                    });
+
+                    foreach ($typesWithSubtypes as $type) {
+                        $q->orWhere(function ($typeQ) use ($type, $assignedSubtypes) {
                             $typeQ->where('request_type', $type);
-                            $typeQ->where(function ($subtypeQ) use ($subtypes) {
-                                foreach ($subtypes as $subtype) {
-                                    $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
-                                }
-                            });
+
+                            // If user has specific subtype assignments, filter by them
+                            if (isset($assignedSubtypes[$type]) && !empty($assignedSubtypes[$type])) {
+                                $typeQ->where(function ($subtypeQ) use ($assignedSubtypes, $type) {
+                                    foreach ($assignedSubtypes[$type] as $subtype) {
+                                        $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
+                                    }
+                                });
+                            }
+                            // If user has type assignment but no subtype assignments,
+                            // they can see all requests of that type (type assignment as fallback)
                         });
                     }
-                }
-            });
+
+                    // Handle cases where user only has subtype assignments (no type assignment)
+                    foreach ($assignedSubtypes as $type => $subtypes) {
+                        if (!in_array($type, $assignedTypes)) {
+                            $q->orWhere(function ($typeQ) use ($type, $subtypes) {
+                                $typeQ->where('request_type', $type);
+                                $typeQ->where(function ($subtypeQ) use ($subtypes) {
+                                    foreach ($subtypes as $subtype) {
+                                        $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
+                                    }
+                                });
+                            });
+                        }
+                    }
+                });
+            }
         }
 
         // Search by name, email, or document number
@@ -431,15 +436,15 @@ class RequestController extends Controller
                     'validated_at' => $request->validated_at?->toIso8601String(),
                     'validated_by' => $request->validator?->email,
                     'responses' => $request->responses->map(function ($response) {
-                        $attachments = $response->relationLoaded('attachments') 
-                            ? $response->attachments 
+                        $attachments = $response->relationLoaded('attachments')
+                            ? $response->attachments
                             : $response->attachments()->get();
-                        
+
                         // Load responder if not already loaded
-                        $responder = $response->relationLoaded('responder') 
-                            ? $response->responder 
+                        $responder = $response->relationLoaded('responder')
+                            ? $response->responder
                             : $response->responder;
-                        
+
                     // Handle created_at - cast should convert it to Carbon, but handle both cases defensively
                     $responseCreatedAt = $response->created_at;
                     if ($responseCreatedAt instanceof \DateTime || $responseCreatedAt instanceof \Carbon\Carbon) {
@@ -486,6 +491,24 @@ class RequestController extends Controller
      */
     public function show(RequestForm $request): JsonResponse
     {
+        $user = request()->user();
+
+        // SECURITY FIX: Validate that user has access to this specific request
+        // This prevents users with permissions but no assignments from accessing requests
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+            Log::warning('Intento de acceso no autorizado a solicitud', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $request->id,
+                'request_type' => $request->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
+        }
+
         // Load responses with attachments, responder and validator relationships
         $request->load('responses.attachments', 'responses.responder', 'validator');
 
@@ -529,15 +552,15 @@ class RequestController extends Controller
                 'validated_at' => $request->validated_at?->toIso8601String(),
                 'validated_by' => $request->validator?->email,
                 'responses' => $request->responses->map(function ($response) {
-                    $attachments = $response->relationLoaded('attachments') 
-                        ? $response->attachments 
+                    $attachments = $response->relationLoaded('attachments')
+                        ? $response->attachments
                         : $response->attachments()->get();
-                    
+
                     // Load responder if not already loaded
-                    $responder = $response->relationLoaded('responder') 
-                        ? $response->responder 
+                    $responder = $response->relationLoaded('responder')
+                        ? $response->responder
                         : $response->responder;
-                    
+
                     // Handle created_at - cast should convert it to Carbon, but handle both cases defensively
                     $responseCreatedAt = $response->created_at;
                     if ($responseCreatedAt instanceof \DateTime || $responseCreatedAt instanceof \Carbon\Carbon) {
@@ -581,6 +604,23 @@ class RequestController extends Controller
      */
     public function validate(RequestForm $request): JsonResponse
     {
+        $user = auth()->user();
+
+        // SECURITY FIX: Validate that user has access to this specific request
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+            Log::warning('Intento de validación no autorizada de solicitud', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $request->id,
+                'request_type' => $request->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
+        }
+
         // Check if request is already validated
         if ($request->validated_at !== null) {
             return response()->json([
@@ -588,8 +628,6 @@ class RequestController extends Controller
                 'message' => 'La solicitud ya ha sido validada',
             ], 422);
         }
-
-        $user = auth()->user();
 
         // Update request with validation information
         $request->validated_at = now();
@@ -638,6 +676,24 @@ class RequestController extends Controller
      */
     public function downloadFile(RequestForm $request, string $fileKey): \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
     {
+        $user = request()->user();
+
+        // SECURITY FIX: Validate that user has access to this specific request
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+            Log::warning('Intento de descarga de archivo no autorizada de solicitud', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $request->id,
+                'request_type' => $request->request_type,
+                'file_key' => $fileKey,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
+        }
+
         $files = $request->files ?? [];
 
         if (!isset($files[$fileKey])) {
@@ -694,6 +750,23 @@ class RequestController extends Controller
      */
     public function changeStatus(ChangeRequestStatusRequest $statusRequest, RequestForm $request): JsonResponse
     {
+        $user = request()->user();
+
+        // SECURITY FIX: Validate that user has access to this specific request
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+            Log::warning('Intento de cambio de estado no autorizado de solicitud', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $request->id,
+                'request_type' => $request->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
+        }
+
         $status = $statusRequest->validated()['status'];
 
         $updateData = ['status' => $status];
@@ -784,6 +857,23 @@ class RequestController extends Controller
             'request_form_id' => $requestForm->id,
             'request_form_exists' => $requestForm->exists,
         ]);
+
+        $user = request()->user();
+
+        // SECURITY FIX: Validate that user has access to this specific request
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+            Log::warning('Intento de respuesta no autorizada a solicitud', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
+        }
 
         // Validar que no se pueda responder a ninguna solicitud si hay una actualización de correo pendiente
         // Esto aplica a TODAS las solicitudes para evitar enviar respuestas al correo equivocado
@@ -982,37 +1072,8 @@ class RequestController extends Controller
                     $esOtros
                 );
 
-                // Guardar el certificado en los archivos de la solicitud
-                if (file_exists($certificadoResult['ruta'])) {
-                    try {
-                        $archivoMetadata = $this->guardarCertificadoEnSolicitud(
-                            $requestFormId,
-                            $certificadoResult['ruta'],
-                            $certificadoResult['nombre']
-                        );
-
-                        // Update RequestForm with the certificate file
-                        $files = $requestForm->files ?? [];
-                        $files['certificado_convenio'] = $archivoMetadata;
-                        $requestForm->files = $files;
-                        $requestForm->save();
-
-                        Log::info('Certificado generado automáticamente guardado en archivos de solicitud', [
-                            'request_id' => $requestFormId,
-                            'file_key' => 'certificado_convenio',
-                            'storage_path' => $archivoMetadata['path'] ?? null,
-                            'consecutivo' => $certificadoResult['consecutivo'] ?? null,
-                        ]);
-                    } catch (\Throwable $e) {
-                        Log::error('Error guardando certificado generado automáticamente en archivos de solicitud', [
-                            'request_id' => $requestFormId,
-                            'error' => $e->getMessage(),
-                        ]);
-                        // Continue even if saving fails - we still want to attach it to email
-                    }
-                }
-
                 // Agregar el certificado generado a los adjuntos
+                // El certificado se guardará directamente en los anexos de la respuesta, no en los archivos de la solicitud
                 if (file_exists($certificadoResult['ruta'])) {
                     // Generar nombre de archivo en formato estándar con consecutivo
                     $consecutivo = $certificadoResult['consecutivo'] ?? '';
@@ -1098,36 +1159,8 @@ class RequestController extends Controller
                     $dirigidoAEntidad
                 );
 
-                // Save the generated certificate to request files for traceability
-                if (file_exists($certificadoResult['ruta'])) {
-                    try {
-                        $archivoMetadata = $this->guardarCertificadoEnSolicitud(
-                            $requestFormId,
-                            $certificadoResult['ruta'],
-                            $certificadoResult['nombre']
-                        );
-
-                        // Update RequestForm with the certificate file
-                        $files = $requestForm->files ?? [];
-                        $files['certificado_convenio_actividades'] = $archivoMetadata;
-                        $requestForm->files = $files;
-                        $requestForm->save();
-
-                        Log::info('Certificado con actividades guardado en archivos de solicitud', [
-                            'request_id' => $requestFormId,
-                            'file_key' => 'certificado_convenio_actividades',
-                            'storage_path' => $archivoMetadata['path'] ?? null,
-                        ]);
-                    } catch (\Throwable $e) {
-                        Log::error('Error guardando certificado con actividades en archivos de solicitud', [
-                            'request_id' => $requestFormId,
-                            'error' => $e->getMessage(),
-                        ]);
-                        // Continue even if saving fails - we still want to attach it to email
-                    }
-                }
-
                 // Add the generated certificate to attachments
+                // El certificado se guardará directamente en los anexos de la respuesta, no en los archivos de la solicitud
                 // Create an UploadedFile-like object for the Mail class
                 if (file_exists($certificadoResult['ruta'])) {
                     // Read file content
@@ -1186,36 +1219,8 @@ class RequestController extends Controller
                     null // consecutivo will be generated
                 );
 
-                // Save the generated certificate to request files for traceability
-                if (file_exists($certificadoResult['ruta'])) {
-                    try {
-                        $archivoMetadata = $this->guardarCertificadoEnSolicitud(
-                            $requestFormId,
-                            $certificadoResult['ruta'],
-                            $certificadoResult['nombre']
-                        );
-
-                        // Update RequestForm with the certificate file
-                        $files = $requestForm->files ?? [];
-                        $files['certificado_convenio_afp'] = $archivoMetadata;
-                        $requestForm->files = $files;
-                        $requestForm->save();
-
-                        Log::info('Certificado dirigido a AFP guardado en archivos de solicitud', [
-                            'request_id' => $requestFormId,
-                            'file_key' => 'certificado_convenio_afp',
-                            'storage_path' => $archivoMetadata['path'] ?? null,
-                        ]);
-                    } catch (\Throwable $e) {
-                        Log::error('Error guardando certificado dirigido a AFP en archivos de solicitud', [
-                            'request_id' => $requestFormId,
-                            'error' => $e->getMessage(),
-                        ]);
-                        // Continue even if saving fails - we still want to attach it to email
-                    }
-                }
-
                 // Add the generated certificate to attachments
+                // El certificado se guardará directamente en los anexos de la respuesta, no en los archivos de la solicitud
                 // Create an UploadedFile-like object for the Mail class
                 if (file_exists($certificadoResult['ruta'])) {
                     // Read file content
@@ -1328,12 +1333,12 @@ class RequestController extends Controller
             ]);
 
             $mail = Mail::to($recipientEmail);
-            
+
             // Agregar CC para solicitudes de microcrédito
             if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
                 $mail->cc('ceiisas@hotmail.com');
             }
-            
+
             $mail->send(new RequestFormResponse(
                 $requestForm,
                 $emailSubject,
@@ -1405,42 +1410,9 @@ class RequestController extends Controller
         ]);
 
         // Store attachments if any (for traceability and audit)
+        // Los certificados generados automáticamente ya se incluyen en $attachments y se guardan aquí
         if (!empty($attachments)) {
             $this->storeResponseAttachments($requestResponse, $attachments);
-        }
-
-        // Also store certificates that were generated and saved to request_forms.files
-        // These are already in storage, so we create attachment records pointing to them
-        $files = $requestForm->files ?? [];
-        $certificateKeys = ['certificado_convenio', 'certificado_convenio_actividades', 'certificado_convenio_afp'];
-
-        foreach ($certificateKeys as $key) {
-            if (isset($files[$key]) && is_array($files[$key])) {
-                $certMetadata = $files[$key];
-                if (isset($certMetadata['path'])) {
-                    try {
-                        RequestResponseAttachment::create([
-                            'request_response_id' => $requestResponse->id,
-                            'path' => $certMetadata['path'],
-                            'original_name' => $certMetadata['original_name'] ?? $certMetadata['original_key'] ?? $key,
-                            'created_at' => now(),
-                        ]);
-
-                        Log::info('Certificado guardado como attachment de respuesta', [
-                            'response_id' => $requestResponse->id,
-                            'certificate_key' => $key,
-                            'certificate_path' => $certMetadata['path'],
-                        ]);
-                    } catch (\Exception $e) {
-                        Log::error('Error guardando certificado como attachment de respuesta', [
-                            'response_id' => $requestResponse->id,
-                            'certificate_key' => $key,
-                            'error' => $e->getMessage(),
-                        ]);
-                        // Don't fail the entire operation if attachment storage fails
-                    }
-                }
-            }
         }
 
         // Log with user information for easy searching
@@ -1537,6 +1509,23 @@ class RequestController extends Controller
                 'success' => false,
                 'message' => 'Solicitud no encontrada',
             ], 404);
+        }
+
+        $user = request()->user();
+
+        // SECURITY FIX: Validate that user has access to this specific request
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+            Log::warning('Intento de respuesta con compensaciones no autorizada a solicitud', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
         }
 
         // Validate that the request is a certificado convenio
@@ -2054,10 +2043,10 @@ class RequestController extends Controller
 
             try {
                 // Generate a descriptive filename
-                $extension = $attachment->getClientOriginalExtension() 
+                $extension = $attachment->getClientOriginalExtension()
                     ?: $this->getExtensionFromMimeType($attachment->getMimeType());
                 $originalName = $attachment->getClientOriginalName();
-                
+
                 // Generate unique filename for storage
                 $uniqueId = substr(Str::uuid()->toString(), 0, 8);
                 $filename = "response-attachment-{$requestResponse->id}-{$uniqueId}.{$extension}";
@@ -2882,14 +2871,14 @@ class RequestController extends Controller
 
     /**
      * Sanitize HTML content to prevent XSS attacks while allowing safe HTML tags and attributes.
-     * 
+     *
      * This method sanitizes HTML content to allow safe formatting tags and basic styling attributes
      * while preventing XSS attacks. It preserves table attributes like border, cellpadding, cellspacing,
      * and style attributes for proper table rendering in emails.
-     * 
+     *
      * Allowed tags: p, br, strong, b, em, i, u, table, tr, td, th, thead, tbody, ul, ol, li, div, span, h1-h6
      * Allowed attributes: border, cellpadding, cellspacing, style (with safe CSS only)
-     * 
+     *
      * @param string $html The HTML content to sanitize
      * @return string The sanitized HTML content
      */
@@ -2898,7 +2887,7 @@ class RequestController extends Controller
         // List of allowed HTML tags for email content
         $allowedTagNames = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'ul', 'ol', 'li', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
         $allowedAttributes = ['border', 'cellpadding', 'cellspacing', 'style', 'align', 'valign', 'colspan', 'rowspan'];
-        
+
         // Step 1: Sanitize attributes of allowed tags first
         $pattern = '/<(' . implode('|', $allowedTagNames) . ')(\s[^>]*)?>/i';
         $result = preg_replace_callback($pattern, function ($matches) use ($allowedAttributes) {
@@ -2907,43 +2896,43 @@ class RequestController extends Controller
             $sanitizedAttrs = $this->sanitizeTagAttributes($attributes, $allowedAttributes);
             return '<' . $tagName . ($sanitizedAttrs ? ' ' . $sanitizedAttrs : '') . '>';
         }, $html);
-        
+
         // Step 2: Remove dangerous tags (tags not in allowed list)
         $dangerousTagPattern = '/<\/?(?!' . implode('|', $allowedTagNames) . ')[^>]*>/i';
         $result = preg_replace($dangerousTagPattern, '', $result);
-        
+
         // Step 3: CRITICAL - Separate tables from text content to prevent text from being absorbed into tables
         // Extract all tables with their complete structure
         // Use a balanced regex approach to match opening and closing table tags
         $tables = [];
         $placeholders = [];
         $offset = 0;
-        
+
         // Find all table opening tags
         while (preg_match('/<table[^>]*>/i', $result, $match, PREG_OFFSET_CAPTURE, $offset)) {
             $tableStart = $match[0][1];
             $tableTag = $match[0][0];
             $offset = $tableStart + strlen($tableTag);
-            
+
             // Find the matching closing tag by counting nested tables
             $depth = 1;
             $tableContent = $tableTag;
             $searchOffset = $offset;
-            
+
             while ($depth > 0 && $searchOffset < strlen($result)) {
                 if (preg_match('/<\/?table[^>]*>/i', $result, $tagMatch, PREG_OFFSET_CAPTURE, $searchOffset)) {
                     $tagPos = $tagMatch[0][1];
                     $tag = $tagMatch[0][0];
-                    
+
                     if (preg_match('/^<\/table/i', $tag)) {
                         $depth--;
                     } elseif (preg_match('/^<table/i', $tag)) {
                         $depth++;
                     }
-                    
+
                     $tableContent .= substr($result, $searchOffset, $tagPos + strlen($tag) - $searchOffset);
                     $searchOffset = $tagPos + strlen($tag);
-                    
+
                     if ($depth === 0) {
                         break; // Found matching closing tag
                     }
@@ -2951,7 +2940,7 @@ class RequestController extends Controller
                     break; // No more table tags found
                 }
             }
-            
+
             // If we found a complete table, store it
             if ($depth === 0 && !empty($tableContent)) {
                 // Ensure table is properly closed
@@ -2959,12 +2948,12 @@ class RequestController extends Controller
                 if (!preg_match('/<\/table>\s*$/i', $tableContent)) {
                     $tableContent .= '</table>';
                 }
-                
+
                 $index = count($tables);
                 $placeholder = "{{TABLE_PLACEHOLDER_{$index}}}";
                 $tables[] = $tableContent;
                 $placeholders[$placeholder] = $tableContent;
-                
+
                 // Replace table with placeholder
                 $result = substr_replace($result, $placeholder, $tableStart, strlen($tableContent));
                 $offset = $tableStart + strlen($placeholder);
@@ -2973,12 +2962,12 @@ class RequestController extends Controller
                 break;
             }
         }
-        
+
         // Step 4: Process text content (everything that's not a table)
         // Split by placeholders and process text blocks separately
         $parts = preg_split('/(\{\{TABLE_PLACEHOLDER_\d+\}\})/', $result, -1, PREG_SPLIT_DELIM_CAPTURE);
         $normalized = '';
-        
+
         foreach ($parts as $part) {
             // Check if this is a table placeholder
             if (preg_match('/\{\{TABLE_PLACEHOLDER_(\d+)\}\}/', $part, $placeholderMatch)) {
@@ -2990,7 +2979,7 @@ class RequestController extends Controller
                     if (!preg_match('/<\/table>\s*$/i', $table)) {
                         $table .= '</table>';
                     }
-                    
+
                     // Add inline styles to table to control width (more compatible with email clients)
                     // Modify the table tag to include width control
                     if (preg_match('/<table([^>]*)>/i', $table, $tableMatch)) {
@@ -3011,11 +3000,11 @@ class RequestController extends Controller
                             $table = preg_replace('/<table([^>]*)>/i', '<table$1 style="width:auto !important; max-width:100% !important; margin:16px auto !important;">', $table, 1);
                         }
                     }
-                    
+
                     // Ensure all table rows have consistent alignment
                     $table = preg_replace_callback('/<tr([^>]*)>/i', function($matches) {
                         $attrs = $matches[1];
-                        
+
                         // Check if style attribute exists
                         if (preg_match('/style\s*=\s*["\']([^"\']*)["\']/i', $attrs, $styleMatch)) {
                             $existingStyle = $styleMatch[1];
@@ -3027,17 +3016,17 @@ class RequestController extends Controller
                         } else {
                             $attrs = rtrim($attrs) . ' style="vertical-align:middle;"';
                         }
-                        
+
                         return '<tr' . $attrs . '>';
                     }, $table);
-                    
+
                     // Ensure all table cells (td/th) have proper vertical alignment
                     // This prevents vertical misalignment issues in email clients
                     // Force consistent vertical alignment, line-height, and padding for all cells
                     $table = preg_replace_callback('/<(td|th)([^>]*)>/i', function($matches) {
                         $tagName = $matches[1];
                         $attrs = $matches[2];
-                        
+
                         // Check if style attribute exists
                         if (preg_match('/style\s*=\s*["\']([^"\']*)["\']/i', $attrs, $styleMatch)) {
                             $existingStyle = $styleMatch[1];
@@ -3054,21 +3043,21 @@ class RequestController extends Controller
                             // Add style attribute with vertical-align and line-height
                             $attrs = rtrim($attrs) . ' style="vertical-align:middle !important; line-height:1.5 !important;"';
                         }
-                        
+
                         return '<' . $tagName . $attrs . '>';
                     }, $table);
-                    
+
                     // Add a clear separator after the table to prevent content absorption
                     $normalized .= $table . '<p style="margin:16px 0; padding:0; clear:both; display:block; height:0; line-height:0; font-size:0;"></p>';
                 }
             } else {
                 // This is text content - process it
                 $text = $part; // Don't trim yet, preserve whitespace structure
-                
+
                 if (!empty(trim($text))) {
                     // Check if text already starts with a block-level tag (p, div, h1-h6, etc.)
                     $startsWithBlock = preg_match('/^\s*<(?:p|div|h[1-6]|ul|ol)/i', $text);
-                    
+
                     if ($startsWithBlock) {
                         // Text already has block-level structure, just ensure line breaks are preserved
                         // Convert line breaks in text nodes to <br>
@@ -3080,13 +3069,13 @@ class RequestController extends Controller
                         // Text needs to be wrapped in paragraphs
                         // Split by double line breaks (paragraph breaks) first
                         $paragraphs = preg_split('/\r?\n\s*\r?\n/', $text);
-                        
+
                         foreach ($paragraphs as $para) {
                             $para = trim($para);
                             if (empty($para)) {
                                 continue;
                             }
-                            
+
                             // Check if this paragraph already has HTML tags
                             if (preg_match('/<[^>]+>/', $para)) {
                                 // Has HTML tags like <strong>, <br>, etc.
@@ -3102,7 +3091,7 @@ class RequestController extends Controller
                                 // Plain text - convert line breaks to <br>
                                 $para = nl2br($para, false);
                             }
-                            
+
                             // Wrap in <p> tag
                             $normalized .= '<p>' . $para . '</p>';
                         }
@@ -3110,7 +3099,7 @@ class RequestController extends Controller
                 }
             }
         }
-        
+
         // Step 5: Final sanitization pass - ensure all tags have sanitized attributes
         $final = preg_replace_callback($pattern, function ($matches) use ($allowedAttributes) {
             $tagName = strtolower($matches[1]);
@@ -3118,34 +3107,34 @@ class RequestController extends Controller
             $sanitizedAttrs = $this->sanitizeTagAttributes($attributes, $allowedAttributes);
             return '<' . $tagName . ($sanitizedAttrs ? ' ' . $sanitizedAttrs : '') . '>';
         }, $normalized);
-        
+
         // Step 6: Additional security - Remove dangerous URLs and event handlers
         $final = preg_replace('/(javascript|data|vbscript):/i', '', $final);
         $final = preg_replace('/\s*on\w+\s*=\s*["\'][^"\']*["\']/i', '', $final);
-        
+
         // Step 7: CRITICAL - Ensure all tables are properly closed and content after tables is isolated
         // Count opening and closing table tags
         $openTables = preg_match_all('/<table[^>]*>/i', $final);
         $closeTables = preg_match_all('/<\/table>/i', $final);
-        
+
         // If there are unclosed tables, close them
         while ($openTables > $closeTables) {
             $final .= '</table>';
             $closeTables++;
         }
-        
+
         // Add a final separator to ensure nothing after gets absorbed
         // This is a safety measure for email clients that might misinterpret the HTML
         if ($openTables > 0) {
             $final .= '<!-- END_TABLES -->';
         }
-        
+
         return $final;
     }
 
     /**
      * Sanitize HTML tag attributes, allowing only safe attributes with safe values.
-     * 
+     *
      * @param string $attributesString The attributes string from an HTML tag
      * @param array $allowedAttributes List of allowed attribute names
      * @return string Sanitized attributes string
@@ -3155,21 +3144,21 @@ class RequestController extends Controller
         if (empty(trim($attributesString))) {
             return '';
         }
-        
+
         $sanitized = [];
-        
+
         // Extract attributes using regex
         preg_match_all('/(\w+)\s*=\s*["\']([^"\']*)["\']/', $attributesString, $attrMatches, PREG_SET_ORDER);
-        
+
         foreach ($attrMatches as $attrMatch) {
             $attrName = strtolower(trim($attrMatch[1]));
             $attrValue = $attrMatch[2];
-            
+
             // Only allow specified attributes
             if (!in_array($attrName, $allowedAttributes)) {
                 continue;
             }
-            
+
             // Sanitize attribute values based on attribute type
             if ($attrName === 'style') {
                 // Allow safe CSS properties only (colors, borders, padding, etc.)
@@ -3186,13 +3175,13 @@ class RequestController extends Controller
                     continue;
                 }
             }
-            
+
             // Escape quotes in attribute values
             $attrValue = htmlspecialchars($attrValue, ENT_QUOTES, 'UTF-8');
-            
+
             $sanitized[] = $attrName . '="' . $attrValue . '"';
         }
-        
+
         return implode(' ', $sanitized);
     }
 }

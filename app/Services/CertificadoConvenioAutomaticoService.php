@@ -86,25 +86,14 @@ class CertificadoConvenioAutomaticoService
                 'bucket_path' => $resultadoCertificado['bucket_path'] ?? null,
             ]);
 
-            // 2. Guardar el PDF en los archivos de la solicitud para trazabilidad
-            $archivoMetadata = $this->guardarCertificadoEnSolicitud(
-                $requestForm->id,
-                $resultadoCertificado['ruta'],
-                $resultadoCertificado['nombre']
-            );
-
-            // Actualizar el RequestForm con el archivo
-            $files = $requestForm->files ?? [];
-            $files['certificado_convenio'] = $archivoMetadata;
-            $requestForm->files = $files;
-            $requestForm->save();
-
-            // 3. Crear respuesta automática y enviar correo con certificado
+            // 2. Crear respuesta automática y enviar correo con certificado
+            // El certificado se guardará directamente en los anexos de la respuesta, no en los archivos de la solicitud
             $this->crearYEnviarRespuestaAutomatica(
                 $requestForm,
                 $resultadoCertificado['ruta'],
                 $resultadoCertificado['nombre'],
-                $resultadoCertificado['consecutivo'] ?? ''
+                $resultadoCertificado['consecutivo'] ?? '',
+                $resultadoCertificado['bucket_path'] ?? null
             );
 
             DB::commit();
@@ -193,25 +182,14 @@ class CertificadoConvenioAutomaticoService
                 'bucket_path' => $resultadoCertificado['bucket_path'] ?? null,
             ]);
 
-            // 2. Guardar el PDF en los archivos de la solicitud para trazabilidad
-            $archivoMetadata = $this->guardarCertificadoEnSolicitud(
-                $requestForm->id,
-                $resultadoCertificado['ruta'],
-                $resultadoCertificado['nombre']
-            );
-
-            // Actualizar el RequestForm con el archivo
-            $files = $requestForm->files ?? [];
-            $files['certificado_convenio'] = $archivoMetadata;
-            $requestForm->files = $files;
-            $requestForm->save();
-
-            // 3. Crear respuesta automática y enviar correo con certificado
+            // 2. Crear respuesta automática y enviar correo con certificado
+            // El certificado se guardará directamente en los anexos de la respuesta, no en los archivos de la solicitud
             $this->crearYEnviarRespuestaAutomatica(
                 $requestForm,
                 $resultadoCertificado['ruta'],
                 $resultadoCertificado['nombre'],
-                $resultadoCertificado['consecutivo'] ?? ''
+                $resultadoCertificado['consecutivo'] ?? '',
+                $resultadoCertificado['bucket_path'] ?? null
             );
 
             DB::commit();
@@ -296,25 +274,14 @@ class CertificadoConvenioAutomaticoService
                 'bucket_path' => $resultadoCertificado['bucket_path'] ?? null,
             ]);
 
-            // 4. Guardar el PDF en los archivos de la solicitud para trazabilidad
-            $archivoMetadata = $this->guardarCertificadoEnSolicitud(
-                $requestForm->id,
-                $resultadoCertificado['ruta'],
-                $resultadoCertificado['nombre']
-            );
-
-            // Actualizar el RequestForm con el archivo
-            $files = $requestForm->files ?? [];
-            $files['certificado_convenio'] = $archivoMetadata;
-            $requestForm->files = $files;
-            $requestForm->save();
-
-            // 5. Crear respuesta automática y enviar correo con certificado
+            // 4. Crear respuesta automática y enviar correo con certificado
+            // El certificado se guardará directamente en los anexos de la respuesta, no en los archivos de la solicitud
             $this->crearYEnviarRespuestaAutomatica(
                 $requestForm,
                 $resultadoCertificado['ruta'],
                 $resultadoCertificado['nombre'],
-                $resultadoCertificado['consecutivo'] ?? ''
+                $resultadoCertificado['consecutivo'] ?? '',
+                $resultadoCertificado['bucket_path'] ?? null
             );
 
             DB::commit();
@@ -422,6 +389,7 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Guarda el certificado PDF en los archivos de la solicitud para trazabilidad
+     * @deprecated Este método ya no se usa. Los certificados se guardan solo en los anexos de la respuesta.
      */
     private function guardarCertificadoEnSolicitud(string $requestId, string $rutaPdf, string $nombreArchivo): array
     {
@@ -476,9 +444,10 @@ class CertificadoConvenioAutomaticoService
      * Crea y envía la respuesta automática con el certificado adjunto
      *
      * @param RequestForm $requestForm
-     * @param string $rutaPdf
-     * @param string $nombreArchivo
-     * @param string $consecutivo
+     * @param string $rutaPdf Ruta temporal del PDF para adjuntar al correo
+     * @param string $nombreArchivo Nombre del archivo
+     * @param string $consecutivo Consecutivo del certificado
+     * @param string|null $bucketPath Ruta del archivo en el bucket (ya guardado, no se duplica)
      * @param string|null $emailSubject Asunto del correo personalizado (opcional)
      * @param string|null $emailBody Cuerpo del correo personalizado (opcional)
      * @param string|null $status Estado final de la solicitud (opcional, por defecto COMPLETED)
@@ -488,6 +457,7 @@ class CertificadoConvenioAutomaticoService
         string $rutaPdf,
         string $nombreArchivo,
         string $consecutivo,
+        ?string $bucketPath = null,
         ?string $emailSubject = null,
         ?string $emailBody = null,
         ?string $status = null
@@ -549,22 +519,20 @@ class CertificadoConvenioAutomaticoService
             ]);
 
             // Store certificate as attachment for traceability
-            // The certificate is already stored in request_forms.files, but we also store it as a response attachment
-            $files = $requestForm->files ?? [];
-            $certificadoMetadata = $files['certificado_convenio'] ?? null;
-            
-            if ($certificadoMetadata && isset($certificadoMetadata['path'])) {
+            // Usar el bucket_path existente (el archivo ya está guardado en certificados/convenio/...)
+            // No duplicar el archivo, solo crear el registro en request_response_attachments
+            if ($bucketPath) {
                 try {
                     RequestResponseAttachment::create([
                         'request_response_id' => $requestResponse->id,
-                        'path' => $certificadoMetadata['path'],
-                        'original_name' => $certificadoMetadata['original_name'] ?? $nombreArchivoAdjunto,
+                        'path' => $bucketPath,
+                        'original_name' => $nombreArchivoAdjunto,
                         'created_at' => now(),
                     ]);
 
-                    Log::info('Certificado guardado como attachment de respuesta', [
+                    Log::info('Certificado guardado como attachment de respuesta (usando bucket_path existente)', [
                         'response_id' => $requestResponse->id,
-                        'certificate_path' => $certificadoMetadata['path'],
+                        'certificate_path' => $bucketPath,
                     ]);
                 } catch (\Exception $e) {
                     Log::error('Error guardando certificado como attachment de respuesta', [
@@ -573,6 +541,11 @@ class CertificadoConvenioAutomaticoService
                     ]);
                     // Don't fail the entire operation if attachment storage fails
                 }
+            } else {
+                Log::warning('No se pudo crear attachment de respuesta: bucket_path no disponible', [
+                    'response_id' => $requestResponse->id,
+                    'consecutivo' => $consecutivo,
+                ]);
             }
 
             // Log with user information for easy searching
