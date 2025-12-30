@@ -171,53 +171,41 @@ class RequestAssignmentService
         $hasTypeAssignment = in_array($requestType, $assignments['types']);
 
         if ($hasTypeAssignment) {
-            // For types without subtypes, type assignment is enough
-            if (!RequestTypes::hasSubtypes($requestType)) {
-                return true;
-            }
-
-            // For types with subtypes, check if there's a specific subtype assignment
-            // If there's no subtype in the request, fall back to type assignment
-            $subtype = $this->getSubtypeFromRequest($requestForm);
-
-            if (empty($subtype)) {
-                // No subtype in request, use type assignment as fallback
-                return true;
-            }
-
-            // Check if user has specific subtype assignment
-            $hasSubtypeAssignment = isset($assignments['subtypes'][$requestType]) 
-                && in_array($subtype, $assignments['subtypes'][$requestType]);
-
-            if ($hasSubtypeAssignment) {
-                return true;
-            }
-
-            // Check if there's a general type assignment (fallback) but no specific subtype assignment
-            // If no specific subtype assignments exist for this type, use type assignment as fallback
-            // Verificar si existen asignaciones de subtipos para este tipo (no necesariamente del usuario)
-            $hasAnySubtypeAssignment = RequestSubtypeAssignment::where('request_type', $requestType)
-                ->exists();
-
-            if (!$hasAnySubtypeAssignment) {
-                // No subtype assignments exist, use type assignment as fallback
-                return true;
-            }
-
-            // Specific subtype assignment exists but user doesn't have it
-            return false;
+            // If user has type assignment, they can access ALL requests of that type
+            // regardless of subtype assignments (type assignment has priority)
+            return true;
         }
 
-        // Check if user has subtype assignment
+        // If user doesn't have type assignment, check subtype assignments
+        // Only filter by subtypes if user does NOT have type assignment
         if (RequestTypes::hasSubtypes($requestType)) {
             $subtype = $this->getSubtypeFromRequest($requestForm);
 
             if (!empty($subtype)) {
-                return isset($assignments['subtypes'][$requestType]) 
-                    && in_array($subtype, $assignments['subtypes'][$requestType]);
+                // Check if user has this specific subtype assigned
+                // Use flexible comparison to handle variations in casing and format
+                $normalizedSubtype = $this->normalizeSubtypeValue($subtype);
+                $userSubtypes = $assignments['subtypes'][$requestType] ?? [];
+                
+                foreach ($userSubtypes as $userSubtype) {
+                    $normalizedUserSubtype = $this->normalizeSubtypeValue($userSubtype);
+                    // Check if they match exactly or if one contains the other (for variations)
+                    if ($normalizedSubtype === $normalizedUserSubtype 
+                        || str_contains($normalizedSubtype, $normalizedUserSubtype)
+                        || str_contains($normalizedUserSubtype, $normalizedSubtype)) {
+                        return true;
+                    }
+                }
+                
+                return false;
             }
+            
+            // If request has no subtype but user only has subtype assignments (no type assignment),
+            // they cannot access requests without subtypes
+            return false;
         }
 
+        // No type assignment and no subtype assignments (or type doesn't have subtypes)
         return false;
     }
 
@@ -426,5 +414,23 @@ class RequestAssignmentService
         $payload = $requestForm->payload ?? [];
 
         return $payload['solicitudRelacionadaCon'] ?? null;
+    }
+
+    /**
+     * Normalize subtype value for comparison.
+     * Handles variations in casing and common format differences.
+     */
+    private function normalizeSubtypeValue(string $subtype): string
+    {
+        // Normalize to uppercase and trim
+        $normalized = mb_strtoupper(trim($subtype));
+        
+        // Remove common variations that don't affect matching
+        // For example: "Y/O DESCANSO" variations
+        $normalized = preg_replace('/\s*Y\/O\s*DESCANSO\s*/i', '', $normalized);
+        $normalized = preg_replace('/\s+/', ' ', $normalized); // Normalize multiple spaces
+        $normalized = trim($normalized);
+        
+        return $normalized;
     }
 }

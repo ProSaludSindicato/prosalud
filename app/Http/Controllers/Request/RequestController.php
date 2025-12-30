@@ -340,30 +340,33 @@ class RequestController extends Controller
                     });
 
                     foreach ($typesWithSubtypes as $type) {
-                        $q->orWhere(function ($typeQ) use ($type, $assignedSubtypes) {
+                        $q->orWhere(function ($typeQ) use ($type) {
+                            // If user has type assignment, they can see ALL requests of that type
+                            // regardless of subtype assignments (type assignment has priority)
                             $typeQ->where('request_type', $type);
-
-                            // If user has specific subtype assignments, filter by them
-                            if (isset($assignedSubtypes[$type]) && !empty($assignedSubtypes[$type])) {
-                                $typeQ->where(function ($subtypeQ) use ($assignedSubtypes, $type) {
-                                    foreach ($assignedSubtypes[$type] as $subtype) {
-                                        $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
-                                    }
-                                });
-                            }
-                            // If user has type assignment but no subtype assignments,
-                            // they can see all requests of that type (type assignment as fallback)
                         });
                     }
 
                     // Handle cases where user only has subtype assignments (no type assignment)
+                    // IMPORTANT: Only filter by subtypes if user does NOT have type assignment
                     foreach ($assignedSubtypes as $type => $subtypes) {
                         if (!in_array($type, $assignedTypes)) {
+                            // User only has subtype assignments, filter by specific subtypes
                             $q->orWhere(function ($typeQ) use ($type, $subtypes) {
                                 $typeQ->where('request_type', $type);
                                 $typeQ->where(function ($subtypeQ) use ($subtypes) {
                                     foreach ($subtypes as $subtype) {
-                                        $subtypeQ->orWhereJsonContains('payload->solicitudRelacionadaCon', $subtype);
+                                        // Normalize both values for flexible comparison
+                                        // Handle variations like "COMPENSACIÓN ANUAL DIFERIDA" vs "COMPENSACIÓN ANUAL DIFERIDA Y/O DESCANSO"
+                                        $normalizedSubtype = $this->normalizeSubtypeValue($subtype);
+                                        $subtypeQ->orWhere(function ($sq) use ($normalizedSubtype) {
+                                            // Normalize the DB value the same way (remove Y/O DESCANSO, uppercase, trim)
+                                            // Then use bidirectional LIKE comparison to handle variations
+                                            $sq->whereRaw(
+                                                "REPLACE(REPLACE(UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.solicitudRelacionadaCon')))), ' Y/O DESCANSO', ''), 'Y/O DESCANSO', '') LIKE ? OR ? LIKE CONCAT('%', REPLACE(REPLACE(UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.solicitudRelacionadaCon')))), ' Y/O DESCANSO', ''), 'Y/O DESCANSO', ''), '%')",
+                                                [$normalizedSubtype . '%', $normalizedSubtype]
+                                            );
+                                        });
                                     }
                                 });
                             });
@@ -3183,5 +3186,23 @@ class RequestController extends Controller
         }
 
         return implode(' ', $sanitized);
+    }
+
+    /**
+     * Normalize subtype value for comparison.
+     * Handles variations in casing and common format differences.
+     */
+    private function normalizeSubtypeValue(string $subtype): string
+    {
+        // Normalize to uppercase and trim
+        $normalized = mb_strtoupper(trim($subtype));
+        
+        // Remove common variations that don't affect matching
+        // For example: "Y/O DESCANSO" variations
+        $normalized = preg_replace('/\s*Y\/O\s*DESCANSO\s*/i', '', $normalized);
+        $normalized = preg_replace('/\s+/', ' ', $normalized); // Normalize multiple spaces
+        $normalized = trim($normalized);
+        
+        return $normalized;
     }
 }
