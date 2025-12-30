@@ -61,6 +61,7 @@ class RequestTypes
             'solicitud-microcredito' => self::SOLICITUD_MICROCREDITO,
             'incapacidad-licencia' => self::INCAPACIDADES_LICENCIAS,
             'incapacidad-laboral' => self::INCAPACIDADES_LICENCIAS,
+            'retiro-sindical' => self::SOLICITUD_RETIRO_SINDICAL,
             default => $requestType,
         };
     }

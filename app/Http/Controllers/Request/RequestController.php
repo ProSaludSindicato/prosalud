@@ -340,6 +340,9 @@ class RequestController extends Controller
                                 $typesToSearch[] = 'incapacidad-licencia';
                                 $typesToSearch[] = 'incapacidad-laboral';
                             }
+                            if ($type === RequestTypes::SOLICITUD_RETIRO_SINDICAL) {
+                                $typesToSearch[] = 'retiro-sindical';
+                            }
                         }
                         $q->whereIn('request_type', array_unique($typesToSearch));
                     }

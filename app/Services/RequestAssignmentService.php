@@ -189,6 +189,12 @@ class RequestAssignmentService
                     $hasTypeAssignment = true;
                     break;
                 }
+                // Also check aliases: if assigned type is solicitud-retiro-sindical, also match retiro-sindical
+                if ($assignedType === RequestTypes::SOLICITUD_RETIRO_SINDICAL 
+                    && $requestType === 'retiro-sindical') {
+                    $hasTypeAssignment = true;
+                    break;
+                }
             }
         }
 
