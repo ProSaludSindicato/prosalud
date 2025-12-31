@@ -231,6 +231,39 @@ class BulkRequestResponseService
     }
 
     /**
+     * Contar solicitudes disponibles para la plantilla
+     */
+    public function countRequestsForTemplate(array $filters): int
+    {
+        $query = RequestForm::query();
+
+        // Filtrar solo solicitudes pendientes o en revisión
+        $query->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW]);
+
+        // Filtro por tipo de solicitud si se especifica
+        $requestType = $filters['request_type'] ?? null;
+        if ($requestType && $requestType !== 'all') {
+            $query->where('request_type', $requestType);
+        }
+
+        // Filtro por rango de fechas si se especifica
+        $dateRange = $filters['date_range'] ?? [];
+        if (!($dateRange['include_all'] ?? true)) {
+            if (isset($dateRange['start_date'])) {
+                $startDate = Carbon::parse($dateRange['start_date'])->startOfDay();
+                $query->where('created_at', '>=', $startDate);
+            }
+
+            if (isset($dateRange['end_date'])) {
+                $endDate = Carbon::parse($dateRange['end_date'])->endOfDay();
+                $query->where('created_at', '<=', $endDate);
+            }
+        }
+
+        return $query->count();
+    }
+
+    /**
      * Obtener solicitudes para la plantilla
      */
     private function getRequestsForTemplate(array $filters): Collection
@@ -607,9 +640,9 @@ class BulkRequestResponseService
     }
 
     /**
-     * Obtener etiqueta del tipo de solicitud
+     * Obtener etiqueta del tipo de solicitud (método público para uso externo)
      */
-    private function getRequestTypeLabel(string $requestType): string
+    public function getRequestTypeLabel(string $requestType): string
     {
         // Normalizar el tipo de solicitud primero (por si viene con alias)
         $normalizedType = RequestTypes::normalize($requestType);

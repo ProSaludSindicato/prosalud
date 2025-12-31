@@ -14,6 +14,7 @@ use App\Http\Requests\{BulkRequestResponseRequest, ExportRequestsExcelRequest, P
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail, Storage};
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Carbon\Carbon;
 
@@ -3226,6 +3227,30 @@ class RequestController extends Controller
                 ],
             ];
 
+            // Validar que existan solicitudes pendientes o en revisión antes de generar la plantilla
+            $requestsCount = $this->bulkResponseService->countRequestsForTemplate($filters);
+            
+            if ($requestsCount === 0) {
+                $requestTypeLabel = $requestType !== 'all' 
+                    ? $this->bulkResponseService->getRequestTypeLabel($requestType)
+                    : 'solicitudes';
+                
+                Log::info('Intento de generar plantilla sin solicitudes disponibles', [
+                    'user_id' => $user->id,
+                    'user_email' => $user->email,
+                    'filters' => $filters,
+                    'request_type_label' => $requestTypeLabel,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "No hay solicitudes pendientes o en revisión de tipo '{$requestTypeLabel}' para generar la plantilla.",
+                    'request_type' => $requestType,
+                    'request_type_label' => $requestTypeLabel,
+                    'filters' => $filters,
+                ], 422);
+            }
+
             // Generar plantilla
             $filePath = $this->bulkResponseService->generateTemplate($filters);
 
@@ -3260,26 +3285,68 @@ class RequestController extends Controller
             return response()->download($filePath, $fileName, [
                 'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ])->deleteFileAfterSend(true);
-        } catch (\InvalidArgumentException $e) {
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $errors = $e->errors();
+            $requestType = $request->input('request_type', 'no proporcionado');
+            
             Log::warning('Error de validación al generar plantilla de respuesta masiva', [
                 'error' => $e->getMessage(),
+                'errors' => $errors,
+                'request_type_received' => $requestType,
+                'valid_request_types' => array_merge(RequestTypes::all(), ['all']),
                 'user_id' => $request->user()->id ?? null,
+                'user_email' => $request->user()->email ?? null,
+                'all_input' => $request->all(),
+            ]);
+
+            // Formatear mensajes de error de manera más clara
+            $errorMessages = [];
+            foreach ($errors as $field => $messages) {
+                foreach ($messages as $message) {
+                    $errorMessages[] = $message;
+                }
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación en los parámetros enviados',
+                'errors' => $errors,
+                'error_details' => $errorMessages,
+            ], 422);
+        } catch (\InvalidArgumentException $e) {
+            $requestType = $request->input('request_type', 'no proporcionado');
+            
+            Log::warning('Error de validación al generar plantilla de respuesta masiva', [
+                'error' => $e->getMessage(),
+                'request_type_received' => $requestType,
+                'valid_request_types' => array_merge(RequestTypes::all(), ['all']),
+                'user_id' => $request->user()->id ?? null,
+                'user_email' => $request->user()->email ?? null,
+                'all_input' => $request->all(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
+                'request_type_received' => $requestType,
             ], 400);
         } catch (\Exception $e) {
+            $requestType = $request->input('request_type', 'no proporcionado');
+            
             Log::error('Error generando plantilla de respuesta masiva', [
                 'error' => $e->getMessage(),
+                'error_class' => get_class($e),
                 'trace' => $e->getTraceAsString(),
+                'request_type_received' => $requestType,
                 'user_id' => $request->user()->id ?? null,
+                'user_email' => $request->user()->email ?? null,
+                'all_input' => $request->all(),
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error al generar la plantilla. Por favor, intente nuevamente.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -3350,27 +3417,70 @@ class RequestController extends Controller
                 // No eliminar el archivo temporal aquí porque Laravel lo maneja automáticamente
                 // El archivo temporal se elimina cuando el request termina
             }
-        } catch (\InvalidArgumentException $e) {
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $errors = $e->errors();
+            $fileName = $request->file('file')?->getClientOriginalName() ?? 'no proporcionado';
+            
             Log::warning('Error de validación al procesar respuesta masiva', [
                 'error' => $e->getMessage(),
+                'errors' => $errors,
+                'file_name' => $fileName,
+                'file_size' => $request->file('file')?->getSize(),
+                'file_mime_type' => $request->file('file')?->getMimeType(),
                 'user_id' => $request->user()->id ?? null,
+                'user_email' => $request->user()->email ?? null,
+            ]);
+
+            // Formatear mensajes de error de manera más clara
+            $errorMessages = [];
+            foreach ($errors as $field => $messages) {
+                foreach ($messages as $message) {
+                    $errorMessages[] = $message;
+                }
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación en el archivo enviado',
+                'errors' => $errors,
+                'error_details' => $errorMessages,
+                'file_name' => $fileName,
+            ], 422);
+        } catch (\InvalidArgumentException $e) {
+            $fileName = $request->file('file')?->getClientOriginalName() ?? 'no proporcionado';
+            
+            Log::warning('Error de validación al procesar respuesta masiva', [
+                'error' => $e->getMessage(),
+                'file_name' => $fileName,
+                'file_size' => $request->file('file')?->getSize(),
+                'user_id' => $request->user()->id ?? null,
+                'user_email' => $request->user()->email ?? null,
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
+                'file_name' => $fileName,
             ], 400);
         } catch (\Exception $e) {
+            $fileName = $request->file('file')?->getClientOriginalName() ?? 'no proporcionado';
+            
             Log::error('Error procesando respuesta masiva', [
                 'error' => $e->getMessage(),
+                'error_class' => get_class($e),
                 'trace' => $e->getTraceAsString(),
+                'file_name' => $fileName,
+                'file_size' => $request->file('file')?->getSize(),
+                'file_mime_type' => $request->file('file')?->getMimeType(),
                 'user_id' => $request->user()->id ?? null,
+                'user_email' => $request->user()->email ?? null,
             ]);
 
             return response()->json([
                 'success' => false,
                 'message' => 'Error al procesar el archivo. Por favor, verifique el formato y vuelva a intentar.',
                 'error' => config('app.debug') ? $e->getMessage() : null,
+                'file_name' => $fileName,
             ], 500);
         }
     }

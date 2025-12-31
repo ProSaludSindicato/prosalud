@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Support\Facades\Log;
 
 class ProcessBulkResponseRequest extends FormRequest
 {
@@ -50,6 +53,48 @@ class ProcessBulkResponseRequest extends FormRequest
         return [
             'file' => 'archivo Excel',
         ];
+    }
+
+    /**
+     * Handle a failed validation attempt.
+     *
+     * @throws HttpResponseException
+     */
+    protected function failedValidation(Validator $validator)
+    {
+        $errors = $validator->errors()->toArray();
+        $uploadedFile = $this->file('file');
+        
+        $fileInfo = [
+            'file_name' => $uploadedFile?->getClientOriginalName() ?? 'no proporcionado',
+            'file_size' => $uploadedFile?->getSize() ?? null,
+            'file_mime_type' => $uploadedFile?->getMimeType() ?? null,
+            'file_extension' => $uploadedFile?->getClientOriginalExtension() ?? null,
+        ];
+
+        // Mejorar mensajes de error con información del archivo
+        if (isset($errors['file'])) {
+            $fileErrors = [];
+            foreach ($errors['file'] as $error) {
+                $fileSize = $fileInfo['file_size'] ? number_format($fileInfo['file_size'] / 1024, 2) . ' KB' : 'desconocido';
+                $fileErrors[] = $error . " (Archivo recibido: '{$fileInfo['file_name']}', Tamaño: {$fileSize}, Tipo: {$fileInfo['file_mime_type']})";
+            }
+            $errors['file'] = $fileErrors;
+        }
+
+        Log::warning('Errores de validación en ProcessBulkResponseRequest', [
+            'errors' => $errors,
+            'file_info' => $fileInfo,
+        ]);
+
+        throw new HttpResponseException(
+            response()->json([
+                'success' => false,
+                'message' => 'Error de validación en el archivo enviado',
+                'errors' => $errors,
+                'file_info' => $fileInfo,
+            ], 422)
+        );
     }
 }
 
