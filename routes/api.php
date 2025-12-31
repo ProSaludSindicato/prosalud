@@ -136,6 +136,14 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     // Request management routes
     Route::get('/requests', [RequestController::class, 'index'])->middleware('permission:requests.view');
     Route::get('/requests/pending-personal-data-updates', [RequestController::class, 'pendingPersonalDataUpdates'])->middleware('permission:requests.view');
+    
+    // Rutas específicas (sin parámetros dinámicos) - DEBEN IR ANTES de las rutas con {request}
+    Route::get('/requests/bulk-response-template', [RequestController::class, 'exportBulkResponseTemplate'])->middleware('permission:requests.respond');
+    Route::post('/requests/bulk-response', [RequestController::class, 'processBulkResponse'])->middleware('permission:requests.respond');
+    Route::post('/requests/export/excel', [RequestController::class, 'exportExcel'])->middleware('permission:requests.view');
+    Route::get('/requests/responses/{response}/attachments/{attachment}', [RequestController::class, 'downloadResponseAttachment'])->middleware('permission:requests.view');
+    
+    // Rutas con parámetros dinámicos - DESPUÉS de las específicas
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
     Route::post('/requests/{request}/validate', [RequestController::class, 'validate'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus'])->middleware('permission:requests.respond');
@@ -144,8 +152,6 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::post('/requests/{request}/respond-with-compensaciones', [RequestController::class, 'respondWithCompensaciones'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/respond-with-compensaciones', [RequestController::class, 'respondWithCompensaciones'])->middleware('permission:requests.respond');
     Route::get('/requests/{request}/files/{fileKey}', [RequestController::class, 'downloadFile'])->middleware('permission:requests.view');
-    Route::get('/requests/responses/{response}/attachments/{attachment}', [RequestController::class, 'downloadResponseAttachment'])->middleware('permission:requests.view');
-    Route::post('/requests/export/excel', [RequestController::class, 'exportExcel'])->middleware('permission:requests.view');
 
     // Votes admin reporting routes
     Route::get('/votes/statistics', [VoteController::class, 'statistics'])->middleware('permission:votes.statistics.view');

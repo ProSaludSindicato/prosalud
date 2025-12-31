@@ -8,9 +8,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest};
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestSubtypeAssignment, RequestTypeAssignment};
-use App\Services\{AuditLogService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
+use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
 use App\Services\CertificadoConvenioService;
-use App\Http\Requests\ExportRequestsExcelRequest;
+use App\Http\Requests\{BulkRequestResponseRequest, ExportRequestsExcelRequest, ProcessBulkResponseRequest};
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{Log, Mail, Storage};
 use Illuminate\Support\Str;
@@ -26,6 +26,7 @@ class RequestController extends Controller
         private CertificadoConvenioAutomaticoService $certificadoAutomaticoService,
         private ExcelReaderService $excelReaderService,
         private CertificadoConvenioService $certificadoService,
+        private BulkRequestResponseService $bulkResponseService,
     ) {
     }
 
@@ -3199,6 +3200,179 @@ class RequestController extends Controller
         }
 
         return implode(' ', $sanitized);
+    }
+
+    /**
+     * Export template Excel for bulk response.
+     */
+    public function exportBulkResponseTemplate(BulkRequestResponseRequest $request): BinaryFileResponse|JsonResponse
+    {
+        try {
+            $user = $request->user();
+
+            // Preparar filtros
+            $dateRange = $request->input('date_range', []);
+            $requestType = $request->input('request_type', 'all');
+            // Normalize request_type if it's not 'all'
+            if ($requestType !== 'all') {
+                $requestType = RequestTypes::normalize($requestType);
+            }
+            $filters = [
+                'request_type' => $requestType,
+                'date_range' => [
+                    'include_all' => $dateRange['include_all'] ?? true,
+                    'start_date' => $dateRange['start_date'] ?? null,
+                    'end_date' => $dateRange['end_date'] ?? null,
+                ],
+            ];
+
+            // Generar plantilla
+            $filePath = $this->bulkResponseService->generateTemplate($filters);
+
+            if (!file_exists($filePath)) {
+                Log::error('Error generando plantilla de respuesta masiva: archivo no creado', [
+                    'user_id' => $user->id,
+                    'filters' => $filters,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al generar la plantilla',
+                ], 500);
+            }
+
+            // Nombre del archivo
+            $fileName = 'Plantilla_Respuestas_Masivas_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+
+            Log::info('Plantilla de respuesta masiva generada', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]);
+
+            // Registrar en auditoría
+            $this->auditLogService->logBusinessProcess('request_form', 'bulk_response_template_export', $this->auditLogService->addRequestContext($request, [
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]));
+
+            return response()->download($filePath, $fileName, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ])->deleteFileAfterSend(true);
+        } catch (\InvalidArgumentException $e) {
+            Log::warning('Error de validación al generar plantilla de respuesta masiva', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        } catch (\Exception $e) {
+            Log::error('Error generando plantilla de respuesta masiva', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar la plantilla. Por favor, intente nuevamente.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Process bulk response from Excel file.
+     */
+    public function processBulkResponse(ProcessBulkResponseRequest $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            $uploadedFile = $request->file('file');
+
+            if (!$uploadedFile || !$uploadedFile->isValid()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El archivo no es válido',
+                ], 400);
+            }
+
+            // Usar directamente el archivo temporal que Laravel crea al subir
+            // Esto es más confiable que guardarlo nuevamente
+            $tempFilePath = $uploadedFile->getRealPath();
+
+            // Si getRealPath() no funciona, usar getPathname() como alternativa
+            if (!$tempFilePath || !file_exists($tempFilePath)) {
+                $tempFilePath = $uploadedFile->getPathname();
+            }
+
+            // Verificar que el archivo existe
+            if (!$tempFilePath || !file_exists($tempFilePath)) {
+                Log::error('No se pudo obtener la ruta del archivo temporal', [
+                    'getRealPath' => $uploadedFile->getRealPath(),
+                    'getPathname' => $uploadedFile->getPathname(),
+                    'isValid' => $uploadedFile->isValid(),
+                    'original_name' => $uploadedFile->getClientOriginalName(),
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error: No se pudo acceder al archivo subido',
+                ], 500);
+            }
+
+            try {
+                // Procesar archivo
+                $results = $this->bulkResponseService->processBulkResponse($tempFilePath, $user);
+
+                // Registrar en auditoría
+                $this->auditLogService->logBusinessProcess('request_form', 'bulk_response_processed', $this->auditLogService->addRequestContext($request, [
+                    'total' => $results['total'],
+                    'successful' => $results['successful'],
+                    'failed' => $results['failed'],
+                ]));
+
+                Log::info('Procesamiento masivo de respuestas completado', [
+                    'user_id' => $user->id,
+                    'user_email' => $user->email,
+                    'results' => $results,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Procesamiento completado',
+                    'data' => $results,
+                ]);
+            } finally {
+                // No eliminar el archivo temporal aquí porque Laravel lo maneja automáticamente
+                // El archivo temporal se elimina cuando el request termina
+            }
+        } catch (\InvalidArgumentException $e) {
+            Log::warning('Error de validación al procesar respuesta masiva', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        } catch (\Exception $e) {
+            Log::error('Error procesando respuesta masiva', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()->id ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar el archivo. Por favor, verifique el formato y vuelva a intentar.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
     }
 
     /**
