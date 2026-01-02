@@ -42,20 +42,20 @@ class AfiliadoService
     private const COL_TALLA_CALZADO = 22;
     private const COL_NIVEL_EDUCACION = 23;
     private const COL_OTROS_ESTUDIOS = 24;
-    private const COL_NUMERO_CUENTA = 25;
-    private const COL_TIPO_CUENTA = 26;
-    private const COL_BANCO = 27;
-    private const COL_FECHA_RETHUS = 28;
-    private const COL_COMPENSACION_BASICA = 29;
-    private const COL_TIPO_AFILIACION = 30;
-    private const COL_EPS = 31;
-    private const COL_AFP = 32;
-    private const COL_ARL = 33;
-    private const COL_CAJA_COMPENSACION = 34;
-    private const COL_NIVEL_RIESGO = 35;
-    private const COL_FECHA_VENCIMIENTO_POLIZA = 36;
-    private const COL_EMISOR_POLIZA = 37;
-    private const COL_DETALLES = 38;
+    private const COL_NUMERO_CUENTA = 26;
+    private const COL_TIPO_CUENTA = 27;
+    private const COL_BANCO = 28;
+    private const COL_FECHA_RETHUS = 29;
+    private const COL_COMPENSACION_BASICA = 30;
+    private const COL_TIPO_AFILIACION = 31;
+    private const COL_EPS = 32;
+    private const COL_AFP = 33;
+    private const COL_ARL = 34;
+    private const COL_CAJA_COMPENSACION = 35;
+    private const COL_NIVEL_RIESGO = 36;
+    private const COL_FECHA_VENCIMIENTO_POLIZA = 37;
+    private const COL_EMISOR_POLIZA = 38;
+    private const COL_DETALLES = 39;
 
     // Column indexes for CONVENIOS sheet
     private const COL_CONV_DOCUMENTO_AFILIADO = 0;
@@ -79,6 +79,50 @@ class AfiliadoService
     private const COL_BEN_FECHA_NACIMIENTO = 5;
     private const COL_BEN_SEXO = 6;
     private const COL_BEN_NOTAS_PARENTESCO = 7;
+
+    // Mapeo de nombres de columna esperados (normalizados)
+    // Permite múltiples variaciones de nombres para hacer matching flexible
+    private const COLUMN_NAME_MAPPINGS = [
+        'tipo_documento' => ['tipo docume', 'tipo documento', 'tipo doc'],
+        'documento' => ['documento'],
+        'nombres' => ['nombres'],
+        'apellidos' => ['apellidos'],
+        'estado' => ['estado'],
+        'fecha_expedicion' => ['fecha exped', 'fecha expedicion'],
+        'fecha_nacimiento' => ['fecha nacim', 'fecha nacimiento'],
+        'lugar_nacimiento' => ['lugar nacim', 'lugar nacimiento'],
+        'sexo' => ['sexo'],
+        'rh' => ['rh'],
+        'fecha_ingreso' => ['fecha de ing', 'fecha ingreso', 'fecha ing'],
+        'estado_civil' => ['estado civil'],
+        'carnet' => ['carnet'],
+        'direccion' => ['direccion'],
+        'departamento' => ['departamen', 'departamento'],
+        'municipio' => ['municipio'],
+        'telefono' => ['telefono'],
+        'celular' => ['celular'],
+        'correo_personal' => ['correo perso', 'correo personal', 'correo'],
+        'archivo_liquidado' => ['archivo liqui', 'archivo liquidado'],
+        'fecha_liquidacion' => ['fecha liquid', 'fecha liquidacion'],
+        'talla_uniforme' => ['talla de unif', 'talla uniforme', 'talla unif'],
+        'talla_calzado' => ['talla de calz', 'talla calzado', 'talla calz'],
+        'nivel_educacion' => ['nivel de edu', 'nivel educacion', 'nivel edu'],
+        'otros_estudios' => ['otros estudi', 'otros estudios'],
+        'numero_cuenta' => ['numero cue', 'numero cuenta'],
+        'tipo_cuenta' => ['tipo de cuen', 'tipo cuenta', 'tipo cuen'],
+        'banco' => ['banco'],
+        'fecha_rethus' => ['fecha rethu', 'fecha rethus'],
+        'compensacion_basica' => ['compensaci', 'compensacion', 'compensacion basica'],
+        'tipo_afiliacion' => ['tipo de afili', 'tipo afiliacion', 'tipo afili'],
+        'eps' => ['e.p.s', 'eps'],
+        'afp' => ['a.f.p', 'afp'],
+        'arl' => ['a.r.l', 'arl'],
+        'caja_compensacion' => ['caja de com', 'caja compensacion', 'caja com'],
+        'nivel_riesgo' => ['nivel de ries', 'nivel riesgo', 'nivel ries'],
+        'fecha_vencimiento_poliza' => ['fecha vencim', 'fecha vencimiento', 'fecha vencimiento poliza'],
+        'emisor_poliza' => ['emisor poliz', 'emisor poliza'],
+        'detalles' => ['detalles'],
+    ];
 
     /**
      * Authenticate and get affiliate information (optimized - reads only necessary rows).
@@ -167,14 +211,14 @@ class AfiliadoService
                     return null;
                 }
 
-                $afiliadoRow = $this->findAfiliadoRowOptimized(
+                $afiliadoRowResult = $this->findAfiliadoRowOptimized(
                     $informacionSheet,
                     $tipoDocumento,
                     $documento,
                     $fechaExpedicion
                 );
 
-                if (null === $afiliadoRow) {
+                if (null === $afiliadoRowResult) {
                     Log::info('Afiliado no encontrado', [
                         'tipo_documento' => $tipoDocumento,
                         'documento' => $documento,
@@ -192,7 +236,7 @@ class AfiliadoService
                     return null;
                 }
 
-                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
 
                 $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
                 $conveniosFull = $conveniosSheet
@@ -318,7 +362,9 @@ class AfiliadoService
                 }
 
                 $afiliadoRow = $informacionData[$afiliadoRowIndex];
-                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
+                // Build column mapping from header row
+                $columnMapping = $this->buildColumnMapping($informacionSheet);
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow, $columnMapping);
 
                 $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
                 $conveniosFull = [];
@@ -406,23 +452,35 @@ class AfiliadoService
                     return null;
                 }
 
-                $afiliadoRow = $this->findAfiliadoRowOptimized(
+                $afiliadoRowResult = $this->findAfiliadoRowOptimized(
                     $informacionSheet,
                     $tipoDocumento,
                     $documento,
                     $fechaExpedicion
                 );
 
-                if (null === $afiliadoRow) {
+                if (null === $afiliadoRowResult) {
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
                     return null;
                 }
 
-                $correo = $this->normalizeValue($afiliadoRow[self::COL_CORREO_PERSONAL] ?? '');
-                $nombres = $this->normalizeValue($afiliadoRow[self::COL_NOMBRES] ?? '');
-                $apellidos = $this->normalizeValue($afiliadoRow[self::COL_APELLIDOS] ?? '');
+                $correo = $this->normalizeValue($this->getValueByColumnName(
+                    $afiliadoRowResult['data'],
+                    $afiliadoRowResult['mapping'],
+                    'correo_personal'
+                ));
+                $nombres = $this->normalizeValue($this->getValueByColumnName(
+                    $afiliadoRowResult['data'],
+                    $afiliadoRowResult['mapping'],
+                    'nombres'
+                ));
+                $apellidos = $this->normalizeValue($this->getValueByColumnName(
+                    $afiliadoRowResult['data'],
+                    $afiliadoRowResult['mapping'],
+                    'apellidos'
+                ));
 
                 // Liberar memoria explícitamente
                 $spreadsheet->disconnectWorksheets();
@@ -511,21 +569,21 @@ class AfiliadoService
                     return null;
                 }
 
-                $afiliadoRow = $this->findAfiliadoRowOptimized(
+                $afiliadoRowResult = $this->findAfiliadoRowOptimized(
                     $informacionSheet,
                     $tipoDocumento,
                     $documento,
                     $fechaExpedicion
                 );
 
-                if (null === $afiliadoRow) {
+                if (null === $afiliadoRowResult) {
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
                     return null;
                 }
 
-                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRow);
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
 
                 $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
                 $conveniosFull = $conveniosSheet
@@ -862,6 +920,80 @@ class AfiliadoService
     }
 
     /**
+     * Build column index mapping from sheet headers.
+     * Returns array mapping internal column name to Excel column index (0-based).
+     */
+    private function buildColumnMapping($sheet): array
+    {
+        $mapping = [];
+        $highestColumn = $sheet->getHighestColumn();
+        $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
+        
+        // Read header row (row 1)
+        for ($colIndex = 1; $colIndex <= $highestColumnIndex; ++$colIndex) {
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex);
+            $cell = $sheet->getCell($colLetter . '1');
+            $headerValue = $this->getCellValue($cell);
+            
+            if (empty($headerValue)) {
+                continue;
+            }
+            
+            $normalizedHeader = $this->normalizeColumnName((string) $headerValue);
+            
+            // Find matching column name
+            foreach (self::COLUMN_NAME_MAPPINGS as $internalName => $possibleNames) {
+                foreach ($possibleNames as $possibleName) {
+                    if ($this->matchesColumnName($normalizedHeader, $possibleName)) {
+                        $mapping[$internalName] = $colIndex - 1; // Convert to 0-based index
+                        break 2; // Break both loops
+                    }
+                }
+            }
+        }
+        
+        return $mapping;
+    }
+
+    /**
+     * Normalize column name for comparison.
+     */
+    private function normalizeColumnName(string $name): string
+    {
+        // Remove accents, convert to lowercase, remove extra spaces
+        $name = mb_strtolower(trim($name));
+        $name = str_replace(['á', 'é', 'í', 'ó', 'ú', 'ñ'], ['a', 'e', 'i', 'o', 'u', 'n'], $name);
+        $name = preg_replace('/\s+/', ' ', $name);
+        return trim($name);
+    }
+
+    /**
+     * Check if normalized header matches a possible column name.
+     */
+    private function matchesColumnName(string $normalizedHeader, string $possibleName): bool
+    {
+        $normalizedPossible = $this->normalizeColumnName($possibleName);
+        
+        // Exact match or starts with
+        return $normalizedHeader === $normalizedPossible 
+            || strpos($normalizedHeader, $normalizedPossible) === 0
+            || strpos($normalizedPossible, $normalizedHeader) === 0;
+    }
+
+    /**
+     * Get cell value by column name from row data array.
+     */
+    private function getValueByColumnName(array $row, array $columnMapping, string $columnName, $default = null)
+    {
+        if (!isset($columnMapping[$columnName])) {
+            return $default;
+        }
+        
+        $columnIndex = $columnMapping[$columnName];
+        return $row[$columnIndex] ?? $default;
+    }
+
+    /**
      * Find the row index of the affiliate matching the authentication criteria.
      */
     private function findAfiliadoRow(
@@ -885,7 +1017,7 @@ class AfiliadoService
             }
 
             // Check if row has enough columns
-            if (count($row) < 39) {
+            if (count($row) < 40) {
                 continue;
             }
 
@@ -916,6 +1048,7 @@ class AfiliadoService
 
     /**
      * Find affiliate row using optimized iteration (reads only necessary rows).
+     * Uses column name mapping instead of fixed column indexes.
      */
     private function findAfiliadoRowOptimized(
         $sheet,
@@ -923,6 +1056,21 @@ class AfiliadoService
         string $documento,
         string $fechaExpedicion,
     ): ?array {
+        // Build column mapping from headers
+        $columnMapping = $this->buildColumnMapping($sheet);
+        
+        // Check required columns exist
+        $requiredColumns = ['tipo_documento', 'documento', 'fecha_expedicion'];
+        foreach ($requiredColumns as $col) {
+            if (!isset($columnMapping[$col])) {
+                Log::error("Columna requerida no encontrada: {$col}", [
+                    'available_columns' => array_keys($columnMapping),
+                    'documento' => $documento,
+                ]);
+                return null;
+            }
+        }
+        
         // Normalize input values once
         $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
         $normalizedDocumento = $this->normalizeValue($documento);
@@ -934,15 +1082,18 @@ class AfiliadoService
         // Iterate through rows (skip header row at row 1)
         for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
             // Read only necessary columns first for matching (optimization)
-            $colLetter = Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1);
+            $colIndex = $columnMapping['tipo_documento'];
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
             $cell = $sheet->getCell($colLetter . $rowIndex);
             $rowTipoDocumentoRaw = $this->getCellValue($cell);
 
-            $colLetter = Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1);
+            $colIndex = $columnMapping['documento'];
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
             $cell = $sheet->getCell($colLetter . $rowIndex);
             $rowDocumentoRaw = $this->getCellValue($cell);
 
-            $colLetter = Coordinate::stringFromColumnIndex(self::COL_FECHA_EXPEDICION + 1);
+            $colIndex = $columnMapping['fecha_expedicion'];
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
             $cell = $sheet->getCell($colLetter . $rowIndex);
             $rowFechaExpedicionRaw = $this->getCellValue($cell);
 
@@ -969,15 +1120,22 @@ class AfiliadoService
             if ($rowTipoDocumento === $normalizedTipoDocumento
                 && $rowDocumento === $normalizedDocumento
                 && $rowFechaExpedicion === $normalizedFechaExpedicion) {
-                // Match found! Now read the complete row
+                // Match found! Now read the complete row using column mapping
                 $rowData = [];
-                for ($colIndex = 0; $colIndex < 39; ++$colIndex) {
+                $highestColumn = $sheet->getHighestColumn();
+                $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
+                
+                for ($colIndex = 0; $colIndex < $highestColumnIndex; ++$colIndex) {
                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
                     $cell = $sheet->getCell($colLetter . $rowIndex);
                     $rowData[] = $this->getCellValue($cell);
                 }
 
-                return $rowData;
+                // Return both row data and mapping for later use
+                return [
+                    'data' => $rowData,
+                    'mapping' => $columnMapping,
+                ];
             }
         }
 
@@ -1066,15 +1224,20 @@ class AfiliadoService
     }
 
     /**
-     * Extract affiliate information from a row.
+     * Extract affiliate information from a row using column mapping.
      */
-    private function extractAfiliadoInfo(array $row): array
+    private function extractAfiliadoInfo(array $rowData, array $columnMapping): array
     {
+        // Helper function to get value by column name
+        $getValue = function($colName, $default = null) use ($rowData, $columnMapping) {
+            return $this->getValueByColumnName($rowData, $columnMapping, $colName, $default);
+        };
+
         // Handle E.P.S, A.F.P, A.R.L, Caja de Compensacion - they might be concatenated
-        $epsRaw = $this->normalizeValue($row[self::COL_EPS] ?? '');
-        $afpRaw = $this->normalizeValue($row[self::COL_AFP] ?? '');
-        $arlRaw = $this->normalizeValue($row[self::COL_ARL] ?? '');
-        $cajaCompensacionRaw = $this->normalizeValue($row[self::COL_CAJA_COMPENSACION] ?? '');
+        $epsRaw = $this->normalizeValue($getValue('eps'));
+        $afpRaw = $this->normalizeValue($getValue('afp'));
+        $arlRaw = $this->normalizeValue($getValue('arl'));
+        $cajaCompensacionRaw = $this->normalizeValue($getValue('caja_compensacion'));
 
         // Check if EPS contains concatenated values (when other columns are empty)
         // Pattern from images: "NUEVA E.P.S PORVENIR COLMENA COMFENALC 3" or "EPS SURA (A COLPENSION COLMENA COMFENALC 3"
@@ -1100,8 +1263,8 @@ class AfiliadoService
         }
 
         // Extract date from Banco column if it contains a date (Fecha Rethus might be embedded)
-        $banco = $this->normalizeValue($row[self::COL_BANCO] ?? '');
-        $fechaRethus = $this->normalizeValue($row[self::COL_FECHA_RETHUS] ?? '');
+        $banco = $this->normalizeValue($getValue('banco'));
+        $fechaRethus = $this->normalizeValue($getValue('fecha_rethus'));
 
         // If fecha rethus is empty but banco contains a date, extract it
         if (empty($fechaRethus) && !empty($banco)) {
@@ -1114,45 +1277,45 @@ class AfiliadoService
         }
 
         return [
-            'tipo_documento' => $this->normalizeValue($row[self::COL_TIPO_DOCUMENTO] ?? ''),
-            'documento' => $this->normalizeValue($row[self::COL_DOCUMENTO] ?? ''),
-            'nombres' => $this->normalizeValue($row[self::COL_NOMBRES] ?? ''),
-            'apellidos' => $this->normalizeValue($row[self::COL_APELLIDOS] ?? ''),
-            'estado' => $this->normalizeValue($row[self::COL_ESTADO] ?? ''),
-            'fecha_expedicion' => $this->normalizeDate($row[self::COL_FECHA_EXPEDICION] ?? ''),
-            'fecha_nacimiento' => $this->normalizeDate($row[self::COL_FECHA_NACIMIENTO] ?? ''),
-            'lugar_nacimiento' => $this->normalizeValue($row[self::COL_LUGAR_NACIMIENTO] ?? ''),
-            'sexo' => $this->normalizeValue($row[self::COL_SEXO] ?? ''),
-            'rh' => $this->normalizeValue($row[self::COL_RH] ?? ''),
-            'fecha_ingreso' => $this->normalizeDate($row[self::COL_FECHA_INGRESO] ?? ''),
-            'estado_civil' => $this->normalizeValue($row[self::COL_ESTADO_CIVIL] ?? ''),
-            'carnet' => $this->normalizeValue($row[self::COL_CARNET] ?? ''),
-            'direccion' => $this->normalizeValue($row[self::COL_DIRECCION] ?? ''),
-            'departamento' => $this->normalizeValue($row[self::COL_DEPARTAMENTO] ?? ''),
-            'municipio' => $this->normalizeValue($row[self::COL_MUNICIPIO] ?? ''),
-            'telefono' => $this->normalizeValue($row[self::COL_TELEFONO] ?? ''),
-            'celular' => $this->normalizeValue($row[self::COL_CELULAR] ?? ''),
-            'correo_personal' => $this->normalizeValue($row[self::COL_CORREO_PERSONAL] ?? ''),
-            'archivo_liquidado' => $this->normalizeDate($row[self::COL_ARCHIVO_LIQUIDADO] ?? ''),
-            'fecha_liquidacion' => $this->normalizeDate($row[self::COL_FECHA_LIQUIDACION] ?? ''),
-            'talla_uniforme' => $this->normalizeValue($row[self::COL_TALLA_UNIFORME] ?? ''),
-            'talla_calzado' => $this->normalizeValue($row[self::COL_TALLA_CALZADO] ?? ''),
-            'nivel_educacion' => $this->normalizeNivelEducacion($this->normalizeValue($row[self::COL_NIVEL_EDUCACION] ?? '')),
-            'otros_estudios' => $this->normalizeValue($row[self::COL_OTROS_ESTUDIOS] ?? ''),
-            'numero_cuenta' => $this->normalizeValue($row[self::COL_NUMERO_CUENTA] ?? ''),
-            'tipo_cuenta' => $this->normalizeValue($row[self::COL_TIPO_CUENTA] ?? ''),
+            'tipo_documento' => $this->normalizeValue($getValue('tipo_documento')),
+            'documento' => $this->normalizeValue($getValue('documento')),
+            'nombres' => $this->normalizeValue($getValue('nombres')),
+            'apellidos' => $this->normalizeValue($getValue('apellidos')),
+            'estado' => $this->normalizeValue($getValue('estado')),
+            'fecha_expedicion' => $this->normalizeDate($getValue('fecha_expedicion')),
+            'fecha_nacimiento' => $this->normalizeDate($getValue('fecha_nacimiento')),
+            'lugar_nacimiento' => $this->normalizeValue($getValue('lugar_nacimiento')),
+            'sexo' => $this->normalizeValue($getValue('sexo')),
+            'rh' => $this->normalizeValue($getValue('rh')),
+            'fecha_ingreso' => $this->normalizeDate($getValue('fecha_ingreso')),
+            'estado_civil' => $this->normalizeValue($getValue('estado_civil')),
+            'carnet' => $this->normalizeValue($getValue('carnet')),
+            'direccion' => $this->normalizeValue($getValue('direccion')),
+            'departamento' => $this->normalizeValue($getValue('departamento')),
+            'municipio' => $this->normalizeValue($getValue('municipio')),
+            'telefono' => $this->normalizeValue($getValue('telefono')),
+            'celular' => $this->normalizeValue($getValue('celular')),
+            'correo_personal' => $this->normalizeValue($getValue('correo_personal')),
+            'archivo_liquidado' => $this->normalizeDate($getValue('archivo_liquidado')),
+            'fecha_liquidacion' => $this->normalizeDate($getValue('fecha_liquidacion')),
+            'talla_uniforme' => $this->normalizeValue($getValue('talla_uniforme')),
+            'talla_calzado' => $this->normalizeValue($getValue('talla_calzado')),
+            'nivel_educacion' => $this->normalizeNivelEducacion($this->normalizeValue($getValue('nivel_educacion'))),
+            'otros_estudios' => $this->normalizeValue($getValue('otros_estudios')),
+            'numero_cuenta' => $this->normalizeValue($getValue('numero_cuenta')),
+            'tipo_cuenta' => $this->normalizeValue($getValue('tipo_cuenta')),
             'banco' => $banco,
             'fecha_rethus' => $fechaRethus,
-            'compensacion_basica' => $this->normalizeNumeric($row[self::COL_COMPENSACION_BASICA] ?? ''),
-            'tipo_afiliacion' => $this->normalizeValue($row[self::COL_TIPO_AFILIACION] ?? ''),
+            'compensacion_basica' => $this->normalizeNumeric($getValue('compensacion_basica')),
+            'tipo_afiliacion' => $this->normalizeValue($getValue('tipo_afiliacion')),
             'eps' => $eps,
             'afp' => $afp,
             'arl' => $arl,
             'caja_compensacion' => $cajaCompensacion,
-            'nivel_riesgo' => $this->normalizeValue($row[self::COL_NIVEL_RIESGO] ?? ''),
-            'fecha_vencimiento_poliza' => $this->normalizeDate($row[self::COL_FECHA_VENCIMIENTO_POLIZA] ?? ''),
-            'emisor_poliza' => $this->normalizeValue($row[self::COL_EMISOR_POLIZA] ?? ''),
-            'detalles' => $this->normalizeValue($row[self::COL_DETALLES] ?? ''),
+            'nivel_riesgo' => $this->normalizeValue($getValue('nivel_riesgo')),
+            'fecha_vencimiento_poliza' => $this->normalizeDate($getValue('fecha_vencimiento_poliza')),
+            'emisor_poliza' => $this->normalizeValue($getValue('emisor_poliza')),
+            'detalles' => $this->normalizeValue($getValue('detalles')),
         ];
     }
 
