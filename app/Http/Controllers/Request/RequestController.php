@@ -2669,6 +2669,7 @@ class RequestController extends Controller
      * - Tiene solo fecha ingreso/retiro y/o dirigido a entidad (sin campos complejos)
      *
      * NO se procesa automáticamente si:
+     * - Tiene "otros" activo (requiere revisión manual o creación manual por alguna particularidad)
      * - Existe una solicitud pendiente o en revisión de actualización de datos personales que incluya cambio de correo
      */
     private function debeProcesarCertificadoAutomatico(RequestForm $requestForm): bool
@@ -2713,6 +2714,7 @@ class RequestController extends Controller
         $dirigidoAEntidad = $requestForm->parseBooleanValue($infoCertificado['dirigidoAEntidad'] ?? false);
         $dirigidoBancolombia = $requestForm->parseBooleanValue($infoCertificado['dirigidoBancolombia'] ?? false);
         $paraSubsidioVivienda = $requestForm->parseBooleanValue($infoCertificado['paraSubsidioVivienda'] ?? false);
+        $otros = $requestForm->parseBooleanValue($infoCertificado['otros'] ?? false);
 
         Log::info('debeProcesarCertificadoAutomatico: Verificando opciones del certificado', [
             'request_id' => $requestForm->id,
@@ -2720,8 +2722,20 @@ class RequestController extends Controller
             'dirigidoAEntidad' => $dirigidoAEntidad,
             'dirigidoBancolombia' => $dirigidoBancolombia,
             'paraSubsidioVivienda' => $paraSubsidioVivienda,
+            'otros' => $otros,
             'infoCertificado_raw' => $infoCertificado,
         ]);
+
+        // Si tiene "otros" activo, NO procesar automáticamente sin importar otros campos
+        // Esto requiere revisión manual o creación manual por alguna particularidad
+        if ($otros) {
+            Log::info('debeProcesarCertificadoAutomatico: Opción "Otros" detectada - NO procesando automáticamente (requiere revisión manual)', [
+                'request_id' => $requestForm->id,
+                'otros' => $otros,
+                'otros_campos' => $infoCertificado,
+            ]);
+            return false;
+        }
 
         // Si tiene dirigidoBancolombia activo, procesar automáticamente sin importar otros campos
         // Priorizando la automatización y generación automática
@@ -2838,6 +2852,30 @@ class RequestController extends Controller
     private function puedeProcesarCertificadoConCompensaciones(RequestForm $requestForm): array
     {
         $documento = $requestForm->document_number;
+
+        // 0. Verificar primero si tiene "otros" activo - si lo tiene, NO procesar automáticamente
+        // Esto requiere revisión manual o creación manual por alguna particularidad
+        $payload = $requestForm->payload ?? [];
+        if (isset($payload['infoCertificado'])) {
+            $infoCertificado = $payload['infoCertificado'];
+            if (is_string($infoCertificado)) {
+                $infoCertificado = json_decode($infoCertificado, true);
+            }
+            if (is_array($infoCertificado)) {
+                $otros = $requestForm->parseBooleanValue($infoCertificado['otros'] ?? false);
+                if ($otros) {
+                    Log::info('puedeProcesarCertificadoConCompensaciones: Opción "Otros" detectada - NO procesando automáticamente (requiere revisión manual)', [
+                        'request_id' => $requestForm->id,
+                        'otros' => $otros,
+                    ]);
+                    return [
+                        'puede_procesar' => false,
+                        'razon' => 'Opción "Otros" seleccionada - requiere revisión manual',
+                        'compensaciones' => null,
+                    ];
+                }
+            }
+        }
 
         // 1. Verificar que el afiliado esté activo
         try {

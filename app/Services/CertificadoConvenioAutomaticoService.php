@@ -69,6 +69,29 @@ class CertificadoConvenioAutomaticoService
                 'payload' => $requestForm->payload,
             ]);
 
+            // Si tiene "otros" activo, NO procesar automáticamente
+            // Esto requiere revisión manual o creación manual por alguna particularidad
+            if ($esOtros) {
+                Log::info('procesarConRequestFormExistenteYCompensaciones: Opción "Otros" detectada - NO procesando automáticamente (requiere revisión manual)', [
+                    'request_id' => $requestForm->id,
+                    'otros' => $esOtros,
+                ]);
+
+                // Dejar la solicitud pendiente para revisión manual
+                $requestForm->status = \App\Constants\RequestStatuses::PENDING;
+                $requestForm->save();
+
+                DB::commit();
+
+                return [
+                    'success' => false,
+                    'request_id' => $requestForm->id,
+                    'consecutivo' => null,
+                    'status' => $requestForm->status,
+                    'message' => 'Solicitud quedará pendiente para revisión manual debido a la opción "Otros" seleccionada.',
+                ];
+            }
+
             // 1. Generar certificado PDF con el destinatario y compensaciones si están disponibles
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
                 $requestForm->document_number,
@@ -256,6 +279,29 @@ class CertificadoConvenioAutomaticoService
 
             // Verificar si es tipo "otros"
             $esOtros = $this->esOtros($requestForm);
+
+            // Si tiene "otros" activo, NO procesar automáticamente
+            // Esto requiere revisión manual o creación manual por alguna particularidad
+            if ($esOtros) {
+                Log::info('procesarSolicitudAutomatica: Opción "Otros" detectada - NO procesando automáticamente (requiere revisión manual)', [
+                    'request_id' => $requestForm->id,
+                    'otros' => $esOtros,
+                ]);
+
+                // Dejar la solicitud pendiente para revisión manual
+                $requestForm->status = \App\Constants\RequestStatuses::PENDING;
+                $requestForm->save();
+
+                DB::commit();
+
+                return [
+                    'success' => true,
+                    'request_id' => $requestForm->id,
+                    'consecutivo' => null,
+                    'status' => $requestForm->status,
+                    'message' => 'Solicitud recibida y quedará pendiente para revisión manual debido a la opción "Otros" seleccionada.',
+                ];
+            }
 
             // 3. Generar certificado PDF con el destinatario si está disponible
             $resultadoCertificado = $this->certificadoService->generarCertificadoPDF(
