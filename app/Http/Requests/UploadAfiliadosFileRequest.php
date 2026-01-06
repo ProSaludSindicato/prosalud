@@ -27,7 +27,37 @@ class UploadAfiliadosFileRequest extends FormRequest
             'file' => [
                 'required',
                 'file',
-                'mimes:xlsx,xls', // Solo archivos Excel - valida magic bytes
+                function ($attribute, $value, $fail) {
+                    if (!$value) {
+                        return;
+                    }
+
+                    $extension = strtolower($value->getClientOriginalExtension());
+                    $mimeType = $value->getMimeType();
+
+                    // Validar extensión
+                    if (!in_array($extension, ['xlsx', 'xls'])) {
+                        $fail('El archivo debe ser un Excel (.xlsx o .xls).');
+                        return;
+                    }
+
+                    // MIME types válidos para Excel
+                    $validMimeTypes = [
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+                        'application/vnd.ms-excel', // .xls
+                        'application/zip', // .xlsx (porque son archivos ZIP)
+                    ];
+
+                    // Si es .xlsx, también aceptar application/zip
+                    if ($extension === 'xlsx' && $mimeType === 'application/zip') {
+                        return; // Válido
+                    }
+
+                    // Para otros casos, validar MIME type estándar
+                    if (!in_array($mimeType, $validMimeTypes)) {
+                        $fail('El archivo debe ser un Excel (.xlsx o .xls).');
+                    }
+                },
                 'max:20480', // 20MB
             ],
         ];
