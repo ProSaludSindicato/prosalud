@@ -100,6 +100,11 @@ class RequestController extends Controller
                     $mail->cc('ceiisas@hotmail.com');
                 }
 
+                // Agregar CC para solicitudes de retiro sindical
+                if ($requestFormForEmail->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestFormForEmail->request_type === 'retiro-sindical') {
+                    $mail->cc('talentohumano@sindicatoprosalud.com');
+                }
+
                 $mail->send(new RequestFormReceived($requestFormForEmail, $originalFilesForEmail));
 
                 Log::info('Correo de confirmación de solicitud enviado exitosamente', [
@@ -1436,6 +1441,11 @@ class RequestController extends Controller
             // Agregar CC para solicitudes de microcrédito
             if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
                 $mail->cc('ceiisas@hotmail.com');
+            }
+
+            // Agregar CC para solicitudes de retiro sindical
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
+                $mail->cc('talentohumano@sindicatoprosalud.com');
             }
 
             $mail->send(new RequestFormResponse(

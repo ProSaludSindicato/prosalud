@@ -524,6 +524,11 @@ class CertificadoConvenioAutomaticoService
             if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
                 $mail->cc('ceiisas@hotmail.com');
             }
+
+            // Agregar CC para solicitudes de retiro sindical
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
+                $mail->cc('talentohumano@sindicatoprosalud.com');
+            }
             
             $mail->send(new RequestFormResponse(
                 $requestForm,
