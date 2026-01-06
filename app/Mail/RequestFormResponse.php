@@ -19,6 +19,12 @@ class RequestFormResponse extends Mailable
     private array $attachmentData = [];
 
     /**
+     * Array to store compressed file download URLs (zip, rar)
+     * Format: ['name' => string, 'url' => string, 'expires_at' => string]
+     */
+    public array $compressedFileUrls = [];
+
+    /**
      * Create a new message instance.
      */
     public function __construct(
@@ -27,10 +33,20 @@ class RequestFormResponse extends Mailable
         public string $emailBody,
         public string $status,
         array $uploadedFiles = [],
+        array $compressedFileUrls = [],
     ) {
         $fileIndex = 0;
+        $compressedExtensions = ['zip', 'rar'];
+        
         foreach ($uploadedFiles as $file) {
             if ($file && $file->isValid()) {
+                $extension = strtolower($file->getClientOriginalExtension() ?? '');
+                
+                // Skip compressed files - they are handled separately via URLs
+                if (in_array($extension, $compressedExtensions)) {
+                    continue;
+                }
+                
                 // Si el nombre original ya es descriptivo (como Certificado_Sindicato_ProSalud_*), usarlo directamente
                 $originalName = $file->getClientOriginalName();
                 $filename = $this->shouldUseOriginalName($originalName) 
@@ -45,6 +61,9 @@ class RequestFormResponse extends Mailable
                 ++$fileIndex;
             }
         }
+        
+        // Store compressed file URLs
+        $this->compressedFileUrls = $compressedFileUrls;
     }
 
     /**
@@ -63,6 +82,7 @@ class RequestFormResponse extends Mailable
                 'emailBody' => $this->emailBody,
                 'status' => $this->status,
                 'logoCid' => $logoCid,
+                'compressedFileUrls' => $this->compressedFileUrls,
             ]);
 
         // Attach files if provided (using stored file data)
@@ -146,6 +166,9 @@ class RequestFormResponse extends Mailable
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
             'text/plain' => 'txt',
             'text/csv' => 'csv',
+            'application/zip' => 'zip',
+            'application/x-rar-compressed' => 'rar',
+            'application/x-rar' => 'rar',
         ];
 
         return $mimeToExt[$mimeType] ?? 'bin';

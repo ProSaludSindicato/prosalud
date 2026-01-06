@@ -12,7 +12,7 @@ use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConven
 use App\Services\CertificadoConvenioService;
 use App\Http\Requests\{BulkRequestResponseRequest, ExportRequestsExcelRequest, ProcessBulkResponseRequest};
 use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{Log, Mail, Storage};
+use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -1338,7 +1338,85 @@ class RequestController extends Controller
             'es_dirigido_fondo_pensiones' => $esDirigidoFondoPensiones,
         ]);
 
-        // IMPORTANT: Send email FIRST, before updating status or creating response record
+        // Detect compressed files (zip, rar) that need special handling
+        $compressedExtensions = ['zip', 'rar'];
+        $compressedFiles = [];
+        $nonCompressedFiles = [];
+        $hasCompressedFiles = false;
+
+        if (!empty($attachments)) {
+            foreach ($attachments as $file) {
+                if ($file && $file->isValid()) {
+                    $extension = strtolower($file->getClientOriginalExtension() ?? '');
+                    if (in_array($extension, $compressedExtensions)) {
+                        $compressedFiles[] = $file;
+                        $hasCompressedFiles = true;
+                    } else {
+                        $nonCompressedFiles[] = $file;
+                    }
+                }
+            }
+        }
+
+        // If there are compressed files, we need to store them first to generate URLs
+        // Create RequestResponse before sending email (in transaction)
+        $requestResponse = null;
+        $compressedFileUrls = [];
+
+        if ($hasCompressedFiles) {
+            try {
+                DB::beginTransaction();
+
+                // Get authenticated user for traceability
+                $user = auth()->user();
+                $userId = $user ? $user->id : null;
+
+                // Create RequestResponse temporarily (will be committed after email success)
+                $requestResponse = RequestResponse::create([
+                    'request_form_id' => $requestFormId,
+                    'responded_by' => $userId,
+                    'status' => $status,
+                    'email_subject' => $emailSubject,
+                    'email_body' => $emailBody,
+                    'created_at' => now(),
+                ]);
+
+                // Store compressed files and generate Presigned URLs (48 hours)
+                foreach ($compressedFiles as $file) {
+                    $storedAttachment = $this->storeSingleResponseAttachment($requestResponse, $file);
+                    if ($storedAttachment) {
+                        try {
+                            $storage = Storage::disk('prosalud-private');
+                            $downloadUrl = $storage->temporaryUrl($storedAttachment['path'], now()->addHours(48));
+                            $compressedFileUrls[] = [
+                                'name' => $storedAttachment['original_name'],
+                                'url' => $downloadUrl,
+                                'expires_at' => now()->addHours(48)->toIso8601String(),
+                            ];
+                        } catch (\Exception $e) {
+                            Log::warning('Failed to generate Presigned URL for compressed file', [
+                                'response_id' => $requestResponse->id,
+                                'path' => $storedAttachment['path'],
+                                'error' => $e->getMessage(),
+                            ]);
+                            // Continue without URL - file is stored but URL generation failed
+                        }
+                    }
+                }
+
+                DB::commit();
+            } catch (\Throwable $e) {
+                DB::rollBack();
+                Log::error('Error storing compressed files before email', [
+                    'request_id' => $requestFormId,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                // Continue without compressed file URLs - files won't be linked in email
+            }
+        }
+
+        // IMPORTANT: Send email FIRST, before updating status or creating response record (if not already created)
         // This ensures that if email fails, we don't update the request status
         try {
             Log::info('Intentando enviar correo de respuesta', [
@@ -1348,6 +1426,9 @@ class RequestController extends Controller
                 'email_subject' => $emailSubject,
                 'email_body_length' => strlen($emailBody),
                 'attachments_count' => count($attachments),
+                'compressed_files_count' => count($compressedFiles),
+                'non_compressed_files_count' => count($nonCompressedFiles),
+                'has_compressed_urls' => !empty($compressedFileUrls),
             ]);
 
             $mail = Mail::to($recipientEmail);
@@ -1362,7 +1443,8 @@ class RequestController extends Controller
                 $emailSubject,
                 $emailBody,
                 $status,
-                $attachments // This parameter is renamed to $uploadedFiles in RequestFormResponse constructor
+                $nonCompressedFiles, // Only pass non-compressed files as attachments
+                $compressedFileUrls // Pass compressed file URLs separately
             ));
 
             Log::info('Correo de respuesta enviado exitosamente', [
@@ -1372,8 +1454,29 @@ class RequestController extends Controller
                 'status' => $status,
                 'has_attachments' => !empty($attachments),
                 'attachments_count' => count($attachments),
+                'compressed_files_count' => count($compressedFiles),
+                'non_compressed_files_count' => count($nonCompressedFiles),
             ]);
         } catch (\Throwable $e) {
+            // If RequestResponse was created for compressed files, rollback
+            if ($requestResponse && $hasCompressedFiles) {
+                try {
+                    DB::beginTransaction();
+                    // Delete attachments associated with this response
+                    RequestResponseAttachment::where('request_response_id', $requestResponse->id)->delete();
+                    // Delete the response
+                    $requestResponse->delete();
+                    DB::commit();
+                } catch (\Throwable $rollbackError) {
+                    DB::rollBack();
+                    Log::error('Error during rollback after email failure', [
+                        'request_id' => $requestFormId,
+                        'response_id' => $requestResponse->id,
+                        'error' => $rollbackError->getMessage(),
+                    ]);
+                }
+            }
+
             // Log detailed error information
             Log::error('FALLO AL ENVIAR CORREO DE RESPUESTA - NO SE ACTUALIZARÁ EL ESTADO', [
                 'request_id' => $requestFormId,
@@ -1418,19 +1521,22 @@ class RequestController extends Controller
         $userId = $user ? $user->id : null;
 
         // Store the response for traceability (only after email is sent successfully)
-        $requestResponse = RequestResponse::create([
-            'request_form_id' => $requestFormId,
-            'responded_by' => $userId,
-            'status' => $status,
-            'email_subject' => $emailSubject,
-            'email_body' => $emailBody,
-            'created_at' => now(),
-        ]);
+        // If RequestResponse was already created for compressed files, reuse it
+        if (!$requestResponse) {
+            $requestResponse = RequestResponse::create([
+                'request_form_id' => $requestFormId,
+                'responded_by' => $userId,
+                'status' => $status,
+                'email_subject' => $emailSubject,
+                'email_body' => $emailBody,
+                'created_at' => now(),
+            ]);
+        }
 
-        // Store attachments if any (for traceability and audit)
+        // Store non-compressed attachments if any (compressed files were already stored)
         // Los certificados generados automáticamente ya se incluyen en $attachments y se guardan aquí
-        if (!empty($attachments)) {
-            $this->storeResponseAttachments($requestResponse, $attachments);
+        if (!empty($nonCompressedFiles)) {
+            $this->storeResponseAttachments($requestResponse, $nonCompressedFiles);
         }
 
         // Log with user information for easy searching
@@ -2040,6 +2146,88 @@ class RequestController extends Controller
         ];
 
         return $mimeToExt[$mimeType] ?? 'bin';
+    }
+
+    /**
+     * Store a single attachment for a request response and return its metadata.
+     * This is used for compressed files that need URLs generated before sending email.
+     *
+     * @param RequestResponse $requestResponse The response to attach file to
+     * @param \Illuminate\Http\UploadedFile $attachment The file to store
+     * @return array|null Array with 'path' and 'original_name', or null on failure
+     */
+    private function storeSingleResponseAttachment(RequestResponse $requestResponse, \Illuminate\Http\UploadedFile $attachment): ?array
+    {
+        if (!($attachment instanceof \Illuminate\Http\UploadedFile) || !$attachment->isValid()) {
+            return null;
+        }
+
+        $disk = 'prosalud-private';
+        $fallbackDisk = 'local';
+
+        try {
+            // Generate a descriptive filename
+            $extension = $attachment->getClientOriginalExtension()
+                ?: $this->getExtensionFromMimeType($attachment->getMimeType());
+            $originalName = $attachment->getClientOriginalName();
+
+            // Generate unique filename for storage
+            $uniqueId = substr(Str::uuid()->toString(), 0, 8);
+            $filename = "response-attachment-{$requestResponse->id}-{$uniqueId}.{$extension}";
+
+            // Store file
+            $storedPath = Storage::disk($disk)->putFileAs(
+                'request-responses/' . date('Y/m'),
+                $attachment,
+                $filename
+            );
+
+            if (false === $storedPath) {
+                Log::warning('Failed to store response attachment in private bucket, trying fallback', [
+                    'response_id' => $requestResponse->id,
+                    'original_name' => $originalName,
+                ]);
+                $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                    'request-responses/' . date('Y/m'),
+                    $attachment,
+                    $filename
+                );
+                if (false === $storedPath) {
+                    Log::error('Failed to store response attachment in fallback disk', [
+                        'response_id' => $requestResponse->id,
+                        'original_name' => $originalName,
+                    ]);
+                    return null;
+                }
+            }
+
+            // Create database record
+            RequestResponseAttachment::create([
+                'request_response_id' => $requestResponse->id,
+                'path' => $storedPath,
+                'original_name' => $originalName,
+                'created_at' => now(),
+            ]);
+
+            Log::info('Response attachment stored successfully', [
+                'response_id' => $requestResponse->id,
+                'original_name' => $originalName,
+                'storage_path' => $storedPath,
+            ]);
+
+            return [
+                'path' => $storedPath,
+                'original_name' => $originalName,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error storing response attachment', [
+                'response_id' => $requestResponse->id,
+                'original_name' => $attachment->getClientOriginalName() ?? 'unknown',
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return null;
+        }
     }
 
     /**

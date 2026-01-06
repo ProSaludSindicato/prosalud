@@ -87,6 +87,33 @@
                                 <!-- Force closure of any open table tags -->
                                 <div style="clear:both; height:0; display:block; margin:0; padding:0; border:0; font-size:0; line-height:0;"></div>
                             </div>
+
+                            @if(!empty($compressedFileUrls) && count($compressedFileUrls) > 0)
+                            <!-- Compressed Files Download Links -->
+                            <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 20px; margin: 0 0 24px; border-radius: 4px;">
+                                <p style="margin:0 0 12px; font-size:15px; color:#1f2937; font-weight:600;">
+                                    Archivos para descargar
+                                </p>
+                                <p style="margin:0 0 16px; font-size:14px; color:#4b5563; line-height:1.6;">
+                                    Los siguientes archivos comprimidos están disponibles para descarga. Los enlaces tienen un acceso temporal de 48 horas:
+                                </p>
+                                <div style="margin:0;">
+                                    @foreach($compressedFileUrls as $fileUrl)
+                                    <div style="margin:0 0 12px; padding:12px; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:4px;">
+                                        <p style="margin:0 0 8px; font-size:14px; color:#1f2937; font-weight:500;">
+                                            {{ $fileUrl['name'] }}
+                                        </p>
+                                        <a href="{{ $fileUrl['url'] }}" style="display:inline-block; padding:8px 16px; background-color:#0ea5e9; color:#ffffff; text-decoration:none; border-radius:4px; font-size:14px; font-weight:500;">
+                                            Descargar archivo
+                                        </a>
+                                        <p style="margin:8px 0 0; font-size:12px; color:#64748b;">
+                                            Enlace válido hasta: {{ \Carbon\Carbon::parse($fileUrl['expires_at'])->format('d/m/Y H:i') }}
+                                        </p>
+                                    </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                            @endif
                             
                             <style>
                                 /* CRITICAL: Only apply styles to email body content, not the entire email structure */

@@ -38,7 +38,8 @@ class RespondToRequestRequest extends FormRequest
 
         if ($this->hasFile('attachments')) {
             $rules['attachments'] = 'nullable|array|max:4';
-            $rules['attachments.*'] = 'file|max:5120|mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png,webp';
+            // Permitir hasta 20MB para archivos comprimidos, la validación individual se hace en withValidator
+            $rules['attachments.*'] = 'file|max:20480|mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png,webp,zip,rar';
         }
 
         return $rules;
@@ -66,8 +67,8 @@ class RespondToRequestRequest extends FormRequest
             'attachments.array' => 'Los archivos adjuntos deben ser un array.',
             'attachments.max' => 'No se pueden adjuntar más de 4 archivos.',
             'attachments.*.file' => 'Cada archivo adjunto debe ser un archivo válido.',
-            'attachments.*.max' => 'Cada archivo adjunto no puede exceder 5MB.',
-            'attachments.*.mimes' => 'Los archivos adjuntos solo pueden ser: pdf, doc, docx, xls, xlsx, jpg, jpeg, png, webp.',
+            'attachments.*.max' => 'Cada archivo adjunto no puede exceder 20MB. Los archivos comprimidos (.zip, .rar) pueden pesar hasta 20MB, mientras que otros archivos pueden pesar hasta 5MB.',
+            'attachments.*.mimes' => 'Los archivos adjuntos solo pueden ser: pdf, doc, docx, xls, xlsx, jpg, jpeg, png, webp, zip, rar.',
         ];
     }
 
@@ -92,34 +93,71 @@ class RespondToRequestRequest extends FormRequest
     public function withValidator($validator)
     {
         $validator->after(function ($validator) {
-            // Validar tamaño total de archivos adjuntos (máximo 20MB = 20480 KB)
+            // Validar archivos adjuntos
             if ($this->hasFile('attachments')) {
                 $attachments = $this->file('attachments');
                 $totalSize = 0;
                 $maxTotalSizeKB = 20480; // 20MB en KB
                 $maxTotalSizeMB = 20;
+                $compressedExtensions = ['zip', 'rar'];
+                $hasCompressed = false;
 
                 // Normalizar a array si es un solo archivo
                 if (!is_array($attachments)) {
                     $attachments = [$attachments];
                 }
 
-                // Calcular tamaño total
-                foreach ($attachments as $file) {
+                // Detectar archivos comprimidos y validar tamaños individuales
+                foreach ($attachments as $index => $file) {
                     if ($file && $file->isValid()) {
-                        $totalSize += $file->getSize(); // getSize() retorna bytes
+                        $extension = strtolower($file->getClientOriginalExtension() ?? '');
+                        $fileSize = $file->getSize(); // getSize() retorna bytes
+                        $fileSizeKB = $fileSize / 1024;
+                        $fileSizeMB = $fileSizeKB / 1024;
+
+                        // Verificar si es archivo comprimido
+                        if (in_array($extension, $compressedExtensions)) {
+                            $hasCompressed = true;
+
+                            // Validar tamaño individual de archivos comprimidos (máximo 20MB)
+                            if ($fileSizeKB > $maxTotalSizeKB) {
+                                $fileSizeMBRounded = round($fileSizeMB, 2);
+                                $validator->errors()->add(
+                                    'attachments.' . $index,
+                                    "El archivo comprimido '{$file->getClientOriginalName()}' ({$fileSizeMBRounded}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB."
+                                );
+                            }
+                        } else {
+                            // Validar tamaño individual de archivos no comprimidos (máximo 5MB = 5120 KB)
+                            $maxNonCompressedKB = 5120;
+                            if ($fileSizeKB > $maxNonCompressedKB) {
+                                $fileSizeMBRounded = round($fileSizeMB, 2);
+                                $validator->errors()->add(
+                                    'attachments.' . $index,
+                                    "El archivo '{$file->getClientOriginalName()}' ({$fileSizeMBRounded}MB) excede el límite máximo permitido de 5MB."
+                                );
+                            }
+                        }
+
+                        $totalSize += $fileSize;
                     }
                 }
 
-                // Convertir bytes a KB
-                $totalSizeKB = $totalSize / 1024;
-
-                // Validar tamaño total
-                if ($totalSizeKB > $maxTotalSizeKB) {
-                    $totalSizeMB = round($totalSizeKB / 1024, 2);
+                // Si hay archivos comprimidos, solo se permite un archivo en total
+                if ($hasCompressed && count($attachments) > 1) {
                     $validator->errors()->add(
                         'attachments',
-                        "El tamaño total de los archivos adjuntos ({$totalSizeMB}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB. Esto podría causar problemas al enviar el correo electrónico."
+                        'Cuando se adjunta un archivo comprimido (.zip o .rar), solo se permite un archivo. No se pueden adjuntar múltiples archivos si uno de ellos es un comprimido.'
+                    );
+                }
+
+                // Validar tamaño total (máximo 20MB = 20480 KB)
+                $totalSizeKB = $totalSize / 1024;
+                if ($totalSizeKB > $maxTotalSizeKB) {
+                    $totalSizeMBRounded = round($totalSizeKB / 1024, 2);
+                    $validator->errors()->add(
+                        'attachments',
+                        "El tamaño total de los archivos adjuntos ({$totalSizeMBRounded}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB. Esto podría causar problemas al enviar el correo electrónico."
                     );
                 }
             }

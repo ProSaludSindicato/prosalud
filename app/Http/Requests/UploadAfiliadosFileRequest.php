@@ -27,31 +27,10 @@ class UploadAfiliadosFileRequest extends FormRequest
             'file' => [
                 'required',
                 'file',
+                'mimes:xlsx,xls', // Solo archivos Excel - valida magic bytes
                 'max:20480', // 20MB
             ],
         ];
-    }
-
-    /**
-     * Configure the validator instance.
-     */
-    public function withValidator($validator)
-    {
-        $validator->after(function ($validator) {
-            $file = $this->file('file');
-            
-            if ($file) {
-                $extension = strtolower($file->getClientOriginalExtension());
-                $allowedExtensions = ['xlsx', 'xls'];
-                
-                if (!in_array($extension, $allowedExtensions, true)) {
-                    $validator->errors()->add(
-                        'file',
-                        'El archivo debe ser un Excel (.xlsx o .xls).'
-                    );
-                }
-            }
-        });
     }
 
     /**
@@ -62,6 +41,7 @@ class UploadAfiliadosFileRequest extends FormRequest
         return [
             'file.required' => 'El archivo es obligatorio.',
             'file.file' => 'Debe ser un archivo válido.',
+            'file.mimes' => 'El archivo debe ser un Excel (.xlsx o .xls).',
             'file.max' => 'El archivo no puede ser mayor a 20MB.',
         ];
     }
