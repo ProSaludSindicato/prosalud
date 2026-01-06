@@ -154,6 +154,7 @@
                             if ($requestForm->request_type === 'actualizar-datos-personales') {
                                 $updateDataKeys = [
                                     'estadoCivil', 'direccion', 'municipio', 'telefonoFijo', 'celular', 'correo',
+                                    'nombreContactoEmergencia', 'relacionContactoEmergencia', 'telefonoContactoEmergencia',
                                     'tallaUniforme', 'tallaCalzado', 'nivelEducativo',
                                     'numeroCuenta', 'tipoCuenta', 'banco',
                                     'eps', 'afp', 'beneficiariosNuevos'

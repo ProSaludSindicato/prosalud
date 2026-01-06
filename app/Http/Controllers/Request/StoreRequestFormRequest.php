@@ -63,6 +63,11 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.tallaUniforme' => 'nullable|string|in:xs,s,m,l,xl,xxl,xxxl,4xl,5xl',
                 'payload.tallaCalzado' => 'nullable|string|max:10',
 
+                // Campos de contacto de emergencia
+                'payload.nombreContactoEmergencia' => 'nullable|string|max:255',
+                'payload.relacionContactoEmergencia' => 'nullable|string|max:100',
+                'payload.telefonoContactoEmergencia' => 'nullable|string|max:20',
+
                 // Campos condicionales - Nivel educativo
                 'payload.nivelEducativo' => 'nullable|string|in:primaria,bachiller,tecnico,tecnologo,profesional,especialista,maestria,doctorado',
 
@@ -468,6 +473,9 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.telefonoFijo' => 'teléfono fijo',
                 'payload.celular' => 'celular',
                 'payload.correo' => 'correo electrónico',
+                'payload.nombreContactoEmergencia' => 'nombre contacto de emergencia',
+                'payload.relacionContactoEmergencia' => 'relación contacto de emergencia',
+                'payload.telefonoContactoEmergencia' => 'teléfono contacto de emergencia',
                 'payload.tallaUniforme' => 'talla de uniforme',
                 'payload.nivelEducativo' => 'nivel educativo',
                 'payload.numeroCuenta' => 'número de cuenta',
