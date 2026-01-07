@@ -63,6 +63,11 @@ Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp'])
 // Public route for creating requests (used by affiliates from public site) - Rate limiting: 20 requests per minute
 Route::post('/requests', [RequestController::class, 'store'])->middleware('throttle:public-endpoints');
 
+// RUTA TEMPORAL: Reintentar generación de certificado cuando falló por intermitencia del servicio Word a PDF
+// TODO: Eliminar esta ruta después de resolver el problema de intermitencia
+Route::post('/requests/{requestId}/retry-certificate-generation', [RequestController::class, 'retryCertificateGeneration'])
+    ->middleware('throttle:public-endpoints');
+
 // Certificados de Convenio routes (públicas, sin autenticación)
 Route::prefix('certificados')->group(function () {
     // Endpoints críticos con rate limiting híbrido (doble capa) + reCAPTCHA
@@ -147,6 +152,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
     Route::post('/requests/{request}/validate', [RequestController::class, 'validate'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus'])->middleware('permission:requests.respond');
+    Route::patch('/requests/{request}/redirect-subtype', [RequestController::class, 'redirectSubtype'])->middleware('permission:requests.respond');
     Route::post('/requests/{request}/respond', [RequestController::class, 'respond'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/respond', [RequestController::class, 'respond'])->middleware('permission:requests.respond');
     Route::post('/requests/{request}/respond-with-compensaciones', [RequestController::class, 'respondWithCompensaciones'])->middleware('permission:requests.respond');

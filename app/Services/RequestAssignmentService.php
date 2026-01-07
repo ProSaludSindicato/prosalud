@@ -437,11 +437,66 @@ class RequestAssignmentService
     /**
      * Get subtype from request form.
      */
-    private function getSubtypeFromRequest(RequestForm $requestForm): ?string
+    public function getSubtypeFromRequest(RequestForm $requestForm): ?string
     {
         $payload = $requestForm->payload ?? [];
 
         return $payload['solicitudRelacionadaCon'] ?? null;
+    }
+
+    /**
+     * Get users assigned to a specific request type and subtype.
+     */
+    public function getUsersAssignedToSubtype(string $requestType, string $subtype): array
+    {
+        // Primero verificar usuarios con asignación de tipo completo
+        $typeAssignedUsers = RequestTypeAssignment::where('request_type', $requestType)
+            ->with('user:id,name,email,is_active')
+            ->get()
+            ->filter(function ($assignment) {
+                return $assignment->user && $assignment->user->is_active;
+            })
+            ->pluck('user')
+            ->map(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                ];
+            })
+            ->toArray();
+        
+        // Luego usuarios con asignación específica de subtipo
+        $subtypeAssignedUsers = RequestSubtypeAssignment::where('request_type', $requestType)
+            ->where('subtype', $subtype)
+            ->with('user:id,name,email,is_active')
+            ->get()
+            ->filter(function ($assignment) {
+                return $assignment->user && $assignment->user->is_active;
+            })
+            ->pluck('user')
+            ->map(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                ];
+            })
+            ->toArray();
+        
+        // Combinar y eliminar duplicados
+        $allUsers = array_merge($typeAssignedUsers, $subtypeAssignedUsers);
+        $uniqueUsers = [];
+        $seenIds = [];
+        
+        foreach ($allUsers as $user) {
+            if (!in_array($user['id'], $seenIds)) {
+                $uniqueUsers[] = $user;
+                $seenIds[] = $user['id'];
+            }
+        }
+        
+        return $uniqueUsers;
     }
 
     /**

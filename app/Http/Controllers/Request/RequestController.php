@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Request;
 
-use App\Constants\{RequestStatuses, RequestTypes};
+use App\Constants\{RequestStatuses, RequestTypes, RequestSubtypes};
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest};
+use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest, RedirectSubtypeRequest};
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestSubtypeAssignment, RequestTypeAssignment};
 use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
@@ -838,6 +838,177 @@ class RequestController extends Controller
                 'status' => $request->status,
                 'processed_at' => $request->processed_at,
                 'formatted_processed_at' => $request->formatted_processed_at,
+            ],
+        ]);
+    }
+
+    /**
+     * Redirigir una solicitud cambiando su subtipo.
+     * Esto hace que la solicitud sea visible para los usuarios asignados al nuevo subtipo.
+     */
+    public function redirectSubtype(RedirectSubtypeRequest $request, RequestForm $requestForm = null): JsonResponse
+    {
+        $user = request()->user();
+        
+        // Obtener el ID desde el parámetro de ruta (route model binding puede fallar con IDs string con ceros a la izquierda)
+        $requestId = $request->route('request');
+        
+        // Asegurar que requestId es un string
+        $requestId = (string) $requestId;
+        
+        Log::info('Redirect subtype - buscando RequestForm', [
+            'route_id' => $requestId,
+            'route_id_length' => strlen($requestId),
+            'route_model_binding_result' => $requestForm ? 'found' : 'not_found',
+        ]);
+        
+        // Buscar el RequestForm manualmente para asegurar que funciona con IDs string con ceros a la izquierda
+        if (!$requestForm || !$requestForm->exists) {
+            $requestForm = RequestForm::where('id', $requestId)->first();
+        }
+        
+        if (!$requestForm) {
+            Log::error('RequestForm no encontrado en redirectSubtype', [
+                'route_id' => $requestId,
+                'searched_id' => $requestId,
+                'searched_id_type' => gettype($requestId),
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Solicitud no encontrada',
+            ], 404);
+        }
+        
+        Log::info('Redirect subtype - RequestForm encontrado', [
+            'request_form_id' => $requestForm->id,
+            'request_form_exists' => $requestForm->exists,
+            'request_type' => $requestForm->request_type,
+        ]);
+        
+        // Validar que el usuario tiene acceso a la solicitud actual
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+            Log::warning('Intento de redirección de subtipo no autorizado', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
+        }
+        
+        $newSubtype = $request->validated()['subtype'];
+        $requestType = $requestForm->request_type;
+        
+        // Validar que la solicitud tiene un tipo válido
+        if (empty($requestType)) {
+            Log::warning('Intento de redirección de subtipo en solicitud sin tipo válido', [
+                'request_id' => $requestForm->id,
+                'request_type_value' => $requestType,
+                'request_type_type' => gettype($requestType),
+                'request_form_attributes' => [
+                    'id' => $requestForm->id,
+                    'request_type' => $requestForm->request_type,
+                    'status' => $requestForm->status,
+                    'document_number' => $requestForm->document_number,
+                ],
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'new_subtype' => $newSubtype,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'La solicitud no tiene un tipo de solicitud válido',
+            ], 400);
+        }
+        
+        // Validar que el tipo de solicitud tiene subtipos
+        if (!RequestTypes::hasSubtypes($requestType)) {
+            Log::warning('Intento de redirección de subtipo en tipo de solicitud sin subtipos', [
+                'request_id' => $requestForm->id,
+                'request_type' => $requestType,
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'new_subtype' => $newSubtype,
+                'valid_types_with_subtypes' => RequestTypes::withSubtypes(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Este tipo de solicitud no tiene subtipos',
+            ], 400);
+        }
+        
+        // Validar que el subtipo es válido para este tipo de solicitud
+        if (!RequestSubtypes::isValid($requestType, $newSubtype)) {
+            $validSubtypes = RequestSubtypes::forRequestType($requestType);
+            
+            Log::warning('Intento de redirección con subtipo inválido', [
+                'request_id' => $requestForm->id,
+                'request_type' => $requestType,
+                'new_subtype' => $newSubtype,
+                'valid_subtypes' => $validSubtypes,
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Subtipo no válido para este tipo de solicitud',
+            ], 400);
+        }
+        
+        // Obtener el subtipo actual
+        $currentSubtype = $this->assignmentService->getSubtypeFromRequest($requestForm);
+        
+        // Si el subtipo es el mismo, no hacer nada
+        if ($currentSubtype === $newSubtype) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La solicitud ya tiene este subtipo asignado',
+            ], 400);
+        }
+        
+        // Actualizar el payload con el nuevo subtipo
+        $payload = $requestForm->payload ?? [];
+        $payload['solicitudRelacionadaCon'] = $newSubtype;
+        
+        $requestForm->update(['payload' => $payload]);
+        
+        // Obtener usuarios asignados al nuevo subtipo para mostrar en la respuesta
+        $assignedUsers = $this->assignmentService->getUsersAssignedToSubtype($requestType, $newSubtype);
+        
+        // Registrar en el log de auditoría
+        $this->auditLogService->logBusinessProcess('request_form', 'subtype_redirected', $this->auditLogService->addRequestContext($request, [
+            'request_id' => $requestForm->id,
+            'request_type' => $requestType,
+            'old_subtype' => $currentSubtype,
+            'new_subtype' => $newSubtype,
+            'redirected_by' => $user->id,
+        ]));
+        
+        Log::info('Solicitud redirigida a nuevo subtipo', [
+            'request_id' => $requestForm->id,
+            'request_type' => $requestType,
+            'old_subtype' => $currentSubtype,
+            'new_subtype' => $newSubtype,
+            'redirected_by' => $user->id,
+            'assigned_users_count' => count($assignedUsers),
+        ]);
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Solicitud redirigida exitosamente',
+            'data' => [
+                'request_id' => $requestForm->id,
+                'old_subtype' => $currentSubtype,
+                'new_subtype' => $newSubtype,
+                'assigned_users' => $assignedUsers,
             ],
         ]);
     }
@@ -3717,6 +3888,120 @@ class RequestController extends Controller
                 'message' => 'Error al procesar el archivo. Por favor, verifique el formato y vuelva a intentar.',
                 'error' => config('app.debug') ? $e->getMessage() : null,
                 'file_name' => $fileName,
+            ], 500);
+        }
+    }
+
+    /**
+     * Ruta temporal pública para reintentar el proceso automático de generación de certificado
+     * cuando falló por intermitencia del servicio de conversión Word a PDF
+     * 
+     * @param Request $request
+     * @param string $requestId ID de la solicitud
+     * @return JsonResponse
+     */
+    public function retryCertificateGeneration(Request $request, string $requestId): JsonResponse
+    {
+        try {
+            Log::info('Iniciando reintento de generación de certificado', [
+                'request_id' => $requestId,
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
+            // Buscar la solicitud
+            $requestForm = RequestForm::find($requestId);
+
+            if (!$requestForm) {
+                Log::warning('Solicitud no encontrada para reintento', [
+                    'request_id' => $requestId,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Solicitud no encontrada',
+                ], 404);
+            }
+
+            // Verificar que sea una solicitud de certificado de convenio
+            if ($requestForm->request_type !== RequestTypes::CERTIFICADO_CONVENIO) {
+                Log::warning('La solicitud no es de tipo certificado de convenio', [
+                    'request_id' => $requestId,
+                    'request_type' => $requestForm->request_type,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La solicitud no es de tipo certificado de convenio',
+                ], 400);
+            }
+
+            // Verificar si la solicitud ya está completada
+            if ($requestForm->status === RequestStatuses::COMPLETED) {
+                Log::info('La solicitud ya está completada', [
+                    'request_id' => $requestId,
+                    'status' => $requestForm->status,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'La solicitud ya está completada',
+                    'request_id' => $requestId,
+                    'status' => $requestForm->status,
+                ], 200);
+            }
+
+            // Verificar si tiene compensaciones
+            $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
+
+            $resultado = null;
+
+            if ($puedeProcesarConCompensaciones['puede_procesar']) {
+                // Procesar con compensaciones
+                Log::info('Reintentando procesamiento automático con compensaciones', [
+                    'request_id' => $requestId,
+                    'compensaciones' => $puedeProcesarConCompensaciones['compensaciones'],
+                ]);
+
+                $resultado = $this->certificadoAutomaticoService->procesarConRequestFormExistenteYCompensaciones(
+                    $requestForm,
+                    $puedeProcesarConCompensaciones['compensaciones']
+                );
+            } else {
+                // Procesar sin compensaciones
+                Log::info('Reintentando procesamiento automático sin compensaciones', [
+                    'request_id' => $requestId,
+                    'razon_no_compensaciones' => $puedeProcesarConCompensaciones['razon'] ?? 'No aplica',
+                ]);
+
+                $resultado = $this->certificadoAutomaticoService->procesarConRequestFormExistente($requestForm);
+            }
+
+            Log::info('Reintento de generación de certificado completado exitosamente', [
+                'request_id' => $requestId,
+                'consecutivo' => $resultado['consecutivo'] ?? null,
+                'success' => $resultado['success'] ?? false,
+            ]);
+
+            return response()->json([
+                'success' => $resultado['success'] ?? true,
+                'message' => 'Proceso de generación de certificado reintentado exitosamente',
+                'request_id' => $requestId,
+                'consecutivo' => $resultado['consecutivo'] ?? null,
+                'status' => $resultado['status'] ?? $requestForm->status,
+            ], 200);
+
+        } catch (\Throwable $e) {
+            Log::error('Error en reintento de generación de certificado', [
+                'request_id' => $requestId ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al reintentar la generación del certificado',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
     }

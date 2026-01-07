@@ -43,8 +43,12 @@ class RequestTypes
     /**
      * Check if a request type has subtypes.
      */
-    public static function hasSubtypes(string $requestType): bool
+    public static function hasSubtypes(?string $requestType): bool
     {
+        if ($requestType === null) {
+            return false;
+        }
+        
         return in_array($requestType, self::withSubtypes());
     }
 
