@@ -246,6 +246,8 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
         Route::get('/returns', [DotacionEppController::class, 'returns'])->middleware('permission:dotacion.view');
         Route::post('/returns', [DotacionEppController::class, 'storeReturn'])->middleware(['permission:dotacion.view', 'permission:dotacion.deliveries.create']);
         Route::get('/reports/deliveries/excel', [SstDeliveryReportController::class, 'download'])->middleware('permission:dotacion.view');
+        Route::get('/reports/deliveries/status/{jobId}', [SstDeliveryReportController::class, 'checkStatus'])->middleware('permission:dotacion.view');
+        Route::get('/reports/deliveries/download/{jobId}', [SstDeliveryReportController::class, 'downloadReport'])->middleware('permission:dotacion.view');
     });
 
     // Inventory Management routes

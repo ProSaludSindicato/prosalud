@@ -463,7 +463,7 @@ class SstDeliveryReportService
             'M' => 18, // Color
             'N' => 12, // Talla
             'O' => 14, // Cantidad
-            'P' => 35, // Firma imagen (aumentado para que no se salga)
+            'P' => 50, // Firma imagen (sin filtro, más ancha para que no se salga la imagen)
         ];
 
         foreach ($columnWidths as $col => $width) {
@@ -471,7 +471,7 @@ class SstDeliveryReportService
         }
 
         $row = 2;
-        $includeSignatures = $options['includeSignatures'] ?? true;
+        $includeSignatures = $options['includeSignatures'] ?? false;
         $signatureWidth = $options['signatureSize']['width'] ?? 100;
         $signatureHeight = $options['signatureSize']['height'] ?? 50;
 
@@ -609,9 +609,9 @@ class SstDeliveryReportService
             ]);
         }
 
-        // Add autofilter
+        // Add autofilter (exclude column P - Firma imagen)
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:P" . ($row - 1));
+            $sheet->setAutoFilter("A1:O" . ($row - 1));
         }
 
         // Freeze first row
@@ -685,7 +685,7 @@ class SstDeliveryReportService
             'M' => 18, // Color
             'N' => 12, // Talla
             'O' => 14, // Cantidad
-            'P' => 35, // Firma imagen (aumentado para que no se salga)
+            'P' => 50, // Firma imagen (sin filtro, más ancha para que no se salga la imagen)
         ];
 
         foreach ($columnWidths as $col => $width) {
@@ -693,7 +693,7 @@ class SstDeliveryReportService
         }
 
         $row = 2;
-        $includeSignatures = $options['includeSignatures'] ?? true;
+        $includeSignatures = $options['includeSignatures'] ?? false;
         $signatureWidth = $options['signatureSize']['width'] ?? 100;
         $signatureHeight = $options['signatureSize']['height'] ?? 50;
 
@@ -831,9 +831,9 @@ class SstDeliveryReportService
             ]);
         }
 
-        // Add autofilter
+        // Add autofilter (exclude column P - Firma imagen)
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:P" . ($row - 1));
+            $sheet->setAutoFilter("A1:O" . ($row - 1));
         }
 
         // Freeze first row
