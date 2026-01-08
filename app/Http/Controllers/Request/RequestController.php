@@ -1462,15 +1462,14 @@ class RequestController extends Controller
         }
 
         // Determine recipient email address
-        // For "actualizar-datos-personales" requests that are being completed/approved,
-        // if the payload contains a new email (correo), use that instead of the original email.
+        // For "actualizar-datos-personales" requests, if the payload contains a new email (correo),
+        // always use that instead of the original email, regardless of the request status.
         // This ensures the user receives the response at their new email address,
         // especially useful if they no longer have access to the old one.
         $recipientEmail = $requestForm->email;
         $isPersonalDataUpdate = $requestForm->request_type === RequestTypes::ACTUALIZAR_DATOS_PERSONALES;
-        $isCompletedOrApproved = $status === RequestStatuses::COMPLETED;
 
-        if ($isPersonalDataUpdate && $isCompletedOrApproved) {
+        if ($isPersonalDataUpdate) {
             $payload = $requestForm->payload ?? [];
             $nuevoCorreo = $payload['correo'] ?? null;
 

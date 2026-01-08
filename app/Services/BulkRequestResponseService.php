@@ -561,16 +561,33 @@ class BulkRequestResponseService
         $oldStatus = $requestForm->status;
 
         // Determinar email destinatario
+        // Para solicitudes de "actualizar-datos-personales", si el payload contiene un nuevo correo (correo),
+        // siempre usar ese correo en lugar del correo original, independientemente del estado de la solicitud.
+        // Esto asegura que el usuario reciba la respuesta en su nuevo correo electrónico,
+        // especialmente útil si ya no tiene acceso al correo anterior.
         $recipientEmail = $requestForm->email;
         $isPersonalDataUpdate = $requestForm->request_type === RequestTypes::ACTUALIZAR_DATOS_PERSONALES;
-        $isCompletedOrApproved = $normalizedStatus === RequestStatuses::COMPLETED;
 
-        if ($isPersonalDataUpdate && $isCompletedOrApproved) {
+        if ($isPersonalDataUpdate) {
             $payload = $requestForm->payload ?? [];
             $nuevoCorreo = $payload['correo'] ?? null;
 
             if (!empty($nuevoCorreo) && filter_var($nuevoCorreo, FILTER_VALIDATE_EMAIL)) {
                 $recipientEmail = $nuevoCorreo;
+
+                Log::info('Usando nuevo correo del payload para solicitud de actualización de datos personales (respuesta masiva)', [
+                    'request_id' => $requestId,
+                    'email_original' => $requestForm->email,
+                    'email_nuevo' => $recipientEmail,
+                    'status' => $normalizedStatus,
+                ]);
+            } else {
+                Log::info('No se encontró nuevo correo válido en el payload, usando correo original (respuesta masiva)', [
+                    'request_id' => $requestId,
+                    'email_original' => $requestForm->email,
+                    'payload_correo' => $nuevoCorreo ?? 'no presente',
+                    'status' => $normalizedStatus,
+                ]);
             }
         }
 
