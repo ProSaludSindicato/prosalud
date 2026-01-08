@@ -1071,7 +1071,9 @@ class RequestController extends Controller
 
         // Validar que no se pueda responder a ninguna solicitud si hay una actualización de correo pendiente
         // Esto aplica a TODAS las solicitudes para evitar enviar respuestas al correo equivocado
-        if ($this->tieneActualizacionCorreoPendiente($requestForm)) {
+        // EXCEPTO si la solicitud actual ES una solicitud de actualización de datos personales,
+        // en cuyo caso se debe permitir responderla para poder cambiar su estado
+        if ($requestForm->request_type !== RequestTypes::ACTUALIZAR_DATOS_PERSONALES && $this->tieneActualizacionCorreoPendiente($requestForm)) {
             // Buscar la solicitud de actualización pendiente para incluir su ID en el mensaje
             $solicitudActualizacion = RequestForm::where('request_type', RequestTypes::ACTUALIZAR_DATOS_PERSONALES)
                 ->where('document_number', $requestForm->document_number)
@@ -1847,7 +1849,9 @@ class RequestController extends Controller
 
         // Validar que no se pueda responder a ninguna solicitud si hay una actualización de correo pendiente
         // Esto aplica a TODAS las solicitudes para evitar enviar respuestas al correo equivocado
-        if ($this->tieneActualizacionCorreoPendiente($requestForm)) {
+        // EXCEPTO si la solicitud actual ES una solicitud de actualización de datos personales,
+        // en cuyo caso se debe permitir responderla para poder cambiar su estado
+        if ($requestForm->request_type !== RequestTypes::ACTUALIZAR_DATOS_PERSONALES && $this->tieneActualizacionCorreoPendiente($requestForm)) {
             // Buscar la solicitud de actualización pendiente para incluir su ID en el mensaje
             $solicitudActualizacion = RequestForm::where('request_type', RequestTypes::ACTUALIZAR_DATOS_PERSONALES)
                 ->where('document_number', $requestForm->document_number)
