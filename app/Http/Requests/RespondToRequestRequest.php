@@ -36,6 +36,13 @@ class RespondToRequestRequest extends FormRequest
             $rules['actividades.*'] = 'required|string|min:1|max:500';
         }
 
+        // Validar compensaciones si vienen en el request (opcionales, solo si están presentes)
+        // Estos campos son opcionales porque el sistema intentará obtenerlos del Excel si no se proporcionan
+        if ($this->has('t_basicos') || $this->has('t_auxilios')) {
+            $rules['t_basicos'] = 'nullable|integer|min:0';
+            $rules['t_auxilios'] = 'nullable|integer|min:0';
+        }
+
         if ($this->hasFile('attachments')) {
             $rules['attachments'] = 'nullable|array|max:4';
             // Permitir hasta 20MB para archivos comprimidos, la validación individual se hace en withValidator
@@ -64,6 +71,10 @@ class RespondToRequestRequest extends FormRequest
             'actividades.*.string' => 'Cada actividad debe ser texto.',
             'actividades.*.min' => 'Cada actividad debe tener al menos 1 carácter.',
             'actividades.*.max' => 'Cada actividad no puede exceder 500 caracteres.',
+            't_basicos.integer' => 'El valor de T. Basicos debe ser un número entero.',
+            't_basicos.min' => 'El valor de T. Basicos no puede ser negativo.',
+            't_auxilios.integer' => 'El valor de T. Auxilios debe ser un número entero.',
+            't_auxilios.min' => 'El valor de T. Auxilios no puede ser negativo.',
             'attachments.array' => 'Los archivos adjuntos deben ser un array.',
             'attachments.max' => 'No se pueden adjuntar más de 4 archivos.',
             'attachments.*.file' => 'Cada archivo adjunto debe ser un archivo válido.',
@@ -83,6 +94,8 @@ class RespondToRequestRequest extends FormRequest
             'email_body' => 'cuerpo del correo',
             'actividades' => 'actividades',
             'actividades.*' => 'actividad',
+            't_basicos' => 'T. Basicos',
+            't_auxilios' => 'T. Auxilios',
             'attachments' => 'archivos adjuntos',
         ];
     }

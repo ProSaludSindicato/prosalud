@@ -28,8 +28,8 @@ class RespondToCertificadoConCompensacionesRequest extends FormRequest
             'status' => 'required|string|in:PENDING,IN_REVIEW,REJECTED,COMPLETED',
             'email_subject' => 'required|string|max:100',
             'email_body' => 'required|string|max:1500',
-            't_basicos' => 'required|integer|min:0',
-            't_auxilios' => 'required|integer|min:0',
+            't_basicos' => 'nullable|integer|min:0',
+            't_auxilios' => 'nullable|integer|min:0',
         ];
 
         if ($this->hasFile('attachments')) {
@@ -52,10 +52,8 @@ class RespondToCertificadoConCompensacionesRequest extends FormRequest
             'email_subject.max' => 'El asunto del correo no puede exceder 100 caracteres.',
             'email_body.required' => 'El cuerpo del correo es obligatorio.',
             'email_body.max' => 'El cuerpo del correo no puede exceder 1500 caracteres.',
-            't_basicos.required' => 'El valor de T. Basicos es obligatorio.',
             't_basicos.integer' => 'El valor de T. Basicos debe ser un número entero.',
             't_basicos.min' => 'El valor de T. Basicos no puede ser negativo.',
-            't_auxilios.required' => 'El valor de T. Auxilios es obligatorio.',
             't_auxilios.integer' => 'El valor de T. Auxilios debe ser un número entero.',
             't_auxilios.min' => 'El valor de T. Auxilios no puede ser negativo.',
             'attachments.array' => 'Los archivos adjuntos deben ser un array.',
@@ -80,6 +78,7 @@ class RespondToCertificadoConCompensacionesRequest extends FormRequest
             'attachments' => 'archivos adjuntos',
         ];
     }
+
 
     /**
      * Configure the validator instance.
