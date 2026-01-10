@@ -86,6 +86,9 @@ class RolePermissionSeeder extends Seeder
             'hospital_requests.view' => 'Ver solicitudes de inventario de hospitales',
             'hospital_requests.create' => 'Crear solicitudes de inventario de hospitales',
             'hospital_requests.update_status' => 'Cambiar el estado de las solicitudes de inventario de hospitales',
+
+            // Socio-Demographic Surveys
+            'socio_demographic_surveys.view' => 'Ver encuestas sociodemográficas y diagnósticos de condiciones de salud',
         ];
 
         $_permissions = [

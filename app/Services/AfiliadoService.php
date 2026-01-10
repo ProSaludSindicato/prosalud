@@ -942,14 +942,56 @@ class AfiliadoService
             
             $normalizedHeader = $this->normalizeColumnName((string) $headerValue);
             
-            // Find matching column name
+            // Build list of all potential matches with their specificity (longer = more specific)
+            // First pass: collect exact matches only
+            $exactMatches = [];
             foreach (self::COLUMN_NAME_MAPPINGS as $internalName => $possibleNames) {
                 foreach ($possibleNames as $possibleName) {
-                    if ($this->matchesColumnName($normalizedHeader, $possibleName)) {
-                        $mapping[$internalName] = $colIndex - 1; // Convert to 0-based index
-                        break 2; // Break both loops
+                    $normalizedPossible = $this->normalizeColumnName($possibleName);
+                    
+                    // Check for exact match
+                    if ($normalizedHeader === $normalizedPossible) {
+                        $exactMatches[] = [
+                            'internalName' => $internalName,
+                            'length' => strlen($normalizedPossible),
+                        ];
                     }
                 }
+            }
+            
+            // If we have exact matches, use the longest one (most specific)
+            if (!empty($exactMatches)) {
+                usort($exactMatches, function ($a, $b) {
+                    return $b['length'] <=> $a['length']; // Longer first
+                });
+                $mapping[$exactMatches[0]['internalName']] = $colIndex - 1;
+                continue; // Move to next column
+            }
+            
+            // Second pass: if no exact matches, check for prefix matches
+            $prefixMatches = [];
+            foreach (self::COLUMN_NAME_MAPPINGS as $internalName => $possibleNames) {
+                foreach ($possibleNames as $possibleName) {
+                    $normalizedPossible = $this->normalizeColumnName($possibleName);
+                    
+                    // Check for prefix match: header must be longer and start with possible name followed by space
+                    // This prevents "estado civil" from matching "estado" incorrectly
+                    if (strlen($normalizedHeader) > strlen($normalizedPossible) 
+                        && strpos($normalizedHeader, $normalizedPossible . ' ') === 0) {
+                        $prefixMatches[] = [
+                            'internalName' => $internalName,
+                            'length' => strlen($normalizedPossible),
+                        ];
+                    }
+                }
+            }
+            
+            // If we have prefix matches, use the longest one (most specific)
+            if (!empty($prefixMatches)) {
+                usort($prefixMatches, function ($a, $b) {
+                    return $b['length'] <=> $a['length']; // Longer first
+                });
+                $mapping[$prefixMatches[0]['internalName']] = $colIndex - 1;
             }
         }
         
@@ -1845,12 +1887,9 @@ class AfiliadoService
         // Fields to exclude from response
         $excludedFields = [
             'fecha_nacimiento',
-            'lugar_nacimiento',
             'sexo',
-            'rh',
             'fecha_ingreso',
             'carnet',
-            'departamento',
             'archivo_liquidado',
             'fecha_liquidacion',
             'otros_estudios',
