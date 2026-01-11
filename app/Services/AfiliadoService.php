@@ -526,106 +526,172 @@ class AfiliadoService
     /**
      * Get complete affiliate information including all details and convenios
      * This method returns full information without filtering.
+     * Uses cache for improved performance (24 hours TTL).
      */
     public function getCompleteAfiliadoInfo(
         string $tipoDocumento,
         string $documento,
         string $fechaExpedicion,
     ): ?array {
-        return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
-            $originalMemoryLimit = ini_get('memory_limit');
-            $originalMaxExecutionTime = ini_get('max_execution_time');
+        // Log de entrada al método
+        Log::info('[AFILIADO SERVICE] Iniciando obtención de información completa de afiliado', [
+            'documento' => $documento,
+            'tipo_documento' => $tipoDocumento,
+            'fecha_expedicion' => $fechaExpedicion,
+        ]);
+        
+        // Normalizar valores para la clave de caché
+        $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
+        $normalizedDocumento = $this->normalizeValue($documento);
+        $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
+        
+        $cacheKey = sprintf(
+            'afiliado:complete:%s:%s:%s',
+            md5($normalizedTipoDocumento ?? ''),
+            md5($normalizedDocumento ?? ''),
+            md5($normalizedFechaExpedicion ?? '')
+        );
 
-            try {
-                // Aumentar memoria temporalmente
-                ini_set('memory_limit', '512M');
-                set_time_limit(60);
+        Log::debug('[AFILIADO SERVICE] Clave de caché generada para información completa', [
+            'cache_key' => $cacheKey,
+            'documento' => $documento,
+        ]);
 
-                // Usar reader optimizado
-                $reader = IOFactory::createReader('Xlsx');
+        // Verificar si existe en caché
+        $cachedData = Cache::get($cacheKey);
+        if ($cachedData !== null) {
+            Log::info('[CACHE HIT] Información completa de afiliado obtenida desde caché', [
+                'cache_key' => $cacheKey,
+                'documento' => $documento,
+                'tipo_documento' => $tipoDocumento,
+            ]);
+            return $cachedData;
+        }
 
-                // Leer solo datos, no fórmulas ni formato (ahorra memoria)
-                if (method_exists($reader, 'setReadDataOnly')) {
-                    $reader->setReadDataOnly(true);
-                }
+        Log::info('[CACHE MISS] Consultando información completa de afiliado desde Excel', [
+            'cache_key' => $cacheKey,
+            'documento' => $documento,
+            'tipo_documento' => $tipoDocumento,
+        ]);
 
-                // Cargar solo las hojas necesarias
-                if (method_exists($reader, 'setLoadSheetsOnly')) {
-                    $reader->setLoadSheetsOnly([
-                        self::SHEET_INFORMACION_GENERAL,
-                        self::SHEET_CONVENIOS,
-                        self::SHEET_BENEFICIARIOS,
+        $result = Cache::remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
+            return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
+                $originalMemoryLimit = ini_get('memory_limit');
+                $originalMaxExecutionTime = ini_get('max_execution_time');
+
+                try {
+                    // Aumentar memoria temporalmente
+                    ini_set('memory_limit', '512M');
+                    set_time_limit(60);
+
+                    // Usar reader optimizado
+                    $reader = IOFactory::createReader('Xlsx');
+
+                    // Leer solo datos, no fórmulas ni formato (ahorra memoria)
+                    if (method_exists($reader, 'setReadDataOnly')) {
+                        $reader->setReadDataOnly(true);
+                    }
+
+                    // Cargar solo las hojas necesarias
+                    if (method_exists($reader, 'setLoadSheetsOnly')) {
+                        $reader->setLoadSheetsOnly([
+                            self::SHEET_INFORMACION_GENERAL,
+                            self::SHEET_CONVENIOS,
+                            self::SHEET_BENEFICIARIOS,
+                        ]);
+                    }
+
+                    $spreadsheet = $reader->load($excelPath);
+                    $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+
+                    if (!$informacionSheet) {
+                        Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+
+                        $spreadsheet->disconnectWorksheets();
+                        unset($spreadsheet);
+
+                        return null;
+                    }
+
+                    $afiliadoRowResult = $this->findAfiliadoRowOptimized(
+                        $informacionSheet,
+                        $tipoDocumento,
+                        $documento,
+                        $fechaExpedicion
+                    );
+
+                    if (null === $afiliadoRowResult) {
+                        $spreadsheet->disconnectWorksheets();
+                        unset($spreadsheet);
+
+                        return null;
+                    }
+
+                    $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
+
+                    $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                    $conveniosFull = $conveniosSheet
+                        ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
+                        : [];
+
+                    $beneficiarios = $this->getBeneficiariosByDocumento($spreadsheet, $documento);
+
+                    // Liberar memoria explícitamente
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
+                    $afiliadoFiltered = $this->filterAfiliadoCompleteInfo($afiliadoFull);
+                    $beneficiariosFiltered = $this->filterBeneficiariosInfo($beneficiarios);
+
+                    // Seleccionar el convenio más reciente (activo o el más reciente si no hay activos)
+                    // Prioridad: Convenios activos con fecha_fin vacía/null > activos con fecha_fin > inactivos
+                    $conveniosFiltered = $this->selectMostRecentConvenio($conveniosFull);
+
+                    Log::debug('[AFILIADO SERVICE] Convenios filtrados en getCompleteAfiliadoInfo', [
+                        'total_convenios' => count($conveniosFull),
+                        'convenios_filtrados' => count($conveniosFiltered),
+                        'documento' => $documento,
                     ]);
-                }
 
-                $spreadsheet = $reader->load($excelPath);
-                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-
-                if (!$informacionSheet) {
-                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
-
-                    $spreadsheet->disconnectWorksheets();
-                    unset($spreadsheet);
-
-                    return null;
-                }
-
-                $afiliadoRowResult = $this->findAfiliadoRowOptimized(
-                    $informacionSheet,
-                    $tipoDocumento,
-                    $documento,
-                    $fechaExpedicion
-                );
-
-                if (null === $afiliadoRowResult) {
-                    $spreadsheet->disconnectWorksheets();
-                    unset($spreadsheet);
+                    return [
+                        'afiliado' => $afiliadoFiltered,
+                        'convenios' => $conveniosFiltered,
+                        'beneficiarios' => $beneficiariosFiltered,
+                    ];
+                } catch (\Throwable $e) {
+                    Log::error('Error al obtener información completa de afiliado', [
+                        'error' => $e->getMessage(),
+                        'tipo_documento' => $tipoDocumento,
+                        'documento' => $documento,
+                        'disk' => $disk,
+                        'file_path' => self::EXCEL_FILE_PATH,
+                        'trace' => $e->getTraceAsString(),
+                    ]);
 
                     return null;
+                } finally {
+                    // Restaurar límites originales
+                    if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                        ini_set('memory_limit', (string) $originalMemoryLimit);
+                    }
+                    if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                        set_time_limit((int) $originalMaxExecutionTime);
+                    }
                 }
-
-                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
-
-                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
-                $conveniosFull = $conveniosSheet
-                    ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
-                    : [];
-
-                $beneficiarios = $this->getBeneficiariosByDocumento($spreadsheet, $documento);
-
-                // Liberar memoria explícitamente
-                $spreadsheet->disconnectWorksheets();
-                unset($spreadsheet);
-
-                $afiliadoFiltered = $this->filterAfiliadoCompleteInfo($afiliadoFull);
-                $beneficiariosFiltered = $this->filterBeneficiariosInfo($beneficiarios);
-
-                return [
-                    'afiliado' => $afiliadoFiltered,
-                    'convenios' => $conveniosFull,
-                    'beneficiarios' => $beneficiariosFiltered,
-                ];
-            } catch (\Throwable $e) {
-                Log::error('Error al obtener información completa de afiliado', [
-                    'error' => $e->getMessage(),
-                    'tipo_documento' => $tipoDocumento,
-                    'documento' => $documento,
-                    'disk' => $disk,
-                    'file_path' => self::EXCEL_FILE_PATH,
-                    'trace' => $e->getTraceAsString(),
-                ]);
-
-                return null;
-            } finally {
-                // Restaurar límites originales
-                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
-                    ini_set('memory_limit', (string) $originalMemoryLimit);
-                }
-                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
-                    set_time_limit((int) $originalMaxExecutionTime);
-                }
-            }
-        }, null);
+            }, null);
+        });
+        
+        // Log cuando se guarda en caché (solo si se obtuvo resultado)
+        if ($result !== null) {
+            Log::info('[CACHE STORED] Información completa de afiliado guardada en caché', [
+                'cache_key' => $cacheKey,
+                'documento' => $documento,
+                'tipo_documento' => $tipoDocumento,
+                'ttl_hours' => 24,
+            ]);
+        }
+        
+        return $result;
     }
 
     /**
@@ -791,6 +857,7 @@ class AfiliadoService
 
     /**
      * Clear cached affiliate information for a specific document.
+     * Clears both authentication cache and complete info cache.
      */
     public function forgetAfiliadoCache(string $tipoDocumento, string $documento, string $fechaExpedicion): void
     {
@@ -798,14 +865,31 @@ class AfiliadoService
         $normalizedDocumento = $this->normalizeValue($documento);
         $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
         
-        $cacheKey = sprintf(
+        // Limpiar caché de autenticación básica
+        $authCacheKey = sprintf(
             'afiliado:auth:%s:%s:%s',
             md5($normalizedTipoDocumento ?? ''),
             md5($normalizedDocumento ?? ''),
             md5($normalizedFechaExpedicion ?? '')
         );
 
-        Cache::forget($cacheKey);
+        // Limpiar caché de información completa
+        $completeCacheKey = sprintf(
+            'afiliado:complete:%s:%s:%s',
+            md5($normalizedTipoDocumento ?? ''),
+            md5($normalizedDocumento ?? ''),
+            md5($normalizedFechaExpedicion ?? '')
+        );
+
+        Cache::forget($authCacheKey);
+        Cache::forget($completeCacheKey);
+
+        Log::info('Caché de afiliado limpiado', [
+            'documento' => $documento,
+            'tipo_documento' => $tipoDocumento,
+            'auth_cache_key' => $authCacheKey,
+            'complete_cache_key' => $completeCacheKey,
+        ]);
     }
 
     /**
@@ -1912,6 +1996,106 @@ class AfiliadoService
         }
 
         return $filtered;
+    }
+
+    /**
+     * Select the most recent convenio from an array of convenios.
+     * Priority: Active convenios first, then by fecha_fin (most recent), then by fecha_ingreso.
+     *
+     * @param array $convenios Array of convenio arrays
+     * @return array Array containing only the most recent convenio (or empty array if no convenios)
+     */
+    private function selectMostRecentConvenio(array $convenios): array
+    {
+        if (empty($convenios)) {
+            return [];
+        }
+
+        // Si solo hay un convenio, retornarlo directamente
+        if (count($convenios) === 1) {
+            return $convenios;
+        }
+
+        // Filtrar convenios activos
+        $conveniosActivos = array_filter($convenios, function ($conv) {
+            $estado = is_string($conv['estado'] ?? null) ? trim($conv['estado']) : '';
+            return strcasecmp($estado, 'Activo') === 0;
+        });
+
+        $selectedConvenio = null;
+
+        if (!empty($conveniosActivos)) {
+            // Si hay convenios activos, seleccionar el más reciente/actual
+            // Prioridad: fecha_fin vacía/null > fecha_fin más reciente > fecha_ingreso más reciente
+            usort($conveniosActivos, function ($a, $b) {
+                // Normalizar valores de fecha_fin (pueden ser null, '', o string con fecha)
+                $aFechaFin = $a['fecha_fin'] ?? null;
+                $bFechaFin = $b['fecha_fin'] ?? null;
+                
+                // Considerar vacío tanto null como string vacío
+                $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
+                $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
+
+                // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad (más reciente)
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return -1; // $a tiene prioridad (viene primero)
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return 1; // $b tiene prioridad (viene primero)
+                }
+
+                // Si ambos tienen fecha_fin, comparar por fecha_fin (más reciente primero)
+                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                    if ($comparison !== 0) {
+                        return $comparison; // Más reciente primero
+                    }
+                }
+
+                // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
+                $aFechaIngreso = $a['fecha_ingreso'] ?? '';
+                $bFechaIngreso = $b['fecha_ingreso'] ?? '';
+                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso); // Más reciente primero
+            });
+
+            $selectedConvenio = reset($conveniosActivos);
+        } else {
+            // Si no hay activos, seleccionar el más reciente por fecha_fin
+            usort($convenios, function ($a, $b) {
+                // Normalizar valores de fecha_fin
+                $aFechaFin = $a['fecha_fin'] ?? null;
+                $bFechaFin = $b['fecha_fin'] ?? null;
+                
+                $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
+                $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
+
+                // Fecha_fin vacía tiene menor prioridad cuando no hay activos
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return 1; // $b tiene prioridad
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return -1; // $a tiene prioridad
+                }
+
+                // Comparar por fecha_fin (más reciente primero)
+                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                    if ($comparison !== 0) {
+                        return $comparison;
+                    }
+                }
+
+                // Si las fechas_fin son iguales, usar fecha_ingreso
+                $aFechaIngreso = $a['fecha_ingreso'] ?? '';
+                $bFechaIngreso = $b['fecha_ingreso'] ?? '';
+                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso);
+            });
+
+            $selectedConvenio = $convenios[0];
+        }
+
+        // Devolver arreglo con un solo convenio (o vacío si no hay)
+        return $selectedConvenio ? [$selectedConvenio] : [];
     }
 
     /**

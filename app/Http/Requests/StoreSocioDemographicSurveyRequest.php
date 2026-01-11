@@ -32,6 +32,68 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
     {
         // Configurar el locale a español para que los mensajes por defecto de Laravel estén en español
         LaravelApp::setLocale('es');
+
+        // Convertir booleanos que vienen como strings "1"/"0" desde FormData
+        $this->convertFormDataBooleans();
+    }
+
+    /**
+     * Convert FormData boolean strings ("1", "0", "true", "false") to actual booleans.
+     */
+    private function convertFormDataBooleans(): void
+    {
+        $data = $this->all();
+
+        // Campos booleanos en serviciosPublicos
+        $serviciosPublicos = $this->input('serviciosPublicos', []);
+        if (is_array($serviciosPublicos)) {
+            $convertedServicios = [];
+            foreach (['agua', 'luz', 'telefono', 'internet', 'gas'] as $servicio) {
+                if (isset($serviciosPublicos[$servicio])) {
+                    $value = $serviciosPublicos[$servicio];
+                    $convertedServicios[$servicio] = $this->parseBooleanValue($value);
+                }
+            }
+            if (!empty($convertedServicios)) {
+                $this->merge(['serviciosPublicos' => array_merge($serviciosPublicos, $convertedServicios)]);
+            }
+        }
+
+        // Campos booleanos en manejoTiempoLibre
+        $manejoTiempoLibre = $this->input('manejoTiempoLibre', []);
+        if (is_array($manejoTiempoLibre)) {
+            $convertedTiempoLibre = [];
+            foreach (['recreativas', 'deportivas', 'educativas', 'descanso', 'artisticas', 'religiosas', 'otras'] as $actividad) {
+                if (isset($manejoTiempoLibre[$actividad])) {
+                    $value = $manejoTiempoLibre[$actividad];
+                    $convertedTiempoLibre[$actividad] = $this->parseBooleanValue($value);
+                }
+            }
+            if (!empty($convertedTiempoLibre)) {
+                $this->merge(['manejoTiempoLibre' => array_merge($manejoTiempoLibre, $convertedTiempoLibre)]);
+            }
+        }
+    }
+
+    /**
+     * Parse various value types to boolean.
+     */
+    private function parseBooleanValue($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            $lowerValue = strtolower(trim($value));
+            return in_array($lowerValue, ['true', '1', 'yes', 'si', 'sí', 'on'], true);
+        }
+
+        if (is_numeric($value)) {
+            return 0 !== (int) $value;
+        }
+
+        return false;
     }
 
     /**
@@ -46,6 +108,8 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'correo' => 'required|email|max:255',
             'tipoDocumento' => ['required', 'string', Rule::in(SurveyOptions::TIPOS_DOCUMENTO)],
             'numeroDocumento' => 'required|string|max:255',
+            'nombres' => 'nullable|string|max:255',
+            'apellidos' => 'nullable|string|max:255',
             'hospital' => 'required|string|max:255',
             'profesion' => 'required|string|max:255',
             'rh' => ['nullable', 'string', Rule::in(SurveyOptions::TIPOS_RH)],
@@ -227,6 +291,10 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'numeroDocumento.required' => 'El número de documento es obligatorio.',
             'numeroDocumento.string' => 'El número de documento debe ser texto.',
             'numeroDocumento.max' => 'El número de documento no puede exceder 255 caracteres.',
+            'nombres.string' => 'Los nombres deben ser texto.',
+            'nombres.max' => 'Los nombres no pueden exceder 255 caracteres.',
+            'apellidos.string' => 'Los apellidos deben ser texto.',
+            'apellidos.max' => 'Los apellidos no pueden exceder 255 caracteres.',
             'hospital.required' => 'El hospital es obligatorio.',
             'hospital.string' => 'El hospital debe ser texto.',
             'hospital.max' => 'El hospital no puede exceder 255 caracteres.',
@@ -502,6 +570,8 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'correo' => 'correo electrónico',
             'tipoDocumento' => 'tipo de documento',
             'numeroDocumento' => 'número de documento',
+            'nombres' => 'nombres',
+            'apellidos' => 'apellidos',
             'hospital' => 'hospital',
             'profesion' => 'profesión',
             'rh' => 'factor RH',

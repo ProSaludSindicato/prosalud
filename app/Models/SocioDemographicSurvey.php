@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
  * @property string $correo
  * @property string $tipo_documento
  * @property string $numero_documento
+ * @property string|null $nombres
+ * @property string|null $apellidos
  * @property string $hospital
  * @property string $profesion
  * @property string|null $rh
@@ -49,6 +51,8 @@ class SocioDemographicSurvey extends Model
         'correo',
         'tipo_documento',
         'numero_documento',
+        'nombres',
+        'apellidos',
         'hospital',
         'profesion',
         'rh',

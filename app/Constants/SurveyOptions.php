@@ -251,6 +251,7 @@ class SurveyOptions
         'hermana',
         'esposo',
         'esposa',
+        'conyuge', // Sinónimo de esposo/esposa (usado por el frontend)
         'pareja',
         'tio',
         'tia',

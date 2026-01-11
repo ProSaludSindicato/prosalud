@@ -113,6 +113,8 @@ class SocioDemographicSurveyController extends Controller
                 'correo' => $validated['correo'],
                 'tipo_documento' => $validated['tipoDocumento'],
                 'numero_documento' => $validated['numeroDocumento'],
+                'nombres' => $validated['nombres'] ?? null,
+                'apellidos' => $validated['apellidos'] ?? null,
                 'hospital' => $validated['hospital'],
                 'profesion' => $validated['profesion'],
                 'rh' => $validated['rh'] ?? null,
@@ -225,14 +227,16 @@ class SocioDemographicSurveyController extends Controller
      */
     public function show(SocioDemographicSurvey $survey): JsonResponse
     {
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'id' => $survey->id,
-                'correo' => $survey->correo,
-                'tipo_documento' => $survey->tipo_documento,
-                'numero_documento' => $survey->numero_documento,
-                'hospital' => $survey->hospital,
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $survey->id,
+                    'correo' => $survey->correo,
+                    'tipo_documento' => $survey->tipo_documento,
+                    'numero_documento' => $survey->numero_documento,
+                    'nombres' => $survey->nombres,
+                    'apellidos' => $survey->apellidos,
+                    'hospital' => $survey->hospital,
                 'profesion' => $survey->profesion,
                 'rh' => $survey->rh,
                 'fecha_expedicion' => $survey->fecha_expedicion?->format('Y-m-d'),
