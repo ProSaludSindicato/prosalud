@@ -443,19 +443,18 @@ class RequestForm extends Model
 
     /**
      * Generate a unique 10-digit number.
+     * The ID will never start with 0 to avoid issues with numeric conversions.
      */
     private function generateUnique10DigitId(): string
     {
         do {
             // Generate a 10-digit number using timestamp + random component
-            $timestamp = time(); // 10 digits, but we'll use last 6
-            $random = mt_rand(1000, 9999); // 4 digits
-
-            // Combine to create exactly 10 digits
-            $idString = substr($timestamp, -6) . $random; // 6 + 4 = 10 digits
-
-            // Ensure it's exactly 10 digits by padding if needed
-            $idString = str_pad($idString, 10, '0', STR_PAD_LEFT);
+            // First digit is always 1-9 to avoid leading zeros
+            $firstDigit = mt_rand(1, 9);
+            $timestamp = time();
+            $random = mt_rand(1000, 9999);
+            // Combine: 1 digit (1-9) + 5 digits from timestamp + 4 digits from random = 10 digits
+            $idString = $firstDigit . substr($timestamp, -5) . str_pad((string)$random, 4, '0', STR_PAD_LEFT);
         } while (static::where('id', $idString)->exists());
 
         return $idString;
