@@ -47,11 +47,9 @@ class RequestFormResponse extends Mailable
                     continue;
                 }
                 
-                // Si el nombre original ya es descriptivo (como Certificado_Sindicato_ProSalud_*), usarlo directamente
+                // Usar siempre el nombre original del archivo
                 $originalName = $file->getClientOriginalName();
-                $filename = $this->shouldUseOriginalName($originalName) 
-                    ? $originalName 
-                    : $this->generateDescriptiveFilename($file, $fileIndex);
+                $filename = $originalName;
                 
                 $this->attachmentData[] = [
                     'content' => file_get_contents($file->getRealPath()),
@@ -97,56 +95,6 @@ class RequestFormResponse extends Mailable
         }
 
         return $mail;
-    }
-
-    /**
-     * Generate a simple but descriptive filename based on the request context
-     * Format: Resp-[RequestID]-[DocSuffix]-[Index].[ext].
-     */
-    private function generateDescriptiveFilename(\Illuminate\Http\UploadedFile $file, int $index): string
-    {
-        $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
-
-        // Get base information from the request
-        $requestId = $this->requestForm->id ?? '';
-        $documentNumber = $this->requestForm->document_number ?? '';
-
-        // Get last 4 digits of document for identification
-        $docSuffix = '';
-        if ($documentNumber) {
-            $docSuffix = strlen($documentNumber) > 4 ? substr($documentNumber, -4) : $documentNumber;
-        }
-
-        // Generate short unique identifier
-        $uniqueId = substr(\Illuminate\Support\Str::uuid()->toString(), 0, 6);
-
-        // Build simple filename: Resp-[RequestID]-[DocSuffix]-[UniqueId]-[Index].[ext]
-        $parts = ['Resp', $requestId];
-
-        if ($docSuffix) {
-            $parts[] = $docSuffix;
-        }
-
-        $parts[] = $uniqueId;
-
-        // Add index if multiple files
-        if ($index > 0 || count($this->attachmentData) > 1) {
-            $parts[] = ($index + 1);
-        }
-
-        $baseName = implode('-', $parts);
-
-        return $baseName . '.' . $extension;
-    }
-
-    /**
-     * Determina si debe usar el nombre original del archivo
-     * Usa el nombre original si ya tiene un formato descriptivo (ej: Certificado_Sindicato_ProSalud_*)
-     */
-    private function shouldUseOriginalName(string $originalName): bool
-    {
-        // Si el nombre comienza con "Certificado_Sindicato_ProSalud_", usar el nombre original
-        return str_starts_with($originalName, 'Certificado_Sindicato_ProSalud_');
     }
 
     /**
