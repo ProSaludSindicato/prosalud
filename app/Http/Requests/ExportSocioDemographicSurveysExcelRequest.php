@@ -49,6 +49,10 @@ class ExportSocioDemographicSurveysExcelRequest extends FormRequest
                 'string',
                 'max:255',
             ],
+            'include_signatures' => [
+                'sometimes',
+                'boolean',
+            ],
         ];
     }
 

@@ -12,9 +12,18 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\AutoFilter\Column;
+use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
+use Illuminate\Support\Facades\Storage;
 
 class SocioDemographicSurveyExcelExportService
 {
+    private const SIGNATURE_DISK = 'prosalud-private';
+    private const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
+
+    /**
+     * Temporary image files to clean up after report generation.
+     */
+    private array $tempImageFiles = [];
     /**
      * Generar reporte Excel con información completa de las encuestas.
      */
@@ -39,7 +48,7 @@ class SocioDemographicSurveyExcelExportService
             // Crear hoja "Detalle Encuestas"
             $detailSheet = $spreadsheet->createSheet();
             $detailSheet->setTitle('Detalle Encuestas');
-            $this->buildDetailSheet($detailSheet, $surveys);
+            $this->buildDetailSheet($detailSheet, $surveys, $filters);
 
             // Crear hoja "Estadísticas por Tipo"
             $statsByTypeSheet = $spreadsheet->createSheet();
@@ -59,6 +68,9 @@ class SocioDemographicSurveyExcelExportService
             $writer = new Xlsx($spreadsheet);
             $writer->save($tempFile);
 
+            // Clean up temporary image files
+            $this->cleanupTempFiles();
+
             return $tempFile;
         } catch (\Exception $e) {
             Log::error('Error generando reporte Excel de encuestas sociodemográficas', [
@@ -66,6 +78,10 @@ class SocioDemographicSurveyExcelExportService
                 'trace' => $e->getTraceAsString(),
                 'filters' => $filters,
             ]);
+
+            // Clean up temporary image files on error
+            $this->cleanupTempFiles();
+
             throw $e;
         }
     }
@@ -205,8 +221,12 @@ class SocioDemographicSurveyExcelExportService
     /**
      * Construir hoja de detalle de encuestas.
      */
-    private function buildDetailSheet(Worksheet $sheet, Collection $surveys): void
+    private function buildDetailSheet(Worksheet $sheet, Collection $surveys, array $filters = []): void
     {
+        $includeSignatures = $filters['include_signatures'] ?? false;
+        $signatureWidth = 100;
+        $signatureHeight = 50;
+        
         $row = 1;
 
         // Encabezados completos con todos los campos desglosados
@@ -321,6 +341,11 @@ class SocioDemographicSurveyExcelExportService
             'Recomendación Restricción Laboral',
             'Detalle Recomendación Laboral',
         ];
+
+        // Agregar columna de firma si se solicita
+        if ($includeSignatures) {
+            $headers[] = 'Firma';
+        }
 
         $col = 'A';
         $lastCol = 'A';
@@ -467,10 +492,49 @@ class SocioDemographicSurveyExcelExportService
                 $survey->detalle_recomendacion_laboral,
             ];
 
+            // Agregar celda vacía para firma si se solicita
+            if ($includeSignatures) {
+                $data[] = ''; // Celda vacía, la imagen se embebirá después
+            }
+
+            // Calcular la columna de firma antes de escribir los datos
+            $signatureCol = null;
+            if ($includeSignatures) {
+                // La columna de firma es la última columna (count($headers) porque getColumnLetter es 1-based)
+                // Si hay 100 headers, la última columna es la 100, que corresponde a getColumnLetter(100)
+                $signatureCol = $this->getColumnLetter(count($headers));
+            }
+
+            // Guardar la columna inicial para calcular la de firma después
+            $initialCol = $col;
+            $dataIndex = 0;
+            
             foreach ($data as $value) {
                 $sheet->setCellValue($col . $row, $value);
+                
+                // Si estamos en la última columna de datos (la de firma), guardar la columna
+                if ($includeSignatures && $dataIndex === count($data) - 1) {
+                    $signatureCol = $col; // Esta es la columna donde está la celda vacía de la firma
+                }
+                
                 $col++;
+                $dataIndex++;
             }
+
+            // Embebir firma si se solicita y está disponible
+            if ($includeSignatures && $survey->firma_path && $signatureCol) {
+                try {
+                    $this->embedSignature($sheet, $survey, $signatureCol . $row, $signatureWidth, $signatureHeight);
+                    // Ajustar altura de fila para mostrar la firma
+                    $sheet->getRowDimension($row)->setRowHeight(max(60, $signatureHeight + 10));
+                } catch (\Exception $e) {
+                    Log::warning('No se pudo embebir firma en reporte de encuesta', [
+                        'survey_id' => $survey->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
             $row++;
         }
 
@@ -481,8 +545,27 @@ class SocioDemographicSurveyExcelExportService
             if ($colIndex >= $headerCount) {
                 break;
             }
-            // Usar un ancho mínimo de 20 para mejor legibilidad de los encabezados
-            $sheet->getColumnDimension($col)->setWidth(20);
+            
+            // Calcular ancho basado en la longitud del nombre del header
+            $headerText = $headers[$colIndex] ?? '';
+            $headerLength = mb_strlen($headerText);
+            
+            // Ancho mínimo de 15, máximo de 50
+            // Para nombres largos (más de 30 caracteres), usar más espacio
+            if ($headerLength > 30) {
+                $width = min(50, max(30, $headerLength * 0.8));
+            } elseif ($headerLength > 20) {
+                $width = min(35, max(25, $headerLength * 0.9));
+            } else {
+                $width = max(15, $headerLength * 1.1);
+            }
+            
+            // Columna de firma más ancha
+            if ($includeSignatures && $colIndex === $headerCount - 1) {
+                $width = 30;
+            }
+            
+            $sheet->getColumnDimension($col)->setWidth($width);
             $colIndex++;
         }
 
@@ -1004,6 +1087,97 @@ class SocioDemographicSurveyExcelExportService
         } catch (\Exception $e) {
             return $monthYear;
         }
+    }
+
+    /**
+     * Embebir imagen de firma en celda de Excel.
+     */
+    private function embedSignature(
+        Worksheet $sheet,
+        SocioDemographicSurvey $survey,
+        string $cell,
+        int $width,
+        int $height
+    ): void {
+        if (!$survey->firma_path) {
+            return;
+        }
+
+        $disk = Storage::disk(self::SIGNATURE_DISK);
+
+        if (!$disk->exists($survey->firma_path)) {
+            throw new \Exception('Firma no encontrada en almacenamiento');
+        }
+
+        // Get file content
+        $imageContent = $disk->get($survey->firma_path);
+
+        // Check size
+        if (strlen($imageContent) > self::MAX_IMAGE_SIZE) {
+            throw new \Exception('Imagen excede el tamaño máximo permitido');
+        }
+
+        // Detect image type
+        $extension = strtolower(pathinfo($survey->firma_path, PATHINFO_EXTENSION));
+        if (!in_array($extension, ['png', 'jpg', 'jpeg'])) {
+            $imageInfo = @getimagesizefromstring($imageContent);
+            if ($imageInfo && isset($imageInfo['mime'])) {
+                $mime = $imageInfo['mime'];
+                if ($mime === 'image/png') {
+                    $extension = 'png';
+                } elseif (in_array($mime, ['image/jpeg', 'image/jpg'])) {
+                    $extension = 'jpg';
+                } else {
+                    $extension = 'png'; // Default
+                }
+            } else {
+                $extension = 'png'; // Default
+            }
+        }
+
+        // Create temporary file for image
+        $tempImageFile = tempnam(sys_get_temp_dir(), 'survey_signature_') . '.' . $extension;
+        file_put_contents($tempImageFile, $imageContent);
+
+        // Track temp file for cleanup
+        $this->tempImageFiles[] = $tempImageFile;
+
+        // Create drawing object
+        $drawing = new Drawing();
+        $drawing->setPath($tempImageFile);
+        $drawing->setCoordinates($cell);
+        $drawing->setWidth($width);
+        $drawing->setHeight($height);
+        $drawing->setOffsetX(5);
+        $drawing->setOffsetY(5);
+        $drawing->setWorksheet($sheet);
+    }
+
+    /**
+     * Obtener letra de columna basada en índice numérico (1 = A, 27 = AA, etc.).
+     */
+    private function getColumnLetter(int $columnIndex): string
+    {
+        $letter = '';
+        while ($columnIndex > 0) {
+            $columnIndex--;
+            $letter = chr(65 + ($columnIndex % 26)) . $letter;
+            $columnIndex = intval($columnIndex / 26);
+        }
+        return $letter;
+    }
+
+    /**
+     * Limpiar archivos temporales de imágenes.
+     */
+    private function cleanupTempFiles(): void
+    {
+        foreach ($this->tempImageFiles as $file) {
+            if (file_exists($file)) {
+                @unlink($file);
+            }
+        }
+        $this->tempImageFiles = [];
     }
 }
 
