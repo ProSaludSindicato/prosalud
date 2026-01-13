@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreSocioDemographicSurveyRequest;
-use App\Models\SocioDemographicSurvey;
-use App\Services\AuditLogService;
+use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, StoreSocioDemographicSurveyRequest};
+use App\Models\{SocioDemographicSurvey, SurveyConfig};
+use App\Services\{AuditLogService, SocioDemographicSurveyExcelExportService};
 use Illuminate\Http\{JsonResponse, Request, Response};
 use Illuminate\Support\Facades\{DB, Log, Storage};
 use Illuminate\Support\Str;
@@ -14,6 +14,7 @@ class SocioDemographicSurveyController extends Controller
 {
     public function __construct(
         private AuditLogService $auditLogService,
+        private SocioDemographicSurveyExcelExportService $excelExportService,
     ) {
     }
 
@@ -108,15 +109,20 @@ class SocioDemographicSurveyController extends Controller
                 'agacharseArrodillarse' => $validated['agacharseArrodillarse'],
             ];
 
+            // Determinar el tipo de encuesta según la configuración
+            $isBulkEntryMode = SurveyConfig::isBulkEntryModeEnabled();
+            $surveyType = $isBulkEntryMode ? 'bulk_entry' : 'active_affiliate';
+
             // Crear el registro de la encuesta
             $survey = new SocioDemographicSurvey([
+                'survey_type' => $surveyType,
                 'correo' => $validated['correo'],
                 'tipo_documento' => $validated['tipoDocumento'],
                 'numero_documento' => $validated['numeroDocumento'],
                 'nombres' => $validated['nombres'] ?? null,
                 'apellidos' => $validated['apellidos'] ?? null,
-                'hospital' => $validated['hospital'],
-                'profesion' => $validated['profesion'],
+                'hospital' => $validated['hospital'] ?? null,
+                'profesion' => $validated['profesion'] ?? null,
                 'rh' => $validated['rh'] ?? null,
                 'fecha_expedicion' => $validated['fechaExpedicion'] ?? null,
                 'lugar_nacimiento' => $validated['lugarNacimiento'] ?? null,
@@ -145,6 +151,7 @@ class SocioDemographicSurveyController extends Controller
 
             Log::info('Nueva encuesta sociodemográfica procesada', [
                 'survey_id' => $survey->id,
+                'survey_type' => $survey->survey_type,
                 'tipo_documento' => $survey->tipo_documento,
                 'numero_documento' => $survey->numero_documento,
                 'correo' => $survey->correo,
@@ -156,6 +163,7 @@ class SocioDemographicSurveyController extends Controller
 
             $this->auditLogService->logBusinessProcess('socio_demographic_survey', 'created', $this->auditLogService->addRequestContext($request, [
                 'survey_id' => $survey->id,
+                'survey_type' => $survey->survey_type,
                 'affiliate_document' => $survey->numero_documento,
                 'affiliate_email' => $survey->correo,
                 'hospital' => $survey->hospital,
@@ -168,6 +176,7 @@ class SocioDemographicSurveyController extends Controller
                 'message' => 'Encuesta sociodemográfica registrada exitosamente',
                 'data' => [
                     'id' => $survey->id,
+                    'survey_type' => $survey->survey_type,
                     'tipo_documento' => $survey->tipo_documento,
                     'numero_documento' => $survey->numero_documento,
                     'created_at' => $survey->formatted_created_at,
@@ -206,18 +215,119 @@ class SocioDemographicSurveyController extends Controller
             $query->byDocument($request->input('tipo_documento'), $request->input('numero_documento'));
         }
 
+        // Filtro por tipo de encuesta
+        if ($request->has('survey_type')) {
+            $surveyType = $request->input('survey_type');
+            if ($surveyType === 'active_affiliate') {
+                $query->where(function ($q) {
+                    $q->where('survey_type', 'active_affiliate')
+                      ->orWhereNull('survey_type');
+                });
+            } elseif ($surveyType === 'bulk_entry') {
+                $query->where('survey_type', 'bulk_entry');
+            }
+            // Si es 'all' o cualquier otro valor, no se aplica filtro
+        }
+
         // Paginación
         $perPage = min($request->input('per_page', 15), 100);
         $surveys = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
+        // Asegurar que survey_type esté incluido en cada item
+        $surveysData = $surveys->getCollection()->map(function ($survey) {
+            return [
+                'id' => $survey->id,
+                'survey_type' => $survey->survey_type ?? 'active_affiliate', // valor por defecto para encuestas antiguas
+                'correo' => $survey->correo,
+                'tipo_documento' => $survey->tipo_documento,
+                'numero_documento' => $survey->numero_documento,
+                'nombres' => $survey->nombres,
+                'apellidos' => $survey->apellidos,
+                'hospital' => $survey->hospital,
+                'profesion' => $survey->profesion,
+                'created_at' => $survey->created_at?->format('Y-m-d H:i:s'),
+                'formatted_created_at' => $survey->formatted_created_at,
+            ];
+        });
+
+        // Calcular métricas de trazabilidad
+        $baseQuery = SocioDemographicSurvey::query();
+        
+        // Aplicar los mismos filtros para las métricas
+        if ($request->has('hospital')) {
+            $baseQuery->byHospital($request->input('hospital'));
+        }
+
+        if ($request->has('tipo_documento') && $request->has('numero_documento')) {
+            $baseQuery->byDocument($request->input('tipo_documento'), $request->input('numero_documento'));
+        }
+
+        // Aplicar filtro por tipo de encuesta en métricas
+        if ($request->has('survey_type')) {
+            $surveyType = $request->input('survey_type');
+            if ($surveyType === 'active_affiliate') {
+                $baseQuery->where(function ($q) {
+                    $q->where('survey_type', 'active_affiliate')
+                      ->orWhereNull('survey_type');
+                });
+            } elseif ($surveyType === 'bulk_entry') {
+                $baseQuery->where('survey_type', 'bulk_entry');
+            }
+            // Si es 'all' o cualquier otro valor, no se aplica filtro
+        }
+
+        // Total de encuestas
+        $totalSurveys = $baseQuery->count();
+
+        // Encuestas del mes actual
+        $currentMonthStart = now()->startOfMonth();
+        $currentMonthEnd = now()->endOfMonth();
+        $surveysCurrentMonth = (clone $baseQuery)
+            ->whereBetween('created_at', [$currentMonthStart, $currentMonthEnd])
+            ->count();
+
+        // Encuestas por tipo
+        $surveysByType = (clone $baseQuery)
+            ->selectRaw('COALESCE(survey_type, \'active_affiliate\') as survey_type, COUNT(*) as count')
+            ->groupBy('survey_type')
+            ->pluck('count', 'survey_type')
+            ->toArray();
+
+        // Asegurar que ambos tipos estén presentes (incluso si son 0)
+        $surveysByType = [
+            'active_affiliate' => $surveysByType['active_affiliate'] ?? 0,
+            'bulk_entry' => $surveysByType['bulk_entry'] ?? 0,
+        ];
+
+        // Encuestas del mes actual por tipo
+        $surveysCurrentMonthByType = (clone $baseQuery)
+            ->whereBetween('created_at', [$currentMonthStart, $currentMonthEnd])
+            ->selectRaw('COALESCE(survey_type, \'active_affiliate\') as survey_type, COUNT(*) as count')
+            ->groupBy('survey_type')
+            ->pluck('count', 'survey_type')
+            ->toArray();
+
+        $surveysCurrentMonthByType = [
+            'active_affiliate' => $surveysCurrentMonthByType['active_affiliate'] ?? 0,
+            'bulk_entry' => $surveysCurrentMonthByType['bulk_entry'] ?? 0,
+        ];
+
         return response()->json([
             'success' => true,
-            'data' => $surveys->items(),
+            'data' => $surveysData,
             'pagination' => [
                 'current_page' => $surveys->currentPage(),
                 'last_page' => $surveys->lastPage(),
                 'per_page' => $surveys->perPage(),
                 'total' => $surveys->total(),
+            ],
+            'metrics' => [
+                'total' => $totalSurveys,
+                'current_month' => [
+                    'total' => $surveysCurrentMonth,
+                    'by_type' => $surveysCurrentMonthByType,
+                ],
+                'by_type' => $surveysByType,
             ],
         ]);
     }
@@ -231,6 +341,7 @@ class SocioDemographicSurveyController extends Controller
                 'success' => true,
                 'data' => [
                     'id' => $survey->id,
+                    'survey_type' => $survey->survey_type,
                     'correo' => $survey->correo,
                     'tipo_documento' => $survey->tipo_documento,
                     'numero_documento' => $survey->numero_documento,
@@ -381,6 +492,87 @@ class SocioDemographicSurveyController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al acceder al archivo de firma.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Export surveys to Excel file.
+     */
+    public function exportExcel(ExportSocioDemographicSurveysExcelRequest $request): BinaryFileResponse|JsonResponse
+    {
+        try {
+            $user = $request->user();
+
+            // Preparar filtros
+            $dateRange = $request->input('date_range', []);
+            $surveyType = $request->input('survey_type', 'all');
+            $hospital = $request->input('hospital');
+
+            $filters = [
+                'survey_type' => $surveyType,
+                'date_range' => [
+                    'include_all' => $dateRange['include_all'] ?? true,
+                    'start_date' => $dateRange['start_date'] ?? null,
+                    'end_date' => $dateRange['end_date'] ?? null,
+                ],
+                'hospital' => $hospital,
+            ];
+
+            // Generar reporte
+            $filePath = $this->excelExportService->generateReport($filters);
+
+            if (!file_exists($filePath)) {
+                Log::error('Error generando reporte Excel de encuestas: archivo no creado', [
+                    'user_id' => $user?->id,
+                    'filters' => $filters,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al generar el reporte',
+                ], 500);
+            }
+
+            // Nombre del archivo
+            $fileName = 'Reporte_Encuestas_Sociodemograficas_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+
+            Log::info('Reporte Excel de encuestas sociodemográficas generado', [
+                'user_id' => $user?->id,
+                'user_email' => $user?->email,
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]);
+
+            // Registrar en auditoría
+            $this->auditLogService->logBusinessProcess('socio_demographic_survey', 'excel_export', $this->auditLogService->addRequestContext($request, [
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]));
+
+            return response()->download($filePath, $fileName, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ])->deleteFileAfterSend(true);
+        } catch (\InvalidArgumentException $e) {
+            Log::warning('Error de validación al generar reporte Excel de encuestas', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        } catch (\Exception $e) {
+            Log::error('Error generando reporte Excel de encuestas sociodemográficas', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el reporte. Por favor, intente nuevamente.',
             ], 500);
         }
     }

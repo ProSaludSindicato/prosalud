@@ -1,0 +1,1009 @@
+<?php
+
+namespace App\Services;
+
+use App\Constants\SurveyOptions;
+use App\Models\SocioDemographicSurvey;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\AutoFilter\Column;
+
+class SocioDemographicSurveyExcelExportService
+{
+    /**
+     * Generar reporte Excel con información completa de las encuestas.
+     */
+    public function generateReport(array $filters): string
+    {
+        try {
+            // Validar filtros
+            $this->validateFilters($filters);
+
+            // Obtener encuestas con filtros aplicados
+            $surveys = $this->getSurveys($filters);
+
+            // Crear spreadsheet
+            $spreadsheet = new Spreadsheet();
+            $spreadsheet->removeSheetByIndex(0);
+
+            // Crear hoja "Resumen"
+            $summarySheet = $spreadsheet->createSheet();
+            $summarySheet->setTitle('Resumen');
+            $this->buildSummarySheet($summarySheet, $surveys, $filters);
+
+            // Crear hoja "Detalle Encuestas"
+            $detailSheet = $spreadsheet->createSheet();
+            $detailSheet->setTitle('Detalle Encuestas');
+            $this->buildDetailSheet($detailSheet, $surveys);
+
+            // Crear hoja "Estadísticas por Tipo"
+            $statsByTypeSheet = $spreadsheet->createSheet();
+            $statsByTypeSheet->setTitle('Estadísticas por Tipo');
+            $this->buildStatsByTypeSheet($statsByTypeSheet, $surveys);
+
+            // Crear hoja "Estadísticas por Mes"
+            $statsByMonthSheet = $spreadsheet->createSheet();
+            $statsByMonthSheet->setTitle('Estadísticas por Mes');
+            $this->buildStatsByMonthSheet($statsByMonthSheet, $surveys);
+
+            // Establecer primera hoja como activa
+            $spreadsheet->setActiveSheetIndex(0);
+
+            // Guardar en archivo temporal
+            $tempFile = tempnam(sys_get_temp_dir(), 'survey_report_') . '.xlsx';
+            $writer = new Xlsx($spreadsheet);
+            $writer->save($tempFile);
+
+            return $tempFile;
+        } catch (\Exception $e) {
+            Log::error('Error generando reporte Excel de encuestas sociodemográficas', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'filters' => $filters,
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Validar filtros.
+     */
+    private function validateFilters(array $filters): void
+    {
+        $dateRange = $filters['date_range'] ?? [];
+
+        if (!($dateRange['include_all'] ?? true)) {
+            if (isset($dateRange['start_date']) && isset($dateRange['end_date'])) {
+                $startDate = Carbon::parse($dateRange['start_date']);
+                $endDate = Carbon::parse($dateRange['end_date']);
+
+                if ($startDate->gt($endDate)) {
+                    throw new \InvalidArgumentException('La fecha inicial debe ser anterior o igual a la fecha final.');
+                }
+            }
+        }
+    }
+
+    /**
+     * Obtener encuestas con filtros aplicados.
+     */
+    private function getSurveys(array $filters): Collection
+    {
+        $query = SocioDemographicSurvey::query();
+
+        // Filtro por tipo de encuesta
+        $surveyType = $filters['survey_type'] ?? 'all';
+        if ($surveyType !== 'all') {
+            if ($surveyType === 'active_affiliate') {
+                $query->where(function ($q) {
+                    $q->where('survey_type', 'active_affiliate')
+                      ->orWhereNull('survey_type');
+                });
+            } else {
+                $query->where('survey_type', $surveyType);
+            }
+        }
+
+        // Filtro por rango de fechas
+        $dateRange = $filters['date_range'] ?? [];
+        if (!($dateRange['include_all'] ?? true)) {
+            if (isset($dateRange['start_date'])) {
+                $startDate = Carbon::parse($dateRange['start_date'])->startOfDay();
+                $query->where('created_at', '>=', $startDate);
+            }
+
+            if (isset($dateRange['end_date'])) {
+                $endDate = Carbon::parse($dateRange['end_date'])->endOfDay();
+                $query->where('created_at', '<=', $endDate);
+            }
+        }
+
+        // Filtro por hospital (opcional)
+        if (isset($filters['hospital']) && !empty($filters['hospital'])) {
+            $query->where('hospital', $filters['hospital']);
+        }
+
+        return $query->orderBy('created_at', 'desc')->get();
+    }
+
+    /**
+     * Construir hoja de resumen.
+     */
+    private function buildSummarySheet(Worksheet $sheet, Collection $surveys, array $filters): void
+    {
+        $row = 1;
+
+        // Título
+        $sheet->setCellValue('A1', 'RESUMEN DE ENCUESTAS SOCIODEMOGRÁFICAS');
+        $sheet->mergeCells('A1:D1');
+        $sheet->getStyle('A1')->applyFromArray([
+            'font' => ['bold' => true, 'size' => 16],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+        $row = 3;
+
+        // Información de filtros aplicados
+        $sheet->setCellValue('A' . $row, 'Filtros Aplicados:');
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $dateRange = $filters['date_range'] ?? [];
+        if ($dateRange['include_all'] ?? true) {
+            $sheet->setCellValue('A' . $row, 'Rango de fechas: Todos los registros');
+        } else {
+            $startDate = $dateRange['start_date'] ?? 'No especificada';
+            $endDate = $dateRange['end_date'] ?? 'No especificada';
+            $sheet->setCellValue('A' . $row, "Rango de fechas: {$startDate} a {$endDate}");
+        }
+        $row++;
+
+        $surveyType = $filters['survey_type'] ?? 'all';
+        $typeLabel = $surveyType === 'all' ? 'Todos' : ($surveyType === 'active_affiliate' ? 'Afiliados Activos' : 'Ingreso Masivo');
+        $sheet->setCellValue('A' . $row, "Tipo de encuesta: {$typeLabel}");
+        $row += 2;
+
+        // Métricas generales
+        $sheet->setCellValue('A' . $row, 'Métricas Generales');
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $total = $surveys->count();
+        $activeAffiliate = $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count();
+        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count();
+
+        $sheet->setCellValue('A' . $row, 'Total de encuestas:');
+        $sheet->setCellValue('B' . $row, $total);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'Encuestas de Afiliados Activos:');
+        $sheet->setCellValue('B' . $row, $activeAffiliate);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'Encuestas de Ingreso Masivo:');
+        $sheet->setCellValue('B' . $row, $bulkEntry);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        // Fecha de generación
+        $row += 2;
+        $sheet->setCellValue('A' . $row, 'Fecha de generación:');
+        $sheet->setCellValue('B' . $row, now()->setTimezone('America/Bogota')->format('d/m/Y H:i:s'));
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+
+        // Ajustar ancho de columnas
+        $sheet->getColumnDimension('A')->setWidth(35);
+        $sheet->getColumnDimension('B')->setWidth(20);
+    }
+
+    /**
+     * Construir hoja de detalle de encuestas.
+     */
+    private function buildDetailSheet(Worksheet $sheet, Collection $surveys): void
+    {
+        $row = 1;
+
+        // Encabezados completos con todos los campos desglosados
+        $headers = [
+            // Información básica
+            'ID',
+            'Tipo Encuesta',
+            'Fecha Creación',
+            'Correo',
+            'Tipo Documento',
+            'Número Documento',
+            'Nombres',
+            'Apellidos',
+            'Hospital',
+            'Profesión',
+            'RH',
+            'Fecha Expedición',
+            'Lugar Nacimiento',
+            'Departamento',
+            'Celular',
+            'Dirección',
+            'Municipio',
+            'Talla Calzado',
+            'Talla Vestimenta',
+            'País Nacimiento',
+            
+            // Contacto de Emergencia
+            'Nombre Contacto Emergencia',
+            'Relación Contacto Emergencia',
+            'Teléfono Contacto Emergencia',
+            
+            // Datos Sociodemográficos
+            'Tiene Personas a Cargo',
+            'Estado Civil',
+            'Fecha Nacimiento',
+            'Estatura (cm)',
+            'Peso (kg)',
+            'Género',
+            'Grupo Étnico',
+            'Número Hijos',
+            'Número Personas Dependientes',
+            'Tipo Vivienda',
+            'Estrato Socioeconómico',
+            'Convive Con',
+            'Transporte',
+            'Tiempo Libre Con',
+            'Servicios Públicos - Agua',
+            'Servicios Públicos - Luz',
+            'Servicios Públicos - Teléfono',
+            'Servicios Públicos - Internet',
+            'Servicios Públicos - Gas',
+            'Manejo Tiempo Libre - Recreativas',
+            'Manejo Tiempo Libre - Deportivas',
+            'Manejo Tiempo Libre - Educativas',
+            'Manejo Tiempo Libre - Descanso',
+            'Manejo Tiempo Libre - Artísticas',
+            'Manejo Tiempo Libre - Religiosas',
+            'Manejo Tiempo Libre - Otras',
+            
+            // Datos de Consumo
+            'Consumo Licor',
+            'Frecuencia Licor',
+            'Consumo Cigarrillo',
+            'Frecuencia Cigarrillo',
+            
+            // Condiciones de Salud
+            'Sobrepeso/Obesidad',
+            'Hipertensión Arterial',
+            'Enfermedades del Corazón',
+            'Diabetes',
+            'Problemas Renales',
+            'Depresión/Bipolaridad',
+            'Antecedentes Médicos Mentales',
+            'Epilepsia/Convulsiones',
+            'Trasplante',
+            'Tipo Trasplante',
+            'Cáncer',
+            'Problemas Pulmonares',
+            'Tipo Problema Pulmonar',
+            'Alergias',
+            'Tipo Alergia',
+            'Tuberculosis',
+            'Problemas Visuales',
+            'Tipo Problema Visual',
+            'Dolores Articulares',
+            'Tipo Dolor Articular',
+            'Problemas de Sangre',
+            'Otra Enfermedad',
+            'Tipo Otra Enfermedad',
+            'Prótesis Articular',
+            'Medicamento Permanente',
+            'Tipo Medicamento',
+            'Tratamiento Médico',
+            'Cirugías',
+            'Tipo Cirugía',
+            'Tiempo Cirugía',
+            'Accidente Laboral',
+            'Tipo Accidente Laboral',
+            'Tiempo Accidente Laboral',
+            'Accidente Tránsito/Casero',
+            'Tipo Accidente Tránsito',
+            'Tiempo Accidente Tránsito',
+            'Vacunado COVID',
+            
+            // Limitaciones Físicas
+            'Limitación - Esfuerzos Intensos',
+            'Limitación - Esfuerzos Moderados',
+            'Limitación - Subir Pisos',
+            'Limitación - Agacharse/Arrodillarse',
+            
+            // Recomendaciones Laborales
+            'Recomendación Restricción Laboral',
+            'Detalle Recomendación Laboral',
+        ];
+
+        $col = 'A';
+        $lastCol = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $sheet->getStyle($col . $row)->applyFromArray([
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => 'E0E0E0'],
+                ],
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                    ],
+                ],
+            ]);
+            $lastCol = $col;
+            $col++;
+        }
+        $row++;
+
+        // Datos
+        foreach ($surveys as $survey) {
+            $col = 'A';
+            
+            $datosSociodemograficos = $survey->datos_sociodemograficos ?? [];
+            $datosConsumo = $survey->datos_consumo ?? [];
+            $condicionesSalud = $survey->condiciones_salud ?? [];
+            $limitacionesFisicas = $survey->limitaciones_fisicas ?? [];
+            $serviciosPublicos = $datosSociodemograficos['serviciosPublicos'] ?? [];
+            $manejoTiempoLibre = $datosSociodemograficos['manejoTiempoLibre'] ?? [];
+            $hijos = $datosSociodemograficos['hijos'] ?? [];
+
+            $data = [
+                // Información básica
+                $survey->id,
+                $this->getSurveyTypeDisplayName($survey->survey_type),
+                $survey->created_at?->format('d/m/Y H:i:s'),
+                $survey->correo,
+                $this->getTipoDocumentoDisplayName($survey->tipo_documento),
+                $survey->numero_documento,
+                $survey->nombres,
+                $survey->apellidos,
+                $survey->hospital,
+                $survey->profesion,
+                $survey->rh,
+                $survey->fecha_expedicion?->format('d/m/Y'),
+                $survey->lugar_nacimiento,
+                $survey->departamento,
+                $survey->celular,
+                $survey->direccion,
+                $survey->municipio,
+                $survey->talla_calzado,
+                $this->getTallaVestimentaDisplayName($survey->talla_vestimenta),
+                $this->getPaisDisplayName($survey->pais_nacimiento),
+                
+                // Contacto de Emergencia
+                $survey->nombre_contacto_emergencia,
+                $this->getRelacionContactoEmergenciaDisplayName($survey->relacion_contacto_emergencia),
+                $survey->telefono_contacto_emergencia,
+                
+                // Datos Sociodemográficos
+                $this->formatSiNo($datosSociodemograficos['tienePersonasACargo'] ?? null),
+                $this->getEstadoCivilDisplayName($datosSociodemograficos['estadoCivil'] ?? null),
+                $datosSociodemograficos['fechaNacimiento'] ?? '',
+                $datosSociodemograficos['estatura'] ?? '',
+                $datosSociodemograficos['peso'] ?? '',
+                $this->getGeneroDisplayName($datosSociodemograficos['genero'] ?? null),
+                $this->getRazaDisplayName($datosSociodemograficos['raza'] ?? null),
+                $datosSociodemograficos['numeroHijos'] ?? '',
+                $datosSociodemograficos['numeroPersonasDependientes'] ?? '',
+                $this->getViviendaDisplayName($datosSociodemograficos['vivienda'] ?? null),
+                $datosSociodemograficos['estratoSocioeconomico'] ?? '',
+                $this->getConviveConDisplayName($datosSociodemograficos['conviveCon'] ?? null),
+                $this->getTransporteDisplayName($datosSociodemograficos['transporte'] ?? null),
+                $this->getTiempoLibreConDisplayName($datosSociodemograficos['tiempoLibreCon'] ?? null),
+                $this->formatSiNo($serviciosPublicos['agua'] ?? null),
+                $this->formatSiNo($serviciosPublicos['luz'] ?? null),
+                $this->formatSiNo($serviciosPublicos['telefono'] ?? null),
+                $this->formatSiNo($serviciosPublicos['internet'] ?? null),
+                $this->formatSiNo($serviciosPublicos['gas'] ?? null),
+                $this->formatSiNo($manejoTiempoLibre['recreativas'] ?? null),
+                $this->formatSiNo($manejoTiempoLibre['deportivas'] ?? null),
+                $this->formatSiNo($manejoTiempoLibre['educativas'] ?? null),
+                $this->formatSiNo($manejoTiempoLibre['descanso'] ?? null),
+                $this->formatSiNo($manejoTiempoLibre['artisticas'] ?? null),
+                $this->formatSiNo($manejoTiempoLibre['religiosas'] ?? null),
+                $this->formatSiNo($manejoTiempoLibre['otras'] ?? null),
+                
+                // Datos de Consumo
+                $this->formatSiNo($datosConsumo['consumoLicor'] ?? null),
+                $this->getFrecuenciaDisplayName($datosConsumo['frecuenciaLicor'] ?? null),
+                $this->formatSiNo($datosConsumo['consumoCigarrillo'] ?? null),
+                $this->getFrecuenciaDisplayName($datosConsumo['frecuenciaCigarrillo'] ?? null),
+                
+                // Condiciones de Salud
+                $this->formatSiNo($condicionesSalud['sobrepesoObesidad'] ?? null),
+                $this->formatSiNo($condicionesSalud['hipertensionArterial'] ?? null),
+                $this->formatSiNo($condicionesSalud['enfermedadesCorazon'] ?? null),
+                $this->formatSiNo($condicionesSalud['diabetes'] ?? null),
+                $this->formatSiNo($condicionesSalud['problemasRenales'] ?? null),
+                $this->formatSiNo($condicionesSalud['depresionBipolaridad'] ?? null),
+                $this->formatSiNo($condicionesSalud['antecedentesMedicosMentales'] ?? null),
+                $this->formatSiNo($condicionesSalud['epilepsiaConvulsiones'] ?? null),
+                $this->formatSiNo($condicionesSalud['trasplante'] ?? null),
+                $condicionesSalud['tipoTrasplante'] ?? '',
+                $this->formatSiNo($condicionesSalud['cancer'] ?? null),
+                $this->formatSiNo($condicionesSalud['problemasPulmonares'] ?? null),
+                $condicionesSalud['tipoProblemaPulmonar'] ?? '',
+                $this->formatSiNo($condicionesSalud['alergias'] ?? null),
+                $condicionesSalud['tipoAlergia'] ?? '',
+                $this->formatSiNo($condicionesSalud['tuberculosis'] ?? null),
+                $this->formatSiNo($condicionesSalud['problemasVisuales'] ?? null),
+                $condicionesSalud['tipoProblemaVisual'] ?? '',
+                $this->formatSiNo($condicionesSalud['doloresArticulares'] ?? null),
+                $condicionesSalud['tipoDolorArticular'] ?? '',
+                $this->formatSiNo($condicionesSalud['problemasSangre'] ?? null),
+                $this->formatSiNo($condicionesSalud['otraEnfermedad'] ?? null),
+                $condicionesSalud['tipoOtraEnfermedad'] ?? '',
+                $this->formatSiNo($condicionesSalud['protesisArticular'] ?? null),
+                $this->formatSiNo($condicionesSalud['medicamentoPermanente'] ?? null),
+                $condicionesSalud['tipoMedicamento'] ?? '',
+                $this->formatSiNo($condicionesSalud['tratamientoMedico'] ?? null),
+                $this->formatSiNo($condicionesSalud['cirugias'] ?? null),
+                $condicionesSalud['tipoCirugia'] ?? '',
+                $condicionesSalud['tiempoCirugia'] ?? '',
+                $this->formatSiNo($condicionesSalud['accidenteLaboral'] ?? null),
+                $condicionesSalud['tipoAccidenteLaboral'] ?? '',
+                $condicionesSalud['tiempoAccidenteLaboral'] ?? '',
+                $this->formatSiNo($condicionesSalud['accidenteTransitoCasero'] ?? null),
+                $condicionesSalud['tipoAccidenteTransito'] ?? '',
+                $condicionesSalud['tiempoAccidenteTransito'] ?? '',
+                $this->formatSiNo($condicionesSalud['vacunadoCovid'] ?? null),
+                
+                // Limitaciones Físicas
+                $this->formatLimitacion($limitacionesFisicas['esfuerzosIntensos'] ?? null),
+                $this->formatLimitacion($limitacionesFisicas['esfuerzosModerados'] ?? null),
+                $this->formatLimitacion($limitacionesFisicas['subirPisos'] ?? null),
+                $this->formatLimitacion($limitacionesFisicas['agacharseArrodillarse'] ?? null),
+                
+                // Recomendaciones Laborales
+                $this->formatSiNo($survey->recomendacion_restriccion_laboral),
+                $survey->detalle_recomendacion_laboral,
+            ];
+
+            foreach ($data as $value) {
+                $sheet->setCellValue($col . $row, $value);
+                $col++;
+            }
+            $row++;
+        }
+
+        // Ajustar ancho de columnas (más anchas para mejor legibilidad)
+        $headerCount = count($headers);
+        $colIndex = 0;
+        foreach (range('A', 'ZZ') as $col) {
+            if ($colIndex >= $headerCount) {
+                break;
+            }
+            // Usar un ancho mínimo de 20 para mejor legibilidad de los encabezados
+            $sheet->getColumnDimension($col)->setWidth(20);
+            $colIndex++;
+        }
+
+        // Agregar autofiltros a todas las columnas
+        $sheet->setAutoFilter('A1:' . $lastCol . '1');
+
+        // Congelar primera fila
+        $sheet->freezePane('A2');
+    }
+
+    /**
+     * Construir hoja de estadísticas por tipo.
+     */
+    private function buildStatsByTypeSheet(Worksheet $sheet, Collection $surveys): void
+    {
+        $row = 1;
+
+        // Título
+        $sheet->setCellValue('A1', 'ESTADÍSTICAS POR TIPO DE ENCUESTA');
+        $sheet->mergeCells('A1:C1');
+        $sheet->getStyle('A1')->applyFromArray([
+            'font' => ['bold' => true, 'size' => 14],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+        $row = 3;
+
+        // Encabezados
+        $sheet->setCellValue('A' . $row, 'Tipo de Encuesta');
+        $sheet->setCellValue('B' . $row, 'Cantidad');
+        $sheet->setCellValue('C' . $row, 'Porcentaje');
+        $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+        ]);
+        $row++;
+
+        $total = $surveys->count();
+        $activeAffiliate = $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count();
+        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count();
+
+        $sheet->setCellValue('A' . $row, 'Afiliados Activos');
+        $sheet->setCellValue('B' . $row, $activeAffiliate);
+        $sheet->setCellValue('C' . $row, $total > 0 ? round(($activeAffiliate / $total) * 100, 2) . '%' : '0%');
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'Ingreso Masivo');
+        $sheet->setCellValue('B' . $row, $bulkEntry);
+        $sheet->setCellValue('C' . $row, $total > 0 ? round(($bulkEntry / $total) * 100, 2) . '%' : '0%');
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'TOTAL');
+        $sheet->setCellValue('B' . $row, $total);
+        $sheet->setCellValue('C' . $row, '100%');
+        $sheet->getStyle('A' . $row . ':C' . $row)->getFont()->setBold(true);
+
+        // Ajustar ancho de columnas
+        $sheet->getColumnDimension('A')->setWidth(25);
+        $sheet->getColumnDimension('B')->setWidth(15);
+        $sheet->getColumnDimension('C')->setWidth(15);
+    }
+
+    /**
+     * Construir hoja de estadísticas por mes.
+     */
+    private function buildStatsByMonthSheet(Worksheet $sheet, Collection $surveys): void
+    {
+        $row = 1;
+
+        // Título
+        $sheet->setCellValue('A1', 'ESTADÍSTICAS POR MES');
+        $sheet->mergeCells('A1:D1');
+        $sheet->getStyle('A1')->applyFromArray([
+            'font' => ['bold' => true, 'size' => 14],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+        $row = 3;
+
+        // Encabezados
+        $sheet->setCellValue('A' . $row, 'Mes');
+        $sheet->setCellValue('B' . $row, 'Total');
+        $sheet->setCellValue('C' . $row, 'Afiliados Activos');
+        $sheet->setCellValue('D' . $row, 'Ingreso Masivo');
+        $sheet->getStyle('A' . $row . ':D' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+        ]);
+        $row++;
+
+        // Agrupar por mes
+        $byMonth = $surveys->groupBy(function ($survey) {
+            return $survey->created_at?->format('Y-m') ?? 'Sin fecha';
+        })->sortKeys();
+
+        foreach ($byMonth as $month => $monthSurveys) {
+            $monthLabel = $month !== 'Sin fecha' 
+                ? $this->formatMonthInSpanish($month)
+                : 'Sin fecha';
+            
+            $total = $monthSurveys->count();
+            $activeAffiliate = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
+            $bulkEntry = $monthSurveys->where('survey_type', 'bulk_entry')->count();
+
+            $sheet->setCellValue('A' . $row, $monthLabel);
+            $sheet->setCellValue('B' . $row, $total);
+            $sheet->setCellValue('C' . $row, $activeAffiliate);
+            $sheet->setCellValue('D' . $row, $bulkEntry);
+            $row++;
+        }
+
+        // Totales
+        $sheet->setCellValue('A' . $row, 'TOTAL');
+        $sheet->setCellValue('B' . $row, $surveys->count());
+        $sheet->setCellValue('C' . $row, $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count());
+        $sheet->setCellValue('D' . $row, $surveys->where('survey_type', 'bulk_entry')->count());
+        $sheet->getStyle('A' . $row . ':D' . $row)->getFont()->setBold(true);
+
+        // Ajustar ancho de columnas
+        $sheet->getColumnDimension('A')->setWidth(25);
+        $sheet->getColumnDimension('B')->setWidth(15);
+        $sheet->getColumnDimension('C')->setWidth(20);
+        $sheet->getColumnDimension('D')->setWidth(20);
+    }
+
+    /**
+     * Transformar valores Sí/No.
+     */
+    private function formatSiNo($value): string
+    {
+        if ($value === null || $value === '') {
+            return 'No especificado';
+        }
+
+        $normalized = strtolower(trim((string) $value));
+        
+        if (in_array($normalized, ['si', 'sí', 'yes', 'true', '1', '1.0'])) {
+            return 'Sí';
+        }
+        
+        if (in_array($normalized, ['no', 'false', '0', '0.0'])) {
+            return 'No';
+        }
+
+        return 'No especificado';
+    }
+
+    /**
+     * Transformar tipo de vivienda.
+     */
+    private function getViviendaDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'propia' => 'Propia',
+            'arrendada' => 'Arrendada',
+            'familiar' => 'Familiar',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar convive con.
+     */
+    private function getConviveConDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'familia_origen' => 'Familia de origen',
+            'nueva_familia' => 'Nueva familia (cónyuge e hijos)',
+            'ambas' => 'Las dos anteriores',
+            'amigos' => 'Amigos',
+            'otros_familiares' => 'Otros familiares',
+            'solo' => 'Vive solo',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar transporte.
+     */
+    private function getTransporteDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'carro' => 'Carro',
+            'motocicleta' => 'Motocicleta',
+            'bicicleta' => 'Bicicleta',
+            'transporte_publico' => 'Transporte público',
+            'caminando' => 'Caminando',
+            'otra' => 'Otra',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar tiempo libre con.
+     */
+    private function getTiempoLibreConDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'familia' => 'Con la familia',
+            'pareja' => 'Con la pareja',
+            'amigos' => 'Con amigos',
+            'solo' => 'Solo',
+            'otros' => 'Otros',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar género.
+     */
+    private function getGeneroDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'masculino' => 'Masculino',
+            'femenino' => 'Femenino',
+            'otro' => 'Otro',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar relación contacto emergencia.
+     */
+    private function getRelacionContactoEmergenciaDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'conyuge' => 'Cónyuge',
+            'esposo' => 'Cónyuge',
+            'esposa' => 'Cónyuge',
+            'padre' => 'Padre',
+            'madre' => 'Madre',
+            'hijo' => 'Hijo/a',
+            'hija' => 'Hijo/a',
+            'hermano' => 'Hermano/a',
+            'hermana' => 'Hermano/a',
+            'abuelo' => 'Abuelo/a',
+            'abuela' => 'Abuelo/a',
+            'tio' => 'Tío/a',
+            'tia' => 'Tío/a',
+            'primo' => 'Primo/a',
+            'prima' => 'Primo/a',
+            'amigo' => 'Amigo/a',
+            'amiga' => 'Amigo/a',
+            'otro' => 'Otro',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar frecuencia.
+     */
+    private function getFrecuenciaDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'diario' => 'Diario',
+            'varias_veces_semana' => 'Varias veces en la semana',
+            'fines_semana' => 'Fines de semana',
+            'cada_quince_dias' => 'Cada quince días',
+            'ocasionalmente' => 'Ocasionalmente',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar raza/grupo étnico.
+     */
+    private function getRazaDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'ninguno' => 'Ninguno',
+            'afro' => 'Afrocolombiano',
+            'indigena' => 'Indígena',
+            'otro' => 'Otro',
+            'no_responde' => 'Prefiere no responder',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar estado civil.
+     */
+    private function getEstadoCivilDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'soltero' => 'Soltero/a',
+            'casado' => 'Casado/a',
+            'divorciado' => 'Divorciado/a',
+            'viudo' => 'Viudo/a',
+            'union_libre' => 'Unión libre',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar talla vestimenta.
+     */
+    private function getTallaVestimentaDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'xs' => 'XS',
+            's' => 'S',
+            'm' => 'M',
+            'l' => 'L',
+            'xl' => 'XL',
+            'xxl' => 'XXL',
+            'xxxl' => 'XXXL',
+            '4xl' => '4XL',
+            '5xl' => '5XL',
+        ];
+
+        return $map[strtolower(trim($value))] ?? strtoupper($value);
+    }
+
+    /**
+     * Transformar tipo de encuesta.
+     */
+    private function getSurveyTypeDisplayName(?string $value): string
+    {
+        if (!$value || $value === 'active_affiliate') {
+            return 'Afiliados Activos';
+        }
+
+        if ($value === 'bulk_entry') {
+            return 'Ingreso Masivo';
+        }
+
+        return 'Afiliados Activos';
+    }
+
+    /**
+     * Transformar tipo de documento.
+     */
+    private function getTipoDocumentoDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'CC' => 'Cédula de Ciudadanía',
+            'TI' => 'Tarjeta de Identidad',
+            'CE' => 'Cédula de Extranjería',
+            'PA' => 'Pasaporte',
+            'PT' => 'Pasaporte',
+            'RC' => 'Registro Civil',
+        ];
+
+        return $map[strtoupper(trim($value))] ?? $value;
+    }
+
+    /**
+     * Transformar país de nacimiento.
+     */
+    private function getPaisDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'colombia' => 'Colombia',
+            'venezuela' => 'Venezuela',
+            'ecuador' => 'Ecuador',
+            'peru' => 'Perú',
+            'brasil' => 'Brasil',
+            'argentina' => 'Argentina',
+            'chile' => 'Chile',
+            'panama' => 'Panamá',
+            'costa_rica' => 'Costa Rica',
+            'nicaragua' => 'Nicaragua',
+            'honduras' => 'Honduras',
+            'guatemala' => 'Guatemala',
+            'el_salvador' => 'El Salvador',
+            'mexico' => 'México',
+            'cuba' => 'Cuba',
+            'republica_dominicana' => 'República Dominicana',
+            'puerto_rico' => 'Puerto Rico',
+            'bolivia' => 'Bolivia',
+            'paraguay' => 'Paraguay',
+            'uruguay' => 'Uruguay',
+            'estados_unidos' => 'Estados Unidos',
+            'canada' => 'Canadá',
+            'espana' => 'España',
+            'francia' => 'Francia',
+            'italia' => 'Italia',
+            'alemania' => 'Alemania',
+            'reino_unido' => 'Reino Unido',
+            'portugal' => 'Portugal',
+            'holanda' => 'Holanda',
+            'belgica' => 'Bélgica',
+            'suiza' => 'Suiza',
+            'australia' => 'Australia',
+            'nueva_zelanda' => 'Nueva Zelanda',
+            'japon' => 'Japón',
+            'china' => 'China',
+            'india' => 'India',
+            'rusia' => 'Rusia',
+            'corea_del_sur' => 'Corea del Sur',
+            'filipinas' => 'Filipinas',
+            'indonesia' => 'Indonesia',
+            'tailandia' => 'Tailandia',
+            'singapur' => 'Singapur',
+            'malasia' => 'Malasia',
+            'vietnam' => 'Vietnam',
+            'israel' => 'Israel',
+            'turquia' => 'Turquía',
+            'egipto' => 'Egipto',
+            'sudafrica' => 'Sudáfrica',
+            'nigeria' => 'Nigeria',
+            'kenia' => 'Kenia',
+            'marruecos' => 'Marruecos',
+            'argelia' => 'Argelia',
+            'tunez' => 'Túnez',
+            'otro' => 'Otro',
+        ];
+
+        return $map[strtolower(trim($value))] ?? ucfirst(str_replace('_', ' ', $value));
+    }
+
+    /**
+     * Transformar limitación física.
+     */
+    private function formatLimitacion(?string $value): string
+    {
+        if (!$value) {
+            return 'No especificado';
+        }
+
+        $map = [
+            'limita_mucho' => 'Me limita mucho',
+            'limita_poco' => 'Me limita un poco',
+            'no_limita' => 'No me limita nada',
+        ];
+
+        return $map[strtolower(trim($value))] ?? $value;
+    }
+
+    /**
+     * Formatear mes en español (formato: "Enero 2026").
+     */
+    private function formatMonthInSpanish(string $monthYear): string
+    {
+        try {
+            $date = Carbon::parse($monthYear . '-01');
+            $year = $date->year;
+            
+            $months = [
+                1 => 'Enero',
+                2 => 'Febrero',
+                3 => 'Marzo',
+                4 => 'Abril',
+                5 => 'Mayo',
+                6 => 'Junio',
+                7 => 'Julio',
+                8 => 'Agosto',
+                9 => 'Septiembre',
+                10 => 'Octubre',
+                11 => 'Noviembre',
+                12 => 'Diciembre',
+            ];
+            
+            $monthNumber = $date->month;
+            $monthName = $months[$monthNumber] ?? $date->format('F');
+            
+            return $monthName . ' ' . $year;
+        } catch (\Exception $e) {
+            return $monthYear;
+        }
+    }
+}
+

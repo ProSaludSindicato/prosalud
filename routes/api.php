@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -62,6 +62,9 @@ Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp'])
 
 // Public route for creating requests (used by affiliates from public site) - Rate limiting: 20 requests per minute
 Route::post('/requests', [RequestController::class, 'store'])->middleware('throttle:public-endpoints');
+
+// Public route for getting survey configuration (to check if bulk entry mode is enabled)
+Route::get('/survey-config/public', [SurveyConfigController::class, 'show']);
 
 // Public route for creating socio-demographic surveys (used by affiliates from public site) - Rate limiting: 20 requests per minute
 Route::post('/socio-demographic-surveys', [SocioDemographicSurveyController::class, 'store'])->middleware('throttle:public-endpoints');
@@ -257,6 +260,12 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/socio-demographic-surveys', [SocioDemographicSurveyController::class, 'index'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}', [SocioDemographicSurveyController::class, 'show'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}/signature', [SocioDemographicSurveyController::class, 'downloadSignature'])->middleware('permission:socio_demographic_surveys.view');
+    Route::post('/socio-demographic-surveys/export/excel', [SocioDemographicSurveyController::class, 'exportExcel'])->middleware('permission:socio_demographic_surveys.view');
+
+    // Survey Configuration management routes (admin)
+    Route::get('/survey-config', [SurveyConfigController::class, 'show'])->middleware('permission:socio_demographic_surveys.config.manage');
+    Route::put('/survey-config', [SurveyConfigController::class, 'update'])->middleware('permission:socio_demographic_surveys.config.manage');
+    Route::patch('/survey-config', [SurveyConfigController::class, 'update'])->middleware('permission:socio_demographic_surveys.config.manage');
 
     // Inventory Management routes
     Route::prefix('inventory')->group(function () {

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 /**
  * @property string $id
+ * @property string $survey_type
  * @property string $correo
  * @property string $tipo_documento
  * @property string $numero_documento
@@ -48,6 +49,7 @@ class SocioDemographicSurvey extends Model
 
     protected $fillable = [
         'id',
+        'survey_type',
         'correo',
         'tipo_documento',
         'numero_documento',

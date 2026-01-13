@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Constants\SurveyOptions;
+use App\Models\SurveyConfig;
 use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -103,15 +104,19 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
      */
     public function rules(): array
     {
+        // Verificar si está en modo ingreso masivo
+        $isBulkEntryMode = SurveyConfig::isBulkEntryModeEnabled();
+
         $rules = [
             // Datos Básicos
             'correo' => 'required|email|max:255',
             'tipoDocumento' => ['required', 'string', Rule::in(SurveyOptions::TIPOS_DOCUMENTO)],
             'numeroDocumento' => 'required|string|max:255',
-            'nombres' => 'nullable|string|max:255',
-            'apellidos' => 'nullable|string|max:255',
-            'hospital' => 'required|string|max:255',
-            'profesion' => 'required|string|max:255',
+            // En modo ingreso masivo, nombres y apellidos son requeridos
+            'nombres' => $isBulkEntryMode ? 'required|string|max:255' : 'nullable|string|max:255',
+            'apellidos' => $isBulkEntryMode ? 'required|string|max:255' : 'nullable|string|max:255',
+            'hospital' => $isBulkEntryMode ? 'nullable|string|max:255' : 'required|string|max:255',
+            'profesion' =>$isBulkEntryMode ? 'nullable|string|max:255' : 'required|string|max:255',
             'rh' => ['nullable', 'string', Rule::in(SurveyOptions::TIPOS_RH)],
             'fechaExpedicion' => 'nullable|date|date_format:Y-m-d',
             'lugarNacimiento' => 'nullable|string|max:255',
@@ -291,8 +296,10 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'numeroDocumento.required' => 'El número de documento es obligatorio.',
             'numeroDocumento.string' => 'El número de documento debe ser texto.',
             'numeroDocumento.max' => 'El número de documento no puede exceder 255 caracteres.',
+            'nombres.required' => 'Los nombres son obligatorios en modo ingreso masivo.',
             'nombres.string' => 'Los nombres deben ser texto.',
             'nombres.max' => 'Los nombres no pueden exceder 255 caracteres.',
+            'apellidos.required' => 'Los apellidos son obligatorios en modo ingreso masivo.',
             'apellidos.string' => 'Los apellidos deben ser texto.',
             'apellidos.max' => 'Los apellidos no pueden exceder 255 caracteres.',
             'hospital.required' => 'El hospital es obligatorio.',
@@ -584,12 +591,12 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'tallaCalzado' => 'talla de calzado',
             'tallaVestimenta' => 'talla de vestimenta',
             'paisNacimiento' => 'país de nacimiento',
-            
+
             // Contacto de Emergencia
             'nombreContactoEmergencia' => 'nombre contacto de emergencia',
             'relacionContactoEmergencia' => 'relación contacto de emergencia',
             'telefonoContactoEmergencia' => 'teléfono contacto de emergencia',
-            
+
             // Información Sociodemográfica
             'tienePersonasACargo' => 'tiene personas a cargo',
             'estadoCivil' => 'estado civil',
@@ -625,13 +632,13 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'manejoTiempoLibre.religiosas' => 'actividades religiosas',
             'manejoTiempoLibre.otras' => 'otras actividades',
             'tiempoLibreCon' => 'tiempo libre con',
-            
+
             // Consumo
             'consumoLicor' => 'consumo de licor',
             'frecuenciaLicor' => 'frecuencia de consumo de licor',
             'consumoCigarrillo' => 'consumo de cigarrillo',
             'frecuenciaCigarrillo' => 'frecuencia de consumo de cigarrillo',
-            
+
             // Condiciones de Salud
             'sobrepesoObesidad' => 'sobrepeso u obesidad',
             'hipertensionArterial' => 'hipertensión arterial',
@@ -670,22 +677,22 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'tipoAccidenteTransito' => 'tipo de accidente',
             'tiempoAccidenteTransito' => 'tiempo del accidente',
             'vacunadoCovid' => 'vacunado contra COVID-19',
-            
+
             // Limitaciones Físicas
             'esfuerzosIntensos' => 'esfuerzos intensos',
             'esfuerzosModerados' => 'esfuerzos moderados',
             'subirPisos' => 'subir pisos',
             'agacharseArrodillarse' => 'agacharse o arrodillarse',
-            
+
             // Recomendaciones Laborales
             'recomendacionRestriccionLaboral' => 'recomendación de restricción laboral',
             'detalleRecomendacionLaboral' => 'detalle de la recomendación laboral',
-            
+
             // Firma Digital
             'firma' => 'firma digital',
             'files.firma' => 'archivo de firma',
             'numeroDocumentoFirma' => 'número de documento de la firma',
-            
+
             // reCAPTCHA
             'recaptcha_token' => 'token de reCAPTCHA',
         ];

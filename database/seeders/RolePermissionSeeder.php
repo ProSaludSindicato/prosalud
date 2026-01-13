@@ -89,6 +89,7 @@ class RolePermissionSeeder extends Seeder
 
             // Socio-Demographic Surveys
             'socio_demographic_surveys.view' => 'Ver encuestas sociodemográficas y diagnósticos de condiciones de salud',
+            'socio_demographic_surveys.config.manage' => 'Gestionar configuración de encuestas sociodemográficas (cambiar modo ingreso masivo)',
         ];
 
         $_permissions = [
