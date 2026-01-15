@@ -6,10 +6,12 @@ use App\Http\Requests\UploadIncapacidadesFileRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\{Auth, Log, Storage};
 use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class IncapacidadesFileController extends Controller
 {
     private const FILE_NAME = 'RELACION_INCAPACIDADES.xlsx';
+    private const FILE_PATH = 'data/' . self::FILE_NAME;
     private const STORAGE_DIRECTORY = 'data';
     private const PRIMARY_DISK = 'prosalud-private';
     private const FALLBACK_DISK = 'local';
@@ -113,6 +115,133 @@ class IncapacidadesFileController extends Controller
                 'success' => false,
                 'message' => 'Error inesperado al subir el archivo.',
                 'error_code' => 'UNEXPECTED_ERROR',
+            ], 500);
+        }
+    }
+
+    /**
+     * Download the incapacidades Excel file.
+     */
+    public function download(): StreamedResponse|JsonResponse
+    {
+        try {
+            $filePath = self::FILE_PATH;
+            $disk = self::PRIMARY_DISK;
+
+            // Intentar leer desde bucket privado primero
+            if (!Storage::disk($disk)->exists($filePath)) {
+                // Si no existe en bucket privado, intentar disco local (desarrollo)
+                $disk = self::FALLBACK_DISK;
+                if (!Storage::disk($disk)->exists($filePath)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'El archivo de incapacidades no existe',
+                        'error_code' => 'FILE_NOT_FOUND',
+                    ], 404);
+                }
+            }
+
+            try {
+                // Obtener el contenido del archivo
+                $fileContent = Storage::disk($disk)->get($filePath);
+
+                Log::info('Archivo de incapacidades descargado', [
+                    'file_path' => $filePath,
+                    'disk' => $disk,
+                    'downloaded_by' => Auth::check() ? Auth::id() : 'anonymous',
+                    'timestamp' => now()->toISOString(),
+                ]);
+
+                // Descargar el archivo con el nombre original
+                return response()->streamDownload(function () use ($fileContent) {
+                    echo $fileContent;
+                }, self::FILE_NAME, [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'Content-Disposition' => 'attachment; filename="' . self::FILE_NAME . '"',
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error al descargar archivo de incapacidades', [
+                    'error' => $e->getMessage(),
+                    'file_path' => $filePath,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al descargar el archivo',
+                    'error_code' => 'DOWNLOAD_ERROR',
+                ], 500);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error inesperado al descargar archivo de incapacidades', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error inesperado al descargar el archivo',
+                'error_code' => 'UNEXPECTED_ERROR',
+            ], 500);
+        }
+    }
+
+    /**
+     * Get information about the current incapacidades file.
+     */
+    public function info(): JsonResponse
+    {
+        try {
+            $filePath = self::FILE_PATH;
+            $disk = self::PRIMARY_DISK;
+
+            // Intentar leer desde bucket privado primero
+            if (!Storage::disk($disk)->exists($filePath)) {
+                // Si no existe en bucket privado, intentar disco local (desarrollo)
+                $disk = self::FALLBACK_DISK;
+                if (!Storage::disk($disk)->exists($filePath)) {
+                    return response()->json([
+                        'success' => true,
+                        'exists' => false,
+                        'message' => 'El archivo de incapacidades no existe',
+                    ]);
+                }
+            }
+
+            $fileInfo = [
+                'success' => true,
+                'exists' => true,
+                'file_path' => $filePath,
+                'disk' => $disk,
+            ];
+
+            // Obtener tamaño y fecha de modificación si está disponible
+            try {
+                $size = Storage::disk($disk)->size($filePath);
+                $lastModified = Storage::disk($disk)->lastModified($filePath);
+
+                $fileInfo['file_size'] = $size;
+                $fileInfo['last_modified'] = date('c', $lastModified);
+                $fileInfo['readable'] = true;
+            } catch (\Exception $e) {
+                Log::warning('No se pudo obtener metadata del archivo de incapacidades', [
+                    'error' => $e->getMessage(),
+                    'disk' => $disk,
+                ]);
+                $fileInfo['readable'] = false;
+            }
+
+            return response()->json($fileInfo);
+        } catch (\Exception $e) {
+            Log::error('Error al obtener información del archivo de incapacidades', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener información del archivo',
+                'error_code' => 'INFO_ERROR',
             ], 500);
         }
     }

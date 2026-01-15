@@ -227,10 +227,16 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
 
     // Afiliados file management routes (for uploading PROSANET afiliados file)
     Route::post('/afiliados-file/upload', [AfiliadosFileController::class, 'upload'])->middleware('permission:afiliados_files.manage');
+    Route::get('/afiliados-file/info', [AfiliadosFileController::class, 'info'])->middleware('permission:afiliados_files.manage');
+    Route::get('/afiliados-file/download', [AfiliadosFileController::class, 'download'])->middleware('permission:afiliados_files.manage');
 
     // Incapacidades, Liquidaciones, Delegados y Compensaciones file management routes
     Route::post('/incapacidades-file/upload', [IncapacidadesFileController::class, 'upload'])->middleware('permission:incapacidades_files.manage');
+    Route::get('/incapacidades-file/info', [IncapacidadesFileController::class, 'info'])->middleware('permission:incapacidades_files.manage');
+    Route::get('/incapacidades-file/download', [IncapacidadesFileController::class, 'download'])->middleware('permission:incapacidades_files.manage');
     Route::post('/liquidaciones-file/upload', [LiquidacionesFileController::class, 'upload'])->middleware('permission:liquidaciones_files.manage');
+    Route::get('/liquidaciones-file/info', [LiquidacionesFileController::class, 'info'])->middleware('permission:liquidaciones_files.manage');
+    Route::get('/liquidaciones-file/download', [LiquidacionesFileController::class, 'download'])->middleware('permission:liquidaciones_files.manage');
     Route::post('/delegados-file/upload', [DelegadosFileController::class, 'upload'])->middleware('permission:delegados_files.manage');
     Route::post('/compensaciones-file/upload', [CompensacionesFileController::class, 'upload'])->middleware('permission:compensaciones_files.manage');
     Route::get('/compensaciones-file/info', [CompensacionesFileController::class, 'info'])->middleware('permission:compensaciones_files.manage');
