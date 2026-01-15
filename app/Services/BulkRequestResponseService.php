@@ -6,12 +6,13 @@ use App\Constants\{RequestStatuses, RequestTypes};
 use App\Models\{RequestForm, RequestResponse};
 use App\Mail\RequestFormResponse;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\{Log, Mail};
+use Illuminate\Support\Facades\{Log, Mail, Storage};
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\{IOFactory, Spreadsheet, Writer\Xlsx};
 use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 class BulkRequestResponseService
 {
@@ -304,7 +305,18 @@ class BulkRequestResponseService
      */
     private function buildTemplateSheet(Worksheet $sheet, Collection $requests): void
     {
-        // Encabezados
+        // Determinar el máximo número de archivos entre todas las solicitudes
+        $maxFiles = 0;
+        foreach ($requests as $request) {
+            $files = $request->files ?? [];
+            $fileCount = is_array($files) ? count($files) : 0;
+            $maxFiles = max($maxFiles, $fileCount);
+        }
+
+        // Limitar a un máximo razonable de columnas (ej: 10)
+        $maxFiles = min($maxFiles, 10);
+
+        // Construir encabezados base
         $headers = [
             'ID Solicitud',
             'Tipo Documento',
@@ -315,15 +327,23 @@ class BulkRequestResponseService
             'Tipo Solicitud',
             'Estado Actual',
             'Fecha Creación',
-            'Nuevo Estado',
-            'Asunto Correo',
-            'Cuerpo Correo',
         ];
+
+        // Agregar columnas dinámicas de archivos
+        for ($i = 1; $i <= $maxFiles; $i++) {
+            $headers[] = "Archivo {$i}";
+        }
+
+        // Agregar columnas finales
+        $headers[] = 'Nuevo Estado';
+        $headers[] = 'Asunto Correo';
+        $headers[] = 'Cuerpo Correo';
 
         $sheet->fromArray([$headers], null, 'A1');
 
-        // Estilizar encabezados
-        $headerRange = 'A1:L1';
+        // Calcular rango de encabezados dinámicamente
+        $lastHeaderCol = Coordinate::stringFromColumnIndex(count($headers));
+        $headerRange = "A1:{$lastHeaderCol}1";
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -339,21 +359,34 @@ class BulkRequestResponseService
             ],
         ]);
 
+        // Calcular índices de columnas
+        $baseCols = 9; // A-I (ID hasta Fecha Creación)
+        $newStatusColIndex = $baseCols + $maxFiles + 1;
+        $emailSubjectColIndex = $newStatusColIndex + 1;
+        $emailBodyColIndex = $emailSubjectColIndex + 1;
+
         // Ajustar anchos de columna
-        $columnWidths = [
-            'A' => 15, // ID Solicitud
-            'B' => 15, // Tipo Documento
-            'C' => 18, // Número Documento
-            'D' => 30, // Nombre Completo
-            'E' => 30, // Email
-            'F' => 18, // Teléfono
-            'G' => 30, // Tipo Solicitud
-            'H' => 18, // Estado Actual
-            'I' => 18, // Fecha Creación
-            'J' => 18, // Nuevo Estado
-            'K' => 60, // Asunto Correo (aumentado)
-            'L' => 80, // Cuerpo Correo (aumentado)
-        ];
+        $columnWidths = [];
+        for ($col = 1; $col <= count($headers); $col++) {
+            $colLetter = Coordinate::stringFromColumnIndex($col);
+            if ($col <= 9) {
+                // Columnas base
+                $widths = [15, 15, 18, 30, 30, 18, 30, 18, 18];
+                $columnWidths[$colLetter] = $widths[$col - 1];
+            } elseif ($col <= $baseCols + $maxFiles) {
+                // Columnas de archivos
+                $columnWidths[$colLetter] = 40;
+            } elseif ($col == $newStatusColIndex) {
+                // Nuevo Estado
+                $columnWidths[$colLetter] = 18;
+            } elseif ($col == $emailSubjectColIndex) {
+                // Asunto Correo
+                $columnWidths[$colLetter] = 60;
+            } elseif ($col == $emailBodyColIndex) {
+                // Cuerpo Correo
+                $columnWidths[$colLetter] = 80;
+            }
+        }
 
         foreach ($columnWidths as $col => $width) {
             $sheet->getColumnDimension($col)->setWidth($width);
@@ -365,6 +398,10 @@ class BulkRequestResponseService
             // Generar asunto por defecto
             $defaultSubject = $this->generateDefaultEmailSubject($request);
 
+            // Generar links de archivos (retorna array de archivos)
+            $fileLinks = $this->generateFileLinksArray($request);
+
+            // Construir fila de datos
             $rowData = [
                 $request->id,
                 $request->document_type,
@@ -375,10 +412,17 @@ class BulkRequestResponseService
                 $this->getRequestTypeLabel($request->request_type),
                 $this->getStatusLabel($request->status),
                 $this->formatDate($request->created_at),
-                '', // Nuevo Estado (editable)
-                $defaultSubject, // Asunto Correo (prediligenciado, editable)
-                '', // Cuerpo Correo (editable)
             ];
+
+            // Agregar archivos (llenar hasta maxFiles)
+            for ($i = 0; $i < $maxFiles; $i++) {
+                $rowData[] = $fileLinks[$i]['name'] ?? '';
+            }
+
+            // Agregar columnas finales
+            $rowData[] = ''; // Nuevo Estado (editable)
+            $rowData[] = $defaultSubject; // Asunto Correo (prediligenciado, editable)
+            $rowData[] = ''; // Cuerpo Correo (editable)
 
             $sheet->fromArray([$rowData], null, "A{$row}");
 
@@ -386,21 +430,43 @@ class BulkRequestResponseService
             $statusCell = "H{$row}";
             $this->applyStatusColor($sheet, $statusCell, $request->status);
 
-            // Agregar validación de datos para columna "Nuevo Estado" (J)
-            $newStatusCell = "J{$row}";
+            // Agregar hipervínculos a las columnas de archivos
+            for ($i = 0; $i < $maxFiles; $i++) {
+                if (isset($fileLinks[$i])) {
+                    $fileColIndex = $baseCols + $i + 1;
+                    $fileColLetter = Coordinate::stringFromColumnIndex($fileColIndex);
+                    $fileCell = "{$fileColLetter}{$row}";
+
+                    if (!empty($fileLinks[$i]['url'])) {
+                        $sheet->getCell($fileCell)->getHyperlink()->setUrl($fileLinks[$i]['url']);
+                        $sheet->getCell($fileCell)->getHyperlink()->setTooltip('Hacer clic para abrir/descargar archivo');
+                        $sheet->getStyle($fileCell)->getFont()->getColor()->setRGB('0000FF');
+                        $sheet->getStyle($fileCell)->getFont()->setUnderline(true);
+                    }
+                }
+            }
+
+            // Agregar validación de datos para columna "Nuevo Estado"
+            $newStatusColLetter = Coordinate::stringFromColumnIndex($newStatusColIndex);
+            $newStatusCell = "{$newStatusColLetter}{$row}";
             $this->addStatusValidation($sheet, $newStatusCell);
 
             // Configurar formato de texto para columna de cuerpo
-            $bodyCell = "L{$row}";
+            $bodyColLetter = Coordinate::stringFromColumnIndex($emailBodyColIndex);
+            $bodyCell = "{$bodyColLetter}{$row}";
             $sheet->getStyle($bodyCell)->getAlignment()->setWrapText(true);
             $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
 
             $row++;
         }
 
+        // Calcular último rango de datos
+        $lastDataCol = Coordinate::stringFromColumnIndex(count($headers));
+        $lastDataRow = $row - 1;
+
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:L" . ($row - 1);
+            $dataRange = "A1:{$lastDataCol}{$lastDataRow}";
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -409,10 +475,10 @@ class BulkRequestResponseService
             ]);
         }
 
-        // Agregar autofiltro a columnas de identificación (A-I) y columna Nuevo Estado (J)
-        // Excluir solo columnas editables de texto largo: K (Asunto Correo), L (Cuerpo Correo)
+        // Agregar autofiltro (excluir columnas de texto largo: Asunto y Cuerpo)
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:J" . ($row - 1));
+            $autofilterEndCol = Coordinate::stringFromColumnIndex($emailSubjectColIndex - 1);
+            $sheet->setAutoFilter("A1:{$autofilterEndCol}{$lastDataRow}");
         }
 
         // Congelar primera fila
@@ -438,6 +504,73 @@ class BulkRequestResponseService
     }
 
     /**
+     * Generar array de links de archivos con URLs temporales
+     */
+    private function generateFileLinksArray(RequestForm $request): array
+    {
+        $files = $request->files ?? [];
+
+        if (empty($files) || !is_array($files)) {
+            return [];
+        }
+
+        $fileLinks = [];
+
+        foreach ($files as $key => $fileMetadata) {
+            $fileKey = $fileMetadata['original_key'] ?? $key;
+            $disk = $fileMetadata['disk'] ?? 'prosalud-private';
+            $path = $fileMetadata['path'] ?? null;
+            $originalName = $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? $key;
+
+            if (!$path) {
+                continue;
+            }
+
+            try {
+                $storage = Storage::disk($disk);
+
+                // Generar URL temporal válida por 24 horas
+                if ($disk === 'prosalud-private' && method_exists($storage, 'temporaryUrl')) {
+                    $downloadUrl = $storage->temporaryUrl($path, now()->addHours(48));
+                } else {
+                    // Fallback al endpoint de descarga
+                    $downloadUrl = url("/api/requests/{$request->id}/files/{$fileKey}");
+                }
+
+                $fileLinks[] = [
+                    'name' => $originalName,
+                    'url' => $downloadUrl,
+                ];
+            } catch (\Exception $e) {
+                // Si falla la generación de URL temporal, usar endpoint de descarga
+                Log::warning('Error generando URL temporal para archivo en exporte masivo', [
+                    'request_id' => $request->id,
+                    'file_key' => $fileKey,
+                    'path' => $path,
+                    'disk' => $disk,
+                    'error' => $e->getMessage(),
+                ]);
+
+                try {
+                    $downloadUrl = url("/api/requests/{$request->id}/files/{$fileKey}");
+                    $fileLinks[] = [
+                        'name' => $originalName,
+                        'url' => $downloadUrl,
+                    ];
+                } catch (\Exception $fallbackError) {
+                    Log::error('Error generando URL de fallback para archivo', [
+                        'request_id' => $request->id,
+                        'file_key' => $fileKey,
+                        'error' => $fallbackError->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return $fileLinks;
+    }
+
+    /**
      * Aplicar color de fondo según el estado actual
      */
     private function applyStatusColor(Worksheet $sheet, string $cell, string $status): void
@@ -450,10 +583,10 @@ class BulkRequestResponseService
             RequestStatuses::IN_REVIEW => 'B4C6E7',  // Azul claro para En Revisión
             RequestStatuses::COMPLETED => 'D5E8D4',  // Verde claro para Completada
             RequestStatuses::REJECTED => 'F8CECC',   // Rojo claro para Rechazada
-            'PENDING' => 'FFF2CC',                   // Amarillo claro
-            'IN_REVIEW' => 'B4C6E7',                 // Azul claro
-            'COMPLETED' => 'D5E8D4',                 // Verde claro
-            'REJECTED' => 'F8CECC',                   // Rojo claro
+            // 'PENDING' => 'FFF2CC',                   // Amarillo claro
+            // 'IN_REVIEW' => 'B4C6E7',                 // Azul claro
+            // 'COMPLETED' => 'D5E8D4',                 // Verde claro
+            // 'REJECTED' => 'F8CECC',                   // Rojo claro
         ];
 
         $color = $colorMap[$normalizedStatus] ?? null;
