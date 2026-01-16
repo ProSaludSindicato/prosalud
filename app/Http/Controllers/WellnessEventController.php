@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Constants\Providers;
-use App\Http\Requests\{ChangeWellnessEventVisibilityRequest, StoreWellnessEventRequest, UpdateWellnessEventRequest};
+use App\Http\Requests\{ApproveWellnessEventRequest, ChangeWellnessEventVisibilityRequest, RejectWellnessEventRequest, ReviewWellnessEventRequest, StoreWellnessEventRequest, UpdateWellnessEventRequest};
 use App\Models\{WellnessEvent, WellnessEventImage};
 use Illuminate\Http\{Request, Response};
 use Illuminate\Support\Facades\{Log, Storage};
@@ -53,7 +53,7 @@ class WellnessEventController extends Controller
      */
     public function index(Request $request)
     {
-        $query = WellnessEvent::query()->with('images');
+        $query = WellnessEvent::query()->with(['images', 'wellnessRequest', 'reviewer']);
 
         // Optional filters
         if ($request->filled('is_visible')) {
@@ -61,6 +61,9 @@ class WellnessEventController extends Controller
         }
         if ($request->filled('category')) {
             $query->where('category', $request->input('category'));
+        }
+        if ($request->filled('review_status')) {
+            $query->where('review_status', $request->input('review_status'));
         }
         if ($request->filled('from_date')) {
             $from = $request->date('from_date');
@@ -104,6 +107,12 @@ class WellnessEventController extends Controller
 
             if (!isset($data['provider'])) {
                 $data['provider'] = Providers::PROSALUD;
+            }
+
+            // Set review_status to 'pending' by default for directly created events
+            // Events created from wellness requests will have their review_status set by the publishToGallery method
+            if (!isset($data['review_status'])) {
+                $data['review_status'] = 'pending';
             }
 
             // Remove images from data before creating event
@@ -216,7 +225,7 @@ class WellnessEventController extends Controller
      */
     public function show(WellnessEvent $wellnessEvent)
     {
-        $wellnessEvent->load('images');
+        $wellnessEvent->load(['images', 'wellnessRequest', 'reviewer']);
 
         return response()->json($this->formatEventResponse($wellnessEvent));
     }
@@ -269,7 +278,20 @@ class WellnessEventController extends Controller
                     return $value !== null && $value !== '';
                 });
                 
-                // If we got data from input, validate it manually
+                // If input is also empty, try to manually parse multipart/form-data
+                if (empty($data) && str_contains($request->header('Content-Type', ''), 'multipart/form-data')) {
+                    $parsedData = $this->parseMultipartFormData($request);
+                    if (!empty($parsedData)) {
+                        Log::info('Parsed multipart/form-data manually', [
+                            'event_id' => $wellnessEvent->id,
+                            'parsed_data' => $parsedData,
+                            'timestamp' => now()->toISOString(),
+                        ]);
+                        $data = $parsedData;
+                    }
+                }
+                
+                // If we got data from input or parsing, validate it manually
                 if (!empty($data)) {
                     Log::info('Using input data after validation failed', [
                         'event_id' => $wellnessEvent->id,
@@ -385,10 +407,15 @@ class WellnessEventController extends Controller
                     $wellnessEvent->update($updateData);
                 }
             } else {
-                Log::warning('No hay datos para actualizar, retornando evento sin cambios', [
+                Log::warning('No hay datos para actualizar, retornando error', [
                     'event_id' => $wellnessEvent->id,
                     'timestamp' => now()->toISOString(),
                 ]);
+                
+                return response()->json([
+                    'message' => 'No se proporcionaron datos para actualizar',
+                    'error' => 'La solicitud no contiene datos válidos para actualizar el evento',
+                ], 422);
             }
             $wellnessEvent->load('images');
 
@@ -570,6 +597,151 @@ class WellnessEventController extends Controller
 
             return response()->json([
                 'message' => 'Error al agregar imágenes',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
+            ], 500);
+        }
+    }
+
+    /**
+     * Mark event as in review.
+     */
+    public function review(ReviewWellnessEventRequest $request, WellnessEvent $wellnessEvent)
+    {
+        try {
+            if ($wellnessEvent->review_status === 'approved') {
+                return response()->json([
+                    'message' => 'No se puede poner en revisión un evento que ya fue aprobado',
+                ], 400);
+            }
+
+            $wellnessEvent->review_status = 'in_review';
+            $wellnessEvent->save();
+
+            Log::info('Evento de bienestar puesto en revisión', [
+                'event_id' => $wellnessEvent->id,
+                'title' => $wellnessEvent->title,
+                'user_id' => $request->user()?->id,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            $wellnessEvent->load(['images', 'wellnessRequest', 'reviewer']);
+
+            return response()->json($this->formatEventResponse($wellnessEvent));
+        } catch (\Exception $e) {
+            Log::error('Error poniendo evento en revisión', [
+                'event_id' => $wellnessEvent->id,
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Error al poner el evento en revisión',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
+            ], 500);
+        }
+    }
+
+    /**
+     * Approve event for publication.
+     */
+    public function approve(ApproveWellnessEventRequest $request, WellnessEvent $wellnessEvent)
+    {
+        try {
+            if ($wellnessEvent->review_status === 'approved') {
+                return response()->json([
+                    'message' => 'El evento ya está aprobado',
+                ], 400);
+            }
+
+            $user = $request->user();
+            $validated = $request->validated();
+
+            $wellnessEvent->review_status = 'approved';
+            $wellnessEvent->reviewed_at = now();
+            $wellnessEvent->reviewed_by = $user->id;
+
+            // If is_visible is provided, update it
+            if (isset($validated['is_visible'])) {
+                $wellnessEvent->is_visible = (bool) $validated['is_visible'];
+            } else {
+                // Default to visible when approved
+                $wellnessEvent->is_visible = true;
+            }
+
+            $wellnessEvent->save();
+
+            Log::info('Evento de bienestar aprobado', [
+                'event_id' => $wellnessEvent->id,
+                'title' => $wellnessEvent->title,
+                'is_visible' => $wellnessEvent->is_visible,
+                'reviewed_by' => $user->id,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            $wellnessEvent->load(['images', 'wellnessRequest', 'reviewer']);
+
+            return response()->json($this->formatEventResponse($wellnessEvent));
+        } catch (\Exception $e) {
+            Log::error('Error aprobando evento', [
+                'event_id' => $wellnessEvent->id,
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Error al aprobar el evento',
+                'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
+            ], 500);
+        }
+    }
+
+    /**
+     * Reject event.
+     */
+    public function reject(RejectWellnessEventRequest $request, WellnessEvent $wellnessEvent)
+    {
+        try {
+            if ($wellnessEvent->review_status === 'approved') {
+                return response()->json([
+                    'message' => 'No se puede rechazar un evento que ya fue aprobado',
+                ], 400);
+            }
+
+            $user = $request->user();
+            $validated = $request->validated();
+
+            $wellnessEvent->review_status = 'rejected';
+            $wellnessEvent->reviewed_at = now();
+            $wellnessEvent->reviewed_by = $user->id;
+            // Set is_visible to false when rejected
+            $wellnessEvent->is_visible = false;
+            $wellnessEvent->save();
+
+            Log::info('Evento de bienestar rechazado', [
+                'event_id' => $wellnessEvent->id,
+                'title' => $wellnessEvent->title,
+                'rejection_reason' => $validated['rejection_reason'] ?? null,
+                'reviewed_by' => $user->id,
+                'timestamp' => now()->toISOString(),
+            ]);
+
+            $wellnessEvent->load(['images', 'wellnessRequest', 'reviewer']);
+
+            $response = $this->formatEventResponse($wellnessEvent);
+            if (isset($validated['rejection_reason'])) {
+                $response['rejection_reason'] = $validated['rejection_reason'];
+            }
+
+            return response()->json($response);
+        } catch (\Exception $e) {
+            Log::error('Error rechazando evento', [
+                'event_id' => $wellnessEvent->id,
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Error al rechazar el evento',
                 'error' => config('app.debug') ? $e->getMessage() : 'Error interno del servidor',
             ], 500);
         }
@@ -988,6 +1160,27 @@ class WellnessEventController extends Controller
     {
         $eventArray = $event->toArray();
 
+        // Add wellness request information if related
+        if ($event->wellnessRequest) {
+            $eventArray['wellness_request'] = [
+                'id' => $event->wellnessRequest->id,
+                'activity_name' => $event->wellnessRequest->activity_name,
+                'status' => $event->wellnessRequest->status,
+            ];
+        }
+
+        // Add reviewer information if reviewed
+        if ($event->reviewer) {
+            $eventArray['reviewer'] = [
+                'id' => $event->reviewer->id,
+                'name' => $event->reviewer->name,
+                'email' => $event->reviewer->email,
+            ];
+        }
+
+        // Add review_status_text
+        $eventArray['review_status_text'] = $event->review_status_text;
+
         // Add attendance_list URL if exists
         if ($event->attendance_list_path) {
             $fileUrl = null;
@@ -1041,5 +1234,85 @@ class WellnessEventController extends Controller
         // This ensures sensitive data is not exposed
 
         return $eventArray;
+    }
+
+    /**
+     * Manually parse multipart/form-data when Laravel doesn't parse it correctly
+     * This is a fallback for cases where the request body isn't being parsed automatically
+     */
+    private function parseMultipartFormData(Request $request): array
+    {
+        $contentType = $request->header('Content-Type', '');
+        if (!str_contains($contentType, 'multipart/form-data')) {
+            return [];
+        }
+
+        // Extract boundary from Content-Type header
+        if (!preg_match('/boundary=(.+)$/i', $contentType, $matches)) {
+            return [];
+        }
+
+        $boundary = '--' . trim($matches[1]);
+        $body = $request->getContent();
+        
+        if (empty($body)) {
+            return [];
+        }
+
+        $parts = explode($boundary, $body);
+        $data = [];
+
+        foreach ($parts as $part) {
+            $part = trim($part);
+            
+            // Skip empty parts and the closing boundary
+            if (empty($part) || $part === '--') {
+                continue;
+            }
+
+            // Split headers and content
+            if (strpos($part, "\r\n\r\n") === false && strpos($part, "\n\n") === false) {
+                continue;
+            }
+
+            $delimiter = strpos($part, "\r\n\r\n") !== false ? "\r\n\r\n" : "\n\n";
+            list($headers, $content) = explode($delimiter, $part, 2);
+            $content = rtrim($content, "\r\n--");
+
+            // Parse headers to find field name
+            if (preg_match('/Content-Disposition:.*name="([^"]+)"/i', $headers, $nameMatch)) {
+                $fieldName = $nameMatch[1];
+                
+                // Skip file fields (they should be handled by Laravel's file handling)
+                if (preg_match('/filename="([^"]*)"/i', $headers)) {
+                    continue;
+                }
+
+                // Only process known fields
+                $allowedFields = ['title', 'date', 'category', 'description', 'location', 
+                                 'attendees', 'gift', 'provider', 'is_visible', 'eliminar_attendance_list'];
+                
+                if (in_array($fieldName, $allowedFields)) {
+                    $value = trim($content);
+                    
+                    // Convert boolean strings
+                    if ($fieldName === 'is_visible') {
+                        $value = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                    }
+                    
+                    // Convert integer strings
+                    if ($fieldName === 'attendees' && is_numeric($value)) {
+                        $value = (int) $value;
+                    }
+                    
+                    // Only add non-empty values
+                    if ($value !== null && $value !== '') {
+                        $data[$fieldName] = $value;
+                    }
+                }
+            }
+        }
+
+        return $data;
     }
 }

@@ -81,20 +81,36 @@ class UpdateWellnessEventRequest extends FormRequest
 
     protected function prepareForValidation()
     {
+        $allData = $this->all();
+        $inputData = $this->input();
+        $contentType = $this->header('Content-Type', '');
+        
         Log::info('UpdateWellnessEventRequest - Datos recibidos', [
             'method' => $this->method(),
-            'content_type' => $this->header('Content-Type'),
-            'raw_data' => $this->all(),
+            'content_type' => $contentType,
+            'raw_data' => $allData,
             'json_data' => $this->json()->all(),
-            'input_data' => $this->input(),
+            'input_data' => $inputData,
             'has_files' => $this->hasFile('images') || $this->hasFile('attendance_list'),
             'files_count' => count($this->file('images', [])),
             'has_attendance_list_file' => $this->hasFile('attendance_list'),
-            'request_body' => $this->getContent(),
+            'request_body' => substr($this->getContent(), 0, 500), // Limit log size
             'ip_address' => $this->ip(),
             'user_agent' => $this->userAgent(),
             'timestamp' => now()->toISOString(),
         ]);
+
+        // If input is empty but we have multipart/form-data, try to parse it manually
+        if (empty($inputData) && str_contains($contentType, 'multipart/form-data')) {
+            $parsedData = $this->parseMultipartFormData();
+            if (!empty($parsedData)) {
+                Log::info('UpdateWellnessEventRequest - Datos parseados manualmente', [
+                    'parsed_data' => $parsedData,
+                    'timestamp' => now()->toISOString(),
+                ]);
+                $this->merge($parsedData);
+            }
+        }
 
         // Parse is_visible from string to boolean if needed
         if ($this->has('is_visible')) {
@@ -115,6 +131,85 @@ class UpdateWellnessEventRequest extends FormRequest
                 ]);
             }
         }
+    }
+
+    /**
+     * Manually parse multipart/form-data when Laravel doesn't parse it correctly
+     */
+    private function parseMultipartFormData(): array
+    {
+        $contentType = $this->header('Content-Type', '');
+        if (!str_contains($contentType, 'multipart/form-data')) {
+            return [];
+        }
+
+        // Extract boundary from Content-Type header
+        if (!preg_match('/boundary=(.+)$/i', $contentType, $matches)) {
+            return [];
+        }
+
+        $boundary = '--' . trim($matches[1]);
+        $body = $this->getContent();
+        
+        if (empty($body)) {
+            return [];
+        }
+
+        $parts = explode($boundary, $body);
+        $data = [];
+
+        foreach ($parts as $part) {
+            $part = trim($part);
+            
+            // Skip empty parts and the closing boundary
+            if (empty($part) || $part === '--') {
+                continue;
+            }
+
+            // Split headers and content
+            if (strpos($part, "\r\n\r\n") === false && strpos($part, "\n\n") === false) {
+                continue;
+            }
+
+            $delimiter = strpos($part, "\r\n\r\n") !== false ? "\r\n\r\n" : "\n\n";
+            list($headers, $content) = explode($delimiter, $part, 2);
+            $content = rtrim($content, "\r\n--");
+
+            // Parse headers to find field name
+            if (preg_match('/Content-Disposition:.*name="([^"]+)"/i', $headers, $nameMatch)) {
+                $fieldName = $nameMatch[1];
+                
+                // Skip file fields (they should be handled by Laravel's file handling)
+                if (preg_match('/filename="([^"]*)"/i', $headers)) {
+                    continue;
+                }
+
+                // Only process known fields
+                $allowedFields = ['title', 'date', 'category', 'description', 'location', 
+                                 'attendees', 'gift', 'provider', 'is_visible', 'eliminar_attendance_list'];
+                
+                if (in_array($fieldName, $allowedFields)) {
+                    $value = trim($content);
+                    
+                    // Convert boolean strings
+                    if ($fieldName === 'is_visible') {
+                        $value = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                    }
+                    
+                    // Convert integer strings
+                    if ($fieldName === 'attendees' && is_numeric($value)) {
+                        $value = (int) $value;
+                    }
+                    
+                    // Only add non-empty values
+                    if ($value !== null && $value !== '') {
+                        $data[$fieldName] = $value;
+                    }
+                }
+            }
+        }
+
+        return $data;
     }
 
     protected function failedValidation(Validator $validator)

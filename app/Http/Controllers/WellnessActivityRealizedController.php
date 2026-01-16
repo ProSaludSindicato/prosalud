@@ -376,6 +376,8 @@ class WellnessActivityRealizedController extends Controller
                 'attendees' => $activityRealized->real_attendees_count,
                 'gift' => $activityRealized->gift_delivered,
                 'is_visible' => $request->input('is_visible', true),
+                'wellness_request_id' => $wellnessRequest->id,
+                'review_status' => 'pending', // Events from requests also need review
             ];
 
             $galleryEvent = WellnessEvent::create($eventData);

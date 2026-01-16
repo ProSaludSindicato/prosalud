@@ -657,4 +657,87 @@ class WellnessRequestController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get completed wellness requests without related activities.
+     * Used for linking wellness events to wellness requests.
+     */
+    public function getCompletedWithoutActivities(Request $request): JsonResponse
+    {
+        try {
+            $query = WellnessRequest::with(['requester', 'details'])
+                ->where('status', 'resolved')
+                ->whereDoesntHave('activityRealized');
+
+            // Filter by cost center
+            if ($request->has('centroCostos')) {
+                $query->where('cost_center', $request->input('centroCostos'));
+            }
+
+            // Filter by requester
+            if ($request->has('solicitanteId')) {
+                $query->where('requester_id', $request->input('solicitanteId'));
+            }
+
+            // Filter by date range
+            if ($request->has('fechaDesde')) {
+                $query->whereDate('proposed_date', '>=', $request->input('fechaDesde'));
+            }
+
+            if ($request->has('fechaHasta')) {
+                $query->whereDate('proposed_date', '<=', $request->input('fechaHasta'));
+            }
+
+            // Search by activity name
+            if ($request->has('busqueda')) {
+                $search = $request->input('busqueda');
+                $query->where(function ($q) use ($search) {
+                    $q->where('activity_name', 'like', "%{$search}%")
+                      ->orWhere('activity_description', 'like', "%{$search}%");
+                });
+            }
+
+            // Order by proposed date (most recent first)
+            $query->orderBy('proposed_date', 'desc');
+
+            // Pagination
+            $perPage = $request->integer('per_page', 15);
+            $wellnessRequests = $query->paginate($perPage);
+
+            // Transform to Spanish keys for frontend
+            $transformedItems = $wellnessRequests->map(function ($wellnessRequest) {
+                return $this->formatWellnessRequestResponse($wellnessRequest);
+            });
+
+            Log::info('Completed wellness requests without activities retrieved', [
+                'total' => $wellnessRequests->total(),
+                'current_page' => $wellnessRequests->currentPage(),
+                'per_page' => $wellnessRequests->perPage(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $transformedItems,
+                'pagination' => [
+                    'current_page' => $wellnessRequests->currentPage(),
+                    'per_page' => $wellnessRequests->perPage(),
+                    'total' => $wellnessRequests->total(),
+                    'last_page' => $wellnessRequests->lastPage(),
+                    'from' => $wellnessRequests->firstItem(),
+                    'to' => $wellnessRequests->lastItem(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error retrieving completed wellness requests without activities', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las solicitudes',
+                'error' => config('app.debug') ? $e->getMessage() : 'Ocurrió un error al procesar la solicitud',
+            ], 500);
+        }
+    }
 }

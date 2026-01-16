@@ -26,6 +26,7 @@ class StoreWellnessEventRequest extends FormRequest
             'gift' => ['nullable', 'string', 'max:255'],
             'provider' => ['nullable', 'string', 'max:255'],
             'is_visible' => ['nullable', 'boolean'],
+            'wellness_request_id' => ['nullable', 'integer', 'exists:wellness_requests,id'],
             'images' => ['nullable', 'array'],
             'images.*' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,gif,webp', 'max:5120'], // 5MB max
             'attendance_list' => ['nullable', 'file', 'mimes:pdf,xls,xlsx', 'max:10240'], // 10MB max
@@ -84,6 +85,10 @@ class StoreWellnessEventRequest extends FormRequest
             'attendance_list.file' => 'El listado de asistencia debe ser un archivo válido.',
             'attendance_list.mimes' => 'El listado de asistencia debe ser de tipo: pdf, xls, xlsx.',
             'attendance_list.max' => 'El listado de asistencia no puede exceder 10MB.',
+
+            // wellness_request_id
+            'wellness_request_id.integer' => 'El ID de la solicitud de bienestar debe ser un número entero.',
+            'wellness_request_id.exists' => 'La solicitud de bienestar especificada no existe.',
         ];
     }
 

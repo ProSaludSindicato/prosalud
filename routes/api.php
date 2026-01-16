@@ -195,6 +195,9 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::patch('/wellness-events/{wellness_event}/visibility', [WellnessEventController::class, 'changeVisibility'])->middleware('permission:wellness_events.edit');
     Route::post('/wellness-events/{wellness_event}/images', [WellnessEventController::class, 'addImages'])->middleware('permission:wellness_events.edit');
     Route::delete('/wellness-events/{wellness_event}/images/{image}', [WellnessEventController::class, 'removeImage'])->middleware('permission:wellness_events.edit');
+    Route::post('/wellness-events/{wellness_event}/review', [WellnessEventController::class, 'review'])->middleware('permission:wellness_events.edit');
+    Route::post('/wellness-events/{wellness_event}/approve', [WellnessEventController::class, 'approve'])->middleware('permission:wellness_events.edit');
+    Route::post('/wellness-events/{wellness_event}/reject', [WellnessEventController::class, 'reject'])->middleware('permission:wellness_events.edit');
 
     // Wellness Requests management routes
     Route::get('/wellness-requests', [WellnessRequestController::class, 'index'])->middleware('permission:wellness_requests.view');
@@ -203,6 +206,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::put('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update'])->middleware('permission:wellness_requests.edit');
     Route::patch('/wellness-requests/{wellnessRequest}', [WellnessRequestController::class, 'update'])->middleware('permission:wellness_requests.edit');
     Route::post('/wellness-requests/export/excel', [WellnessRequestController::class, 'exportExcel'])->middleware('permission:wellness_requests.view');
+    Route::get('/wellness-requests/completed/without-activities', [WellnessRequestController::class, 'getCompletedWithoutActivities'])->middleware('permission:wellness_requests.view');
 
     // Wellness Activity Realized routes
     Route::post('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'store'])->middleware('permission:wellness_requests.edit');
