@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -90,6 +90,16 @@ Route::prefix('certificados')->group(function () {
         Route::get('/convenio/estadisticas', [CertificadoConvenioController::class, 'estadisticas']);
     });
 });
+
+// DocuSign Embedded Signing routes (públicas, sin autenticación)
+// Rate limiting: 20 requests per minute
+Route::post('/firma', [DocuSignController::class, 'createSignature'])
+    ->middleware('throttle:public-endpoints');
+
+// DocuSign Webhook (público, sin autenticación, sin CSRF)
+// No rate limiting - DocuSign needs reliable delivery
+Route::post('/webhooks/docusign', [DocuSignWebhookController::class, 'handle'])
+    ->withoutMiddleware(['csrf', 'auth.token']);
 
 // Assembly Voting System Routes
 Route::prefix('assembly')->group(function () {

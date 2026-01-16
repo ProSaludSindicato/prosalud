@@ -695,6 +695,88 @@ class AfiliadoService
     }
 
     /**
+     * Get affiliate information by document number only (without authentication).
+     * Used for bulk operations where we only have the document number.
+     *
+     * @param string $documento Document number
+     * @return array|null Affiliate information with email, name, etc. or null if not found
+     */
+    public function getAfiliadoByDocumentoOnly(string $documento): ?array
+    {
+        $normalizedDocumento = $this->normalizeValue($documento);
+        $cacheKey = sprintf('afiliado:doc_only:%s', md5($normalizedDocumento));
+
+        // Check cache first
+        $cachedData = Cache::get($cacheKey);
+        if ($cachedData !== null) {
+            return $cachedData;
+        }
+
+        $result = $this->withExcelFile(function (string $excelPath, string $disk) use ($normalizedDocumento) {
+            try {
+                $reader = IOFactory::createReader('Xlsx');
+                if (method_exists($reader, 'setReadDataOnly')) {
+                    $reader->setReadDataOnly(true);
+                }
+
+                if (method_exists($reader, 'setLoadSheetsOnly')) {
+                    $reader->setLoadSheetsOnly([self::SHEET_INFORMACION_GENERAL]);
+                }
+
+                $spreadsheet = $reader->load($excelPath);
+                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+
+                if (!$informacionSheet) {
+                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para búsqueda por documento');
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+                    return null;
+                }
+
+                $afiliadoRowResult = $this->findAfiliadoRowByDocumentoOnly($informacionSheet, $normalizedDocumento);
+
+                if (null === $afiliadoRowResult) {
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+                    return null;
+                }
+
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
+
+                // Liberar memoria
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
+
+                // Return only essential fields for email sending
+                return [
+                    'documento' => $afiliadoFull['documento'] ?? null,
+                    'tipo_documento' => $afiliadoFull['tipo_documento'] ?? null,
+                    'nombres' => $afiliadoFull['nombres'] ?? '',
+                    'apellidos' => $afiliadoFull['apellidos'] ?? '',
+                    'correo_personal' => $afiliadoFull['correo_personal'] ?? null,
+                    'nombre_completo' => trim(($afiliadoFull['nombres'] ?? '') . ' ' . ($afiliadoFull['apellidos'] ?? '')),
+                ];
+            } catch (\Throwable $e) {
+                Log::error('Error al buscar afiliado por documento', [
+                    'error' => $e->getMessage(),
+                    'documento' => $normalizedDocumento,
+                    'disk' => $disk,
+                    'file_path' => self::EXCEL_FILE_PATH,
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                return null;
+            }
+        }, null);
+
+        // Cache the result for 1 hour
+        if ($result !== null) {
+            Cache::put($cacheKey, $result, now()->addHour());
+        }
+
+        return $result;
+    }
+
+    /**
      * Check if the Excel file exists and is readable.
      */
     public function isFileAvailable(): bool
@@ -1247,6 +1329,73 @@ class AfiliadoService
             if ($rowTipoDocumento === $normalizedTipoDocumento
                 && $rowDocumento === $normalizedDocumento
                 && $rowFechaExpedicion === $normalizedFechaExpedicion) {
+                // Match found! Now read the complete row using column mapping
+                $rowData = [];
+                $highestColumn = $sheet->getHighestColumn();
+                $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
+                
+                for ($colIndex = 0; $colIndex < $highestColumnIndex; ++$colIndex) {
+                    $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $rowData[] = $this->getCellValue($cell);
+                }
+
+                // Return both row data and mapping for later use
+                return [
+                    'data' => $rowData,
+                    'mapping' => $columnMapping,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Find affiliate row by document number only (without tipo_documento or fecha_expedicion).
+     * Returns the first match found.
+     */
+    private function findAfiliadoRowByDocumentoOnly($sheet, string $documento): ?array
+    {
+        // Build column mapping from headers
+        $columnMapping = $this->buildColumnMapping($sheet);
+        
+        // Check required columns exist
+        if (!isset($columnMapping['documento'])) {
+            Log::error("Columna 'documento' no encontrada", [
+                'available_columns' => array_keys($columnMapping),
+                'documento' => $documento,
+            ]);
+            return null;
+        }
+        
+        // Normalize input value
+        $normalizedDocumento = $this->normalizeValue($documento);
+
+        // Get highest row to know when to stop
+        $highestRow = $sheet->getHighestRow();
+
+        // Iterate through rows (skip header row at row 1)
+        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+            // Read only documento column first for matching (optimization)
+            $colIndex = $columnMapping['documento'];
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $rowDocumentoRaw = $this->getCellValue($cell);
+            $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
+
+            // Skip if row appears empty
+            if (empty($rowDocumento)) {
+                continue;
+            }
+
+            // Check if this looks like a header row
+            if (false !== stripos($rowDocumento, 'documento') || 0 === stripos($rowDocumento, 'nuip')) {
+                continue;
+            }
+
+            // Match document number
+            if ($rowDocumento === $normalizedDocumento) {
                 // Match found! Now read the complete row using column mapping
                 $rowData = [];
                 $highestColumn = $sheet->getHighestColumn();

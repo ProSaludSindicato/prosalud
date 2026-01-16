@@ -60,4 +60,14 @@ return [
         'secret_key' => env('RECAPTCHA_SECRET_KEY'),
         'project_id' => env('RECAPTCHA_PROJECT_ID'),
     ],
+
+    'docusign' => [
+        'integration_key' => env('DOCUSIGN_INTEGRATION_KEY'),
+        'user_id' => env('DOCUSIGN_USER_ID'),
+        'account_id' => env('DOCUSIGN_ACCOUNT_ID'),
+        'base_path' => env('DOCUSIGN_BASE_PATH', 'https://demo.docusign.net/restapi'),
+        'auth_server' => env('DOCUSIGN_AUTH_SERVER', 'https://account-d.docusign.com'),
+        'private_key' => env('DOCUSIGN_PRIVATE_KEY'),
+        'webhook_secret' => env('DOCUSIGN_WEBHOOK_SECRET'),
+    ],
 ];
