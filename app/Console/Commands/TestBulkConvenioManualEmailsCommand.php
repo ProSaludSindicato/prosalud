@@ -22,7 +22,8 @@ class TestBulkConvenioManualEmailsCommand extends Command
      */
     protected $signature = 'test:convenios-manual-emails
                             {--limit=5 : Number of test emails to send}
-                            {--dry-run : Show what would be sent without actually sending}';
+                            {--dry-run : Show what would be sent without actually sending}
+                            {--force : Skip confirmation prompt}';
 
     /**
      * The console command description.
@@ -141,9 +142,14 @@ class TestBulkConvenioManualEmailsCommand extends Command
         $this->warn("📊 Rate limit: " . self::EMAILS_PER_SECOND . " correos por segundo");
         $this->line('');
 
-        if (!$this->confirm('¿Deseas continuar con el envío de prueba?')) {
-            $this->info('❌ Operación cancelada por el usuario.');
-            return 0;
+        if (!$this->option('force')) {
+            if (!$this->confirm('¿Deseas continuar con el envío de prueba?')) {
+                $this->info('❌ Operación cancelada por el usuario.');
+                return 0;
+            }
+        } else {
+            $this->info('✅ Modo --force activado, saltando confirmación...');
+            $this->line('');
         }
 
         // Process files and dispatch jobs with rate limiting
