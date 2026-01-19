@@ -178,7 +178,7 @@ class DocuSignService implements DocumentSigningServiceInterface
         // However, if the document has different dimensions, we may need to adjust
         // Using a more conservative conversion that accounts for potential page size variations
         $pageHeight = 792; // Standard letter size height in pixels at 72 DPI
-
+        
         $textFields = [
             // Campo 1: Lugar de nacimiento (anclado a "LUGAR Y FECHA DE NACIMIENTO:")
             [
@@ -333,7 +333,7 @@ class DocuSignService implements DocumentSigningServiceInterface
                 $textTabConfig['value'] = $prefilledValue;
                 $textTabConfig['locked'] = 'false'; // Allow editing if needed
             }
-
+            
             // Use anchor string if specified, otherwise use fixed coordinates
             if (isset($field['use_anchor']) && $field['use_anchor'] === true) {
                 $textTabConfig['anchor_string'] = $field['anchor_string'];
@@ -346,7 +346,7 @@ class DocuSignService implements DocumentSigningServiceInterface
                 $textTabConfig['x_position'] = (string)$field['x'];
                 $textTabConfig['y_position'] = (string)$yFromBottom;
             }
-
+            
             $textTab = new Text($textTabConfig);
             $textTabs[] = $textTab;
         }
