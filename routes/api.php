@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -100,6 +100,25 @@ Route::post('/firma', [DocuSignController::class, 'createSignature'])
 // No rate limiting - DocuSign needs reliable delivery
 Route::post('/webhooks/docusign', [DocuSignWebhookController::class, 'handle'])
     ->withoutMiddleware(['csrf', 'auth.token']);
+
+// Document Signing Admin routes (requieren autenticación)
+Route::middleware(['auth.token', 'ensure.api.user'])->prefix('document-signing')->group(function () {
+    // Bulk email sending
+    Route::post('/send-bulk-emails', [DocumentSigningAdminController::class, 'sendBulkEmails'])
+        ->middleware('permission:document_signing.manage');
+    
+    // Email history and tracking
+    Route::get('/email-history', [DocumentSigningAdminController::class, 'listEmailHistory'])
+        ->middleware('permission:document_signing.view');
+    
+    // Resend emails
+    Route::post('/resend-emails', [DocumentSigningAdminController::class, 'resendEmails'])
+        ->middleware('permission:document_signing.manage');
+    
+    // Statistics
+    Route::get('/statistics', [DocumentSigningAdminController::class, 'getStatistics'])
+        ->middleware('permission:document_signing.view');
+});
 
 // Assembly Voting System Routes
 Route::prefix('assembly')->group(function () {

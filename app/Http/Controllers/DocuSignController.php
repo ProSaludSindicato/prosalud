@@ -2,15 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\DocumentSigningServiceInterface;
 use App\Http\Requests\CreateDocuSignSignatureRequest;
-use App\Services\{AfiliadoService, DocuSignService};
+use App\Services\AfiliadoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 
 class DocuSignController extends Controller
 {
     public function __construct(
-        private readonly DocuSignService $docuSignService,
+        private readonly DocumentSigningServiceInterface $documentSigningService,
         private readonly AfiliadoService $afiliadoService
     ) {
     }
@@ -93,7 +94,7 @@ class DocuSignController extends Controller
             }
 
             // Find PDF contract file by document number
-            $pdfPath = $this->docuSignService->findContractPdfByDocumentNumber($documento);
+            $pdfPath = $this->documentSigningService->findContractPdfByDocumentNumber($documento);
 
             if (null === $pdfPath) {
                 Log::warning('PDF de convenio no encontrado para afiliado', [
@@ -107,19 +108,22 @@ class DocuSignController extends Controller
             }
 
             // Create envelope and get signing URL
-            $result = $this->docuSignService->createEnvelopeAndGetSigningUrl(
+            $result = $this->documentSigningService->createEnvelopeAndGetSigningUrl(
                 pdfPath: $pdfPath,
                 signer: [
                     'email' => $email,
                     'name' => $nombreCompleto,
                     'documento' => $documento, // Use documento as clientUserId
+                    'afiliado' => $afiliado, // Pass afiliado info for prefilled_text
                 ],
                 returnUrl: $validated['return_url'],
                 emailSubject: $validated['email_subject'] ?? 'Firma de Convenio de Afiliación',
                 documentName: $validated['document_name'] ?? 'Convenio de Afiliación'
             );
 
-            Log::info('Firma DocuSign creada exitosamente', [
+            $provider = config('services.document_signing.provider', 'docusign');
+            Log::info('Firma de documento creada exitosamente', [
+                'provider' => $provider,
                 'envelope_id' => $result['envelope_id'],
                 'documento' => $documento,
                 'email' => $email,
@@ -142,9 +146,10 @@ class DocuSignController extends Controller
                 ],
             ]);
 
+            $provider = config('services.document_signing.provider', 'docusign');
             return response()->json([
                 'success' => false,
-                'message' => 'Error al crear la firma de DocuSign: ' . $e->getMessage(),
+                'message' => 'Error al crear la firma de documento: ' . $e->getMessage(),
             ], 500);
         }
     }

@@ -70,4 +70,22 @@ return [
         'private_key' => env('DOCUSIGN_PRIVATE_KEY'),
         'webhook_secret' => env('DOCUSIGN_WEBHOOK_SECRET'),
     ],
+
+    'signnow' => [
+        'access_token' => env('SIGNNOW_ACCESS_TOKEN'),
+        'base_url' => env('SIGNNOW_BASE_URL', 'https://api.signnow.com'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Document Signing Provider Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configure which document signing provider to use.
+    | Options: 'docusign' or 'signnow'
+    |
+    */
+    'document_signing' => [
+        'provider' => env('DOCUMENT_SIGNING_PROVIDER', 'docusign'),
+    ],
 ];

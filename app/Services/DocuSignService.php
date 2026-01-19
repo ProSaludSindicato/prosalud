@@ -2,12 +2,18 @@
 
 namespace App\Services;
 
+use App\Contracts\DocumentSigningServiceInterface;
+use App\Models\DocumentSigningEmailTracking;
 use DocuSign\eSign\Api\EnvelopesApi;
 use DocuSign\eSign\Client\ApiClient;
 use DocuSign\eSign\Client\Auth\OAuth;
 use DocuSign\eSign\Model\Document;
 use DocuSign\eSign\Model\EnvelopeDefinition;
+use DocuSign\eSign\Model\EnvelopeSummary;
+use DocuSign\eSign\Model\Expirations;
+use DocuSign\eSign\Model\Notification;
 use DocuSign\eSign\Model\RecipientViewRequest;
+use DocuSign\eSign\Model\Reminders;
 use DocuSign\eSign\Model\Signer;
 use DocuSign\eSign\Model\SignHere;
 use DocuSign\eSign\Model\Tabs;
@@ -15,7 +21,7 @@ use DocuSign\eSign\Model\Text;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
-class DocuSignService
+class DocuSignService implements DocumentSigningServiceInterface
 {
     /**
      * Cached account ID obtained from user info
@@ -126,14 +132,16 @@ class DocuSignService
      * @param array $signer Signer information: ['email' => string, 'name' => string, 'documento' => string]
      * @param string $emailSubject Subject for the signing email
      * @param string $documentName Name of the document
-     * @return \DocuSign\eSign\Model\EnvelopeSummary
+     * @param bool $sendEmail If true, envelope status will be 'sent' and email will be sent automatically
+     * @return array ['envelope_id' => string, 'document_id' => string]
      */
     public function createEnvelope(
         string $pdfPath,
         array $signer,
         string $emailSubject = 'Firma de documento',
-        string $documentName = 'Documento'
-    ) {
+        string $documentName = 'Documento',
+        bool $sendEmail = false
+    ): array {
         $apiClient = $this->getApiClient();
         $envelopeApi = new EnvelopesApi($apiClient);
 
@@ -159,7 +167,7 @@ class DocuSignService
             'anchor_string' => 'NOMBRE:',
             'anchor_units' => 'pixels',
             'anchor_x_offset' => '100',
-            'anchor_y_offset' => '-10', // SUBE la firma sobre la línea
+            'anchor_y_offset' => '-15', // SUBE la firma sobre la línea
         ]);
 
         // Text fields configuration
@@ -170,7 +178,7 @@ class DocuSignService
         // However, if the document has different dimensions, we may need to adjust
         // Using a more conservative conversion that accounts for potential page size variations
         $pageHeight = 792; // Standard letter size height in pixels at 72 DPI
-        
+
         $textFields = [
             // Campo 1: Lugar de nacimiento (anclado a "LUGAR Y FECHA DE NACIMIENTO:")
             [
@@ -178,9 +186,9 @@ class DocuSignService
                 'page' => 1,
                 'use_anchor' => true,
                 'anchor_string' => 'LUGAR Y FECHA DE NACIMIENTO:',
-                'anchor_x_offset' => '190', // A la derecha del texto
+                'anchor_x_offset' => '180', // A la derecha del texto
                 'anchor_y_offset' => '-5', // Misma línea
-                'width' => 100,
+                'width' => 110,
                 'height' => 18,
             ],
             // Campo 2: Fecha de nacimiento (comienza justo al final del campo anterior)
@@ -189,9 +197,9 @@ class DocuSignService
                 'page' => 1,
                 'use_anchor' => true,
                 'anchor_string' => 'LUGAR Y FECHA DE NACIMIENTO:',
-                'anchor_x_offset' => '310', // Después del primer campo (10 + 200 + 10 de espacio)
+                'anchor_x_offset' => '300', // Después del primer campo (10 + 200 + 10 de espacio)
                 'anchor_y_offset' => '-5', // Misma línea
-                'width' => 120,
+                'width' => 100,
                 'height' => 18,
             ],
             // Campo 3: Domicilio (anclado a "domiciliado(a) y residente en ")
@@ -200,9 +208,9 @@ class DocuSignService
                 'page' => 1,
                 'use_anchor' => true,
                 'anchor_string' => 'domiciliado(a) y residente en ',
-                'anchor_x_offset' => '120', // 2mm aprox = 6 píxeles a 72 DPI (2mm / 25.4mm * 72px)
+                'anchor_x_offset' => '110', // 2mm aprox = 6 píxeles a 72 DPI (2mm / 25.4mm * 72px)
                 'anchor_y_offset' => '-1', // Misma línea
-                'width' => 160,
+                'width' => 120,
                 'height' => 10,
             ],
             // Campo 4: Lugar expedición (anclado a ", quien obra por su propio nombre")
@@ -212,24 +220,24 @@ class DocuSignService
                 'use_anchor' => true,
                 'anchor_string' => ', quien obra por su propio nombre',
                 'anchor_x_offset' => '-80', // 2mm aprox = 6 píxeles a la izquierda (negativo)
-                'anchor_y_offset' => '-3', // Misma línea
+                'anchor_y_offset' => '-1', // Misma línea
                 'width' => 80,
                 'height' => 10,
             ],
             // Campo 5: Teléfono (anclado a ", TELEFONO" - a la izquierda)
             [
-                'label' => 'Teléfono',
+                'label' => 'Direccion',
                 'page' => 1,
                 'use_anchor' => true,
                 'anchor_string' => ', TELEFONO',
-                'anchor_x_offset' => '-190', // A la izquierda del texto (negativo)
+                'anchor_x_offset' => '-210', // A la izquierda del texto (negativo)
                 'anchor_y_offset' => '-1', // Misma línea
                 'width' => 180,
                 'height' => 18,
             ],
             // Campo 6: Teléfono 2 (anclado a ", TELEFONO" - a la derecha)
             [
-                'label' => 'Teléfono 2',
+                'label' => 'Teléfono',
                 'page' => 1,
                 'use_anchor' => true,
                 'anchor_string' => ', TELEFONO',
@@ -255,12 +263,56 @@ class DocuSignService
                 'page' => 2,
                 'use_anchor' => true,
                 'anchor_string' => 'NOMBRE: ',
-                'anchor_x_offset' => '50', // A la derecha del texto
-                'anchor_y_offset' => '45', // Aprox 3 líneas abajo (3 líneas × 15px ≈ 45px)
-                'width' => 120,
+                'anchor_x_offset' => '70', // A la derecha del texto
+                'anchor_y_offset' => '15', // Aprox 3 líneas abajo (3 líneas × 15px ≈ 45px)
+                'width' => 80,
                 'height' => 10,
             ],
         ];
+
+        // Get afiliado information for prefilling fields
+        $afiliado = $signer['afiliado'] ?? [];
+
+        // Map tab_label to afiliado field keys for prefilling
+        $fieldMapping = [
+            'Lugar de nacimiento' => 'lugar_nacimiento',
+            'Fecha de nacimiento' => 'fecha_nacimiento', // Will be formatted to DD/MM/AAAA
+            'Domicilio' => 'direccion',
+            'Direccion' => 'direccion',
+            'Teléfono' => 'telefono',
+            'Celular' => 'celular',
+            // 'Lugar expedición' => 'lugar_expedicion', // Not available in afiliado file
+            // 'de cedula' => '', // Not needed as it's usually derived from documento
+        ];
+
+        // Helper function to get prefilled value
+        $getPrefilledValue = function($fieldLabel) use ($afiliado, $fieldMapping) {
+            if (!isset($fieldMapping[$fieldLabel])) {
+                return null;
+            }
+
+            $afiliadoKey = $fieldMapping[$fieldLabel];
+            $value = $afiliado[$afiliadoKey] ?? '';
+
+            // Format fecha_nacimiento to DD/MM/AAAA if it's a date field
+            if ($afiliadoKey === 'fecha_nacimiento' && !empty($value)) {
+                try {
+                    // Try to parse and format the date
+                    $date = \DateTime::createFromFormat('Y-m-d', $value);
+                    if ($date) {
+                        return $date->format('d/m/Y');
+                    }
+                    // If already in DD/MM/AAAA format, return as is
+                    if (preg_match('/^\d{2}\/\d{2}\/\d{4}$/', $value)) {
+                        return $value;
+                    }
+                } catch (\Exception $e) {
+                    // If parsing fails, return original value
+                }
+            }
+
+            return !empty($value) ? $value : null;
+        };
 
         // Create TextTabs for each field
         // Support both anchor-based positioning and fixed coordinates
@@ -274,7 +326,14 @@ class DocuSignService
                 'tab_label' => $field['label'],
                 'required' => 'true', // Make fields required
             ];
-            
+
+            // Add prefilled value if available
+            $prefilledValue = $getPrefilledValue($field['label']);
+            if ($prefilledValue !== null) {
+                $textTabConfig['value'] = $prefilledValue;
+                $textTabConfig['locked'] = 'false'; // Allow editing if needed
+            }
+
             // Use anchor string if specified, otherwise use fixed coordinates
             if (isset($field['use_anchor']) && $field['use_anchor'] === true) {
                 $textTabConfig['anchor_string'] = $field['anchor_string'];
@@ -287,7 +346,7 @@ class DocuSignService
                 $textTabConfig['x_position'] = (string)$field['x'];
                 $textTabConfig['y_position'] = (string)$yFromBottom;
             }
-            
+
             $textTab = new Text($textTabConfig);
             $textTabs[] = $textTab;
         }
@@ -299,24 +358,31 @@ class DocuSignService
         ]);
 
         // Create signer with documento as clientUserId
+        // Note: Using clientUserId makes this an "embedded signer"
+        // DocuSign account settings can suppress emails to embedded signers
         $signerModel = new Signer([
             'email' => $signer['email'],
             'name' => $signer['name'],
             'recipient_id' => '1',
             'client_user_id' => $signer['documento'], // Use documento as clientUserId for embedded signing
+            // Note: If account has "Suppress emails to embedded signers" enabled,
+            // DocuSign won't send email automatically even with status='sent'
         ]);
 
         // Set tabs using setTabs method
         $signerModel->setTabs($tabs);
 
         // Create envelope definition
+        // DocuSign requires status='sent' to generate embedded signing URLs, even with clientUserId
+        // When using clientUserId, DocuSign treats the signer as "embedded" and relies on account settings
+        // Account setting "Suppress emails to embedded signers" prevents automatic email sending
         $envelopeDefinition = new EnvelopeDefinition([
             'email_subject' => $emailSubject,
             'documents' => [$document],
             'recipients' => [
                 'signers' => [$signerModel],
             ],
-            'status' => 'sent',
+            'status' => 'sent', // Always 'sent' - required for embedded signing URL generation
         ]);
 
         try {
@@ -328,12 +394,25 @@ class DocuSignService
                 $envelopeDefinition
             );
 
+            $envelopeId = $envelopeSummary->getEnvelopeId();
+
             Log::info('DocuSign envelope created', [
-                'envelope_id' => $envelopeSummary->getEnvelopeId(),
+                'envelope_id' => $envelopeId,
                 'signer_email' => $signer['email'],
+                'status' => $envelopeSummary->getStatus(),
+                'sendEmail' => $sendEmail,
             ]);
 
-            return $envelopeSummary;
+            // Register email tracking when envelope is created with status 'sent'
+            // Note: When sendEmail=false, tracking will be created manually in the job
+            if ($sendEmail) {
+                $this->registerEmailTracking($envelopeId, $signer);
+            }
+
+            return [
+                'envelope_id' => $envelopeId,
+                'document_id' => '1', // DocuSign uses document_id '1' for the main document
+            ];
         } catch (\Exception $e) {
             Log::error('DocuSign envelope creation failed', [
                 'error' => $e->getMessage(),
@@ -359,7 +438,11 @@ class DocuSignService
     ): string {
         $apiClient = $this->getApiClient();
         $envelopeApi = new EnvelopesApi($apiClient);
+        $accountId = $this->getAccountId();
 
+        // DocuSign requires envelope to be in 'sent' status to generate embedded signing URL
+        // With clientUserId, DocuSign treats this as an embedded signer and relies on account settings
+        // to suppress automatic email sending
         $viewRequest = new RecipientViewRequest([
             'authentication_method' => 'none',
             'client_user_id' => $signer['documento'], // Use documento as clientUserId
@@ -370,9 +453,6 @@ class DocuSignService
         ]);
 
         try {
-            // Use dynamically obtained account ID
-            $accountId = $this->getAccountId();
-
             $view = $envelopeApi->createRecipientView(
                 $accountId,
                 $envelopeId,
@@ -398,36 +478,172 @@ class DocuSignService
 
     /**
      * Create envelope and get signing URL in one call.
+     * Note: When status is 'sent', DocuSign automatically sends the email and no URL is returned.
      *
      * @param string $pdfPath Path to the PDF file
      * @param array $signer Signer information: ['email' => string, 'name' => string, 'documento' => string]
      * @param string $returnUrl URL to redirect after signing
      * @param string $emailSubject Subject for the signing email
      * @param string $documentName Name of the document
-     * @return array ['envelope_id' => string, 'signing_url' => string]
+     * @param bool $sendEmail If true, envelope status will be 'sent' and email will be sent automatically
+     * @return array ['envelope_id' => string, 'signing_url' => string|null]
      */
     public function createEnvelopeAndGetSigningUrl(
         string $pdfPath,
         array $signer,
         string $returnUrl,
         string $emailSubject = 'Firma de documento',
-        string $documentName = 'Documento'
+        string $documentName = 'Documento',
+        bool $sendEmail = false
     ): array {
-        $envelopeSummary = $this->createEnvelope(
+        // Create envelope with status='sent' (required for embedded signing URL generation)
+        // When using clientUserId, DocuSign treats the signer as "embedded"
+        // Account setting "Suppress emails to embedded signers" prevents automatic email sending
+        // So we can use status='sent' for both cases (sendEmail=true and sendEmail=false)
+        $envelopeResult = $this->createEnvelope(
             $pdfPath,
             $signer,
             $emailSubject,
-            $documentName
+            $documentName,
+            $sendEmail
         );
 
-        $envelopeId = $envelopeSummary->getEnvelopeId();
+        $envelopeId = $envelopeResult['envelope_id'];
 
+        // If sendEmail is true, DocuSign sends the email automatically, so no URL needed
+        if ($sendEmail) {
+            return [
+                'envelope_id' => $envelopeId,
+                'signing_url' => null, // No URL when email is sent by DocuSign
+            ];
+        }
+
+        // Generate embedded signing URL (requires status='sent', but account settings suppress email)
         $signingUrl = $this->getSigningUrl($envelopeId, $signer, $returnUrl);
 
         return [
             'envelope_id' => $envelopeId,
             'signing_url' => $signingUrl,
         ];
+    }
+
+    /**
+     * Register email tracking when envelope is created.
+     *
+     * @param string $envelopeId
+     * @param array $signer
+     * @return DocumentSigningEmailTracking
+     */
+    private function registerEmailTracking(string $envelopeId, array $signer): DocumentSigningEmailTracking
+    {
+        try {
+            $tracking = DocumentSigningEmailTracking::create([
+                'envelope_id' => $envelopeId,
+                'document_number' => $signer['documento'] ?? null,
+                'recipient_email' => $signer['email'],
+                'recipient_name' => $signer['name'],
+                'provider' => 'docusign',
+                'email_status' => 'sent', // DocuSign sends email automatically when status is 'sent'
+                'sent_at' => now(),
+            ]);
+
+            Log::info('Document signing email tracking registered', [
+                'tracking_id' => $tracking->id,
+                'envelope_id' => $envelopeId,
+                'recipient_email' => $signer['email'],
+            ]);
+
+            return $tracking;
+        } catch (\Exception $e) {
+            Log::error('Failed to register email tracking', [
+                'envelope_id' => $envelopeId,
+                'error' => $e->getMessage(),
+            ]);
+            // Don't throw - tracking failure shouldn't break the main flow
+            throw $e;
+        }
+    }
+
+    /**
+     * Resend signing email for an existing envelope.
+     * Uses DocuSign's notification API to send a reminder/notification.
+     *
+     * @param string $envelopeId
+     * @param array $signer
+     * @param string $emailSubject
+     * @return DocumentSigningEmailTracking
+     */
+    public function resendSigningEmail(
+        string $envelopeId,
+        array $signer,
+        string $emailSubject = 'Firma de Convenio de Afiliación'
+    ): DocumentSigningEmailTracking {
+        $apiClient = $this->getApiClient();
+        $envelopeApi = new EnvelopesApi($apiClient);
+        $accountId = $this->getAccountId();
+
+        try {
+            // Get existing envelope
+            $envelope = $envelopeApi->getEnvelope($accountId, $envelopeId);
+            $recipients = $envelope->getRecipients();
+
+            if (!$recipients || !$recipients->getSigners() || count($recipients->getSigners()) === 0) {
+                throw new \Exception('No signers found in envelope');
+            }
+
+            // Use DocuSign's notification API to send a reminder
+            // This will send a notification email to the recipient
+            $notificationRequest = new \DocuSign\eSign\Model\Notification();
+            
+            // Create a reminder that triggers immediately
+            $reminder = new \DocuSign\eSign\Model\Reminders();
+            $reminder->setReminderEnabled('true');
+            $reminder->setReminderDelay('0'); // Send immediately
+            $notificationRequest->setReminders($reminder);
+
+            // Update envelope with notification settings to trigger reminder
+            $envelopeDefinition = new EnvelopeDefinition([
+                'notification' => $notificationRequest,
+            ]);
+
+            $envelopeApi->update($accountId, $envelopeId, $envelopeDefinition);
+
+            // Alternatively, we can use the updateRecipients method to resend
+            // But the reminder approach is simpler and works well
+
+            // Find parent tracking if exists
+            $parentTracking = DocumentSigningEmailTracking::where('envelope_id', $envelopeId)
+                ->where('recipient_email', $signer['email'])
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            // Create new tracking record for resend
+            $tracking = DocumentSigningEmailTracking::create([
+                'envelope_id' => $envelopeId,
+                'document_number' => $signer['documento'] ?? null,
+                'recipient_email' => $signer['email'],
+                'recipient_name' => $signer['name'],
+                'provider' => 'docusign',
+                'email_status' => 'sent',
+                'sent_at' => now(),
+                'parent_tracking_id' => $parentTracking?->id,
+                'resend_count' => $parentTracking ? ($parentTracking->resend_count + 1) : 0,
+            ]);
+
+            Log::info('DocuSign signing email resent', [
+                'tracking_id' => $tracking->id,
+                'envelope_id' => $envelopeId,
+                'recipient_email' => $signer['email'],
+            ]);
+
+            return $tracking;
+        } catch (\Exception $e) {
+            Log::error('Failed to resend DocuSign signing email', [
+                'envelope_id' => $envelopeId,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \Exception('Failed to resend signing email: ' . $e->getMessage());
+        }
     }
 
     /**

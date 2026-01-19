@@ -302,12 +302,13 @@ class RequestExcelExportService
             'Fecha Creación',
             'Fecha Procesamiento',
             'Fecha Resolución',
+            'Razón de Rechazo',
         ];
 
         $sheet->fromArray([$headers], null, 'A1');
 
         // Estilizar encabezados
-        $headerRange = 'A1:L1';
+        $headerRange = 'A1:M1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -337,6 +338,7 @@ class RequestExcelExportService
             'J' => 18, // Fecha Creación
             'K' => 20, // Fecha Procesamiento
             'L' => 18, // Fecha Resolución
+            'M' => 50, // Razón de Rechazo
         ];
 
         foreach ($columnWidths as $col => $width) {
@@ -365,6 +367,7 @@ class RequestExcelExportService
                 $this->formatDate($request->created_at),
                 $this->formatDate($request->processed_at),
                 $this->formatDate($resolvedAt),
+                $request->rejection_reason ?? '',
             ];
 
             $sheet->fromArray([$rowData], null, "A{$row}");
@@ -383,7 +386,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:L" . ($row - 1);
+            $dataRange = "A1:M" . ($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -394,7 +397,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:L" . ($row - 1));
+            $sheet->setAutoFilter("A1:M" . ($row - 1));
         }
 
         // Congelar primera fila

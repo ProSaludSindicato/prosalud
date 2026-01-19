@@ -451,6 +451,7 @@ class RequestController extends Controller
                     'email' => $request->getRawOriginal('email') ?? $request->getAttribute('email'),
                     'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
                     'status' => $request->status,
+                    'rejection_reason' => $request->rejection_reason,
                     'payload' => $request->payload,
                     'created_at' => $request->created_at?->toIso8601String(),
                     'formatted_created_at' => $request->formatted_created_at,
@@ -568,6 +569,7 @@ class RequestController extends Controller
                 'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
                 'payload' => json_encode($request->payload ?? (object) [], JSON_UNESCAPED_UNICODE),
                 'status' => $request->status,
+                'rejection_reason' => $request->rejection_reason,
                 'created_at' => $request->created_at?->toIso8601String(),
                 'formatted_created_at' => $request->formatted_created_at,
                 'processed_at' => $request->processed_at?->toIso8601String(),
@@ -790,15 +792,25 @@ class RequestController extends Controller
             ], 403);
         }
 
-        $status = $statusRequest->validated()['status'];
+        $validated = $statusRequest->validated();
+        $status = $validated['status'];
 
         $updateData = ['status' => $status];
 
         if (RequestStatuses::COMPLETED === $status || RequestStatuses::REJECTED === $status) {
             $updateData['processed_at'] = now();
         } else {
-            // For other statuses, clear processed_at
+            // For other statuses, clear processed_at and rejection_reason
             $updateData['processed_at'] = null;
+            $updateData['rejection_reason'] = null;
+        }
+
+        // Si el estado es REJECTED, guardar la razón de rechazo
+        if (RequestStatuses::REJECTED === $status && isset($validated['rejection_reason'])) {
+            $updateData['rejection_reason'] = $validated['rejection_reason'];
+        } elseif (RequestStatuses::REJECTED !== $status) {
+            // Si cambia de REJECTED a otro estado, limpiar la razón de rechazo
+            $updateData['rejection_reason'] = null;
         }
 
         $request->update($updateData);
@@ -816,6 +828,7 @@ class RequestController extends Controller
             ],
             'new_status' => $status,
             'processed_at' => $request->processed_at,
+            'rejection_reason' => $request->rejection_reason ?? null,
         ]);
 
         $this->auditLogService->logBusinessProcess('request_form', 'status_changed', $this->auditLogService->addRequestContext($statusRequest, [
@@ -836,6 +849,7 @@ class RequestController extends Controller
                 'full_name' => $request->full_name,
                 'email' => $request->email,
                 'status' => $request->status,
+                'rejection_reason' => $request->rejection_reason,
                 'processed_at' => $request->processed_at,
                 'formatted_processed_at' => $request->formatted_processed_at,
             ],
@@ -1887,8 +1901,17 @@ class RequestController extends Controller
         if (RequestStatuses::COMPLETED === $status || RequestStatuses::REJECTED === $status) {
             $updateData['processed_at'] = now();
         } else {
-            // For other statuses, clear processed_at
+            // For other statuses, clear processed_at and rejection_reason
             $updateData['processed_at'] = null;
+            $updateData['rejection_reason'] = null;
+        }
+
+        // Si el estado es REJECTED, guardar la razón de rechazo
+        if (RequestStatuses::REJECTED === $status && isset($validated['rejection_reason'])) {
+            $updateData['rejection_reason'] = $validated['rejection_reason'];
+        } elseif (RequestStatuses::REJECTED !== $status) {
+            // Si cambia de REJECTED a otro estado, limpiar la razón de rechazo
+            $updateData['rejection_reason'] = null;
         }
 
         $requestForm->update($updateData);
@@ -1964,6 +1987,7 @@ class RequestController extends Controller
                 'full_name' => $requestForm->full_name,
                 'email' => $requestForm->email,
                 'status' => $requestForm->status,
+                'rejection_reason' => $requestForm->rejection_reason,
                 'created_at' => $requestForm->created_at,
                 'processed_at' => $requestForm->processed_at,
                 'formatted_processed_at' => $requestForm->formatted_processed_at,
@@ -2194,12 +2218,14 @@ class RequestController extends Controller
 
             // Process the certificate using CertificadoConvenioAutomaticoService
             // Pass custom email subject and body if provided
+            $rejectionReason = $validated['rejection_reason'] ?? null;
             $resultado = $this->certificadoAutomaticoService->procesarConRequestFormExistenteYCompensaciones(
                 $requestForm,
                 $compensaciones,
                 $emailSubject,
                 $emailBody,
-                $status
+                $status,
+                $rejectionReason
             );
 
             Log::info('Certificado generado exitosamente con compensaciones manuales', [
@@ -2208,6 +2234,7 @@ class RequestController extends Controller
             ]);
 
             // The service already sends the email and updates the status, so we just need to return success
+            $requestForm->refresh(); // Refresh to get latest data including rejection_reason
             return response()->json([
                 'success' => true,
                 'message' => 'Certificado generado y respuesta enviada exitosamente',
@@ -2220,7 +2247,8 @@ class RequestController extends Controller
                     'last_name' => $requestForm->last_name,
                     'full_name' => $requestForm->full_name,
                     'email' => $requestForm->email,
-                    'status' => $requestForm->fresh()->status,
+                    'status' => $requestForm->status,
+                    'rejection_reason' => $requestForm->rejection_reason,
                     'consecutivo' => $resultado['consecutivo'] ?? null,
                     'compensaciones' => $compensaciones,
                 ],
@@ -3562,6 +3590,7 @@ class RequestController extends Controller
                     'email' => $requestForm->getRawOriginal('email') ?? $requestForm->getAttribute('email'),
                     'phone_number' => $requestForm->getRawOriginal('phone_number') ?? $requestForm->getAttribute('phone_number'),
                     'status' => $requestForm->status,
+                    'rejection_reason' => $requestForm->rejection_reason,
                     'payload' => $requestForm->payload,
                     'created_at' => $requestForm->created_at?->toIso8601String(),
                     'formatted_created_at' => $requestForm->formatted_created_at,

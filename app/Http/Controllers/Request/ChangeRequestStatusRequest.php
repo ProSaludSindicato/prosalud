@@ -22,9 +22,18 @@ class ChangeRequestStatusRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
+        $rules = [
             'status' => 'required|string|in:PENDING,IN_REVIEW,REJECTED,COMPLETED',
         ];
+
+        // Si el estado es REJECTED, la razón de rechazo es requerida
+        if ($this->input('status') === 'REJECTED') {
+            $rules['rejection_reason'] = 'required|string|max:1000';
+        } else {
+            $rules['rejection_reason'] = 'nullable|string|max:1000';
+        }
+
+        return $rules;
     }
 
     /**
@@ -36,6 +45,9 @@ class ChangeRequestStatusRequest extends FormRequest
             'status.required' => 'El estado es obligatorio.',
             'status.string' => 'El estado debe ser una cadena de texto.',
             'status.in' => 'El estado debe ser "PENDING", "IN_REVIEW", "REJECTED" o "COMPLETED".',
+            'rejection_reason.required' => 'La razón de rechazo es obligatoria cuando se rechaza una solicitud.',
+            'rejection_reason.string' => 'La razón de rechazo debe ser una cadena de texto.',
+            'rejection_reason.max' => 'La razón de rechazo no puede exceder 1000 caracteres.',
         ];
     }
 
@@ -46,6 +58,7 @@ class ChangeRequestStatusRequest extends FormRequest
     {
         return [
             'status' => 'estado',
+            'rejection_reason' => 'razón de rechazo',
         ];
     }
 

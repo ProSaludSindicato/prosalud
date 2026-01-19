@@ -44,6 +44,7 @@ class RequestForm extends Model
         'payload',
         'files',
         'status',
+        'rejection_reason',
         'processed_at',
         'validated_at',
         'validated_by',

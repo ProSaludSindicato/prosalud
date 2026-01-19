@@ -30,9 +30,10 @@ class CertificadoConvenioAutomaticoService
      * @param string|null $emailSubject Asunto del correo personalizado (opcional)
      * @param string|null $emailBody Cuerpo del correo personalizado (opcional)
      * @param string|null $status Estado final de la solicitud (opcional, por defecto COMPLETED)
+     * @param string|null $rejectionReason Razón de rechazo (opcional, requerida si status es REJECTED)
      * @return array Resultado del proceso
      */
-    public function procesarConRequestFormExistenteYCompensaciones(RequestForm $requestForm, ?array $compensaciones = null, ?string $emailSubject = null, ?string $emailBody = null, ?string $status = null): array
+    public function procesarConRequestFormExistenteYCompensaciones(RequestForm $requestForm, ?array $compensaciones = null, ?string $emailSubject = null, ?string $emailBody = null, ?string $status = null, ?string $rejectionReason = null): array
     {
         DB::beginTransaction();
 
@@ -116,7 +117,11 @@ class CertificadoConvenioAutomaticoService
                 $resultadoCertificado['ruta'],
                 $resultadoCertificado['nombre'],
                 $resultadoCertificado['consecutivo'] ?? '',
-                $resultadoCertificado['bucket_path'] ?? null
+                $resultadoCertificado['bucket_path'] ?? null,
+                $emailSubject,
+                $emailBody,
+                $status,
+                null // rejection_reason no aplica en este método
             );
 
             DB::commit();
@@ -212,7 +217,11 @@ class CertificadoConvenioAutomaticoService
                 $resultadoCertificado['ruta'],
                 $resultadoCertificado['nombre'],
                 $resultadoCertificado['consecutivo'] ?? '',
-                $resultadoCertificado['bucket_path'] ?? null
+                $resultadoCertificado['bucket_path'] ?? null,
+                null, // emailSubject
+                null, // emailBody
+                null, // status
+                null // rejection_reason
             );
 
             DB::commit();
@@ -327,7 +336,11 @@ class CertificadoConvenioAutomaticoService
                 $resultadoCertificado['ruta'],
                 $resultadoCertificado['nombre'],
                 $resultadoCertificado['consecutivo'] ?? '',
-                $resultadoCertificado['bucket_path'] ?? null
+                $resultadoCertificado['bucket_path'] ?? null,
+                null, // emailSubject
+                null, // emailBody
+                null, // status
+                null // rejection_reason
             );
 
             DB::commit();
@@ -506,7 +519,8 @@ class CertificadoConvenioAutomaticoService
         ?string $bucketPath = null,
         ?string $emailSubject = null,
         ?string $emailBody = null,
-        ?string $status = null
+        ?string $status = null,
+        ?string $rejectionReason = null
     ): void {
         // Preparar contenido del correo (usar valores personalizados si se proporcionan, sino generar automáticamente)
         $finalEmailSubject = $emailSubject ?? "Certificado de Convenio - Consecutivo {$consecutivo}";
@@ -552,7 +566,17 @@ class CertificadoConvenioAutomaticoService
                 $requestForm->processed_at = now();
             } else {
                 $requestForm->processed_at = null;
+                $requestForm->rejection_reason = null;
             }
+
+            // Si el estado es REJECTED, guardar la razón de rechazo
+            if (RequestStatuses::REJECTED === $finalStatus && $rejectionReason !== null) {
+                $requestForm->rejection_reason = $rejectionReason;
+            } elseif (RequestStatuses::REJECTED !== $finalStatus) {
+                // Si cambia de REJECTED a otro estado, limpiar la razón de rechazo
+                $requestForm->rejection_reason = null;
+            }
+
             $requestForm->save();
 
             // Get authenticated user for traceability (if available)

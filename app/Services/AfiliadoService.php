@@ -531,7 +531,7 @@ class AfiliadoService
     public function getCompleteAfiliadoInfo(
         string $tipoDocumento,
         string $documento,
-        string $fechaExpedicion,
+        ?string $fechaExpedicion = null,
     ): ?array {
         // Log de entrada al método
         Log::info('[AFILIADO SERVICE] Iniciando obtención de información completa de afiliado', [
@@ -1263,7 +1263,7 @@ class AfiliadoService
         $sheet,
         string $tipoDocumento,
         string $documento,
-        string $fechaExpedicion,
+        ?string $fechaExpedicion = null,
     ): ?array {
         // Build column mapping from headers
         $columnMapping = $this->buildColumnMapping($sheet);

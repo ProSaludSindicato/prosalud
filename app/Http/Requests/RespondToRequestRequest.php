@@ -30,6 +30,13 @@ class RespondToRequestRequest extends FormRequest
             'email_body' => 'required|string|max:5000',
         ];
 
+        // Si el estado es REJECTED, la razón de rechazo es requerida
+        if ($this->input('status') === 'REJECTED') {
+            $rules['rejection_reason'] = 'required|string|max:1000';
+        } else {
+            $rules['rejection_reason'] = 'nullable|string|max:1000';
+        }
+
         // Validar actividades si vienen en el request (para certificados con actividades)
         if ($this->has('actividades')) {
             $rules['actividades'] = 'required|array|min:1';
@@ -60,6 +67,9 @@ class RespondToRequestRequest extends FormRequest
         return [
             'status.required' => 'El estado es obligatorio.',
             'status.in' => 'El estado debe ser uno de: PENDING, IN_REVIEW, REJECTED, COMPLETED.',
+            'rejection_reason.required' => 'La razón de rechazo es obligatoria cuando se rechaza una solicitud.',
+            'rejection_reason.string' => 'La razón de rechazo debe ser una cadena de texto.',
+            'rejection_reason.max' => 'La razón de rechazo no puede exceder 1000 caracteres.',
             'email_subject.required' => 'El asunto del correo es obligatorio.',
             'email_subject.max' => 'El asunto del correo no puede exceder 100 caracteres.',
             'email_body.required' => 'El cuerpo del correo es obligatorio.',
@@ -90,6 +100,7 @@ class RespondToRequestRequest extends FormRequest
     {
         return [
             'status' => 'estado',
+            'rejection_reason' => 'razón de rechazo',
             'email_subject' => 'asunto del correo',
             'email_body' => 'cuerpo del correo',
             'actividades' => 'actividades',

@@ -158,6 +158,23 @@ class DocuSignWebhookController extends Controller
                 $this->handleEnvelopeCompleted($data);
                 break;
 
+            case 'envelope-sent':
+                $this->handleEnvelopeSent($data);
+                break;
+
+            case 'recipient-delivered':
+                $this->handleRecipientDelivered($data);
+                break;
+
+            case 'recipient-opened':
+                $this->handleRecipientOpened($data);
+                break;
+
+            case 'envelope-voided':
+            case 'recipient-declined':
+                $this->handleEnvelopeFailed($data, $event);
+                break;
+
             default:
                 Log::info('DocuSign webhook unhandled event', [
                     'event' => $event,
@@ -242,6 +259,16 @@ class DocuSignWebhookController extends Controller
                 $convenio->metadata = $metadata;
 
                 $convenio->save();
+
+                // Also update email tracking if exists
+                $emailTracking = DocumentSigningEmailTracking::where('envelope_id', $envelopeId)
+                    ->where('recipient_email', $email)
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+
+                if ($emailTracking) {
+                    $emailTracking->markAsSigned();
+                }
 
                 Log::info('Recipient completed status updated', [
                     'envelope_id' => $envelopeId,
@@ -433,6 +460,202 @@ class DocuSignWebhookController extends Controller
 
             $convenio->error_message = 'Failed to download/store PDF: ' . $e->getMessage();
             // Don't throw - allow record to be saved with error status
+        }
+    }
+
+    /**
+     * Handle envelope-sent event.
+     * 
+     * @param array $data
+     * @return void
+     */
+    private function handleEnvelopeSent(array $data): void
+    {
+        try {
+            $envelopeId = $data['envelopeId'] ?? $data['envelope_id'] ?? null;
+
+            if (!$envelopeId) {
+                Log::warning('DocuSign envelope-sent missing envelopeId', [
+                    'data' => $data,
+                ]);
+                return;
+            }
+
+            // Update tracking if exists
+            $tracking = DocumentSigningEmailTracking::where('envelope_id', $envelopeId)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if ($tracking) {
+                $tracking->markAsSent();
+                Log::info('Email tracking updated: sent', [
+                    'tracking_id' => $tracking->id,
+                    'envelope_id' => $envelopeId,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error handling envelope-sent event', [
+                'error' => $e->getMessage(),
+                'data' => $data,
+            ]);
+        }
+    }
+
+    /**
+     * Handle recipient-delivered event.
+     * 
+     * @param array $data
+     * @return void
+     */
+    private function handleRecipientDelivered(array $data): void
+    {
+        try {
+            $envelopeId = $data['envelopeId'] ?? $data['envelope_id'] ?? null;
+            $email = $data['email'] ?? null;
+            $deliveredDateTime = $data['deliveredDateTime'] ?? $data['delivered_date_time'] ?? null;
+
+            if (!$envelopeId || !$email) {
+                Log::warning('DocuSign recipient-delivered missing required fields', [
+                    'data' => $data,
+                ]);
+                return;
+            }
+
+            $tracking = DocumentSigningEmailTracking::where('envelope_id', $envelopeId)
+                ->where('recipient_email', $email)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if ($tracking) {
+                $tracking->markAsDelivered();
+                
+                if ($deliveredDateTime) {
+                    try {
+                        $tracking->delivered_at = now()->parse($deliveredDateTime);
+                        $tracking->save();
+                    } catch (\Exception $e) {
+                        Log::warning('Error parsing deliveredDateTime', [
+                            'datetime' => $deliveredDateTime,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                Log::info('Email tracking updated: delivered', [
+                    'tracking_id' => $tracking->id,
+                    'envelope_id' => $envelopeId,
+                    'email' => $email,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error handling recipient-delivered event', [
+                'error' => $e->getMessage(),
+                'data' => $data,
+            ]);
+        }
+    }
+
+    /**
+     * Handle recipient-opened event.
+     * 
+     * @param array $data
+     * @return void
+     */
+    private function handleRecipientOpened(array $data): void
+    {
+        try {
+            $envelopeId = $data['envelopeId'] ?? $data['envelope_id'] ?? null;
+            $email = $data['email'] ?? null;
+            $openedDateTime = $data['openedDateTime'] ?? $data['opened_date_time'] ?? null;
+
+            if (!$envelopeId || !$email) {
+                Log::warning('DocuSign recipient-opened missing required fields', [
+                    'data' => $data,
+                ]);
+                return;
+            }
+
+            $tracking = DocumentSigningEmailTracking::where('envelope_id', $envelopeId)
+                ->where('recipient_email', $email)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if ($tracking) {
+                $metadata = [
+                    'ip_address' => $data['ipAddress'] ?? $data['ip_address'] ?? null,
+                    'user_agent' => $data['userAgent'] ?? $data['user_agent'] ?? null,
+                ];
+
+                $tracking->markAsOpened($metadata);
+
+                if ($openedDateTime) {
+                    try {
+                        $tracking->opened_at = now()->parse($openedDateTime);
+                        $tracking->save();
+                    } catch (\Exception $e) {
+                        Log::warning('Error parsing openedDateTime', [
+                            'datetime' => $openedDateTime,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                Log::info('Email tracking updated: opened', [
+                    'tracking_id' => $tracking->id,
+                    'envelope_id' => $envelopeId,
+                    'email' => $email,
+                    'open_count' => $tracking->open_count,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error handling recipient-opened event', [
+                'error' => $e->getMessage(),
+                'data' => $data,
+            ]);
+        }
+    }
+
+    /**
+     * Handle envelope failed events (voided, declined, etc.).
+     * 
+     * @param array $data
+     * @param string $event
+     * @return void
+     */
+    private function handleEnvelopeFailed(array $data, string $event): void
+    {
+        try {
+            $envelopeId = $data['envelopeId'] ?? $data['envelope_id'] ?? null;
+            $email = $data['email'] ?? null;
+            $reason = $data['reason'] ?? $data['reasonForDeclining'] ?? $event;
+
+            if (!$envelopeId) {
+                return;
+            }
+
+            $query = DocumentSigningEmailTracking::where('envelope_id', $envelopeId);
+            
+            if ($email) {
+                $query->where('recipient_email', $email);
+            }
+
+            $tracking = $query->orderBy('created_at', 'desc')->first();
+
+            if ($tracking) {
+                $tracking->markAsFailed($reason);
+                Log::info('Email tracking updated: failed', [
+                    'tracking_id' => $tracking->id,
+                    'envelope_id' => $envelopeId,
+                    'event' => $event,
+                    'reason' => $reason,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error handling envelope failed event', [
+                'error' => $e->getMessage(),
+                'data' => $data,
+                'event' => $event,
+            ]);
         }
     }
 }
