@@ -37,10 +37,15 @@ class RespondToRequestRequest extends FormRequest
             $rules['rejection_reason'] = 'nullable|string|max:1000';
         }
 
-        // Validar actividades si vienen en el request (para certificados con actividades)
-        if ($this->has('actividades')) {
+        // Validar actividades solo si el estado es COMPLETED (no tiene sentido si se rechaza)
+        // Las actividades solo se requieren cuando se va a generar el certificado
+        if ($this->input('status') === 'COMPLETED' && $this->has('actividades')) {
             $rules['actividades'] = 'required|array|min:1';
             $rules['actividades.*'] = 'required|string|min:1|max:500';
+        } elseif ($this->has('actividades')) {
+            // Si viene actividades pero el status no es COMPLETED, es opcional
+            $rules['actividades'] = 'nullable|array';
+            $rules['actividades.*'] = 'nullable|string|max:500';
         }
 
         // Validar compensaciones si vienen en el request (opcionales, solo si están presentes)
@@ -186,11 +191,12 @@ class RespondToRequestRequest extends FormRequest
                 }
             }
 
-            // Validar que actividades no esté vacío si viene en el request
-            if ($this->has('actividades')) {
+            // Validar que actividades no esté vacío solo si el estado es COMPLETED
+            // Si se rechaza, no tiene sentido requerir actividades
+            if ($this->input('status') === 'COMPLETED' && $this->has('actividades')) {
                 $actividades = $this->input('actividades', []);
                 if (empty($actividades) || (is_array($actividades) && count(array_filter($actividades, fn($a) => !empty(trim($a ?? '')))) === 0)) {
-                    $validator->errors()->add('actividades', 'Debe incluir al menos una actividad.');
+                    $validator->errors()->add('actividades', 'Debe incluir al menos una actividad cuando se completa la solicitud.');
                 }
             }
         });

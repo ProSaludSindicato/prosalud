@@ -1174,18 +1174,36 @@ class RequestController extends Controller
 
                 if (is_array($infoCertificado)) {
                     // Procesar actividades si están presentes
+                    // Solo validar actividades si el estado es COMPLETED (no tiene sentido si se rechaza)
                     if ($tieneActividades && $request->has('actividades')) {
                         $actividadesInput = $request->input('actividades', []);
 
-                        // Normalize actividades array - handle both array and indexed form data
-                        if (is_array($actividadesInput)) {
-                            // Filter out empty values and trim
-                            $actividades = array_filter(
-                                array_map('trim', $actividadesInput),
-                                fn($actividad) => !empty($actividad)
-                            );
-                            // Re-index array to ensure sequential numbering
-                            $actividades = array_values($actividades);
+                        // Si el estado es COMPLETED, validar que haya actividades
+                        if ($status === RequestStatuses::COMPLETED) {
+                            // Normalize actividades array - handle both array and indexed form data
+                            if (is_array($actividadesInput)) {
+                                // Filter out empty values and trim
+                                $actividades = array_filter(
+                                    array_map('trim', $actividadesInput),
+                                    fn($actividad) => !empty($actividad)
+                                );
+                                // Re-index array to ensure sequential numbering
+                                $actividades = array_values($actividades);
+                            }
+
+                            // Validar que haya al menos una actividad cuando se completa
+                            if (empty($actividades)) {
+                                return response()->json([
+                                    'success' => false,
+                                    'message' => 'Errores de validación',
+                                    'errors' => [
+                                        'actividades' => ['Debe incluir al menos una actividad cuando se completa un certificado con actividades'],
+                                    ],
+                                ], 422);
+                            }
+                        } else {
+                            // Si no es COMPLETED, no procesar actividades pero permitir que vengan vacías
+                            $actividades = [];
                         }
 
                         // Only force status to IN_REVIEW if status is PENDING (not if user explicitly set COMPLETED or REJECTED)
@@ -1196,14 +1214,15 @@ class RequestController extends Controller
                     }
 
                     // Procesar validación de dirigido a fondo de pensiones
+                    // Solo validar attachments si el estado es COMPLETED (no tiene sentido si se rechaza)
                     if ($esDirigidoFondoPensiones) {
-                        // Validar que haya al menos 1 archivo adjunto (planillas de seguridad social)
-                        if (empty($attachments)) {
+                        // Validar que haya al menos 1 archivo adjunto solo si se va a completar
+                        if ($status === RequestStatuses::COMPLETED && empty($attachments)) {
                             return response()->json([
                                 'success' => false,
                                 'message' => 'Errores de validación',
                                 'errors' => [
-                                    'attachments' => ['Es requerido adjuntar las planillas de pagos de seguridad social'],
+                                    'attachments' => ['Es requerido adjuntar las planillas de pagos de seguridad social cuando se completa la solicitud'],
                                 ],
                             ], 422);
                         }
@@ -1224,10 +1243,12 @@ class RequestController extends Controller
 
         // Si es un certificado de convenio con valor de compensaciones, verificar si se enviaron compensaciones manualmente
         // Si no se enviaron, intentar obtenerlas del Excel. Si tampoco están en el Excel, devolver error.
+        // Solo validar compensaciones si el estado es COMPLETED (no tiene sentido si se rechaza)
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO
             && $tieneValorCompensaciones
             && !$tieneActividades
             && !$esDirigidoFondoPensiones
+            && $status === RequestStatuses::COMPLETED
         ) {
             // Verificar si el usuario envió compensaciones manualmente (t_basicos, t_auxilios)
             // Solo considerar que se enviaron compensaciones si ambos campos están presentes y tienen valores válidos
@@ -1374,25 +1395,29 @@ class RequestController extends Controller
                     }
                 } else {
                     // No se encontraron compensaciones ni manuales ni en Excel
-                    $razon = $puedeProcesarConCompensaciones['razon'] ?? 'No se encontraron compensaciones en el archivo de compensaciones';
-                    
-                    Log::warning('No se encontraron compensaciones para certificado con valor de compensaciones', [
-                        'request_id' => $requestFormId,
-                        'documento' => $requestForm->document_number,
-                        'razon' => $razon,
-                    ]);
+                    // Solo validar compensaciones si el estado es COMPLETED (no tiene sentido si se rechaza)
+                    if ($status === RequestStatuses::COMPLETED) {
+                        $razon = $puedeProcesarConCompensaciones['razon'] ?? 'No se encontraron compensaciones en el archivo de compensaciones';
+                        
+                        Log::warning('No se encontraron compensaciones para certificado con valor de compensaciones', [
+                            'request_id' => $requestFormId,
+                            'documento' => $requestForm->document_number,
+                            'razon' => $razon,
+                        ]);
 
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Este certificado requiere valores de compensaciones para ser generado.',
-                        'errors' => [
-                            'compensaciones' => [
-                                'No se encontraron valores de compensaciones en el archivo de compensaciones del sistema.',
-                                'Por favor, utilice el endpoint específico para responder con compensaciones manuales o verifique que el afiliado tenga registro en el archivo de compensaciones.',
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Este certificado requiere valores de compensaciones para ser generado.',
+                            'errors' => [
+                                'compensaciones' => [
+                                    'No se encontraron valores de compensaciones en el archivo de compensaciones del sistema.',
+                                    'Por favor, utilice el endpoint específico para responder con compensaciones manuales o verifique que el afiliado tenga registro en el archivo de compensaciones.',
+                                ],
                             ],
-                        ],
-                        'sugerencia' => 'Puede responder esta solicitud utilizando el endpoint específico para certificados con compensaciones, proporcionando los valores de T. Basicos y T. Auxilios manualmente.',
-                    ], 422);
+                            'sugerencia' => 'Puede responder esta solicitud utilizando el endpoint específico para certificados con compensaciones, proporcionando los valores de T. Basicos y T. Auxilios manualmente.',
+                        ], 422);
+                    }
+                    // Si el estado es REJECTED, no validar compensaciones y continuar
                 }
             } else {
                 // Se enviaron compensaciones manuales, pero este endpoint no las procesa directamente
@@ -2133,6 +2158,7 @@ class RequestController extends Controller
         // Determinar si se enviaron compensaciones manuales completas
         // Solo se consideran manuales si t_basicos tiene un valor mayor a 0
         $compensacionesManuales = null;
+        $compensaciones = null; // Inicializar variable para evitar undefined
         if (!$debeConsultarExcel && $tBasicosNormalizado > 0) {
             $compensacionesManuales = [
                 't_basicos' => $tBasicosNormalizado,
@@ -2162,25 +2188,30 @@ class RequestController extends Controller
                 ]);
             } else {
                 // No se encontraron compensaciones ni manuales ni en Excel
-                $razon = $puedeProcesarConCompensaciones['razon'] ?? 'No se encontraron compensaciones en el archivo de compensaciones';
-                
-                Log::warning('No se encontraron compensaciones para certificado con valor de compensaciones', [
-                    'request_id' => $requestId,
-                    'documento' => $requestForm->document_number,
-                    'razon' => $razon,
-                ]);
-                
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Este certificado requiere valores de compensaciones para ser generado.',
-                    'errors' => [
-                        'compensaciones' => [
-                            'No se proporcionaron valores de compensaciones manuales y no se encontraron valores en el archivo de compensaciones del sistema.',
-                            'Por favor, proporcione los valores de T. Basicos y T. Auxilios manualmente o verifique que el afiliado tenga registro en el archivo de compensaciones.',
+                // Solo validar compensaciones si el estado es COMPLETED (no tiene sentido si se rechaza)
+                if ($status === RequestStatuses::COMPLETED) {
+                    $razon = $puedeProcesarConCompensaciones['razon'] ?? 'No se encontraron compensaciones en el archivo de compensaciones';
+                    
+                    Log::warning('No se encontraron compensaciones para certificado con valor de compensaciones', [
+                        'request_id' => $requestId,
+                        'documento' => $requestForm->document_number,
+                        'razon' => $razon,
+                    ]);
+                    
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este certificado requiere valores de compensaciones para ser generado.',
+                        'errors' => [
+                            'compensaciones' => [
+                                'No se proporcionaron valores de compensaciones manuales y no se encontraron valores en el archivo de compensaciones del sistema.',
+                                'Por favor, proporcione los valores de T. Basicos y T. Auxilios manualmente o verifique que el afiliado tenga registro en el archivo de compensaciones.',
+                            ],
                         ],
-                    ],
-                    'sugerencia' => 'Puede proporcionar los valores de T. Basicos y T. Auxilios en el request, o verificar que el afiliado tenga registro en el archivo de compensaciones.',
-                ], 422);
+                        'sugerencia' => 'Puede proporcionar los valores de T. Basicos y T. Auxilios en el request, o verificar que el afiliado tenga registro en el archivo de compensaciones.',
+                    ], 422);
+                }
+                // Si el estado es REJECTED, no validar compensaciones y continuar
+                // En este caso, $compensaciones permanece como null
             }
         } else {
             // Usar compensaciones manuales
@@ -2209,7 +2240,78 @@ class RequestController extends Controller
         ]);
 
         try {
-            // Generate certificate with compensation values
+            // Si el estado es REJECTED, no generar certificado, solo actualizar estado y enviar correo
+            if ($status === RequestStatuses::REJECTED) {
+                Log::info('Estado es REJECTED, no se generará certificado', [
+                    'request_id' => $requestId,
+                    'documento' => $requestForm->document_number,
+                    'rejection_reason' => $validated['rejection_reason'] ?? null,
+                ]);
+
+                // Actualizar estado y razón de rechazo directamente
+                $requestForm->status = RequestStatuses::REJECTED;
+                $requestForm->rejection_reason = $validated['rejection_reason'] ?? null;
+                $requestForm->processed_at = now();
+                $requestForm->save();
+
+                // Enviar correo de rechazo sin certificado
+                $mail = Mail::to($requestForm->email);
+                
+                // Agregar CC para solicitudes de microcrédito
+                if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+                    $mail->cc('ceiisas@hotmail.com');
+                }
+
+                // Agregar CC para solicitudes de retiro sindical
+                if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
+                    $mail->cc('talentohumano@sindicatoprosalud.com');
+                }
+                
+                $mail->send(new RequestFormResponse(
+                    $requestForm,
+                    $emailSubject,
+                    $emailBody,
+                    RequestStatuses::REJECTED,
+                    []
+                ));
+
+                // Crear registro de respuesta para trazabilidad
+                $requestResponse = RequestResponse::create([
+                    'request_form_id' => $requestForm->id,
+                    'responded_by' => $userId,
+                    'status' => RequestStatuses::REJECTED,
+                    'email_subject' => $emailSubject,
+                    'email_body' => $emailBody,
+                    'created_at' => now(),
+                ]);
+
+                Log::info('Solicitud rechazada exitosamente sin generar certificado', [
+                    'request_id' => $requestId,
+                    'response_id' => $requestResponse->id,
+                ]);
+
+                $requestForm->refresh();
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Certificado rechazado y respuesta enviada exitosamente',
+                    'data' => [
+                        'id' => $requestForm->id,
+                        'request_type' => $requestForm->request_type,
+                        'document_type' => $requestForm->document_type,
+                        'document_number' => $requestForm->document_number,
+                        'name' => $requestForm->name,
+                        'last_name' => $requestForm->last_name,
+                        'full_name' => $requestForm->full_name,
+                        'email' => $requestForm->email,
+                        'status' => $requestForm->status,
+                        'rejection_reason' => $requestForm->rejection_reason,
+                        'consecutivo' => null,
+                        'compensaciones' => null,
+                    ],
+                ]);
+            }
+
+            // Generate certificate with compensation values (solo si status es COMPLETED)
             Log::info('Generando certificado con compensaciones manuales', [
                 'request_id' => $requestId,
                 'documento' => $requestForm->document_number,
