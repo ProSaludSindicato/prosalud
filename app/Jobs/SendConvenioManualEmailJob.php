@@ -39,6 +39,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
         public string $nombreArchivo,
         public string $rutaArchivoPdf,
         public string $nombreConvenio,
+        public ?int $parentTrackingId = null,
     ) {
     }
 
@@ -104,6 +105,11 @@ class SendConvenioManualEmailJob implements ShouldQueue
             // Create tracking record before sending
             $tracking = $this->createTrackingRecord($afiliado, null);
             $trackingId = $tracking->id;
+            
+            // Si es un reenvío, sincronizar el número de intentos con el padre y todos los registros relacionados
+            if ($this->parentTrackingId) {
+                $this->sincronizarIntentos($tracking);
+            }
 
             // Verify PDF file exists
             if (!file_exists($this->rutaArchivoPdf)) {
@@ -114,6 +120,12 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 ]);
                 
                 $tracking->marcarComoFallido($errorMessage);
+                
+                // Si es un reenvío, asegurar que los intentos estén sincronizados
+                if ($this->parentTrackingId) {
+                    $this->sincronizarIntentos($tracking);
+                }
+                
                 return;
             }
 
@@ -131,6 +143,11 @@ class SendConvenioManualEmailJob implements ShouldQueue
 
             // Mark as sent successfully
             $tracking->marcarComoEnviado();
+            
+            // Si es un reenvío, asegurar que los intentos estén sincronizados
+            if ($this->parentTrackingId) {
+                $this->sincronizarIntentos($tracking);
+            }
 
             Log::info('Correo de convenio manual enviado exitosamente', [
                 'tracking_id' => $trackingId,
@@ -154,11 +171,41 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 $tracking = ConvenioEmailTracking::find($trackingId);
                 if ($tracking) {
                     $tracking->marcarComoFallido($errorMessage);
+                    
+                    // Si es un reenvío, asegurar que los intentos estén sincronizados
+                    if ($this->parentTrackingId) {
+                        $this->sincronizarIntentos($tracking);
+                    }
                 }
             }
 
             throw $e; // Re-lanzar para que Laravel lo marque como fallido y pueda reintentar
         }
+    }
+
+    /**
+     * Sincronizar el número de intentos con el padre y todos los registros relacionados
+     */
+    private function sincronizarIntentos(ConvenioEmailTracking $tracking): void
+    {
+        if (!$this->parentTrackingId) {
+            return;
+        }
+        
+        $parentTracking = ConvenioEmailTracking::find($this->parentTrackingId);
+        if (!$parentTracking) {
+            return;
+        }
+        
+        // Obtener el número de intentos del padre (que ya fue incrementado)
+        $numeroIntentos = $parentTracking->intentos;
+        
+        // Actualizar este registro
+        $tracking->update(['intentos' => $numeroIntentos]);
+        
+        // Actualizar el padre y todos sus reenvíos para mantener consistencia
+        $parentTracking->update(['intentos' => $numeroIntentos]);
+        $parentTracking->resends()->update(['intentos' => $numeroIntentos]);
     }
 
     /**
@@ -176,6 +223,15 @@ class SendConvenioManualEmailJob implements ShouldQueue
             }
         }
 
+        // Si es un reenvío, obtener el número de intentos del tracking padre
+        $intentos = 0;
+        if ($this->parentTrackingId) {
+            $parentTracking = ConvenioEmailTracking::find($this->parentTrackingId);
+            if ($parentTracking) {
+                $intentos = $parentTracking->intentos;
+            }
+        }
+
         return ConvenioEmailTracking::create([
             'documento' => $this->documento,
             'nombre_afiliado' => $nombreAfiliado ?: 'No disponible',
@@ -185,7 +241,8 @@ class SendConvenioManualEmailJob implements ShouldQueue
             'ruta_archivo_pdf' => $this->rutaArchivoPdf,
             'estado' => 'pendiente',
             'error_message' => $errorMessage,
-            'intentos' => 0,
+            'intentos' => $intentos,
+            'parent_tracking_id' => $this->parentTrackingId,
         ]);
     }
 

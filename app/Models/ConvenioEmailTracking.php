@@ -22,6 +22,7 @@ class ConvenioEmailTracking extends Model
         'estado',
         'error_message',
         'intentos',
+        'parent_tracking_id',
     ];
 
     protected $casts = [
@@ -57,10 +58,11 @@ class ConvenioEmailTracking extends Model
 
     /**
      * Scope para buscar por rango de fechas
+     * Usa created_at para incluir registros pendientes que aún no tienen enviado_at
      */
     public function scopeByFechaRango($query, $fechaInicio, $fechaFin)
     {
-        return $query->whereBetween('enviado_at', [$fechaInicio, $fechaFin]);
+        return $query->whereBetween('created_at', [$fechaInicio, $fechaFin]);
     }
 
     /**
@@ -87,11 +89,42 @@ class ConvenioEmailTracking extends Model
     }
 
     /**
-     * Incrementar intentos
+     * Incrementar intentos en este registro y en todos los registros relacionados
      */
     public function incrementarIntentos(): void
     {
-        $this->increment('intentos');
+        $nuevoNumeroIntentos = $this->intentos + 1;
+        
+        // Actualizar este registro
+        $this->update(['intentos' => $nuevoNumeroIntentos]);
+        
+        // Si este es un registro original (no tiene parent), actualizar todos sus reenvíos
+        if (!$this->parent_tracking_id) {
+            $this->resends()->update(['intentos' => $nuevoNumeroIntentos]);
+        } else {
+            // Si este es un reenvío, actualizar el padre y todos los hermanos (otros reenvíos del mismo padre)
+            $parentTracking = $this->parentTracking;
+            if ($parentTracking) {
+                $parentTracking->update(['intentos' => $nuevoNumeroIntentos]);
+                $parentTracking->resends()->update(['intentos' => $nuevoNumeroIntentos]);
+            }
+        }
+    }
+
+    /**
+     * Relación con el tracking padre (si es reenvío)
+     */
+    public function parentTracking()
+    {
+        return $this->belongsTo(ConvenioEmailTracking::class, 'parent_tracking_id');
+    }
+
+    /**
+     * Relación con los reenvíos de este tracking
+     */
+    public function resends()
+    {
+        return $this->hasMany(ConvenioEmailTracking::class, 'parent_tracking_id');
     }
 }
 

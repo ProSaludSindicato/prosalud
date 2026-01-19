@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -91,32 +91,62 @@ Route::prefix('certificados')->group(function () {
     });
 });
 
+// ============================================================================
+// DOCUSIGN AUTOMATIC SIGNING ROUTES - TEMPORARILY DISABLED DUE TO COSTS
+// ============================================================================
+// Estas rutas están comentadas porque se optó por no implementar la funcionalidad
+// de generación automática de firmas por ahora debido a costos.
+// TODO: Descomentar cuando se decida implementar la funcionalidad de DocuSign
+
 // DocuSign Embedded Signing routes (públicas, sin autenticación)
 // Rate limiting: 20 requests per minute
-Route::post('/firma', [DocuSignController::class, 'createSignature'])
-    ->middleware('throttle:public-endpoints');
+// Route::post('/firma', [DocuSignController::class, 'createSignature'])
+//     ->middleware('throttle:public-endpoints');
 
 // DocuSign Webhook (público, sin autenticación, sin CSRF)
 // No rate limiting - DocuSign needs reliable delivery
-Route::post('/webhooks/docusign', [DocuSignWebhookController::class, 'handle'])
-    ->withoutMiddleware(['csrf', 'auth.token']);
+// Route::post('/webhooks/docusign', [DocuSignWebhookController::class, 'handle'])
+//     ->withoutMiddleware(['csrf', 'auth.token']);
 
 // Document Signing Admin routes (requieren autenticación)
-Route::middleware(['auth.token', 'ensure.api.user'])->prefix('document-signing')->group(function () {
+// Route::middleware(['auth.token', 'ensure.api.user'])->prefix('document-signing')->group(function () {
+//     // Bulk email sending
+//     Route::post('/send-bulk-emails', [DocumentSigningAdminController::class, 'sendBulkEmails'])
+//         ->middleware('permission:document_signing.manage');
+//     
+//     // Email history and tracking
+//     Route::get('/email-history', [DocumentSigningAdminController::class, 'listEmailHistory'])
+//         ->middleware('permission:document_signing.view');
+//     
+//     // Resend emails
+//     Route::post('/resend-emails', [DocumentSigningAdminController::class, 'resendEmails'])
+//         ->middleware('permission:document_signing.manage');
+//     
+//     // Statistics
+//     Route::get('/statistics', [DocumentSigningAdminController::class, 'getStatistics'])
+//         ->middleware('permission:document_signing.view');
+// });
+
+// ============================================================================
+// MANUAL CONVENIO EMAIL ROUTES - ACTIVE (NO COST)
+// ============================================================================
+// Rutas para el proceso de envío manual de correos con PDF adjunto.
+// Este proceso no implica costos de proveedores externos.
+Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')->group(function () {
     // Bulk email sending
-    Route::post('/send-bulk-emails', [DocumentSigningAdminController::class, 'sendBulkEmails'])
+    Route::post('/send-bulk-emails', [ConvenioManualController::class, 'sendBulkEmails'])
         ->middleware('permission:document_signing.manage');
     
     // Email history and tracking
-    Route::get('/email-history', [DocumentSigningAdminController::class, 'listEmailHistory'])
+    Route::get('/email-history', [ConvenioManualController::class, 'listEmailHistory'])
         ->middleware('permission:document_signing.view');
     
     // Resend emails
-    Route::post('/resend-emails', [DocumentSigningAdminController::class, 'resendEmails'])
+    Route::post('/resend-emails', [ConvenioManualController::class, 'resendEmails'])
         ->middleware('permission:document_signing.manage');
     
     // Statistics
-    Route::get('/statistics', [DocumentSigningAdminController::class, 'getStatistics'])
+    Route::get('/statistics', [ConvenioManualController::class, 'getStatistics'])
         ->middleware('permission:document_signing.view');
 });
 
