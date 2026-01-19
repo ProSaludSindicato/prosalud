@@ -1121,6 +1121,7 @@ class RequestController extends Controller
         $tieneActividades = false;
         $esDirigidoFondoPensiones = false;
         $tieneValorCompensaciones = false;
+        $esOtros = false; // Verificar si tiene la opción "Otros" activa
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
             $payload = $requestForm->payload ?? [];
             if (isset($payload['infoCertificado'])) {
@@ -1133,6 +1134,7 @@ class RequestController extends Controller
                     $tieneActividades = $requestForm->parseBooleanValue($infoCertificado['adicionarActividades'] ?? false);
                     $esDirigidoFondoPensiones = $requestForm->parseBooleanValue($infoCertificado['dirigidoFondoPensiones'] ?? false);
                     $tieneValorCompensaciones = $this->tieneValorCompensaciones($requestForm);
+                    $esOtros = $requestForm->parseBooleanValue($infoCertificado['otros'] ?? false);
                 }
             }
         }
@@ -1244,10 +1246,12 @@ class RequestController extends Controller
         // Si es un certificado de convenio con valor de compensaciones, verificar si se enviaron compensaciones manualmente
         // Si no se enviaron, intentar obtenerlas del Excel. Si tampoco están en el Excel, devolver error.
         // Solo validar compensaciones si el estado es COMPLETED (no tiene sentido si se rechaza)
+        // NO validar si tiene la opción "Otros" activa, ya que no se genera automáticamente
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO
             && $tieneValorCompensaciones
             && !$tieneActividades
             && !$esDirigidoFondoPensiones
+            && !$esOtros // Excluir si tiene "Otros" activo
             && $status === RequestStatuses::COMPLETED
         ) {
             // Verificar si el usuario envió compensaciones manualmente (t_basicos, t_auxilios)
