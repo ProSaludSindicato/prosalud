@@ -25,6 +25,10 @@ class ConvenioFirmaNotification extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
+            from: new Address(
+                config('mail.from.address'),
+                config('mail.from.name')
+            ),
             subject: $this->nombreArchivo,
             replyTo: [
                 new Address(
@@ -59,7 +63,20 @@ class ConvenioFirmaNotification extends Mailable
                 'nombreAfiliado' => $this->nombreAfiliado,
                 'nombreArchivo' => $this->nombreArchivo,
                 'logoCid' => $logoCid,
-            ]);
+            ])
+            ->withSymfonyMessage(function ($message) {
+                // Forzar Reply-To como respaldo para asegurar que SES lo incluya
+                $headers = $message->getHeaders();
+                if (!$headers->has('Reply-To')) {
+                    $headers->addMailboxHeader(
+                        'Reply-To',
+                        new \Symfony\Component\Mime\Address(
+                            'auxiliar.talento@sindicatoprosalud.com',
+                            'Sindicato ProSalud'
+                        )
+                    );
+                }
+            });
     }
 }
 
