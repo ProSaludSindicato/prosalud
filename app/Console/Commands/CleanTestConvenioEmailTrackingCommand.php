@@ -22,6 +22,7 @@ class CleanTestConvenioEmailTrackingCommand extends Command
      * @var string
      */
     protected $signature = 'test:clean-convenio-email-tracking
+                            {--email= : Email address to filter records (default: juanpapabon@gmail.com)}
                             {--force : Skip confirmation prompt}
                             {--dry-run : Show what would be deleted without actually deleting}';
 
@@ -33,9 +34,9 @@ class CleanTestConvenioEmailTrackingCommand extends Command
     protected $description = 'TEMPORAL: Clean test data from convenio_email_tracking table. DELETE AFTER TESTING.';
 
     /**
-     * Test email used in test commands
+     * Default test email used in test commands
      */
-    private const TEST_EMAIL = 'juanpapabon@gmail.com';
+    private const DEFAULT_TEST_EMAIL = 'juanpapabon@gmail.com';
 
     /**
      * Execute the console command.
@@ -48,12 +49,18 @@ class CleanTestConvenioEmailTrackingCommand extends Command
         $this->line('==========================================================');
         $this->line('');
 
+        // Get email from option or use default
+        $emailToClean = $this->option('email') ?? self::DEFAULT_TEST_EMAIL;
+        
+        $this->info("🔍 Buscando registros para el correo: {$emailToClean}");
+        $this->line('');
+
         // Find all test records
-        $testRecords = ConvenioEmailTracking::where('email_afiliado', self::TEST_EMAIL)->get();
+        $testRecords = ConvenioEmailTracking::where('email_afiliado', $emailToClean)->get();
 
         if ($testRecords->isEmpty()) {
-            $this->info('✅ No se encontraron registros de prueba para eliminar.');
-            $this->line('   Email buscado: ' . self::TEST_EMAIL);
+            $this->info('✅ No se encontraron registros para eliminar.');
+            $this->line('   Email buscado: ' . $emailToClean);
             return 0;
         }
 
@@ -172,7 +179,7 @@ class CleanTestConvenioEmailTrackingCommand extends Command
             'total_found' => $totalRecords,
             'deleted' => $deleted,
             'errors' => $errors,
-            'test_email' => self::TEST_EMAIL,
+            'email_filter' => $emailToClean,
         ]);
 
         return 0;

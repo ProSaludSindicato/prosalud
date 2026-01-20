@@ -58,19 +58,13 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
      */
     public function handle(): void
     {
-        $trackingId = null;
-
         try {
-            Log::info('Iniciando envío de correo de PRUEBA de convenio manual', [
+            Log::info('Iniciando envío de correo de PRUEBA de convenio manual (SIN trazabilidad)', [
                 'documento' => $this->documento,
                 'nombre_archivo' => $this->nombreArchivo,
                 'nombre_convenio' => $this->nombreConvenio,
                 'test_email' => self::TEST_EMAIL,
             ]);
-
-            // Create tracking record with test data
-            $tracking = $this->createTrackingRecord();
-            $trackingId = $tracking->id;
 
             // Verify PDF file exists
             if (!file_exists($this->rutaArchivoPdf)) {
@@ -79,8 +73,6 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
                     'documento' => $this->documento,
                     'ruta_archivo' => $this->rutaArchivoPdf,
                 ]);
-                
-                $tracking->marcarComoFallido($errorMessage);
                 return;
             }
 
@@ -93,14 +85,10 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
 
             $mailable->attachPdfFromPath($this->rutaArchivoPdf);
 
-            // Send email to hardcoded test email
+            // Send email to hardcoded test email (NO SE CREA REGISTRO DE TRAZABILIDAD)
             Mail::to(self::TEST_EMAIL)->send($mailable);
 
-            // Mark as sent successfully
-            $tracking->marcarComoEnviado();
-
-            Log::info('Correo de PRUEBA de convenio manual enviado exitosamente', [
-                'tracking_id' => $trackingId,
+            Log::info('Correo de PRUEBA de convenio manual enviado exitosamente (SIN trazabilidad)', [
                 'documento' => $this->documento,
                 'email' => self::TEST_EMAIL,
                 'nombre_archivo' => $this->nombreArchivo,
@@ -109,42 +97,14 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
         } catch (\Throwable $e) {
             $errorMessage = 'Error al enviar correo de prueba: ' . $e->getMessage();
             Log::error('Error al enviar correo de PRUEBA de convenio manual', [
-                'tracking_id' => $trackingId,
                 'documento' => $this->documento,
                 'nombre_archivo' => $this->nombreArchivo,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            // Update tracking with error if exists
-            if ($trackingId) {
-                $tracking = ConvenioEmailTracking::find($trackingId);
-                if ($tracking) {
-                    $tracking->marcarComoFallido($errorMessage);
-                }
-            }
-
             throw $e; // Re-lanzar para que Laravel lo marque como fallido y pueda reintentar
         }
-    }
-
-    /**
-     * Create tracking record with test data
-     */
-    private function createTrackingRecord(): ConvenioEmailTracking
-    {
-        return ConvenioEmailTracking::create([
-            'documento' => $this->documento,
-            'nombre_afiliado' => 'Afiliado de Prueba - ' . $this->documento,
-            'email_afiliado' => self::TEST_EMAIL,
-            'nombre_convenio' => $this->nombreConvenio,
-            'nombre_archivo' => $this->nombreArchivo,
-            'ruta_archivo_pdf' => $this->rutaArchivoPdf,
-            'estado' => 'pendiente',
-            'error_message' => null,
-            'intentos' => 0,
-            'parent_tracking_id' => null,
-        ]);
     }
 
     /**
@@ -159,17 +119,7 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
             'error' => $exception->getMessage(),
             'trace' => $exception->getTraceAsString(),
         ]);
-
-        // Try to find and update tracking record
-        $tracking = ConvenioEmailTracking::where('documento', $this->documento)
-            ->where('nombre_archivo', $this->nombreArchivo)
-            ->where('email_afiliado', self::TEST_EMAIL)
-            ->where('estado', 'pendiente')
-            ->orderBy('created_at', 'desc')
-            ->first();
-
-        if ($tracking) {
-            $tracking->marcarComoFallido('Job de PRUEBA falló después de ' . $this->tries . ' intentos: ' . $exception->getMessage());
-        }
+        
+        // NO SE ACTUALIZA TRAZABILIDAD porque no se crean registros en modo de prueba
     }
 }
