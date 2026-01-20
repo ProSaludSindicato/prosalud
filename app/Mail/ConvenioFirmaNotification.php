@@ -37,6 +37,7 @@ class ConvenioFirmaNotification extends Mailable
 
         return $this
             ->subject($this->nombreArchivo)
+            ->replyTo('auxiliar.talento@sindicatoprosalud.com', 'Sindicato ProSalud')
             ->view('emails.convenio_firma_notification')
             ->with([
                 'nombreAfiliado' => $this->nombreAfiliado,
