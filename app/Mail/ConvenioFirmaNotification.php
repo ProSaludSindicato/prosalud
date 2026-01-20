@@ -4,6 +4,8 @@ namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Mail\Mailables\Address;
 use Illuminate\Queue\SerializesModels;
 
 class ConvenioFirmaNotification extends Mailable
@@ -15,6 +17,22 @@ class ConvenioFirmaNotification extends Mailable
         public string $nombreAfiliado,
         public string $nombreArchivo,
     ) {
+    }
+
+    /**
+     * Get the message envelope.
+     */
+    public function envelope(): Envelope
+    {
+        return new Envelope(
+            subject: $this->nombreArchivo,
+            replyTo: [
+                new Address(
+                    'auxiliar.talento@sindicatoprosalud.com',
+                    'Sindicato ProSalud'
+                ),
+            ],
+        );
     }
 
     /**
@@ -36,17 +54,12 @@ class ConvenioFirmaNotification extends Mailable
         }
 
         return $this
-            ->subject($this->nombreArchivo)
-            ->replyTo('auxiliar.talento@sindicatoprosalud.com', 'Sindicato ProSalud')
             ->view('emails.convenio_firma_notification')
             ->with([
                 'nombreAfiliado' => $this->nombreAfiliado,
                 'nombreArchivo' => $this->nombreArchivo,
                 'logoCid' => $logoCid,
-            ])
-            ->withSymfonyMessage(function ($message) {
-                $message->getHeaders()->addTextHeader('Reply-To', 'auxiliar.talento@sindicatoprosalud.com');
-            });
+            ]);
     }
 }
 
