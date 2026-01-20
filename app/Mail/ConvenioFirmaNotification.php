@@ -43,7 +43,10 @@ class ConvenioFirmaNotification extends Mailable
                 'nombreAfiliado' => $this->nombreAfiliado,
                 'nombreArchivo' => $this->nombreArchivo,
                 'logoCid' => $logoCid,
-            ]);
+            ])
+            ->withSymfonyMessage(function ($message) {
+                $message->getHeaders()->addTextHeader('Reply-To', 'auxiliar.talento@sindicatoprosalud.com');
+            });
     }
 }
 
