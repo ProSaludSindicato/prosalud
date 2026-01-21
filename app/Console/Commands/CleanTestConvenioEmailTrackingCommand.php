@@ -23,6 +23,7 @@ class CleanTestConvenioEmailTrackingCommand extends Command
      */
     protected $signature = 'test:clean-convenio-email-tracking
                             {--email= : Email address to filter records (default: juanpapabon@gmail.com)}
+                            {--documento= : Document number to filter records}
                             {--force : Skip confirmation prompt}
                             {--dry-run : Show what would be deleted without actually deleting}';
 
@@ -49,18 +50,48 @@ class CleanTestConvenioEmailTrackingCommand extends Command
         $this->line('==========================================================');
         $this->line('');
 
-        // Get email from option or use default
-        $emailToClean = $this->option('email') ?? self::DEFAULT_TEST_EMAIL;
+        // Get filter options
+        $emailToClean = $this->option('email');
+        $documentoToClean = $this->option('documento');
+
+        // Validate that only one filter is provided
+        if ($emailToClean && $documentoToClean) {
+            $this->error('❌ Error: No puedes usar --email y --documento al mismo tiempo. Usa solo uno.');
+            return 1;
+        }
+
+        // Build query based on filter
+        $query = ConvenioEmailTracking::query();
+        $filterType = '';
+        $filterValue = '';
+
+        if ($documentoToClean) {
+            $query->where('documento', $documentoToClean);
+            $filterType = 'documento';
+            $filterValue = $documentoToClean;
+            $this->info("🔍 Buscando registros para el documento: {$documentoToClean}");
+        } elseif ($emailToClean) {
+            $query->where('email_afiliado', $emailToClean);
+            $filterType = 'email';
+            $filterValue = $emailToClean;
+            $this->info("🔍 Buscando registros para el correo: {$emailToClean}");
+        } else {
+            // Default to email if no filter provided
+            $emailToClean = self::DEFAULT_TEST_EMAIL;
+            $query->where('email_afiliado', $emailToClean);
+            $filterType = 'email';
+            $filterValue = $emailToClean;
+            $this->info("🔍 Buscando registros para el correo (por defecto): {$emailToClean}");
+        }
         
-        $this->info("🔍 Buscando registros para el correo: {$emailToClean}");
         $this->line('');
 
-        // Find all test records
-        $testRecords = ConvenioEmailTracking::where('email_afiliado', $emailToClean)->get();
+        // Find all matching records
+        $testRecords = $query->get();
 
         if ($testRecords->isEmpty()) {
             $this->info('✅ No se encontraron registros para eliminar.');
-            $this->line('   Email buscado: ' . $emailToClean);
+            $this->line("   Filtro aplicado ({$filterType}): {$filterValue}");
             return 0;
         }
 
@@ -179,7 +210,8 @@ class CleanTestConvenioEmailTrackingCommand extends Command
             'total_found' => $totalRecords,
             'deleted' => $deleted,
             'errors' => $errors,
-            'email_filter' => $emailToClean,
+            'filter_type' => $filterType,
+            'filter_value' => $filterValue,
         ]);
 
         return 0;
