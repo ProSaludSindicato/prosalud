@@ -26,8 +26,8 @@ class ConvenioFirmaNotification extends Mailable
     {
         return new Envelope(
             from: new Address(
-                config('mail.from.address'),
-                config('mail.from.name')
+                'auxiliar.talento@sindicatoprosalud.com',
+                'Sindicato ProSalud'
             ),
             subject: $this->nombreArchivo,
             replyTo: [
