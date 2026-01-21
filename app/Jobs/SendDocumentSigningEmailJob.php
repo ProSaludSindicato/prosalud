@@ -39,7 +39,8 @@ class SendDocumentSigningEmailJob implements ShouldQueue
         public string $documentNumber,
         public string $emailSubject,
         public string $documentName,
-        public ?string $tipoDocumento = 'CC'
+        public ?string $tipoDocumento = 'CC',
+        public ?string $optionalEmail = null
     ) {
     }
 
@@ -87,17 +88,35 @@ class SendDocumentSigningEmailJob implements ShouldQueue
                 'telefono' => null,
                 'celular' => null,
             ];
-            // TEMPORAL: Hardcode email for testing
-            // TODO: Remove this after testing
-            $originalEmail = $afiliado['correo_personal'] ?? null;
-            $email = 'juanpapabon@gmail.com'; // Hardcoded for testing
 
-            if (empty($originalEmail)) {
-                Log::warning('SendDocumentSigningEmailJob: Afiliado sin correo electrónico registrado, usando email de prueba', [
+            // Determine email to use: optional email provided, or from affiliate
+            $emailFromAffiliate = $afiliado['correo_personal'] ?? null;
+            $email = null;
+
+            if (!empty($this->optionalEmail)) {
+                // Use provided email if available
+                $email = $this->optionalEmail;
+                Log::info('SendDocumentSigningEmailJob: Usando correo electrónico proporcionado', [
                     'document_number' => $this->documentNumber,
-                    'original_email' => $originalEmail,
-                    'test_email' => $email,
+                    'provided_email' => $email,
+                    'affiliate_email' => $emailFromAffiliate,
                 ]);
+            } elseif (!empty($emailFromAffiliate)) {
+                // Use email from affiliate if available
+                $email = $emailFromAffiliate;
+                Log::info('SendDocumentSigningEmailJob: Usando correo electrónico del afiliado', [
+                    'document_number' => $this->documentNumber,
+                    'affiliate_email' => $email,
+                ]);
+            } else {
+                // No email available
+                $errorMessage = 'No se encontró correo electrónico para el documento: ' . $this->documentNumber . '. No se proporcionó email opcional y el afiliado no tiene correo registrado.';
+                Log::warning('SendDocumentSigningEmailJob: ' . $errorMessage, [
+                    'document_number' => $this->documentNumber,
+                ]);
+
+                $this->createFailedTracking($this->documentNumber, $errorMessage);
+                return;
             }
 
             $nombres = $afiliado['nombres'] ?? '';
@@ -183,7 +202,8 @@ class SendDocumentSigningEmailJob implements ShouldQueue
                 'document_number' => $this->documentNumber,
                 'envelope_id' => $result['envelope_id'],
                 'email' => $email,
-                'original_email' => $originalEmail,
+                'email_source' => !empty($this->optionalEmail) ? 'provided' : 'affiliate',
+                'affiliate_email' => $emailFromAffiliate,
             ]);
         } catch (\Throwable $e) {
             $errorMessage = 'Error al enviar correo de firma: ' . $e->getMessage();

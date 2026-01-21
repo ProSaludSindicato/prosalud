@@ -25,8 +25,9 @@ class ProcessBulkDocumentSigningEmailsJob implements ShouldQueue
      */
     public function __construct(
         public array $documentNumbers,
-        public string $emailSubject,
-        public string $documentName,
+        public array $emailMap = [],
+        public string $emailSubject = 'Firma de Convenio de Afiliación',
+        public string $documentName = 'Convenio de Afiliación',
         public ?string $tipoDocumento = 'CC'
     ) {
     }
@@ -38,6 +39,7 @@ class ProcessBulkDocumentSigningEmailsJob implements ShouldQueue
     {
         Log::info('ProcessBulkDocumentSigningEmailsJob: Iniciando procesamiento de envío masivo', [
             'total_documents' => count($this->documentNumbers),
+            'emails_provided' => count($this->emailMap),
             'email_subject' => $this->emailSubject,
         ]);
 
@@ -45,18 +47,23 @@ class ProcessBulkDocumentSigningEmailsJob implements ShouldQueue
 
         foreach ($this->documentNumbers as $documentNumber) {
             try {
+                // Get optional email for this document if provided
+                $optionalEmail = $this->emailMap[$documentNumber] ?? null;
+
                 // Dispatch individual job for each document
                 SendDocumentSigningEmailJob::dispatch(
                     documentNumber: $documentNumber,
                     emailSubject: $this->emailSubject,
                     documentName: $this->documentName,
-                    tipoDocumento: $this->tipoDocumento
+                    tipoDocumento: $this->tipoDocumento,
+                    optionalEmail: $optionalEmail
                 );
 
                 $dispatchedCount++;
 
                 Log::debug('ProcessBulkDocumentSigningEmailsJob: Job despachado', [
                     'document_number' => $documentNumber,
+                    'email_provided' => !empty($optionalEmail),
                 ]);
             } catch (\Exception $e) {
                 Log::error('ProcessBulkDocumentSigningEmailsJob: Error al despachar job individual', [

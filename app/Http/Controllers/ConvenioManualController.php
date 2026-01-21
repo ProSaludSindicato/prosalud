@@ -22,6 +22,8 @@ class ConvenioManualController extends Controller
         $validator = Validator::make($request->all(), [
             'document_numbers' => 'required|array',
             'document_numbers.*' => 'required|string|max:50',
+            'emails' => 'nullable|array',
+            'emails.*' => 'nullable|email|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -33,6 +35,7 @@ class ConvenioManualController extends Controller
         }
 
         $documentNumbers = $request->input('document_numbers');
+        $emails = $request->input('emails', []);
         $conveniosPath = resource_path('convenios');
 
         if (!is_dir($conveniosPath)) {
@@ -82,6 +85,30 @@ class ConvenioManualController extends Controller
         $emailsPerSecond = 6;
         $delayMs = 1000 / $emailsPerSecond;
 
+        // Build email map: documento => email (optional)
+        // If emails array is provided, map it to document_numbers
+        // It can be an associative array (document_number => email) or indexed array
+        $emailMap = [];
+        if (!empty($emails)) {
+            // Check if emails is associative (keys are document numbers) or indexed
+            $keys = array_keys($emails);
+            $isAssociative = array_keys($keys) !== $keys;
+            
+            if ($isAssociative) {
+                // Associative array: document_number => email
+                $emailMap = array_filter($emails, function($email) {
+                    return !empty($email);
+                });
+            } else {
+                // Indexed array: map by position
+                foreach ($documentNumbers as $index => $documentNumber) {
+                    if (isset($emails[$index]) && !empty($emails[$index])) {
+                        $emailMap[$documentNumber] = $emails[$index];
+                    }
+                }
+            }
+        }
+
         // Dispatch jobs with rate limiting
         $enqueued = 0;
         $errors = 0;
@@ -100,12 +127,17 @@ class ConvenioManualController extends Controller
                 // Calculate delay: each job should be delayed by (index * delay_ms) milliseconds
                 $delaySeconds = ($index * $delayMs) / 1000;
 
+                // Get optional email for this document if provided
+                $optionalEmail = $emailMap[$item['documento']] ?? null;
+
                 // Dispatch job with delay
                 SendConvenioManualEmailJob::dispatch(
                     $item['documento'],
                     $item['filename'],
                     $item['ruta_archivo_pdf'],
-                    $item['nombre_convenio']
+                    $item['nombre_convenio'],
+                    null, // parent_tracking_id
+                    $optionalEmail // optional email
                 )->delay(now()->addSeconds($delaySeconds));
 
                 $enqueued++;
@@ -211,6 +243,8 @@ class ConvenioManualController extends Controller
         $validator = Validator::make($request->all(), [
             'tracking_ids' => 'required|array',
             'tracking_ids.*' => 'required|integer|exists:convenio_email_tracking,id',
+            'emails' => 'nullable|array',
+            'emails.*' => 'nullable|email|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -222,6 +256,32 @@ class ConvenioManualController extends Controller
         }
 
         $trackingIds = $request->input('tracking_ids');
+        $emails = $request->input('emails', []);
+        
+        // Build email map: tracking_id => email (optional)
+        // If emails array is provided, map it to tracking_ids
+        // It can be an associative array (tracking_id => email) or indexed array
+        $emailMap = [];
+        if (!empty($emails)) {
+            // Check if emails is associative (keys are tracking IDs) or indexed
+            $keys = array_keys($emails);
+            $isAssociative = array_keys($keys) !== $keys;
+            
+            if ($isAssociative) {
+                // Associative array: tracking_id => email
+                $emailMap = array_filter($emails, function($email) {
+                    return !empty($email);
+                });
+            } else {
+                // Indexed array: map by position
+                foreach ($trackingIds as $index => $trackingId) {
+                    if (isset($emails[$index]) && !empty($emails[$index])) {
+                        $emailMap[$trackingId] = $emails[$index];
+                    }
+                }
+            }
+        }
+
         $results = [
             'success' => [],
             'failed' => [],
@@ -243,13 +303,17 @@ class ConvenioManualController extends Controller
                 // Incrementar intentos en el tracking original
                 $tracking->incrementarIntentos();
 
+                // Get optional email for this tracking if provided
+                $optionalEmail = $emailMap[$trackingId] ?? null;
+
                 // Dispatch job to resend email with parent tracking ID
                 SendConvenioManualEmailJob::dispatch(
                     $tracking->documento,
                     $tracking->nombre_archivo,
                     $tracking->ruta_archivo_pdf,
                     $tracking->nombre_convenio,
-                    $trackingId // parent_tracking_id
+                    $trackingId, // parent_tracking_id
+                    $optionalEmail // optional email
                 );
 
                 $results['success'][] = [
@@ -262,6 +326,8 @@ class ConvenioManualController extends Controller
                     'tracking_id' => $trackingId,
                     'documento' => $tracking->documento,
                     'intentos' => $tracking->fresh()->intentos,
+                    'email_provided' => !empty($optionalEmail),
+                    'email_used' => $optionalEmail ?? 'will use affiliate email',
                 ]);
             } catch (\Exception $e) {
                 $results['failed'][] = [

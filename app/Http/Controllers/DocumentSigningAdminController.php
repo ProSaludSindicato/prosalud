@@ -30,6 +30,8 @@ class DocumentSigningAdminController extends Controller
         $validator = Validator::make($request->all(), [
             'document_numbers' => 'required|array',
             'document_numbers.*' => 'required|string|max:50',
+            'emails' => 'nullable|array',
+            'emails.*' => 'nullable|email|max:255',
             'email_subject' => 'nullable|string|max:255',
             'document_name' => 'nullable|string|max:255',
         ]);
@@ -43,12 +45,38 @@ class DocumentSigningAdminController extends Controller
         }
 
         $documentNumbers = $request->input('document_numbers');
+        $emails = $request->input('emails', []);
         $emailSubject = $request->input('email_subject', 'Firma de Convenio de Afiliación');
         $documentName = $request->input('document_name', 'Convenio de Afiliación');
+
+        // Build email map: documento => email (optional)
+        // If emails array is provided, map it to document_numbers
+        // It can be an associative array (document_number => email) or indexed array
+        $emailMap = [];
+        if (!empty($emails)) {
+            // Check if emails is associative (keys are document numbers) or indexed
+            $keys = array_keys($emails);
+            $isAssociative = array_keys($keys) !== $keys;
+            
+            if ($isAssociative) {
+                // Associative array: document_number => email
+                $emailMap = array_filter($emails, function($email) {
+                    return !empty($email);
+                });
+            } else {
+                // Indexed array: map by position
+                foreach ($documentNumbers as $index => $documentNumber) {
+                    if (isset($emails[$index]) && !empty($emails[$index])) {
+                        $emailMap[$documentNumber] = $emails[$index];
+                    }
+                }
+            }
+        }
 
         // Dispatch async job to process bulk emails
         ProcessBulkDocumentSigningEmailsJob::dispatch(
             documentNumbers: $documentNumbers,
+            emailMap: $emailMap,
             emailSubject: $emailSubject,
             documentName: $documentName,
             tipoDocumento: 'CC' // Default, could be made configurable
@@ -56,6 +84,7 @@ class DocumentSigningAdminController extends Controller
 
         Log::info('Bulk document signing emails job dispatched', [
             'total_documents' => count($documentNumbers),
+            'emails_provided' => count($emailMap),
             'email_subject' => $emailSubject,
         ]);
 
@@ -142,6 +171,8 @@ class DocumentSigningAdminController extends Controller
         $validator = Validator::make($request->all(), [
             'tracking_ids' => 'required|array',
             'tracking_ids.*' => 'required|integer|exists:document_signing_email_trackings,id',
+            'emails' => 'nullable|array',
+            'emails.*' => 'nullable|email|max:255',
             'email_subject' => 'nullable|string|max:255',
         ]);
 
@@ -154,7 +185,32 @@ class DocumentSigningAdminController extends Controller
         }
 
         $trackingIds = $request->input('tracking_ids');
+        $emails = $request->input('emails', []);
         $emailSubject = $request->input('email_subject', 'Firma de Convenio de Afiliación');
+
+        // Build email map: tracking_id => email (optional)
+        // If emails array is provided, map it to tracking_ids
+        // It can be an associative array (tracking_id => email) or indexed array
+        $emailMap = [];
+        if (!empty($emails)) {
+            // Check if emails is associative (keys are tracking IDs) or indexed
+            $keys = array_keys($emails);
+            $isAssociative = array_keys($keys) !== $keys;
+            
+            if ($isAssociative) {
+                // Associative array: tracking_id => email
+                $emailMap = array_filter($emails, function($email) {
+                    return !empty($email);
+                });
+            } else {
+                // Indexed array: map by position
+                foreach ($trackingIds as $index => $trackingId) {
+                    if (isset($emails[$index]) && !empty($emails[$index])) {
+                        $emailMap[$trackingId] = $emails[$index];
+                    }
+                }
+            }
+        }
 
         $results = [
             'success' => [],
@@ -165,7 +221,30 @@ class DocumentSigningAdminController extends Controller
             try {
                 $tracking = DocumentSigningEmailTracking::findOrFail($trackingId);
 
-                // Get affiliate information
+                // Determine email to use: provided email, or from affiliate, or from tracking
+                $emailToUse = null;
+                if (isset($emailMap[$trackingId]) && !empty($emailMap[$trackingId])) {
+                    $emailToUse = $emailMap[$trackingId];
+                } else {
+                    // Get affiliate information to check for email
+                    $afiliadoInfo = $this->afiliadoService->getCompleteAfiliadoInfo(
+                        tipoDocumento: 'CC', // Default
+                        documento: $tracking->document_number,
+                        fechaExpedicion: null
+                    );
+
+                    if ($afiliadoInfo && isset($afiliadoInfo['afiliado'])) {
+                        $afiliado = $afiliadoInfo['afiliado'];
+                        $emailToUse = $afiliado['correo_personal'] ?? null;
+                    }
+
+                    // If still no email, use the one from tracking record
+                    if (empty($emailToUse)) {
+                        $emailToUse = $tracking->recipient_email;
+                    }
+                }
+
+                // Get affiliate information for name and other data
                 $afiliadoInfo = $this->afiliadoService->getCompleteAfiliadoInfo(
                     tipoDocumento: 'CC', // Default
                     documento: $tracking->document_number,
@@ -185,12 +264,21 @@ class DocumentSigningAdminController extends Controller
                 $apellidos = $afiliado['apellidos'] ?? '';
                 $nombreCompleto = trim($nombres . ' ' . $apellidos);
 
+                // Validate email
+                if (empty($emailToUse)) {
+                    $results['failed'][] = [
+                        'tracking_id' => $trackingId,
+                        'error' => 'No se encontró correo electrónico para enviar',
+                    ];
+                    continue;
+                }
+
                 // Resend email using the service
                 if ($tracking->provider === 'docusign' && method_exists($this->documentSigningService, 'resendSigningEmail')) {
                     $newTracking = $this->documentSigningService->resendSigningEmail(
                         envelopeId: $tracking->envelope_id,
                         signer: [
-                            'email' => $tracking->recipient_email,
+                            'email' => $emailToUse,
                             'name' => $nombreCompleto ?: $tracking->recipient_name,
                             'documento' => $tracking->document_number,
                             'afiliado' => $afiliado,
@@ -218,7 +306,7 @@ class DocumentSigningAdminController extends Controller
                     $result = $this->documentSigningService->createEnvelopeAndGetSigningUrl(
                         pdfPath: $pdfPath,
                         signer: [
-                            'email' => $tracking->recipient_email,
+                            'email' => $emailToUse,
                             'name' => $nombreCompleto ?: $tracking->recipient_name,
                             'documento' => $tracking->document_number,
                             'afiliado' => $afiliado,
@@ -238,6 +326,8 @@ class DocumentSigningAdminController extends Controller
                 Log::info('Email resent successfully', [
                     'tracking_id' => $trackingId,
                     'envelope_id' => $tracking->envelope_id,
+                    'email_used' => $emailToUse,
+                    'email_source' => isset($emailMap[$trackingId]) ? 'provided' : 'affiliate_or_tracking',
                 ]);
             } catch (\Exception $e) {
                 $results['failed'][] = [
