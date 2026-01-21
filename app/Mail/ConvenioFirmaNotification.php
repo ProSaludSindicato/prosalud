@@ -5,6 +5,7 @@ namespace App\Mail;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Address;
 use Illuminate\Queue\SerializesModels;
 
@@ -40,43 +41,22 @@ class ConvenioFirmaNotification extends Mailable
     }
 
     /**
-     * Build the message.
+     * Get the message content definition.
      */
-    public function build(): self
+    public function content(): Content
     {
-        $logoPath = public_path('assets/logo.png');
+        // Logo will be handled via URL in the view template
+        // When using Content() instead of build(), embedded images need different handling
         $logoCid = '';
 
-        // Try to embed logo if it exists
-        if (file_exists($logoPath)) {
-            try {
-                $logoContent = file_get_contents($logoPath);
-                $logoCid = $this->embedData($logoContent, 'logo.png', 'image/png');
-            } catch (\Exception $e) {
-                $logoCid = '';
-            }
-        }
-
-        return $this
-            ->view('emails.convenio_firma_notification')
-            ->with([
+        return new Content(
+            view: 'emails.convenio_firma_notification',
+            with: [
                 'nombreAfiliado' => $this->nombreAfiliado,
                 'nombreArchivo' => $this->nombreArchivo,
                 'logoCid' => $logoCid,
-            ])
-            ->withSymfonyMessage(function ($message) {
-                // Forzar Reply-To como respaldo para asegurar que SES lo incluya
-                $headers = $message->getHeaders();
-                if (!$headers->has('Reply-To')) {
-                    $headers->addMailboxHeader(
-                        'Reply-To',
-                        new \Symfony\Component\Mime\Address(
-                            'auxiliar.talento@sindicatoprosalud.com',
-                            'Sindicato ProSalud'
-                        )
-                    );
-                }
-            });
+            ],
+        );
     }
 }
 
