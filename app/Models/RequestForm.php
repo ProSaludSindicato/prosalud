@@ -185,6 +185,22 @@ class RequestForm extends Model
     }
 
     /**
+     * Get the request subtype (for types that support subtypes, e.g. verificacion-pagos).
+     * This is primarily backed by payload['solicitudRelacionadaCon'].
+     */
+    public function getRequestSubtypeAttribute(): ?string
+    {
+        // Solo ciertos tipos de solicitud manejan subtipos
+        if (!RequestTypes::hasSubtypes($this->request_type)) {
+            return null;
+        }
+
+        $payload = $this->payload ?? [];
+
+        return $payload['solicitudRelacionadaCon'] ?? null;
+    }
+
+    /**
      * Get the translated status in Spanish.
      */
     public function getTranslatedStatusAttribute(): string

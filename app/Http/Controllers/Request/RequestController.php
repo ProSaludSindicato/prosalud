@@ -446,6 +446,9 @@ class RequestController extends Controller
                     'name' => $request->name,
                     'last_name' => $request->last_name,
                     'full_name' => $request->full_name,
+                    // Subtipo explícito para tipos que lo soportan (ej: verificacion-pagos)
+                    // Se basa en payload['solicitudRelacionadaCon'] y se expone como campo de primer nivel
+                    'request_subtype' => $request->request_subtype,
                     // Contact information returned WITHOUT obfuscation for administrative processes
                     // Use getRawOriginal() to get raw value directly from database, bypassing any accessors or transformations
                     'email' => $request->getRawOriginal('email') ?? $request->getAttribute('email'),
