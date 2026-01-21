@@ -102,15 +102,19 @@ class AfiliadoService
         'telefono' => ['telefono'],
         'celular' => ['celular'],
         'correo_personal' => ['correo perso', 'correo personal', 'correo'],
-        'contacto_emergencia' => ['contacto de emer', 'contacto emergencia', 'contacto emer'],
+        // Nombres exactos del Excel: "Contacto de emergencia" (completo)
+        'contacto_emergencia' => ['contacto de emergencia', 'contacto de emer', 'contacto emergencia', 'contacto emer', 'contacto de emergen'],
         'archivo_liquidado' => ['archivo liqui', 'archivo liquidado'],
         'fecha_liquidacion' => ['fecha liquid', 'fecha liquidacion'],
-        'talla_uniforme' => ['talla de unif', 'talla uniforme', 'talla unif'],
-        'talla_calzado' => ['talla de calz', 'talla calzado', 'talla calz'],
-        'nivel_educacion' => ['nivel de edu', 'nivel educacion', 'nivel edu'],
+        // Nombres exactos del Excel: "Talla de Uniforme", "Talla de Calzado"
+        'talla_uniforme' => ['talla de uniforme', 'talla de unif', 'talla uniforme', 'talla unif'],
+        'talla_calzado' => ['talla de calzado', 'talla de calz', 'talla calzado', 'talla calz'],
+        // Nombre exacto del Excel: "Nivel de educacion" (sin tilde, completo)
+        'nivel_educacion' => ['nivel de educacion', 'nivel de edu', 'nivel educacion', 'nivel edu', 'nivel de educ'],
         'otros_estudios' => ['otros estudi', 'otros estudios'],
         'numero_cuenta' => ['numero cue', 'numero cuenta'],
-        'tipo_cuenta' => ['tipo de cuen', 'tipo cuenta', 'tipo cuen'],
+        // Nombre exacto del Excel: "Tipo de cuenta" (completo con "de")
+        'tipo_cuenta' => ['tipo de cuenta', 'tipo de cuen', 'tipo cuenta', 'tipo cuen'],
         'banco' => ['banco'],
         'fecha_rethus' => ['fecha rethu', 'fecha rethus'],
         'compensacion_basica' => ['compensaci', 'compensacion', 'compensacion basica'],
@@ -158,7 +162,7 @@ class AfiliadoService
         ]);
 
         // Verificar si existe en caché
-        $cachedData = Cache::get($cacheKey);
+        $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
         if ($cachedData !== null) {
             Log::info('[CACHE HIT] Afiliado obtenido desde caché', [
                 'cache_key' => $cacheKey,
@@ -174,7 +178,7 @@ class AfiliadoService
             'tipo_documento' => $tipoDocumento,
         ]);
 
-        $result = Cache::remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
+        $result = Cache::tags(['afiliados'])->remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
             return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
             $originalMemoryLimit = ini_get('memory_limit');
             $originalMaxExecutionTime = ini_get('max_execution_time');
@@ -558,7 +562,7 @@ class AfiliadoService
         ]);
 
         // Verificar si existe en caché
-        $cachedData = Cache::get($cacheKey);
+        $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
         if ($cachedData !== null) {
             Log::info('[CACHE HIT] Información completa de afiliado obtenida desde caché', [
                 'cache_key' => $cacheKey,
@@ -574,7 +578,7 @@ class AfiliadoService
             'tipo_documento' => $tipoDocumento,
         ]);
 
-        $result = Cache::remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
+        $result = Cache::tags(['afiliados'])->remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
             return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
                 $originalMemoryLimit = ini_get('memory_limit');
                 $originalMaxExecutionTime = ini_get('max_execution_time');
@@ -707,7 +711,7 @@ class AfiliadoService
         $cacheKey = sprintf('afiliado:doc_only:%s', md5($normalizedDocumento));
 
         // Check cache first
-        $cachedData = Cache::get($cacheKey);
+        $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
         if ($cachedData !== null) {
             return $cachedData;
         }
@@ -770,7 +774,7 @@ class AfiliadoService
 
         // Cache the result for 1 hour
         if ($result !== null) {
-            Cache::put($cacheKey, $result, now()->addHour());
+            Cache::tags(['afiliados'])->put($cacheKey, $result, now()->addHour());
         }
 
         return $result;
@@ -797,7 +801,7 @@ class AfiliadoService
      */
     public function getAllAfiliadosBasic(): array
     {
-        return Cache::remember('afiliado_service.all_basic', now()->addMinutes(30), function () {
+        return Cache::tags(['afiliados'])->remember('afiliado_service.all_basic', now()->addMinutes(30), function () {
             return $this->withExcelFile(function (string $excelPath, string $disk) {
                 try {
                     $reader = IOFactory::createReader('Xlsx');
@@ -934,7 +938,7 @@ class AfiliadoService
      */
     public function forgetAllAfiliadosBasicCache(): void
     {
-        Cache::forget('afiliado_service.all_basic');
+        Cache::tags(['afiliados'])->forget('afiliado_service.all_basic');
     }
 
     /**
@@ -963,8 +967,8 @@ class AfiliadoService
             md5($normalizedFechaExpedicion ?? '')
         );
 
-        Cache::forget($authCacheKey);
-        Cache::forget($completeCacheKey);
+        Cache::tags(['afiliados'])->forget($authCacheKey);
+        Cache::tags(['afiliados'])->forget($completeCacheKey);
 
         Log::info('Caché de afiliado limpiado', [
             'documento' => $documento,
@@ -976,14 +980,38 @@ class AfiliadoService
 
     /**
      * Clear all cached affiliate information.
+     * Uses Redis cache tags to efficiently flush all affiliate-related cache entries.
      */
     public function forgetAllAfiliadoCache(): void
     {
-        // Note: This is a simple implementation. For production, consider using cache tags if available
-        // Laravel Redis cache tags require Redis >= 2.2
-        Cache::forget('afiliado_service.all_basic');
-        // Individual cache keys would need to be tracked or use a pattern-based flush
-        // For now, we'll rely on TTL expiration
+        try {
+            // Flush all cache entries tagged with 'afiliados'
+            // This includes:
+            // - afiliado:auth:* (authentication cache)
+            // - afiliado:complete:* (complete info cache)
+            // - afiliado:doc_only:* (document-only cache)
+            // - afiliado_service.all_basic (basic listing cache)
+            Cache::tags(['afiliados'])->flush();
+
+            Log::info('Todos los caches de afiliados limpiados usando tags', [
+                'tag' => 'afiliados',
+                'timestamp' => now()->toISOString(),
+            ]);
+        } catch (\Exception $e) {
+            // Fallback: try to clear known cache keys individually
+            Log::warning('Error al limpiar cache con tags, intentando método alternativo', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            try {
+                Cache::tags(['afiliados'])->forget('afiliado_service.all_basic');
+            } catch (\Exception $fallbackError) {
+                Log::error('Error al limpiar cache de afiliados con método alternativo', [
+                    'error' => $fallbackError->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**
@@ -1158,6 +1186,42 @@ class AfiliadoService
                     return $b['length'] <=> $a['length']; // Longer first
                 });
                 $mapping[$prefixMatches[0]['internalName']] = $colIndex - 1;
+                continue; // Move to next column
+            }
+            
+            // Third pass: if no exact or prefix matches, check for word-boundary matches
+            // This handles cases where the header contains the possible name as a complete word
+            $wordMatches = [];
+            foreach (self::COLUMN_NAME_MAPPINGS as $internalName => $possibleNames) {
+                foreach ($possibleNames as $possibleName) {
+                    $normalizedPossible = $this->normalizeColumnName($possibleName);
+                    
+                    // Check if header contains the possible name as a complete word (word boundary)
+                    // Only match if the possible name is at least 4 characters to avoid false positives
+                    if (strlen($normalizedPossible) >= 4) {
+                        // Use word boundary regex to match complete words only
+                        $pattern = '/\b' . preg_quote($normalizedPossible, '/') . '\b/';
+                        if (preg_match($pattern, $normalizedHeader)) {
+                            $wordMatches[] = [
+                                'internalName' => $internalName,
+                                'length' => strlen($normalizedPossible),
+                            ];
+                        }
+                    }
+                }
+            }
+            
+            // If we have word matches, use the longest one (most specific)
+            // But only if we haven't already mapped this internal name
+            if (!empty($wordMatches)) {
+                usort($wordMatches, function ($a, $b) {
+                    return $b['length'] <=> $a['length']; // Longer first
+                });
+                $bestMatch = $wordMatches[0];
+                // Only add if this internal name hasn't been mapped yet
+                if (!isset($mapping[$bestMatch['internalName']])) {
+                    $mapping[$bestMatch['internalName']] = $colIndex - 1;
+                }
             }
         }
         
@@ -1171,8 +1235,15 @@ class AfiliadoService
     {
         // Remove accents, convert to lowercase, remove extra spaces
         $name = mb_strtolower(trim($name));
-        $name = str_replace(['á', 'é', 'í', 'ó', 'ú', 'ñ'], ['a', 'e', 'i', 'o', 'u', 'n'], $name);
+        // Replace accented characters (including uppercase variants)
+        $name = str_replace(
+            ['á', 'é', 'í', 'ó', 'ú', 'ñ', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Ñ'],
+            ['a', 'e', 'i', 'o', 'u', 'n', 'a', 'e', 'i', 'o', 'u', 'n'],
+            $name
+        );
+        // Normalize whitespace (multiple spaces/tabs to single space)
         $name = preg_replace('/\s+/', ' ', $name);
+        // Remove any leading/trailing whitespace
         return trim($name);
     }
 
@@ -2249,23 +2320,13 @@ class AfiliadoService
 
     /**
      * Filter beneficiarios information to exclude sensitive fields.
+     * Note: fecha_nacimiento is included in the response as it's needed for data update forms.
      */
     private function filterBeneficiariosInfo(array $beneficiarios): array
     {
-        $excludedFields = ['fecha_nacimiento'];
-
-        $filtered = [];
-        foreach ($beneficiarios as $beneficiario) {
-            $beneficiarioFiltered = [];
-            foreach ($beneficiario as $key => $value) {
-                if (!in_array($key, $excludedFields)) {
-                    $beneficiarioFiltered[$key] = $value;
-                }
-            }
-            $filtered[] = $beneficiarioFiltered;
-        }
-
-        return $filtered;
+        // No fields are excluded - all beneficiario fields are needed for data updates
+        // fecha_nacimiento is required for the frontend form
+        return $beneficiarios;
     }
 
     private function buildConveniosSummaryMap($sheet): array

@@ -294,6 +294,11 @@ class RequestForm extends Model
             return $this->formatBeneficiariosNuevos($value);
         }
 
+        // Special handling for beneficiarios eliminados
+        if ('beneficiariosEliminados' === $key && is_array($value)) {
+            return $this->formatBeneficiariosEliminados($value);
+        }
+
         // Format enum values for update data fields
         $enumFormatters = [
             'estadoCivil' => fn ($v) => $this->formatEstadoCivil($v),
@@ -601,6 +606,39 @@ class RequestForm extends Model
             if (!empty($beneficiario['fecha_nacimiento'])) {
                 $info[] = '• Fecha de nacimiento: ' . $beneficiario['fecha_nacimiento'];
             }
+
+            if (!empty($beneficiario['parentesco'])) {
+                $info[] = '• Parentesco: ' . $beneficiario['parentesco'];
+            }
+
+            if (!empty($beneficiario['sexo'])) {
+                $info[] = '• Sexo: ' . $beneficiario['sexo'];
+            }
+
+            $formatted[] = implode('<br>', $info);
+        }
+
+        return implode('<br><br>', $formatted);
+    }
+
+    /**
+     * Format beneficiarios eliminados for display.
+     */
+    private function formatBeneficiariosEliminados(array $beneficiarios): string
+    {
+        if (empty($beneficiarios)) {
+            return 'Ninguno';
+        }
+
+        $formatted = [];
+        foreach ($beneficiarios as $index => $beneficiario) {
+            $numero = $index + 1;
+            $info = [];
+
+            $info[] = "<strong>Beneficiario eliminado {$numero}:</strong>";
+            $info[] = '• Nombre completo: ' . ($beneficiario['nombres'] ?? '') . ' ' . ($beneficiario['apellidos'] ?? '');
+            $info[] = '• Tipo documento: ' . ($beneficiario['tipo_documento'] ?? '');
+            $info[] = '• Documento: ' . ($beneficiario['documento'] ?? '');
 
             if (!empty($beneficiario['parentesco'])) {
                 $info[] = '• Parentesco: ' . $beneficiario['parentesco'];

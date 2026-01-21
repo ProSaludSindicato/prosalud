@@ -91,6 +91,16 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.beneficiariosNuevos.*.parentesco' => 'nullable|string|max:100',
                 'payload.beneficiariosNuevos.*.sexo' => 'nullable|string|max:10',
 
+                // Beneficiarios eliminados
+                'payload.beneficiariosEliminados' => 'nullable|array',
+                'payload.beneficiariosEliminados.*' => 'required|array',
+                'payload.beneficiariosEliminados.*.tipo_documento' => 'required|string|max:50',
+                'payload.beneficiariosEliminados.*.documento' => 'required|string|max:50',
+                'payload.beneficiariosEliminados.*.nombres' => 'required|string|max:255',
+                'payload.beneficiariosEliminados.*.apellidos' => 'required|string|max:255',
+                'payload.beneficiariosEliminados.*.parentesco' => 'nullable|string|max:100',
+                'payload.beneficiariosEliminados.*.sexo' => 'nullable|string|max:10',
+
                 // Archivos condicionales
                 'files.certificacionBancaria' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',
                 'files.diplomaEducativo' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',

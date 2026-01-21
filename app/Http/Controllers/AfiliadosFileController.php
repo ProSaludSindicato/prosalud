@@ -103,8 +103,16 @@ class AfiliadosFileController extends Controller
                 }
             }
 
-            // Limpiar caches dependientes del archivo
+            // Limpiar todos los caches dependientes del archivo
+            // Esto incluye cache de autenticación, información completa, y listado básico
             $afiliadoService->forgetAllAfiliadosBasicCache();
+            $afiliadoService->forgetAllAfiliadoCache();
+
+            Log::info('Archivo de afiliados actualizado y caches limpiados', [
+                'file_path' => $storedPath,
+                'disk' => $disk,
+                'uploaded_by' => Auth::check() ? Auth::id() : 'anonymous',
+            ]);
 
             return response()->json([
                 'success' => true,
