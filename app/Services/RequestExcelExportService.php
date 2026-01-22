@@ -52,6 +52,22 @@ class RequestExcelExportService
     ];
 
     /**
+     * Mapeo de razones de rechazo técnicas a etiquetas amigables.
+     */
+    private const REJECTION_REASON_LABELS = [
+        'compensacion_pignorada_libranza' => 'Compensación pignorada por libranza',
+        'anexos_no_validos' => 'Los anexos adjuntos no son válidos para la solicitud',
+        'formato_archivos' => 'Los archivos adjuntos no cumplen con el formato de ProSalud',
+        'no_aplica_otros_certificado' => 'No aplica la opción de "Otros" para el certificado de convenio',
+        'no_cumple_causales_retiro' => 'No cumple con las causales para el retiro (Vivienda / Educación)',
+        'no_vb_coordinadora' => 'No cuenta con el V°B de la coordinadora',
+        'sin_capacidad_endeudamiento' => 'No tiene capacidad de endeudamiento',
+        'sin_evidencias' => 'No anexa evidencias de la solicitud',
+        'sin_tiempo_provisionado' => 'No cuenta con el tiempo provisionado',
+        'solicitud_repetida' => 'Solicitud repetida',
+    ];
+
+    /**
      * Generar reporte Excel con las 4 hojas especificadas.
      */
     public function generateReport(array $filters): string
@@ -152,6 +168,9 @@ class RequestExcelExportService
                 $query->where('created_at', '<=', $endDate);
             }
         }
+
+        // Cargar relaciones necesarias para obtener el responsable de la respuesta final
+        $query->with(['responses.responder']);
 
         // Ordenar por fecha de creación descendente
         $query->orderBy('created_at', 'desc');
@@ -301,8 +320,8 @@ class RequestExcelExportService
             'Estado',
             'Fecha Creación',
             'Fecha Procesamiento',
-            'Fecha Resolución',
             'Razón de Rechazo',
+            'Responsable de Respuesta Final',
         ];
 
         $sheet->fromArray([$headers], null, 'A1');
@@ -335,10 +354,10 @@ class RequestExcelExportService
             'G' => 18, // Teléfono
             'H' => 30, // Tipo Solicitud
             'I' => 18, // Estado
-            'J' => 18, // Fecha Creación
+            'J' => 20, // Fecha Creación
             'K' => 20, // Fecha Procesamiento
-            'L' => 18, // Fecha Resolución
-            'M' => 50, // Razón de Rechazo
+            'L' => 50, // Razón de Rechazo
+            'M' => 40, // Responsable de Respuesta Final
         ];
 
         foreach ($columnWidths as $col => $width) {
@@ -348,11 +367,23 @@ class RequestExcelExportService
         $row = 2;
 
         foreach ($requests as $request) {
-            // Determinar fecha de resolución (si el estado es resuelto, usar processed_at)
-            $resolvedAt = null;
-            if ($this->isResolvedStatus($request->status)) {
-                $resolvedAt = $request->processed_at;
+            // Obtener responsable de la respuesta final (solo para solicitudes completadas o rechazadas)
+            $responsiblePerson = '';
+            if ($this->isResolvedStatus($request->status) || $this->isRejectedStatus($request->status)) {
+                // Obtener la respuesta más reciente que tenga estado completado o rechazado
+                $latestResponse = $request->responses
+                    ->whereIn('status', [RequestStatuses::COMPLETED, RequestStatuses::REJECTED])
+                    ->sortByDesc('created_at')
+                    ->first();
+                
+                if ($latestResponse && $latestResponse->responder) {
+                    $responder = $latestResponse->responder;
+                    $responsiblePerson = $responder->name . ' (' . $responder->email . ')';
+                }
             }
+
+            // Transformar razón de rechazo técnica a etiqueta amigable
+            $rejectionReason = $this->getRejectionReasonLabel($request->rejection_reason);
 
             $rowData = [
                 $request->id,
@@ -364,10 +395,10 @@ class RequestExcelExportService
                 $request->phone_number,
                 $this->getRequestTypeLabel($request->request_type),
                 $this->getStatusLabel($request->status),
-                $this->formatDate($request->created_at),
-                $this->formatDate($request->processed_at),
-                $this->formatDate($resolvedAt),
-                $request->rejection_reason ?? '',
+                $this->formatDateTime($request->created_at),
+                $this->formatDateTime($request->processed_at),
+                $rejectionReason,
+                $responsiblePerson,
             ];
 
             $sheet->fromArray([$rowData], null, "A{$row}");
@@ -714,6 +745,15 @@ class RequestExcelExportService
     }
 
     /**
+     * Verificar si el estado es rechazado.
+     */
+    private function isRejectedStatus(string $status): bool
+    {
+        $normalized = $this->normalizeStatus($status);
+        return $normalized === 'rejected';
+    }
+
+    /**
      * Obtener color para el estado.
      */
     private function getStatusColor(string $status): ?string
@@ -731,7 +771,7 @@ class RequestExcelExportService
     }
 
     /**
-     * Formatear fecha para Excel.
+     * Formatear fecha para Excel (solo fecha, sin hora).
      */
     private function formatDate($date): string
     {
@@ -748,6 +788,44 @@ class RequestExcelExportService
         }
 
         return $date->format('d/m/Y');
+    }
+
+    /**
+     * Formatear fecha y hora para Excel.
+     */
+    private function formatDateTime($date): string
+    {
+        if (!$date) {
+            return '';
+        }
+
+        if (is_string($date)) {
+            try {
+                $date = Carbon::parse($date);
+            } catch (\Exception $e) {
+                return '';
+            }
+        }
+
+        return $date->format('d/m/Y H:i');
+    }
+
+    /**
+     * Obtener etiqueta amigable para razón de rechazo.
+     */
+    private function getRejectionReasonLabel(?string $rejectionReason): string
+    {
+        if (!$rejectionReason) {
+            return '';
+        }
+
+        // Si el valor es uno de los códigos predefinidos, devolver la etiqueta
+        if (isset(self::REJECTION_REASON_LABELS[$rejectionReason])) {
+            return self::REJECTION_REASON_LABELS[$rejectionReason];
+        }
+
+        // Si no se encuentra, devolver el valor original (texto libre de "otro")
+        return $rejectionReason;
     }
 
     /**
