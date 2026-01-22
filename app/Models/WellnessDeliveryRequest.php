@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
@@ -22,8 +23,10 @@ use Illuminate\Support\Carbon;
  * @property string|null $user_agent
  * @property string $estado
  * @property string|null $observaciones
+ * @property int|null $entregado_por_user_id
  * @property Carbon $created_at
  * @property Carbon $updated_at
+ * @property-read User|null $entregadoPor
  */
 class WellnessDeliveryRequest extends Model
 {
@@ -44,6 +47,7 @@ class WellnessDeliveryRequest extends Model
         'user_agent',
         'estado',
         'observaciones',
+        'entregado_por_user_id',
     ];
 
     protected $casts = [
@@ -125,6 +129,14 @@ class WellnessDeliveryRequest extends Model
     public function scopePorDocumento($query, string $documento)
     {
         return $query->where('documento_afiliado', $documento);
+    }
+
+    /**
+     * Obtener el usuario que realizó la entrega o cancelación
+     */
+    public function entregadoPor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'entregado_por_user_id');
     }
 }
 

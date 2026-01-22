@@ -527,6 +527,29 @@ class CertificadoConvenioAutomaticoService
         $finalEmailBody = $emailBody ?? $this->generarCuerpoCorreo($requestForm, $consecutivo);
         $finalStatus = $status ?? RequestStatuses::COMPLETED;
 
+        // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
+        // Solo actualizar el estado y guardar quién lo actualizó
+        if ($finalStatus === RequestStatuses::IN_REVIEW) {
+            Log::info('Estado IN_REVIEW detectado en enviarCorreoConCertificado - actualizando estado sin enviar correo', [
+                'request_id' => $requestForm->id,
+                'consecutivo' => $consecutivo,
+                'request_type' => $requestForm->request_type,
+            ]);
+
+            // Actualizar solo el estado (estado interno, no procesado)
+            $requestForm->status = $finalStatus;
+            $requestForm->processed_at = null;
+            $requestForm->rejection_reason = null;
+            $requestForm->save();
+
+            Log::info('Estado actualizado sin enviar correo (estado interno)', [
+                'request_id' => $requestForm->id,
+                'status' => $finalStatus,
+            ]);
+
+            return;
+        }
+
         // Crear un archivo temporal para adjuntar al correo con nombre personalizado
         $nombreArchivoAdjunto = $this->generarNombreArchivoAdjunto($requestForm->document_number, $consecutivo);
         $archivoTemporal = $this->crearArchivoTemporalParaCorreo($rutaPdf, $nombreArchivoAdjunto);

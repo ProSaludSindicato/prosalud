@@ -724,6 +724,40 @@ class BulkRequestResponseService
             }
         }
 
+        // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
+        // Solo actualizar el estado y guardar quién lo actualizó
+        if ($normalizedStatus === RequestStatuses::IN_REVIEW) {
+            Log::info('Estado IN_REVIEW detectado en respuesta masiva - actualizando estado sin enviar correo', [
+                'request_id' => $requestId,
+                'row' => $rowNumber,
+                'request_type' => $requestForm->request_type,
+                'user_id' => $user ? $user->id : null,
+                'old_status' => $oldStatus,
+                'new_status' => $normalizedStatus,
+            ]);
+
+            // Actualizar solo el estado (estado interno, no procesado)
+            $updateData = [
+                'status' => $normalizedStatus,
+                'processed_at' => null,
+            ];
+
+            $requestForm->update($updateData);
+            $requestForm->refresh();
+
+            // Log de auditoría sin RequestResponse
+            Log::info('Respuesta masiva procesada exitosamente (estado interno)', [
+                'request_id' => $requestId,
+                'row' => $rowNumber,
+                'old_status' => $oldStatus,
+                'new_status' => $normalizedStatus,
+                'user_id' => $user ? $user->id : null,
+                'internal_status' => true,
+            ]);
+
+            return;
+        }
+
         // Enviar correo PRIMERO (si falla, no actualizamos el estado)
         try {
             $mail = Mail::to($recipientEmail);

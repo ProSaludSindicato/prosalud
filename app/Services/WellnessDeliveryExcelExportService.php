@@ -115,7 +115,8 @@ class WellnessDeliveryExcelExportService
         // Ordenar por fecha de creación descendente
         $query->orderBy('created_at', 'desc');
 
-        return $query->get();
+        // Cargar relación del usuario que realizó la entrega
+        return $query->with('entregadoPor')->get();
     }
 
     /**
@@ -231,6 +232,8 @@ class WellnessDeliveryExcelExportService
             'Beneficiarios',
             'Estado',
             'Observaciones',
+            'Usuario Entrega',
+            'Email Usuario Entrega',
             'IP Address',
             'Fecha Creación',
             'Fecha Actualización',
@@ -275,14 +278,16 @@ class WellnessDeliveryExcelExportService
             'G' => 40,  // Beneficiarios
             'H' => 15,  // Estado
             'I' => 40,  // Observaciones
-            'J' => 18,  // IP Address
-            'K' => 18,  // Fecha Creación
-            'L' => 18,  // Fecha Actualización
+            'J' => 30,  // Usuario Entrega
+            'K' => 30,  // Email Usuario Entrega
+            'L' => 18,  // IP Address
+            'M' => 18,  // Fecha Creación
+            'N' => 18,  // Fecha Actualización
         ];
 
         if ($includeFirmas) {
-            $columnWidths['M'] = 30;  // Firma Solicitud
-            $columnWidths['N'] = 30;  // Firma Recibido
+            $columnWidths['O'] = 30;  // Firma Solicitud
+            $columnWidths['P'] = 30;  // Firma Recibido
         }
 
         foreach ($columnWidths as $col => $width) {
@@ -315,6 +320,8 @@ class WellnessDeliveryExcelExportService
                 $beneficiariosText,
                 $request->estado_text,
                 $request->observaciones ?? '',
+                $request->entregadoPor ? $request->entregadoPor->name : '',
+                $request->entregadoPor ? $request->entregadoPor->email : '',
                 $request->ip_address ?? '',
                 $this->formatDate($request->created_at),
                 $this->formatDate($request->updated_at),
@@ -353,8 +360,8 @@ class WellnessDeliveryExcelExportService
 
             // Embeber firmas como imágenes si es necesario
             if ($includeFirmas) {
-                $firmaSolicitudCol = $this->getColumnLetter(13); // Columna M
-                $firmaRecibidoCol = $this->getColumnLetter(14); // Columna N
+                $firmaSolicitudCol = $this->getColumnLetter(15); // Columna O
+                $firmaRecibidoCol = $this->getColumnLetter(16); // Columna P
 
                 // Embeber firma de solicitud
                 if (!empty($request->firma)) {

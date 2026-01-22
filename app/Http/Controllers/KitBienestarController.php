@@ -204,7 +204,7 @@ class KitBienestarController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = WellnessDeliveryRequest::query();
+            $query = WellnessDeliveryRequest::with('entregadoPor');
 
             // Filtros
             if ($request->has('tipo_entrega')) {
@@ -228,9 +228,27 @@ class KitBienestarController extends Controller
             $perPage = min($request->input('per_page', 15), 100); // Máximo 100 por página
             $deliveryRequests = $query->paginate($perPage);
 
+            // Formatear datos para incluir información del usuario
+            $formattedData = $deliveryRequests->getCollection()->map(function ($deliveryRequest) {
+                return [
+                    'id' => $deliveryRequest->id,
+                    'tipo_entrega' => $deliveryRequest->tipo_entrega,
+                    'documento_afiliado' => $deliveryRequest->documento_afiliado,
+                    'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
+                    'estado' => $deliveryRequest->estado,
+                    'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
+                    'entregado_por' => $deliveryRequest->entregadoPor ? [
+                        'id' => $deliveryRequest->entregadoPor->id,
+                        'name' => $deliveryRequest->entregadoPor->name,
+                        'email' => $deliveryRequest->entregadoPor->email,
+                    ] : null,
+                    'created_at' => $deliveryRequest->created_at->toISOString(),
+                ];
+            });
+
             return response()->json([
                 'success' => true,
-                'data' => $deliveryRequests->items(),
+                'data' => $formattedData->all(),
                 'pagination' => [
                     'current_page' => $deliveryRequests->currentPage(),
                     'last_page' => $deliveryRequests->lastPage(),
@@ -258,7 +276,7 @@ class KitBienestarController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $deliveryRequest = WellnessDeliveryRequest::findOrFail($id);
+            $deliveryRequest = WellnessDeliveryRequest::with('entregadoPor')->findOrFail($id);
 
             return response()->json([
                 'success' => true,
@@ -277,6 +295,12 @@ class KitBienestarController extends Controller
                     'estado' => $deliveryRequest->estado,
                     'estado_text' => $deliveryRequest->estado_text,
                     'observaciones' => $deliveryRequest->observaciones,
+                    'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
+                    'entregado_por' => $deliveryRequest->entregadoPor ? [
+                        'id' => $deliveryRequest->entregadoPor->id,
+                        'name' => $deliveryRequest->entregadoPor->name,
+                        'email' => $deliveryRequest->entregadoPor->email,
+                    ] : null,
                     'ip_address' => $deliveryRequest->ip_address,
                     'user_agent' => $deliveryRequest->user_agent,
                     'created_at' => $deliveryRequest->created_at->toISOString(),
@@ -316,6 +340,7 @@ class KitBienestarController extends Controller
             $estado = $request->input('estado');
             $firmaRecibido = $request->input('firma_recibido');
             $observaciones = $request->input('observaciones');
+            $user = $request->user();
 
             DB::beginTransaction();
 
@@ -324,6 +349,11 @@ class KitBienestarController extends Controller
                 'estado' => $estado,
                 'observaciones' => $observaciones ? trim($observaciones) : null,
             ];
+
+            // Si el estado es "entregado" o "cancelado", guardar el usuario que realizó la acción
+            if (in_array($estado, ['entregado', 'cancelado']) && $user) {
+                $updateData['entregado_por_user_id'] = $user->id;
+            }
 
             // Si el estado es "entregado", guardar la firma de recibido
             if ($estado === 'entregado' && $firmaRecibido) {
@@ -343,8 +373,12 @@ class KitBienestarController extends Controller
                 'estado_anterior' => $deliveryRequest->getOriginal('estado'),
                 'estado_nuevo' => $estado,
                 'tiene_firma_recibido' => !empty($firmaRecibido),
-                'updated_by' => auth()->id() ?? 'system',
+                'updated_by' => $user?->id ?? 'system',
+                'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
             ]);
+
+            // Cargar la relación del usuario si existe
+            $deliveryRequest->load('entregadoPor');
 
             return response()->json([
                 'success' => true,
@@ -355,6 +389,12 @@ class KitBienestarController extends Controller
                     'estado_text' => $deliveryRequest->estado_text,
                     'observaciones' => $deliveryRequest->observaciones,
                     'tiene_firma_recibido' => !empty($deliveryRequest->firma_recibido),
+                    'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
+                    'entregado_por' => $deliveryRequest->entregadoPor ? [
+                        'id' => $deliveryRequest->entregadoPor->id,
+                        'name' => $deliveryRequest->entregadoPor->name,
+                        'email' => $deliveryRequest->entregadoPor->email,
+                    ] : null,
                     'updated_at' => $deliveryRequest->updated_at->toISOString(),
                 ],
             ]);
