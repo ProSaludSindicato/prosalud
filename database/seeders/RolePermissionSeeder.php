@@ -47,6 +47,10 @@ class RolePermissionSeeder extends Seeder
             'wellness_requests.update_status' => 'Actualizar el estado de las solicitudes de bienestar',
             'wellness_activity.publish' => 'Revisar y publicar actividades de bienestar en la galería',
 
+            // Wellness Delivery Requests (Kits escolares, desayunos, loncheras, etc.)
+            'wellness_delivery.view' => 'Ver solicitudes de entregas de bienestar (kits escolares, desayunos, loncheras, etc.)',
+            'wellness_delivery.manage' => 'Gestionar solicitudes de entregas de bienestar (cambiar estado, registrar firma de recibido)',
+
             // Comfenalco Events
             'comfenalco_events.view' => 'Ver eventos de Comfenalco',
             'comfenalco_events.create' => 'Crear nuevos eventos de Comfenalco',

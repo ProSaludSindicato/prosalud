@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, KitBienestarController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -53,6 +53,25 @@ Route::middleware('throttle:public-endpoints')->group(function () {
     Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
     Route::post('/afiliados/authenticate-for-data-update', [AfiliadoController::class, 'authenticateForDataUpdate']);
     Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
+});
+
+// Kit Bienestar authentication routes - Rate limiting aplicado
+Route::middleware('throttle:public-endpoints')->group(function () {
+    Route::post('/kit-bienestar/authenticate', [KitBienestarController::class, 'authenticate']);
+    Route::post('/kit-bienestar/request', [KitBienestarController::class, 'store']);
+});
+
+// Kit Bienestar management routes (requieren autenticación)
+Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-requests')->group(function () {
+    Route::get('/', [KitBienestarController::class, 'index'])->middleware('permission:wellness_delivery.view');
+    Route::get('/{id}', [KitBienestarController::class, 'show'])->middleware('permission:wellness_delivery.view');
+    Route::patch('/{id}/status', [KitBienestarController::class, 'updateStatus'])->middleware('permission:wellness_delivery.manage');
+    Route::put('/{id}/status', [KitBienestarController::class, 'updateStatus'])->middleware('permission:wellness_delivery.manage');
+    
+    // Export routes
+    Route::post('/export', [KitBienestarController::class, 'exportExcel'])->middleware('permission:wellness_delivery.view');
+    Route::get('/export/status/{jobId}', [KitBienestarController::class, 'checkStatus'])->middleware('permission:wellness_delivery.view');
+    Route::get('/export/download/{jobId}', [KitBienestarController::class, 'downloadReport'])->middleware('permission:wellness_delivery.view');
 });
 
 // OTP requests - Rate limiting híbrido (doble capa) + reCAPTCHA
