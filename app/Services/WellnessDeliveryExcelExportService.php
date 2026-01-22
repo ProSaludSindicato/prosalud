@@ -504,7 +504,6 @@ class WellnessDeliveryExcelExportService
     {
         $colorMap = [
             'pendiente' => 'FFF2CC',      // Amarillo claro
-            'procesado' => 'D5E8D4',      // Verde claro
             'entregado' => 'C5E0B4',     // Verde más intenso
             'cancelado' => 'F8CECC',     // Rojo claro
         ];

@@ -330,7 +330,7 @@ class KitBienestarController extends Controller
                 $updateData['firma_recibido'] = trim($firmaRecibido);
             }
 
-            // Si el estado cambia a "cancelado" o "procesado", no se requiere firma
+            // Si el estado cambia a "cancelado", no se requiere firma
             // La firma_recibido se mantiene si ya existía, o se deja null
 
             $deliveryRequest->update($updateData);

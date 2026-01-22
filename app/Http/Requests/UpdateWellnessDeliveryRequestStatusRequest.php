@@ -42,7 +42,6 @@ class UpdateWellnessDeliveryRequestStatusRequest extends FormRequest
         }
 
         // Si el estado es "cancelado", no se requiere firma
-        // Si es otro estado (procesado), tampoco se requiere firma
 
         return $rules;
     }
