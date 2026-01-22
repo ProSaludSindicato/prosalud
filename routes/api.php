@@ -72,6 +72,10 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-
     Route::post('/export', [KitBienestarController::class, 'exportExcel'])->middleware('permission:wellness_delivery.view');
     Route::get('/export/status/{jobId}', [KitBienestarController::class, 'checkStatus'])->middleware('permission:wellness_delivery.view');
     Route::get('/export/download/{jobId}', [KitBienestarController::class, 'downloadReport'])->middleware('permission:wellness_delivery.view');
+    
+    // File management routes
+    Route::post('/file/upload', [KitBienestarController::class, 'uploadFile'])->middleware('permission:wellness_delivery.manage');
+    Route::get('/file/versions', [KitBienestarController::class, 'getFileVersions'])->middleware('permission:wellness_delivery.view');
 });
 
 // OTP requests - Rate limiting híbrido (doble capa) + reCAPTCHA

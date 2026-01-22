@@ -2,13 +2,14 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\{Cache, Log};
+use App\Models\KitBienestarFileVersion;
+use Illuminate\Support\Facades\{Cache, Log, Storage};
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
 
 class KitBienestarService
 {
-    private const EXCEL_FILE_PATH = 'resources/templates/INFORMACION_PARA_KIT_ESCOLARES.xlsx';
+    private const EXCEL_FILE_PATH = 'resources/templates/INFORMACION_PARA_KIT_ESCOLARES.xlsx'; // Fallback para compatibilidad
 
     // Column indexes (0-based)
     private const COL_CC = 0; // Número de documento
@@ -192,16 +193,27 @@ class KitBienestarService
 
     /**
      * Check if the Excel file exists and is readable.
+     * First checks S3 for active version, then falls back to local file.
      */
     public function isFileAvailable(): bool
     {
+        // Primero intentar obtener versión activa desde S3
+        $activeVersion = KitBienestarFileVersion::getActiveVersion();
+        
+        if ($activeVersion) {
+            // Usar disco prosalud-private por defecto
+            $disk = Storage::disk('prosalud-private');
+            return $disk->exists($activeVersion->s3_path);
+        }
+
+        // Fallback a archivo local para compatibilidad
         $filePath = base_path(self::EXCEL_FILE_PATH);
         return file_exists($filePath) && is_readable($filePath);
     }
 
     /**
      * Execute a callback with the Excel file path.
-     * Since the file is in resources/templates, we can use it directly.
+     * First tries to get active version from S3, then falls back to local file.
      *
      * @template T
      *
@@ -212,11 +224,44 @@ class KitBienestarService
      */
     private function withExcelFile(callable $callback, $default = null)
     {
+        // Primero intentar obtener versión activa desde S3
+        $activeVersion = KitBienestarFileVersion::getActiveVersion();
+        
+        if ($activeVersion) {
+            // Usar disco prosalud-private por defecto
+            $disk = Storage::disk('prosalud-private');
+            
+            if ($disk->exists($activeVersion->s3_path)) {
+                // Descargar archivo temporalmente para procesarlo
+                $tempFilePath = $this->downloadFileToTemp($activeVersion);
+                
+                if ($tempFilePath && file_exists($tempFilePath)) {
+                    try {
+                        $result = $callback($tempFilePath);
+                        // Limpiar archivo temporal después de usarlo
+                        @unlink($tempFilePath);
+                        return $result;
+                    } catch (\Throwable $e) {
+                        // Limpiar archivo temporal en caso de error
+                        @unlink($tempFilePath);
+                        Log::error('Error al procesar archivo de kits escolares desde S3', [
+                            'error' => $e->getMessage(),
+                            's3_path' => $activeVersion->s3_path,
+                            'file_version_id' => $activeVersion->id,
+                        ]);
+                        return $default;
+                    }
+                }
+            }
+        }
+
+        // Fallback a archivo local para compatibilidad
         $filePath = base_path(self::EXCEL_FILE_PATH);
 
         if (!file_exists($filePath) || !is_readable($filePath)) {
             Log::error('Archivo de kits escolares no encontrado o no es legible', [
                 'file_path' => $filePath,
+                'has_active_version' => $activeVersion !== null,
             ]);
             return $default;
         }
@@ -229,6 +274,37 @@ class KitBienestarService
                 'file_path' => $filePath,
             ]);
             return $default;
+        }
+    }
+
+    /**
+     * Download file from S3 to temporary location
+     */
+    private function downloadFileToTemp(KitBienestarFileVersion $version): ?string
+    {
+        try {
+            // Usar disco prosalud-private por defecto
+            $disk = Storage::disk('prosalud-private');
+            $fileContent = $disk->get($version->s3_path);
+            
+            if ($fileContent === false) {
+                Log::error('No se pudo descargar archivo desde S3', [
+                    's3_path' => $version->s3_path,
+                ]);
+                return null;
+            }
+
+            // Crear archivo temporal
+            $tempFilePath = tempnam(sys_get_temp_dir(), 'kit_bienestar_') . '.xlsx';
+            file_put_contents($tempFilePath, $fileContent);
+
+            return $tempFilePath;
+        } catch (\Throwable $e) {
+            Log::error('Error al descargar archivo desde S3 a temporal', [
+                'error' => $e->getMessage(),
+                's3_path' => $version->s3_path,
+            ]);
+            return null;
         }
     }
 

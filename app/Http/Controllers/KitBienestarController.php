@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{ExportWellnessDeliveryExcelRequest, StoreKitBienestarRequest, UpdateWellnessDeliveryRequestStatusRequest};
-use App\Models\WellnessDeliveryRequest;
+use App\Http\Requests\{ExportWellnessDeliveryExcelRequest, StoreKitBienestarRequest, UpdateWellnessDeliveryRequestStatusRequest, UploadKitBienestarFileRequest};
+use App\Models\{KitBienestarFileVersion, WellnessDeliveryRequest};
 use App\Services\{KitBienestarService, LogSanitizationService, WellnessDeliveryExcelExportService};
 use Illuminate\Http\{BinaryFileResponse, JsonResponse, Request};
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Illuminate\Support\Facades\{DB, Log, Storage};
+use Illuminate\Support\Facades\{Cache, DB, Log, Storage};
 use Illuminate\Support\Str;
 
 class KitBienestarController extends Controller
@@ -798,6 +798,171 @@ class KitBienestarController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al descargar el reporte',
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload/Update the kit bienestar Excel file to S3
+     * Requires authentication and permission
+     */
+    public function uploadFile(UploadKitBienestarFileRequest $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            $file = $request->file('file');
+
+            if (!$file || !$file->isValid()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El archivo no es válido',
+                ], 400);
+            }
+
+            DB::beginTransaction();
+
+            // Configurar disco S3
+            $disk = 'prosalud-private';
+            $fallbackDisk = 'local';
+
+            // Generar nombre único para el archivo con timestamp
+            $originalName = $file->getClientOriginalName();
+            $extension = $file->getClientOriginalExtension();
+            $fileName = 'INFORMACION_PARA_KIT_ESCOLARES_' . now()->format('Y-m-d_His') . '.' . $extension;
+            $s3Path = 'kit-bienestar/' . $fileName;
+
+            // Intentar subir a S3
+            $storedPath = Storage::disk($disk)->putFileAs(
+                'kit-bienestar',
+                $file,
+                $fileName
+            );
+
+            // Si S3 falla, usar disco local como fallback
+            if (false === $storedPath) {
+                Log::warning('S3 upload failed, trying local disk', [
+                    's3_disk' => $disk,
+                    'fallback_disk' => $fallbackDisk,
+                ]);
+
+                $storedPath = Storage::disk($fallbackDisk)->putFileAs(
+                    'kit-bienestar',
+                    $file,
+                    $fileName
+                );
+                $disk = $fallbackDisk;
+            }
+
+            if (false === $storedPath) {
+                DB::rollBack();
+                Log::error('Error al subir archivo de kit bienestar', [
+                    'user_id' => $user->id,
+                    'file_name' => $originalName,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al subir el archivo. Por favor, intente nuevamente.',
+                ], 500);
+            }
+
+            // Desactivar todas las versiones anteriores
+            KitBienestarFileVersion::where('is_active', true)->update(['is_active' => false]);
+
+            // Crear registro de versión
+            $fileVersion = KitBienestarFileVersion::create([
+                'file_name' => $originalName,
+                's3_path' => $storedPath,
+                'is_active' => true,
+                'uploaded_by_user_id' => $user->id,
+            ]);
+
+            // Limpiar caché de autenticaciones para forzar recarga con nuevo archivo
+            Cache::tags(['kit_bienestar'])->flush();
+
+            DB::commit();
+
+            Log::info('Archivo de kit bienestar actualizado exitosamente', [
+                'file_version_id' => $fileVersion->id,
+                'file_name' => $originalName,
+                's3_path' => $storedPath,
+                'disk' => $disk,
+                'uploaded_by_user_id' => $user->id,
+                'user_email' => $user->email,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Archivo actualizado exitosamente',
+                'data' => [
+                    'id' => $fileVersion->id,
+                    'file_name' => $fileVersion->file_name,
+                    's3_path' => $fileVersion->s3_path,
+                    'is_active' => $fileVersion->is_active,
+                    'uploaded_by' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                    ],
+                    'created_at' => $fileVersion->created_at->toISOString(),
+                ],
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            Log::error('Error al subir archivo de kit bienestar', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar el archivo. Por favor, intente nuevamente.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Get list of file versions
+     * Requires authentication and permission
+     */
+    public function getFileVersions(Request $request): JsonResponse
+    {
+        try {
+            $versions = KitBienestarFileVersion::with('uploadedBy')
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $formattedVersions = $versions->map(function ($version) {
+                return [
+                    'id' => $version->id,
+                    'file_name' => $version->file_name,
+                    's3_path' => $version->s3_path,
+                    'is_active' => $version->is_active,
+                    'uploaded_by' => $version->uploadedBy ? [
+                        'id' => $version->uploadedBy->id,
+                        'name' => $version->uploadedBy->name,
+                        'email' => $version->uploadedBy->email,
+                    ] : null,
+                    'created_at' => $version->created_at->toISOString(),
+                    'updated_at' => $version->updated_at->toISOString(),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $formattedVersions->all(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al obtener versiones de archivo de kit bienestar', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener las versiones del archivo',
             ], 500);
         }
     }
