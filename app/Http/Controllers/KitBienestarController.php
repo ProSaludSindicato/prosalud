@@ -30,6 +30,11 @@ class KitBienestarController extends Controller
      */
     public function authenticate(Request $request): JsonResponse
     {
+        // Variables para tracking (inicializadas para uso en catch blocks)
+        $documento = null;
+        $fechaExpedicion = null;
+        $documentoHash = null;
+
         try {
             // Validate input
             $request->validate([
@@ -42,19 +47,31 @@ class KitBienestarController extends Controller
             $documento = trim($request->input('documento'));
             $fechaExpedicion = trim($request->input('fecha_expedicion'));
 
-            // Log the authentication attempt (sanitized)
-            Log::info('Intento de autenticación de kit de bienestar', LogSanitizationService::sanitize([
+            // Log estructurado del intento de autenticación (documento completo para identificación)
+            Log::info('KIT_BIENESTAR_AUTH: Intento de autenticación', [
+                'event_type' => 'authentication_attempt',
+                'status' => 'pending',
                 'tipo_documento' => $tipoDocumento,
-                'documento' => $documento,
+                'documento' => $documento, // Documento completo sin sanitizar
                 'fecha_expedicion' => $fechaExpedicion,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
-            ]));
+                'date' => now()->format('Y-m-d'),
+                'hour' => now()->format('H:00:00'),
+            ]);
 
             // Check if the file is available
             if (!$this->kitBienestarService->isFileAvailable()) {
-                Log::error('Archivo de kits escolares no disponible');
+                Log::error('KIT_BIENESTAR_AUTH: Servicio no disponible', [
+                    'event_type' => 'service_unavailable',
+                    'status' => 'error',
+                    'documento' => $documento, // Documento completo sin sanitizar
+                    'ip_address' => $request->ip(),
+                    'timestamp' => now()->toISOString(),
+                    'date' => now()->format('Y-m-d'),
+                    'hour' => now()->format('H:00:00'),
+                ]);
 
                 return response()->json([
                     'success' => false,
@@ -71,12 +88,19 @@ class KitBienestarController extends Controller
             );
 
             if (null === $kitBienestar) {
-                Log::warning('Autenticación fallida - persona no encontrada en archivo de kits escolares', LogSanitizationService::sanitize([
-                    'documento' => $documento,
+                // Log estructurado de autenticación fallida
+                Log::warning('KIT_BIENESTAR_AUTH: Autenticación fallida - persona no encontrada', [
+                    'event_type' => 'authentication_failed',
+                    'status' => 'failed',
+                    'reason' => 'persona_no_encontrada',
+                    'documento' => $documento, // Documento completo sin sanitizar
                     'fecha_expedicion' => $fechaExpedicion,
                     'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
                     'timestamp' => now()->toISOString(),
-                ]));
+                    'date' => now()->format('Y-m-d'),
+                    'hour' => now()->format('H:00:00'),
+                ]);
 
                 return response()->json([
                     'success' => false,
@@ -85,11 +109,41 @@ class KitBienestarController extends Controller
                 ], 404);
             }
 
-            // Log successful authentication (sanitized)
-            Log::info('Autenticación exitosa de kit de bienestar', LogSanitizationService::sanitize([
-                'documento' => $documento,
+            // Preparar información del usuario para el log
+            $userInfo = [
+                'documento' => $documento, // Documento completo sin sanitizar
+                'nombre_afiliado' => $kitBienestar['nombre'] ?? $kitBienestar['afiliado']['nombre'] ?? null,
+                'hospital' => $kitBienestar['hospital'] ?? $kitBienestar['afiliado']['hospital'] ?? null,
+            ];
+
+            // Agregar información de beneficiarios
+            if (isset($kitBienestar['beneficiario'])) {
+                // Un solo beneficiario
+                $userInfo['beneficiarios_count'] = 1;
+                $userInfo['beneficiario'] = $kitBienestar['beneficiario'];
+                $userInfo['parentesco'] = $kitBienestar['parentesco'] ?? null;
+                $userInfo['edad'] = $kitBienestar['edad'] ?? null;
+            } elseif (isset($kitBienestar['beneficiarios']) && is_array($kitBienestar['beneficiarios'])) {
+                // Múltiples beneficiarios
+                $userInfo['beneficiarios_count'] = count($kitBienestar['beneficiarios']);
+                $userInfo['beneficiarios'] = array_map(function ($ben) {
+                    return [
+                        'nombre' => $ben['beneficiario'] ?? null,
+                        'parentesco' => $ben['parentesco'] ?? null,
+                        'edad' => $ben['edad'] ?? null,
+                    ];
+                }, $kitBienestar['beneficiarios']);
+            }
+
+            // Log estructurado de autenticación exitosa
+            Log::info('KIT_BIENESTAR_AUTH: Autenticación exitosa', array_merge($userInfo, [
+                'event_type' => 'authentication_success',
+                'status' => 'success',
                 'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
+                'date' => now()->format('Y-m-d'),
+                'hour' => now()->format('H:00:00'),
             ]));
 
             return response()->json([
@@ -98,11 +152,25 @@ class KitBienestarController extends Controller
                 'data' => $kitBienestar,
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::warning('Validación fallida en autenticación de kit de bienestar', LogSanitizationService::sanitize([
+            // Obtener datos del request
+            $docInput = $request->input('documento');
+            $fechaInput = $request->input('fecha_expedicion');
+
+            // Log estructurado de error de validación
+            Log::warning('KIT_BIENESTAR_AUTH: Error de validación', [
+                'event_type' => 'validation_error',
+                'status' => 'failed',
+                'reason' => 'datos_invalidos',
                 'errors' => $e->errors(),
+                'tipo_documento' => $request->input('tipo_documento'),
+                'documento' => $docInput ? trim($docInput) : null, // Documento completo sin sanitizar
+                'fecha_expedicion' => $fechaInput ? trim($fechaInput) : null,
                 'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
-            ]));
+                'date' => now()->format('Y-m-d'),
+                'hour' => now()->format('H:00:00'),
+            ]);
 
             return response()->json([
                 'success' => false,
@@ -111,14 +179,26 @@ class KitBienestarController extends Controller
                 'data' => null,
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Error inesperado en autenticación de kit de bienestar', LogSanitizationService::sanitize([
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+            // Obtener datos del request
+            $docInput = $request->input('documento');
+            $fechaInput = $request->input('fecha_expedicion');
+
+            // Log estructurado de error inesperado
+            Log::error('KIT_BIENESTAR_AUTH: Error inesperado', [
+                'event_type' => 'error',
+                'status' => 'error',
+                'reason' => 'error_interno',
                 'tipo_documento' => $request->input('tipo_documento'),
-                'documento' => $request->input('documento'),
-                'fecha_expedicion' => $request->input('fecha_expedicion'),
+                'documento' => $docInput ? trim($docInput) : null, // Documento completo sin sanitizar
+                'fecha_expedicion' => $fechaInput ? trim($fechaInput) : null,
+                'error_message' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
                 'timestamp' => now()->toISOString(),
-            ]));
+                'date' => now()->format('Y-m-d'),
+                'hour' => now()->format('H:00:00'),
+            ]);
 
             return response()->json([
                 'success' => false,
@@ -134,12 +214,43 @@ class KitBienestarController extends Controller
     public function store(StoreKitBienestarRequest $request): JsonResponse
     {
         try {
+            $documentoAfiliado = trim($request->input('documento_afiliado'));
+            $tipoEntrega = $request->input('tipo_entrega');
+
+            // Validar que no exista una solicitud activa (pendiente o entregada) para el mismo documento y tipo de entrega
+            $existingRequest = WellnessDeliveryRequest::where('documento_afiliado', $documentoAfiliado)
+                ->where('tipo_entrega', $tipoEntrega)
+                ->whereIn('estado', ['pendiente', 'entregado'])
+                ->first();
+
+            if ($existingRequest) {
+                $estadoText = $existingRequest->estado === 'pendiente' ? 'pendiente' : 'entregada';
+                
+                Log::warning('Intento de crear solicitud duplicada de kit de bienestar', LogSanitizationService::sanitize([
+                    'documento_afiliado' => $documentoAfiliado,
+                    'tipo_entrega' => $tipoEntrega,
+                    'existing_request_id' => $existingRequest->id,
+                    'existing_estado' => $existingRequest->estado,
+                    'ip_address' => $request->ip(),
+                    'timestamp' => now()->toISOString(),
+                ]));
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "Ya existe una solicitud {$estadoText} para este documento y tipo de entrega. No se pueden crear solicitudes duplicadas.",
+                    'data' => [
+                        'existing_request_id' => $existingRequest->id,
+                        'existing_estado' => $existingRequest->estado,
+                    ],
+                ], 409); // 409 Conflict
+            }
+
             DB::beginTransaction();
 
             // Preparar datos para guardar
             $deliveryRequestData = [
-                'tipo_entrega' => $request->input('tipo_entrega'),
-                'documento_afiliado' => trim($request->input('documento_afiliado')),
+                'tipo_entrega' => $tipoEntrega,
+                'documento_afiliado' => $documentoAfiliado,
                 'nombre_afiliado' => trim($request->input('nombre_afiliado')),
                 'hospital' => $request->filled('hospital') ? trim($request->input('hospital')) : null,
                 'fecha_expedicion' => trim($request->input('fecha_expedicion')),
@@ -235,6 +346,7 @@ class KitBienestarController extends Controller
                     'tipo_entrega' => $deliveryRequest->tipo_entrega,
                     'documento_afiliado' => $deliveryRequest->documento_afiliado,
                     'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
+                    'hospital' => $deliveryRequest->hospital,
                     'estado' => $deliveryRequest->estado,
                     'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
                     'entregado_por' => $deliveryRequest->entregadoPor ? [
