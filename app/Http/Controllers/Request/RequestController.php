@@ -1246,6 +1246,68 @@ class RequestController extends Controller
         $oldStatus = $requestForm->status;
         $requestFormId = (string) $requestForm->id;
 
+        // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
+        // Solo actualizar el estado y guardar quién lo actualizó
+        // Esta verificación debe hacerse ANTES de procesar archivos comprimidos o generar certificados
+        if ($status === RequestStatuses::IN_REVIEW) {
+            $user = auth()->user();
+            $userId = $user ? $user->id : null;
+
+            Log::info('Estado IN_REVIEW detectado - actualizando estado sin enviar correo', [
+                'request_id' => $requestFormId,
+                'request_type' => $requestForm->request_type,
+                'user_id' => $userId,
+                'user_email' => $user ? $user->email : null,
+                'user_name' => $user ? $user->name : null,
+                'old_status' => $oldStatus,
+                'new_status' => $status,
+            ]);
+
+            // Actualizar solo el estado (estado interno, no procesado)
+            $updateData = [
+                'status' => $status,
+                'processed_at' => null,
+                'rejection_reason' => null,
+            ];
+
+            $requestForm->update($updateData);
+            $requestForm->refresh();
+
+            // Log de auditoría sin RequestResponse
+            $this->auditLogService->logBusinessProcess('request_form', 'status_updated_internal', $this->auditLogService->addRequestContext($request, [
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+                'updated_by_user_id' => $userId,
+                'updated_by_user_email' => $user ? $user->email : null,
+                'updated_by_user_name' => $user ? $user->name : null,
+                'old_status' => $oldStatus,
+                'new_status' => $status,
+                'affiliate_document' => $requestForm->document_number,
+                'affiliate_email' => $requestForm->email,
+                'internal_status' => true,
+            ]));
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Estado actualizado exitosamente (estado interno)',
+                'data' => [
+                    'id' => $requestForm->id,
+                    'request_type' => $requestForm->request_type,
+                    'document_type' => $requestForm->document_type,
+                    'document_number' => $requestForm->document_number,
+                    'name' => $requestForm->name,
+                    'last_name' => $requestForm->last_name,
+                    'full_name' => $requestForm->full_name,
+                    'email' => $requestForm->email,
+                    'status' => $requestForm->status,
+                    'rejection_reason' => $requestForm->rejection_reason,
+                    'created_at' => $requestForm->created_at,
+                    'processed_at' => $requestForm->processed_at,
+                    'formatted_processed_at' => $requestForm->formatted_processed_at,
+                ],
+            ]);
+        }
+
         // Si es un certificado de convenio con valor de compensaciones, verificar si se enviaron compensaciones manualmente
         // Si no se enviaron, intentar obtenerlas del Excel. Si tampoco están en el Excel, devolver error.
         // Solo validar compensaciones si el estado es COMPLETED (no tiene sentido si se rechaza)
@@ -1838,64 +1900,6 @@ class RequestController extends Controller
         // Get authenticated user for traceability
         $user = auth()->user();
         $userId = $user ? $user->id : null;
-
-        // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
-        // Solo actualizar el estado y guardar quién lo actualizó
-        if ($status === RequestStatuses::IN_REVIEW) {
-            Log::info('Estado IN_REVIEW detectado - actualizando estado sin enviar correo', [
-                'request_id' => $requestFormId,
-                'request_type' => $requestForm->request_type,
-                'user_id' => $userId,
-                'user_email' => $user ? $user->email : null,
-                'user_name' => $user ? $user->name : null,
-                'old_status' => $oldStatus,
-                'new_status' => $status,
-            ]);
-
-            // Actualizar solo el estado (estado interno, no procesado)
-            $updateData = [
-                'status' => $status,
-                'processed_at' => null,
-                'rejection_reason' => null,
-            ];
-
-            $requestForm->update($updateData);
-            $requestForm->refresh();
-
-            // Log de auditoría sin RequestResponse
-            $this->auditLogService->logBusinessProcess('request_form', 'status_updated_internal', $this->auditLogService->addRequestContext($request, [
-                'request_id' => $requestForm->id,
-                'request_type' => $requestForm->request_type,
-                'updated_by_user_id' => $userId,
-                'updated_by_user_email' => $user ? $user->email : null,
-                'updated_by_user_name' => $user ? $user->name : null,
-                'old_status' => $oldStatus,
-                'new_status' => $status,
-                'affiliate_document' => $requestForm->document_number,
-                'affiliate_email' => $requestForm->email,
-                'internal_status' => true,
-            ]));
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Estado actualizado exitosamente (estado interno)',
-                'data' => [
-                    'id' => $requestForm->id,
-                    'request_type' => $requestForm->request_type,
-                    'document_type' => $requestForm->document_type,
-                    'document_number' => $requestForm->document_number,
-                    'name' => $requestForm->name,
-                    'last_name' => $requestForm->last_name,
-                    'full_name' => $requestForm->full_name,
-                    'email' => $requestForm->email,
-                    'status' => $requestForm->status,
-                    'rejection_reason' => $requestForm->rejection_reason,
-                    'created_at' => $requestForm->created_at,
-                    'processed_at' => $requestForm->processed_at,
-                    'formatted_processed_at' => $requestForm->formatted_processed_at,
-                ],
-            ]);
-        }
 
         // IMPORTANT: Send email FIRST, before updating status or creating response record (if not already created)
         // This ensures that if email fails, we don't update the request status
