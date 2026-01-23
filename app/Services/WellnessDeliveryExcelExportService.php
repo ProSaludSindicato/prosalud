@@ -183,6 +183,7 @@ class WellnessDeliveryExcelExportService
             ['Solicitudes pendientes', $stats['pendiente']],
             ['Solicitudes entregadas', $stats['entregado']],
             ['Solicitudes canceladas', $stats['cancelado']],
+            ['Total cantidad entregada', $stats['total_cantidad_entregada']],
         ];
 
         $summaryStartRow = $row;
@@ -231,6 +232,7 @@ class WellnessDeliveryExcelExportService
             'Fecha Expedición',
             'Beneficiarios',
             'Estado',
+            'Cantidad Entregada',
             'Observaciones',
             'Usuario Entrega',
             'Email Usuario Entrega',
@@ -277,17 +279,18 @@ class WellnessDeliveryExcelExportService
             'F' => 15,  // Fecha Expedición
             'G' => 40,  // Beneficiarios
             'H' => 15,  // Estado
-            'I' => 40,  // Observaciones
-            'J' => 30,  // Usuario Entrega
-            'K' => 30,  // Email Usuario Entrega
-            'L' => 18,  // IP Address
-            'M' => 18,  // Fecha Creación
-            'N' => 18,  // Fecha Actualización
+            'I' => 18,  // Cantidad Entregada
+            'J' => 40,  // Observaciones
+            'K' => 30,  // Usuario Entrega
+            'L' => 30,  // Email Usuario Entrega
+            'M' => 18,  // IP Address
+            'N' => 18,  // Fecha Creación
+            'O' => 18,  // Fecha Actualización
         ];
 
         if ($includeFirmas) {
-            $columnWidths['O'] = 30;  // Firma Solicitud
-            $columnWidths['P'] = 30;  // Firma Recibido
+            $columnWidths['P'] = 30;  // Firma Solicitud
+            $columnWidths['Q'] = 30;  // Firma Recibido
         }
 
         foreach ($columnWidths as $col => $width) {
@@ -319,6 +322,7 @@ class WellnessDeliveryExcelExportService
                 $request->fecha_expedicion,
                 $beneficiariosText,
                 $request->estado_text,
+                $request->cantidad_entregada ?? '',
                 $request->observaciones ?? '',
                 $request->entregadoPor ? $request->entregadoPor->name : '',
                 $request->entregadoPor ? $request->entregadoPor->email : '',
@@ -360,8 +364,8 @@ class WellnessDeliveryExcelExportService
 
             // Embeber firmas como imágenes si es necesario
             if ($includeFirmas) {
-                $firmaSolicitudCol = $this->getColumnLetter(15); // Columna O
-                $firmaRecibidoCol = $this->getColumnLetter(16); // Columna P
+                $firmaSolicitudCol = $this->getColumnLetter(16); // Columna P
+                $firmaRecibidoCol = $this->getColumnLetter(17); // Columna Q
 
                 // Embeber firma de solicitud
                 if (!empty($request->firma)) {
@@ -381,6 +385,13 @@ class WellnessDeliveryExcelExportService
                 $sheet->getStyle($statusCell)->getFill()
                     ->setFillType(Fill::FILL_SOLID)
                     ->getStartColor()->setRGB($statusColor);
+            }
+
+            // Formatear columna de cantidad entregada (alinear a la derecha si tiene valor)
+            $cantidadCell = "I{$row}";
+            if ($request->cantidad_entregada !== null) {
+                $sheet->getStyle($cantidadCell)->getAlignment()
+                    ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
             }
 
             $row++;
@@ -416,10 +427,14 @@ class WellnessDeliveryExcelExportService
             'pendiente' => 0,
             'entregado' => 0,
             'cancelado' => 0,
+            'total_cantidad_entregada' => 0,
         ];
 
         foreach ($requests as $request) {
             $stats[$request->estado]++;
+            if ($request->estado === 'entregado' && $request->cantidad_entregada !== null) {
+                $stats['total_cantidad_entregada'] += $request->cantidad_entregada;
+            }
         }
 
         return $stats;

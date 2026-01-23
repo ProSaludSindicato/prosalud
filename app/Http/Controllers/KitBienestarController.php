@@ -348,6 +348,7 @@ class KitBienestarController extends Controller
                     'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
                     'hospital' => $deliveryRequest->hospital,
                     'estado' => $deliveryRequest->estado,
+                    'cantidad_entregada' => $deliveryRequest->cantidad_entregada,
                     'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
                     'entregado_por' => $deliveryRequest->entregadoPor ? [
                         'id' => $deliveryRequest->entregadoPor->id,
@@ -406,6 +407,7 @@ class KitBienestarController extends Controller
                     'firma_recibido' => $deliveryRequest->firma_recibido,
                     'estado' => $deliveryRequest->estado,
                     'estado_text' => $deliveryRequest->estado_text,
+                    'cantidad_entregada' => $deliveryRequest->cantidad_entregada,
                     'observaciones' => $deliveryRequest->observaciones,
                     'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
                     'entregado_por' => $deliveryRequest->entregadoPor ? [
@@ -451,6 +453,7 @@ class KitBienestarController extends Controller
             $deliveryRequest = WellnessDeliveryRequest::findOrFail($id);
             $estado = $request->input('estado');
             $firmaRecibido = $request->input('firma_recibido');
+            $cantidadEntregada = $request->input('cantidad_entregada');
             $observaciones = $request->input('observaciones');
             $user = $request->user();
 
@@ -467,9 +470,17 @@ class KitBienestarController extends Controller
                 $updateData['entregado_por_user_id'] = $user->id;
             }
 
-            // Si el estado es "entregado", guardar la firma de recibido
-            if ($estado === 'entregado' && $firmaRecibido) {
-                $updateData['firma_recibido'] = trim($firmaRecibido);
+            // Si el estado es "entregado", guardar la firma de recibido y cantidad entregada
+            if ($estado === 'entregado') {
+                if ($firmaRecibido) {
+                    $updateData['firma_recibido'] = trim($firmaRecibido);
+                }
+                if ($cantidadEntregada !== null) {
+                    $updateData['cantidad_entregada'] = (int) $cantidadEntregada;
+                }
+            } else {
+                // Si el estado cambia a otro que no sea "entregado", limpiar cantidad_entregada
+                $updateData['cantidad_entregada'] = null;
             }
 
             // Si el estado cambia a "cancelado", no se requiere firma
@@ -485,6 +496,7 @@ class KitBienestarController extends Controller
                 'estado_anterior' => $deliveryRequest->getOriginal('estado'),
                 'estado_nuevo' => $estado,
                 'tiene_firma_recibido' => !empty($firmaRecibido),
+                'cantidad_entregada' => $deliveryRequest->cantidad_entregada,
                 'updated_by' => $user?->id ?? 'system',
                 'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
             ]);
@@ -499,6 +511,7 @@ class KitBienestarController extends Controller
                     'id' => $deliveryRequest->id,
                     'estado' => $deliveryRequest->estado,
                     'estado_text' => $deliveryRequest->estado_text,
+                    'cantidad_entregada' => $deliveryRequest->cantidad_entregada,
                     'observaciones' => $deliveryRequest->observaciones,
                     'tiene_firma_recibido' => !empty($deliveryRequest->firma_recibido),
                     'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,

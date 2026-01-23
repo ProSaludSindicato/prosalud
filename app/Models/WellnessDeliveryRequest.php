@@ -22,6 +22,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $ip_address
  * @property string|null $user_agent
  * @property string $estado
+ * @property int|null $cantidad_entregada
  * @property string|null $observaciones
  * @property int|null $entregado_por_user_id
  * @property Carbon $created_at
@@ -46,12 +47,14 @@ class WellnessDeliveryRequest extends Model
         'ip_address',
         'user_agent',
         'estado',
+        'cantidad_entregada',
         'observaciones',
         'entregado_por_user_id',
     ];
 
     protected $casts = [
         'beneficiarios' => 'array',
+        'cantidad_entregada' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

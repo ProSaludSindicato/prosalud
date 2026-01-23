@@ -36,9 +36,10 @@ class UpdateWellnessDeliveryRequestStatusRequest extends FormRequest
             'observaciones' => 'nullable|string|max:1000',
         ];
 
-        // Si el estado es "entregado", la firma de recibido es obligatoria
+        // Si el estado es "entregado", la firma de recibido y cantidad_entregada son obligatorias
         if ($estado === 'entregado') {
             $rules['firma_recibido'] = 'required|string';
+            $rules['cantidad_entregada'] = 'required|integer|min:1';
         }
 
         // Si el estado es "cancelado", no se requiere firma
@@ -56,6 +57,9 @@ class UpdateWellnessDeliveryRequestStatusRequest extends FormRequest
             'estado.in' => 'El estado seleccionado no es válido',
             'firma_recibido.required' => 'La firma de recibido es obligatoria cuando el estado es "entregado"',
             'firma_recibido.string' => 'La firma de recibido debe ser una cadena de texto',
+            'cantidad_entregada.required' => 'La cantidad entregada es obligatoria cuando el estado es "entregado"',
+            'cantidad_entregada.integer' => 'La cantidad entregada debe ser un número entero',
+            'cantidad_entregada.min' => 'La cantidad entregada debe ser al menos 1',
             'observaciones.max' => 'Las observaciones no pueden exceder 1000 caracteres',
         ];
     }
@@ -68,6 +72,7 @@ class UpdateWellnessDeliveryRequestStatusRequest extends FormRequest
         return [
             'estado' => 'estado',
             'firma_recibido' => 'firma de recibido',
+            'cantidad_entregada' => 'cantidad entregada',
             'observaciones' => 'observaciones',
         ];
     }
