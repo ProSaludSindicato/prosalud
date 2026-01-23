@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Requests\{ExportWellnessDeliveryExcelRequest, StoreKitBienestarRequest, UpdateWellnessDeliveryRequestStatusRequest, UploadKitBienestarFileRequest};
 use App\Models\{KitBienestarFileVersion, WellnessDeliveryRequest};
 use App\Services\{KitBienestarService, LogSanitizationService, WellnessDeliveryExcelExportService};
-use Illuminate\Http\{BinaryFileResponse, JsonResponse, Request};
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Http\{JsonResponse, Request};
+use Symfony\Component\HttpFoundation\{BinaryFileResponse as SymfonyBinaryFileResponse, StreamedResponse};
 use Illuminate\Support\Facades\{Cache, DB, Log, Storage};
 use Illuminate\Support\Str;
 
@@ -225,7 +225,7 @@ class KitBienestarController extends Controller
 
             if ($existingRequest) {
                 $estadoText = $existingRequest->estado === 'pendiente' ? 'pendiente' : 'entregada';
-                
+
                 Log::warning('Intento de crear solicitud duplicada de kit de bienestar', LogSanitizationService::sanitize([
                     'documento_afiliado' => $documentoAfiliado,
                     'tipo_entrega' => $tipoEntrega,
@@ -443,7 +443,7 @@ class KitBienestarController extends Controller
     /**
      * Update the status of a wellness delivery request
      * Requires authentication and permission
-     * 
+     *
      * When status is "entregado", requires firma_recibido
      * When status is "cancelado", firma_recibido is not required
      */
@@ -549,7 +549,7 @@ class KitBienestarController extends Controller
      * Export wellness delivery requests to Excel file.
      * If signatures are included, the report is generated asynchronously.
      */
-    public function exportExcel(ExportWellnessDeliveryExcelRequest $request): BinaryFileResponse|JsonResponse
+    public function exportExcel(ExportWellnessDeliveryExcelRequest $request): BinaryFileResponse|SymfonyBinaryFileResponse|JsonResponse
     {
         try {
             $user = $request->user();
