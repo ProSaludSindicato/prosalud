@@ -50,15 +50,15 @@ class SocioDemographicSurveyExcelExportService
             $detailSheet->setTitle('Detalle Encuestas');
             $this->buildDetailSheet($detailSheet, $surveys, $filters);
 
-            // Crear hoja "Estadísticas por Tipo"
-            $statsByTypeSheet = $spreadsheet->createSheet();
-            $statsByTypeSheet->setTitle('Estadísticas por Tipo');
-            $this->buildStatsByTypeSheet($statsByTypeSheet, $surveys);
+            // Crear hoja "Beneficiarios"
+            $beneficiariosSheet = $spreadsheet->createSheet();
+            $beneficiariosSheet->setTitle('Beneficiarios');
+            $this->buildBeneficiariosSheet($beneficiariosSheet, $surveys);
 
-            // Crear hoja "Estadísticas por Mes"
-            $statsByMonthSheet = $spreadsheet->createSheet();
-            $statsByMonthSheet->setTitle('Estadísticas por Mes');
-            $this->buildStatsByMonthSheet($statsByMonthSheet, $surveys);
+            // Crear hoja unificada "Estadísticas"
+            $statsSheet = $spreadsheet->createSheet();
+            $statsSheet->setTitle('Estadísticas');
+            $this->buildStatsSheet($statsSheet, $surveys);
 
             // Establecer primera hoja como activa
             $spreadsheet->setActiveSheetIndex(0);
@@ -693,6 +693,284 @@ class SocioDemographicSurveyExcelExportService
         $sheet->getColumnDimension('B')->setWidth(15);
         $sheet->getColumnDimension('C')->setWidth(20);
         $sheet->getColumnDimension('D')->setWidth(20);
+    }
+
+    /**
+     * Construir hoja unificada de estadísticas (por tipo y por mes).
+     */
+    private function buildStatsSheet(Worksheet $sheet, Collection $surveys): void
+    {
+        $row = 1;
+
+        // ===== ESTADÍSTICAS POR TIPO =====
+        // Título
+        $sheet->setCellValue('A1', 'ESTADÍSTICAS POR TIPO DE ENCUESTA');
+        $sheet->mergeCells('A1:C1');
+        $sheet->getStyle('A1')->applyFromArray([
+            'font' => ['bold' => true, 'size' => 14],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+        $row = 3;
+
+        // Encabezados
+        $sheet->setCellValue('A' . $row, 'Tipo de Encuesta');
+        $sheet->setCellValue('B' . $row, 'Cantidad');
+        $sheet->setCellValue('C' . $row, 'Porcentaje');
+        $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+        ]);
+        $row++;
+
+        $total = $surveys->count();
+        $activeAffiliate = $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count();
+        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count();
+
+        $sheet->setCellValue('A' . $row, 'Afiliados Activos');
+        $sheet->setCellValue('B' . $row, $activeAffiliate);
+        $sheet->setCellValue('C' . $row, $total > 0 ? round(($activeAffiliate / $total) * 100, 2) . '%' : '0%');
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'Ingreso Masivo');
+        $sheet->setCellValue('B' . $row, $bulkEntry);
+        $sheet->setCellValue('C' . $row, $total > 0 ? round(($bulkEntry / $total) * 100, 2) . '%' : '0%');
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'TOTAL');
+        $sheet->setCellValue('B' . $row, $total);
+        $sheet->setCellValue('C' . $row, '100%');
+        $sheet->getStyle('A' . $row . ':C' . $row)->getFont()->setBold(true);
+
+        // Espacio entre secciones
+        $row += 3;
+
+        // ===== ESTADÍSTICAS POR MES =====
+        // Título
+        $sheet->setCellValue('A' . $row, 'ESTADÍSTICAS POR MES');
+        $sheet->mergeCells('A' . $row . ':D' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 14],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ]);
+        $row += 2;
+
+        // Encabezados
+        $sheet->setCellValue('A' . $row, 'Mes');
+        $sheet->setCellValue('B' . $row, 'Total');
+        $sheet->setCellValue('C' . $row, 'Afiliados Activos');
+        $sheet->setCellValue('D' . $row, 'Ingreso Masivo');
+        $sheet->getStyle('A' . $row . ':D' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+        ]);
+        $row++;
+
+        // Agrupar por mes
+        $byMonth = $surveys->groupBy(function ($survey) {
+            return $survey->created_at?->format('Y-m') ?? 'Sin fecha';
+        })->sortKeys();
+
+        foreach ($byMonth as $month => $monthSurveys) {
+            $monthLabel = $month !== 'Sin fecha' 
+                ? $this->formatMonthInSpanish($month)
+                : 'Sin fecha';
+            
+            $totalMonth = $monthSurveys->count();
+            $activeAffiliateMonth = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
+            $bulkEntryMonth = $monthSurveys->where('survey_type', 'bulk_entry')->count();
+
+            $sheet->setCellValue('A' . $row, $monthLabel);
+            $sheet->setCellValue('B' . $row, $totalMonth);
+            $sheet->setCellValue('C' . $row, $activeAffiliateMonth);
+            $sheet->setCellValue('D' . $row, $bulkEntryMonth);
+            $row++;
+        }
+
+        // Totales
+        $sheet->setCellValue('A' . $row, 'TOTAL');
+        $sheet->setCellValue('B' . $row, $surveys->count());
+        $sheet->setCellValue('C' . $row, $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count());
+        $sheet->setCellValue('D' . $row, $surveys->where('survey_type', 'bulk_entry')->count());
+        $sheet->getStyle('A' . $row . ':D' . $row)->getFont()->setBold(true);
+
+        // Ajustar ancho de columnas
+        $sheet->getColumnDimension('A')->setWidth(25);
+        $sheet->getColumnDimension('B')->setWidth(15);
+        $sheet->getColumnDimension('C')->setWidth(20);
+        $sheet->getColumnDimension('D')->setWidth(20);
+    }
+
+    /**
+     * Construir hoja de beneficiarios.
+     */
+    private function buildBeneficiariosSheet(Worksheet $sheet, Collection $surveys): void
+    {
+        $row = 1;
+
+        // Encabezados
+        $headers = [
+            'Documento afiliado',
+            'Tipo documento',
+            'Documento',
+            'Nombres',
+            'Apellidos',
+            'Fecha nacimiento',
+            'Sexo',
+            'Notas',
+        ];
+
+        $col = 'A';
+        $lastCol = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $sheet->getStyle($col . $row)->applyFromArray([
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => 'E0E0E0'],
+                ],
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                    ],
+                ],
+            ]);
+            $lastCol = $col;
+            $col++;
+        }
+        $row++;
+
+        // Recopilar todos los beneficiarios de todas las encuestas
+        foreach ($surveys as $survey) {
+            $datosSociodemograficos = $survey->datos_sociodemograficos ?? [];
+            $hijos = $datosSociodemograficos['hijos'] ?? [];
+
+            if (empty($hijos) || !is_array($hijos)) {
+                continue;
+            }
+
+            // Documento del afiliado
+            $documentoAfiliado = $survey->numero_documento ?? '';
+
+            foreach ($hijos as $hijo) {
+                if (empty($hijo) || !is_array($hijo)) {
+                    continue;
+                }
+
+                // Tipo documento del hijo
+                $tipoDocumento = $hijo['tipoDocumento'] ?? '';
+                // Normalizar tipo documento (puede venir como NUIP, CC, TI, RC, etc.)
+                $tipoDocumentoNormalizado = strtoupper(trim($tipoDocumento));
+                if ($tipoDocumentoNormalizado === 'NUIP') {
+                    $tipoDocumentoNormalizado = 'NUIP';
+                } elseif (in_array($tipoDocumentoNormalizado, ['CC', 'TI', 'RC', 'CE', 'PA', 'PT'])) {
+                    $tipoDocumentoNormalizado = $tipoDocumentoNormalizado;
+                } else {
+                    // Si no es reconocido, mantener el valor original
+                    $tipoDocumentoNormalizado = $tipoDocumento;
+                }
+
+                // Documento del hijo
+                $documento = $hijo['numeroDocumento'] ?? '';
+
+                // Nombre completo del hijo
+                $nombreCompleto = $hijo['nombre'] ?? '';
+                
+                // Intentar dividir nombre en nombres y apellidos
+                // Generalmente los apellidos son las últimas 1-2 palabras
+                $nombres = '';
+                $apellidos = '';
+                
+                if (!empty($nombreCompleto)) {
+                    $partes = preg_split('/\s+/', trim($nombreCompleto));
+                    $numPartes = count($partes);
+                    
+                    if ($numPartes > 2) {
+                        // Si hay más de 2 palabras, asumimos que las últimas 2 son apellidos
+                        // y las anteriores son nombres
+                        $ultimoApellido = array_pop($partes);
+                        $penultimoApellido = array_pop($partes);
+                        $apellidos = $penultimoApellido . ' ' . $ultimoApellido;
+                        $nombres = implode(' ', $partes);
+                    } elseif ($numPartes === 2) {
+                        // Si hay 2 palabras, asumimos que la primera es nombre y la segunda es apellido
+                        $nombres = $partes[0];
+                        $apellidos = $partes[1];
+                    } else {
+                        // Si solo hay una palabra, ponerla en nombres
+                        $nombres = $nombreCompleto;
+                    }
+                }
+
+                // Fecha de nacimiento
+                $fechaNacimiento = $hijo['fechaNacimiento'] ?? '';
+                // Formatear fecha si está disponible
+                if (!empty($fechaNacimiento)) {
+                    try {
+                        $fecha = Carbon::parse($fechaNacimiento);
+                        $fechaNacimiento = $fecha->format('Y-m-d');
+                    } catch (\Exception $e) {
+                        // Si no se puede parsear, mantener el valor original
+                    }
+                }
+
+                // Género/Sexo
+                $genero = $hijo['genero'] ?? '';
+                $sexo = '';
+                if (!empty($genero)) {
+                    $generoLower = strtolower(trim($genero));
+                    if (in_array($generoLower, ['masculino', 'm', 'male'])) {
+                        $sexo = 'M';
+                    } elseif (in_array($generoLower, ['femenino', 'f', 'female'])) {
+                        $sexo = 'F';
+                    } else {
+                        $sexo = strtoupper(substr($genero, 0, 1));
+                    }
+                }
+
+                // Notas (parentesco) - basado en el género
+                $notas = '';
+                if ($sexo === 'M') {
+                    $notas = 'HIJO';
+                } elseif ($sexo === 'F') {
+                    $notas = 'HIJA';
+                }
+
+                // Escribir fila
+                $sheet->setCellValue('A' . $row, $documentoAfiliado);
+                $sheet->setCellValue('B' . $row, $tipoDocumentoNormalizado);
+                $sheet->setCellValue('C' . $row, $documento);
+                $sheet->setCellValue('D' . $row, $nombres);
+                $sheet->setCellValue('E' . $row, $apellidos);
+                $sheet->setCellValue('F' . $row, $fechaNacimiento);
+                $sheet->setCellValue('G' . $row, $sexo);
+                $sheet->setCellValue('H' . $row, $notas);
+
+                $row++;
+            }
+        }
+
+        // Ajustar ancho de columnas
+        $sheet->getColumnDimension('A')->setWidth(18); // Documento afiliado
+        $sheet->getColumnDimension('B')->setWidth(15); // Tipo documento
+        $sheet->getColumnDimension('C')->setWidth(18); // Documento
+        $sheet->getColumnDimension('D')->setWidth(25); // Nombres
+        $sheet->getColumnDimension('E')->setWidth(25); // Apellidos
+        $sheet->getColumnDimension('F')->setWidth(18); // Fecha nacimiento
+        $sheet->getColumnDimension('G')->setWidth(10); // Sexo
+        $sheet->getColumnDimension('H')->setWidth(15); // Notas
+
+        // Agregar autofiltros a todas las columnas
+        $sheet->setAutoFilter('A1:' . $lastCol . '1');
+
+        // Congelar primera fila
+        $sheet->freezePane('A2');
     }
 
     /**

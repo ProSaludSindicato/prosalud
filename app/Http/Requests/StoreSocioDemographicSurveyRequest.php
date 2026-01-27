@@ -120,13 +120,13 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'rh' => ['nullable', 'string', Rule::in(SurveyOptions::TIPOS_RH)],
             'fechaExpedicion' => 'nullable|date|date_format:Y-m-d',
             'lugarNacimiento' => 'nullable|string|max:255',
-            'departamento' => ['nullable', 'string', Rule::in(SurveyOptions::DEPARTAMENTOS)],
+            'departamento' => 'nullable|string|max:255',
             'celular' => 'nullable|string|max:20',
             'direccion' => 'nullable|string|max:500',
             'municipio' => 'nullable|string|max:255',
             'tallaCalzado' => 'nullable|string|max:10',
             'tallaVestimenta' => ['nullable', 'string', Rule::in(SurveyOptions::TALLAS_VESTIMENTA)],
-            'paisNacimiento' => ['nullable', 'string', Rule::in(SurveyOptions::PAISES)],
+            'paisNacimiento' => 'nullable|string|max:255',
 
             // Contacto de Emergencia
             'nombreContactoEmergencia' => 'nullable|string|max:255',
@@ -315,7 +315,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'lugarNacimiento.string' => 'El lugar de nacimiento debe ser texto.',
             'lugarNacimiento.max' => 'El lugar de nacimiento no puede exceder 255 caracteres.',
             'departamento.string' => 'El departamento debe ser texto.',
-            'departamento.in' => 'El departamento seleccionado no es válido.',
+            'departamento.max' => 'El departamento no puede exceder 255 caracteres.',
             'celular.string' => 'El celular debe ser texto.',
             'celular.max' => 'El celular no puede exceder 20 caracteres.',
             'direccion.string' => 'La dirección debe ser texto.',
@@ -327,7 +327,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'tallaVestimenta.string' => 'La talla de vestimenta debe ser texto.',
             'tallaVestimenta.in' => 'La talla de vestimenta seleccionada no es válida. Valores permitidos: xs, s, m, l, xl, xxl, xxxl, 4xl, 5xl.',
             'paisNacimiento.string' => 'El país de nacimiento debe ser texto.',
-            'paisNacimiento.in' => 'El país de nacimiento seleccionado no es válido.',
+            'paisNacimiento.max' => 'El país de nacimiento no puede exceder 255 caracteres.',
 
             // Contacto de Emergencia
             'nombreContactoEmergencia.string' => 'El nombre del contacto de emergencia debe ser texto.',

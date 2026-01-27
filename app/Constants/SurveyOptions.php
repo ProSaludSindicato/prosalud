@@ -243,31 +243,31 @@ class SurveyOptions
      * Relaciones para contacto de emergencia
      */
     public const RELACIONES_CONTACTO_EMERGENCIA = [
-        'padre',
-        'madre',
-        'hijo',
-        'hija',
-        'hermano',
-        'hermana',
-        'esposo',
-        'esposa',
-        'conyuge', // Sinónimo de esposo/esposa (usado por el frontend)
-        'pareja',
-        'tio',
-        'tia',
-        'primo',
-        'prima',
-        'abuelo',
-        'abuela',
-        'yerno',
-        'nuera',
-        'suegro',
-        'suegra',
-        'cuñado',
-        'cuñada',
-        'amigo',
-        'amiga',
-        'otro',
+        'padre', 'PADRE',
+        'madre', 'MADRE',
+        'hijo', 'HIJO',
+        'hija', 'HIJA',
+        'hermano', 'HERMANO',
+        'hermana', 'HERMANA',
+        'esposo', 'ESPOSO',
+        'esposa', 'ESPOSA',
+        'conyuge', 'CONYUGE', // Sinónimo de esposo/esposa (usado por el frontend)
+        'pareja', 'PAREJA',
+        'tio', 'TIO',
+        'tia', 'TIA',
+        'primo', 'PRIMO',
+        'prima', 'PRIMA',
+        'abuelo', 'ABUELO',
+        'abuela', 'ABUELA',
+        'yerno', 'YERNO',
+        'nuera', 'NUERA',
+        'suegro', 'SUEGRO',
+        'suegra', 'SUEGRA',
+        'cuñado', 'CUÑADO',
+        'cuñada', 'CUÑADA',
+        'amigo', 'AMIGO',
+        'amiga', 'AMIGA',
+        'otro', 'OTRO',
     ];
 
     /**
@@ -300,55 +300,55 @@ class SurveyOptions
      * Tallas de vestimenta válidas
      */
     public const TALLAS_VESTIMENTA = [
-        'xs',
-        's',
-        'm',
-        'l',
-        'xl',
-        'xxl',
-        'xxxl',
-        '4xl',
-        '5xl',
+        'xs', 'XS',
+        's', 'S',
+        'm', 'M',
+        'l', 'L',
+        'xl', 'XL',
+        'xxl', 'XXL',
+        'xxxl', 'XXXL',
+        '4xl', '4XL',
+        '5xl', '5XL',
     ];
 
     /**
      * Estados civiles válidos
      */
     public const ESTADOS_CIVILES = [
-        'soltero',
-        'casado',
-        'divorciado',
-        'viudo',
-        'union_libre',
+        'soltero', 'SOLTERO',
+        'casado', 'CASADO',
+        'divorciado', 'DIVORCIADO',
+        'viudo', 'VIUDO',
+        'union_libre', 'UNION_LIBRE',
     ];
 
     /**
      * Géneros válidos
      */
     public const GENEROS = [
-        'masculino',
-        'femenino',
-        'otro',
+        'masculino', 'MASCULINO',
+        'femenino', 'FEMENINO',
+        'otro', 'OTRO',
     ];
 
     /**
      * Razas válidas
      */
     public const RAZAS = [
-        'ninguno',
-        'afro',
-        'indigena',
-        'otro',
-        'no_responde',
+        'ninguno', 'NINGUNO',
+        'afro', 'AFRO',
+        'indigena', 'INDIGENA',
+        'otro', 'OTRO',
+        'no_responde', 'NO_RESPONDE',
     ];
 
     /**
      * Opciones de vivienda
      */
     public const TIPOS_VIVIENDA = [
-        'propia',
-        'arrendada',
-        'familiar',
+        'propia', 'PROPIA',
+        'arrendada', 'ARRENDADA',
+        'familiar', 'FAMILIAR',
     ];
 
     /**
@@ -367,63 +367,63 @@ class SurveyOptions
      * Opciones de convivencia
      */
     public const CONVIVE_CON = [
-        'familia_origen',
-        'nueva_familia',
-        'ambas',
-        'amigos',
-        'otros_familiares',
-        'solo',
+        'familia_origen', 'FAMILIA_ORIGEN',
+        'nueva_familia', 'NUEVA_FAMILIA',
+        'ambas', 'AMBAS',
+        'amigos', 'AMIGOS',
+        'otros_familiares', 'OTROS_FAMILIARES',
+        'solo', 'SOLO',
     ];
 
     /**
      * Opciones de transporte
      */
     public const TIPOS_TRANSPORTE = [
-        'carro',
-        'motocicleta',
-        'bicicleta',
-        'transporte_publico',
-        'caminando',
-        'otra',
+        'carro', 'CARRO',
+        'motocicleta', 'MOTOCICLETA',
+        'bicicleta', 'BICICLETA',
+        'transporte_publico', 'TRANSPORTE_PUBLICO',
+        'caminando', 'CAMINANDO',
+        'otra', 'OTRA',
     ];
 
     /**
      * Opciones para tiempo libre con
      */
     public const TIEMPO_LIBRE_CON = [
-        'familia',
-        'pareja',
-        'amigos',
-        'solo',
-        'otros',
+        'familia', 'FAMILIA',
+        'pareja', 'PAREJA',
+        'amigos', 'AMIGOS',
+        'solo', 'SOLO',
+        'otros', 'OTROS',
     ];
 
     /**
      * Frecuencias de consumo
      */
     public const FRECUENCIAS_CONSUMO = [
-        'diario',
-        'varias_veces_semana',
-        'fines_semana',
-        'cada_quince_dias',
-        'ocasionalmente',
+        'diario', 'DIARIO',
+        'varias_veces_semana', 'VARIAS_VECES_SEMANA',
+        'fines_semana', 'FINES_SEMANA',
+        'cada_quince_dias', 'CADA_QUINCE_DIAS',
+        'ocasionalmente', 'OCASIONALMENTE',
     ];
 
     /**
      * Niveles de limitación física
      */
     public const NIVELES_LIMITACION = [
-        'limita_mucho',
-        'limita_poco',
-        'no_limita',
+        'limita_mucho', 'LIMITA_MUCHO',
+        'limita_poco', 'LIMITA_POCO',
+        'no_limita', 'NO_LIMITA',
     ];
 
     /**
      * Respuestas si/no
      */
     public const SI_NO = [
-        'si',
-        'no',
+        'si', 'SI',
+        'no', 'NO',
     ];
 }
 
