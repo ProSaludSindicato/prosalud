@@ -727,9 +727,37 @@ class CertificadoConvenioService
             }
         }
 
-        // Ordenar por fecha_ingreso ascendente (más antiguo primero)
+        // Ordenar los convenios de manera cronológica:
+        // 1. Primero por fecha_ingreso ascendente (más antiguo primero) - orden cronológico
+        // 2. Si tienen la misma fecha_ingreso, los finalizados (con fecha_fin) aparecen antes que los vigentes (sin fecha_fin)
+        // 3. Si ambos tienen fecha_fin y la misma fecha_ingreso, ordenar por fecha_fin descendente (más reciente primero)
+        // Esto evita confusión cuando hay convenios con la misma fecha de inicio pero diferentes estados
         usort($convenios, function ($a, $b) {
-            return strcmp($a['fecha_ingreso'], $b['fecha_ingreso']);
+            // Primero comparar por fecha_ingreso (ascendente - más antiguo primero)
+            $comparisonFechaIngreso = strcmp($a['fecha_ingreso'], $b['fecha_ingreso']);
+            if ($comparisonFechaIngreso !== 0) {
+                return $comparisonFechaIngreso;
+            }
+
+            // Si tienen la misma fecha_ingreso, priorizar los finalizados sobre los vigentes
+            $aFechaFinVacia = empty($a['fecha_fin']);
+            $bFechaFinVacia = empty($b['fecha_fin']);
+
+            // Si uno tiene fecha_fin y el otro no, el finalizado va primero
+            if (!$aFechaFinVacia && $bFechaFinVacia) {
+                return -1; // $a (finalizado) va primero
+            }
+            if ($aFechaFinVacia && !$bFechaFinVacia) {
+                return 1; // $b (finalizado) va primero
+            }
+
+            // Si ambos tienen fecha_fin, ordenar por fecha_fin descendente (más reciente primero)
+            if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                return strcmp($b['fecha_fin'], $a['fecha_fin']);
+            }
+
+            // Si ambos están vigentes (sin fecha_fin), mantener el orden por fecha_ingreso
+            return 0;
         });
 
         return $convenios;
