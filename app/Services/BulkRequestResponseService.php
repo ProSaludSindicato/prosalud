@@ -941,10 +941,15 @@ class BulkRequestResponseService
         $requestId = $request->id;
         $requestType = $request->request_type;
         $requestTypeLabel = $this->getRequestTypeLabel($requestType);
+        $documentRef = trim(
+            trim((string) ($request->document_type ?? '')) . ' ' . trim((string) ($request->document_number ?? ''))
+        );
 
         // Caso 1: Actualización de Datos Personales
         if ($requestType === RequestTypes::ACTUALIZAR_DATOS_PERSONALES) {
-            return "Actualización de Datos Personales - Solicitud #{$requestId}";
+            $subject = "Actualización de Datos Personales - Solicitud #{$requestId}";
+
+            return $documentRef ? "{$subject} - {$documentRef}" : $subject;
         }
 
         // Parsear infoCertificado del payload
@@ -967,6 +972,10 @@ class BulkRequestResponseService
                 $emailSubject = "Certificado de Convenio - Subsidio de Vivienda - Solicitud #{$requestId}";
             }
 
+            if ($documentRef) {
+                $emailSubject .= " - {$documentRef}";
+            }
+
             return $emailSubject;
         }
 
@@ -978,6 +987,10 @@ class BulkRequestResponseService
             $emailSubject = "Certificado de Convenio - Fondo de Pensiones - Solicitud #{$requestId}";
         } elseif ($needsActividades) {
             $emailSubject = "Certificado de Convenio - Con Actividades - Solicitud #{$requestId}";
+        }
+
+        if ($documentRef) {
+            $emailSubject .= " - {$documentRef}";
         }
 
         return $emailSubject;

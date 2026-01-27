@@ -210,7 +210,7 @@
                                     </tr>
                                     <tr>
                                         <td style="font-size:14px; color:#1f2937; font-weight:500;">
-                                            #{{ $requestForm->id }} - {{ $requestForm->request_type }}
+                                            #{{ $requestForm->id }} - {{ $requestForm->translated_request_type }} - {{ $requestForm->document_type }} {{ $requestForm->document_number }}
                                         </td>
                                     </tr>
                                 </table>

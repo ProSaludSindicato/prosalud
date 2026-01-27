@@ -523,7 +523,16 @@ class CertificadoConvenioAutomaticoService
         ?string $rejectionReason = null
     ): void {
         // Preparar contenido del correo (usar valores personalizados si se proporcionan, sino generar automáticamente)
-        $finalEmailSubject = $emailSubject ?? "Certificado de Convenio - Consecutivo {$consecutivo}";
+        $documentRef = trim(
+            trim((string) ($requestForm->document_type ?? '')) . ' ' . trim((string) ($requestForm->document_number ?? ''))
+        );
+
+        $defaultSubject = "Certificado de Convenio - Consecutivo {$consecutivo}";
+        if ($documentRef) {
+            $defaultSubject .= " - {$documentRef}";
+        }
+
+        $finalEmailSubject = $emailSubject ?? $defaultSubject;
         $finalEmailBody = $emailBody ?? $this->generarCuerpoCorreo($requestForm, $consecutivo);
         $finalStatus = $status ?? RequestStatuses::COMPLETED;
 

@@ -49,8 +49,6 @@ class RequestController extends Controller
 
         $requestData['status'] = RequestStatuses::PENDING;
 
-        $originalFilesForEmail = $this->extractOriginalFiles($request);
-
         $filesMetadata = $this->processAndStoreFiles($request);
 
         if (!empty($filesMetadata)) {
@@ -90,8 +88,9 @@ class RequestController extends Controller
 
         // Enviar correo de confirmación de forma asíncrona después de enviar la respuesta HTTP
         // Esto evita que el envío de correo bloquee la respuesta al frontend
+        // Importante: no capturar objetos UploadedFile en el cierre para evitar errores de serialización
         $requestFormForEmail = $requestForm;
-        dispatch(function () use ($requestFormForEmail, $originalFilesForEmail) {
+        dispatch(function () use ($requestFormForEmail) {
             try {
                 $mail = Mail::to($requestFormForEmail->email);
 
@@ -105,7 +104,7 @@ class RequestController extends Controller
                     $mail->cc('talentohumano@sindicatoprosalud.com');
                 }
 
-                $mail->send(new RequestFormReceived($requestFormForEmail, $originalFilesForEmail));
+                $mail->send(new RequestFormReceived($requestFormForEmail));
 
                 Log::info('Correo de confirmación de solicitud enviado exitosamente', [
                     'request_id' => $requestFormForEmail->id,
