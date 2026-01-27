@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Constants\{RequestStatuses, RequestTypes};
-use App\Models\{RequestForm, RequestResponse};
+use App\Models\{RequestForm, RequestResponse, RequestStatusLog};
 use App\Mail\RequestFormResponse;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\{Log, Mail, Storage};
@@ -725,13 +725,15 @@ class BulkRequestResponseService
         }
 
         // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
-        // Solo actualizar el estado y guardar quién lo actualizó
+        // Solo actualizar el estado, guardar quién lo actualizó y registrar historial
         if ($normalizedStatus === RequestStatuses::IN_REVIEW) {
+            $userId = $user ? $user->id : null;
+
             Log::info('Estado IN_REVIEW detectado en respuesta masiva - actualizando estado sin enviar correo', [
                 'request_id' => $requestId,
                 'row' => $rowNumber,
                 'request_type' => $requestForm->request_type,
-                'user_id' => $user ? $user->id : null,
+                'user_id' => $userId,
                 'old_status' => $oldStatus,
                 'new_status' => $normalizedStatus,
             ]);
@@ -745,13 +747,22 @@ class BulkRequestResponseService
             $requestForm->update($updateData);
             $requestForm->refresh();
 
+            // Registrar historial de cambio de estado
+            RequestStatusLog::create([
+                'request_form_id' => (string) $requestId,
+                'old_status' => $oldStatus,
+                'new_status' => $normalizedStatus,
+                'changed_by' => $userId,
+                'created_at' => now(),
+            ]);
+
             // Log de auditoría sin RequestResponse
             Log::info('Respuesta masiva procesada exitosamente (estado interno)', [
                 'request_id' => $requestId,
                 'row' => $rowNumber,
                 'old_status' => $oldStatus,
                 'new_status' => $normalizedStatus,
-                'user_id' => $user ? $user->id : null,
+                'user_id' => $userId,
                 'internal_status' => true,
             ]);
 

@@ -5,9 +5,10 @@ namespace App\Http\Controllers\Request;
 use App\Constants\{RequestStatuses, RequestTypes, RequestSubtypes};
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\RequestStatusLogResource;
 use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest, RedirectSubtypeRequest};
 use App\Mail\{RequestFormReceived, RequestFormResponse};
-use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestSubtypeAssignment, RequestTypeAssignment};
+use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestStatusLog, RequestSubtypeAssignment, RequestTypeAssignment};
 use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
 use App\Services\CertificadoConvenioService;
 use App\Http\Requests\{BulkRequestResponseRequest, ExportRequestsExcelRequest, ProcessBulkResponseRequest};
@@ -815,7 +816,18 @@ class RequestController extends Controller
             $updateData['rejection_reason'] = null;
         }
 
+        $previousStatus = $request->getOriginal('status');
+
         $request->update($updateData);
+
+        // Registrar historial de cambio de estado
+        RequestStatusLog::create([
+            'request_form_id' => (string) $request->id,
+            'old_status' => $previousStatus,
+            'new_status' => $status,
+            'changed_by' => $user?->id,
+            'created_at' => now(),
+        ]);
 
         $statusText = $this->getStatusText($status);
 
@@ -1026,6 +1038,35 @@ class RequestController extends Controller
                 'new_subtype' => $newSubtype,
                 'assigned_users' => $assignedUsers,
             ],
+        ]);
+    }
+
+    /**
+     * Get status change history for a request.
+     */
+    public function statusHistory(Request $request, RequestForm $requestForm): JsonResponse
+    {
+        // SECURITY: Ensure user can access this specific request
+        $user = $request->user();
+        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+            Log::warning('Intento de acceso no autorizado al historial de estados de solicitud', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes acceso a esta solicitud',
+            ], 403);
+        }
+
+        $logs = $requestForm->statusLogs()->with('user')->orderBy('created_at', 'asc')->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => RequestStatusLogResource::collection($logs),
         ]);
     }
 
@@ -1246,7 +1287,7 @@ class RequestController extends Controller
         $requestFormId = (string) $requestForm->id;
 
         // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
-        // Solo actualizar el estado y guardar quién lo actualizó
+        // Solo actualizar el estado, guardar quién lo actualizó y registrar historial
         // Esta verificación debe hacerse ANTES de procesar archivos comprimidos o generar certificados
         if ($status === RequestStatuses::IN_REVIEW) {
             $user = auth()->user();
@@ -1271,6 +1312,15 @@ class RequestController extends Controller
 
             $requestForm->update($updateData);
             $requestForm->refresh();
+
+            // Registrar historial de cambio de estado
+            RequestStatusLog::create([
+                'request_form_id' => $requestFormId,
+                'old_status' => $oldStatus,
+                'new_status' => $status,
+                'changed_by' => $userId,
+                'created_at' => now(),
+            ]);
 
             // Log de auditoría sin RequestResponse
             $this->auditLogService->logBusinessProcess('request_form', 'status_updated_internal', $this->auditLogService->addRequestContext($request, [
@@ -2312,7 +2362,7 @@ class RequestController extends Controller
 
         try {
             // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni generar certificado
-            // Solo actualizar el estado y guardar quién lo actualizó
+            // Solo actualizar el estado, guardar quién lo actualizó y registrar historial
             if ($status === RequestStatuses::IN_REVIEW) {
                 Log::info('Estado IN_REVIEW detectado en respondWithCompensaciones - actualizando estado sin enviar correo', [
                     'request_id' => $requestId,
@@ -2333,6 +2383,15 @@ class RequestController extends Controller
 
                 $requestForm->update($updateData);
                 $requestForm->refresh();
+
+                // Registrar historial de cambio de estado
+                RequestStatusLog::create([
+                    'request_form_id' => (string) $requestForm->id,
+                    'old_status' => $oldStatus,
+                    'new_status' => $status,
+                    'changed_by' => $userId,
+                    'created_at' => now(),
+                ]);
 
                 // Log de auditoría sin RequestResponse
                 $this->auditLogService->logBusinessProcess('request_form', 'status_updated_internal', $this->auditLogService->addRequestContext($request, [

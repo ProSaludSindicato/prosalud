@@ -238,6 +238,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     
     // Rutas con parámetros dinámicos - DESPUÉS de las específicas
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
+    Route::get('/requests/{request}/status-history', [RequestController::class, 'statusHistory'])->middleware('permission:requests.view');
     Route::post('/requests/{request}/validate', [RequestController::class, 'validate'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/status', [RequestController::class, 'changeStatus'])->middleware('permission:requests.respond');
     Route::patch('/requests/{request}/redirect-subtype', [RequestController::class, 'redirectSubtype'])->middleware('permission:requests.respond');

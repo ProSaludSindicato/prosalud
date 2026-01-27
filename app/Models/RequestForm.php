@@ -185,6 +185,15 @@ class RequestForm extends Model
     }
 
     /**
+     * Status change history for this request.
+     */
+    public function statusLogs(): HasMany
+    {
+        return $this->hasMany(RequestStatusLog::class, 'request_form_id', 'id')
+            ->orderBy('created_at', 'asc');
+    }
+
+    /**
      * Get the request subtype (for types that support subtypes, e.g. verificacion-pagos).
      * This is primarily backed by payload['solicitudRelacionadaCon'].
      */
