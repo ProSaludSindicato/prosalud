@@ -219,6 +219,14 @@ class ExcelReaderService
     }
 
     /**
+     * Clear cached compensaciones file data.
+     */
+    public function clearCompensacionesCache(): void
+    {
+        Cache::forget('excel:compensaciones:dinamica');
+    }
+
+    /**
      * Check if the activos Excel file exists and is readable in private bucket or local disk.
      */
     public function isActivosFileAvailable(): bool
@@ -791,54 +799,62 @@ class ExcelReaderService
 
     /**
      * Read the compensaciones Excel file from private storage (or fallback to local).
+     *
+     * Se cachea en memoria porque el archivo se actualiza típicamente de forma mensual.
+     * El caché se invalida explícitamente cuando se sube un nuevo archivo.
      */
     public function readCompensacionesFile(): array
     {
-        return $this->withStoredExcel(self::COMPENSACIONES_FILE_PATH, function (string $localPath, string $disk) {
-            try {
-                $spreadsheet = IOFactory::load($localPath);
-                
-                // Obtener la hoja específica por nombre
-                $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
-                
-                if ($worksheet === null) {
-                    Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
-                        'file_path' => $localPath,
+        // Usar caché para evitar lecturas repetidas del archivo y reducir fallos intermitentes de I/O
+        $cacheKey = 'excel:compensaciones:dinamica';
+
+        return Cache::remember($cacheKey, now()->addDays(2), function () {
+            return $this->withStoredExcel(self::COMPENSACIONES_FILE_PATH, function (string $localPath, string $disk) {
+                try {
+                    $spreadsheet = IOFactory::load($localPath);
+                    
+                    // Obtener la hoja específica por nombre
+                    $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
+                    
+                    if ($worksheet === null) {
+                        Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
+                            'file_path' => $localPath,
+                            'disk' => $disk,
+                            'hojas_disponibles' => $spreadsheet->getSheetNames(),
+                        ]);
+                        return [];
+                    }
+                    
+                    $data = $worksheet->toArray();
+
+                    Log::info('Archivo de compensaciones leído exitosamente', [
+                        'rows_count' => count($data),
+                        'file_path' => self::COMPENSACIONES_FILE_PATH,
                         'disk' => $disk,
-                        'hojas_disponibles' => $spreadsheet->getSheetNames(),
+                        'sheet_name' => self::COMPENSACIONES_SHEET_NAME,
                     ]);
+
+                    return $data;
+                } catch (SpreadsheetException $e) {
+                    Log::error('Error al procesar archivo Excel de compensaciones', [
+                        'error' => $e->getMessage(),
+                        'file_path' => self::COMPENSACIONES_FILE_PATH,
+                        'disk' => $disk,
+                    ]);
+
+                    return [];
+                } catch (\Throwable $e) {
+                    Log::error('Error inesperado al leer archivo de compensaciones', [
+                        'error' => $e->getMessage(),
+                        'file_path' => self::COMPENSACIONES_FILE_PATH,
+                        'disk' => $disk,
+                        'trace' => $e->getTraceAsString(),
+                    ]);
+
                     return [];
                 }
-                
-                $data = $worksheet->toArray();
-
-                Log::info('Archivo de compensaciones leído exitosamente', [
-                    'rows_count' => count($data),
-                    'file_path' => self::COMPENSACIONES_FILE_PATH,
-                    'disk' => $disk,
-                    'sheet_name' => self::COMPENSACIONES_SHEET_NAME,
-                ]);
-
-                return $data;
-            } catch (SpreadsheetException $e) {
-                Log::error('Error al procesar archivo Excel de compensaciones', [
-                    'error' => $e->getMessage(),
-                    'file_path' => self::COMPENSACIONES_FILE_PATH,
-                    'disk' => $disk,
-                ]);
-
-                return [];
-            } catch (\Throwable $e) {
-                Log::error('Error inesperado al leer archivo de compensaciones', [
-                    'error' => $e->getMessage(),
-                    'file_path' => self::COMPENSACIONES_FILE_PATH,
-                    'disk' => $disk,
-                    'trace' => $e->getTraceAsString(),
-                ]);
-
-                return [];
-            }
-        }, []);
+            }, []);
+        });
     }
 
     /**
@@ -860,11 +876,29 @@ class ExcelReaderService
                 'documento_original' => $documento,
             ]);
 
-            $data = $this->readCompensacionesFile();
+            // Reintentar lectura del archivo de compensaciones en caso de fallos intermitentes
+            $data = [];
+            $maxAttempts = 3;
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                $data = $this->readCompensacionesFile();
+
+                if (!empty($data)) {
+                    break;
+                }
+
+                Log::warning('Archivo de compensaciones vacío o no se pudo leer, reintento', [
+                    'documento' => $documento,
+                    'attempt' => $attempt,
+                ]);
+
+                // Pequeña espera entre intentos para dar tiempo a recuperación de I/O/storage
+                usleep(200000); // 200ms
+            }
 
             if (empty($data)) {
-                Log::warning('Archivo de compensaciones vacío o no se pudo leer', [
+                Log::error('No se pudo leer el archivo de compensaciones después de varios intentos', [
                     'documento' => $documento,
+                    'max_attempts' => $maxAttempts,
                 ]);
                 return null;
             }

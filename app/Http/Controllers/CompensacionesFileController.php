@@ -128,8 +128,8 @@ class CompensacionesFileController extends Controller
                 }
             }
 
-            // Limpiar caché si existe
-            // Nota: Si ExcelReaderService usa caché para compensaciones, debería limpiarse aquí
+            // Limpiar caché si existe para asegurar que nuevas solicitudes lean el archivo actualizado
+            $excelReaderService->clearCompensacionesCache();
 
             return response()->json([
                 'success' => true,
