@@ -2240,17 +2240,58 @@ class RequestController extends Controller
             ], 422);
         }
 
+        // Refresh the model to ensure we have the latest status from the database
+        // This is important because the automatic processing might have just completed
+        $requestForm->refresh();
+        
         // Validate that the request is pending (or in review)
         if (!in_array($requestForm->status, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])) {
-            Log::error('Request no está en estado pendiente o en revisión', [
-                'request_id' => $requestId,
-                'status' => $requestForm->status,
-            ]);
+            // Si la solicitud ya está completada, verificar si realmente fue procesada
+            // Puede ser que el procesamiento automático falló silenciosamente
+            if ($requestForm->status === RequestStatuses::COMPLETED) {
+                // Verificar si realmente tiene una respuesta asociada
+                $tieneRespuesta = $requestForm->responses()->exists();
+                
+                Log::info('Intento de responder solicitud que ya está completada', [
+                    'request_id' => $requestId,
+                    'status' => $requestForm->status,
+                    'processed_at' => $requestForm->processed_at,
+                    'tiene_respuesta' => $tieneRespuesta,
+                ]);
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo se pueden responder solicitudes pendientes o en revisión con compensaciones manuales',
-            ], 400);
+                if ($tieneRespuesta) {
+                    // Realmente fue procesada, devolver mensaje informativo
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Esta solicitud ya fue procesada automáticamente y está completada',
+                        'data' => [
+                            'id' => $requestForm->id,
+                            'status' => $requestForm->status,
+                            'processed_at' => $requestForm->processed_at,
+                            'formatted_processed_at' => $requestForm->formatted_processed_at,
+                        ],
+                    ], 200);
+                } else {
+                    // Está marcada como COMPLETED pero no tiene respuesta - estado inconsistente
+                    // Permitir procesar manualmente para corregir el estado
+                    Log::warning('Solicitud marcada como COMPLETED pero sin respuesta - permitiendo procesamiento manual', [
+                        'request_id' => $requestId,
+                        'status' => $requestForm->status,
+                    ]);
+                    // Continuar con el procesamiento manual
+                }
+            } else {
+                // Para otros estados (REJECTED, etc.), devolver error
+                Log::error('Request no está en estado pendiente o en revisión', [
+                    'request_id' => $requestId,
+                    'status' => $requestForm->status,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Solo se pueden responder solicitudes pendientes o en revisión con compensaciones manuales',
+                ], 400);
+            }
         }
 
         $validated = $request->validated();
