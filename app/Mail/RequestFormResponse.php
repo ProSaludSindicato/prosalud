@@ -41,8 +41,20 @@ class RequestFormResponse extends Mailable
         foreach ($uploadedFiles as $file) {
             // Check if it's already serialized data (from Job)
             if (is_array($file) && isset($file['content']) && isset($file['name']) && isset($file['mime'])) {
-                // Already serialized data, use directly
-                $this->attachmentData[] = $file;
+                // Already serialized data, decode base64 if encoded
+                $content = $file['content'];
+                if (isset($file['encoded']) && $file['encoded'] === true) {
+                    $content = base64_decode($content, true);
+                    if ($content === false) {
+                        // Si falla la decodificación, usar el contenido original
+                        $content = $file['content'];
+                    }
+                }
+                $this->attachmentData[] = [
+                    'content' => $content,
+                    'name' => $file['name'],
+                    'mime' => $file['mime'],
+                ];
                 ++$fileIndex;
                 continue;
             }

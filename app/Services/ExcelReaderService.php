@@ -800,61 +800,73 @@ class ExcelReaderService
     /**
      * Read the compensaciones Excel file from private storage (or fallback to local).
      *
-     * Se cachea en memoria porque el archivo se actualiza típicamente de forma mensual.
-     * El caché se invalida explícitamente cuando se sube un nuevo archivo.
+     * NOTA: No se cachea el contenido completo del archivo para evitar problemas de memoria.
+     * El archivo se lee directamente desde storage cada vez que se necesita.
+     * Solo se cachea un indicador de disponibilidad del archivo por un tiempo corto.
      */
     public function readCompensacionesFile(): array
     {
-        // Usar caché para evitar lecturas repetidas del archivo y reducir fallos intermitentes de I/O
-        $cacheKey = 'excel:compensaciones:dinamica';
+        // Cachear solo un indicador de disponibilidad, no el contenido completo
+        // Esto evita consumir toda la memoria con archivos grandes
+        $availabilityCacheKey = 'excel:compensaciones:available';
+        $isAvailable = Cache::remember($availabilityCacheKey, now()->addHours(1), function () {
+            return $this->storedExcelExists(self::COMPENSACIONES_FILE_PATH);
+        });
 
-        return Cache::remember($cacheKey, now()->addDays(2), function () {
-            return $this->withStoredExcel(self::COMPENSACIONES_FILE_PATH, function (string $localPath, string $disk) {
-                try {
-                    $spreadsheet = IOFactory::load($localPath);
-                    
-                    // Obtener la hoja específica por nombre
-                    $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
-                    
-                    if ($worksheet === null) {
-                        Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
-                            'file_path' => $localPath,
-                            'disk' => $disk,
-                            'hojas_disponibles' => $spreadsheet->getSheetNames(),
-                        ]);
-                        return [];
-                    }
-                    
-                    $data = $worksheet->toArray();
+        if (!$isAvailable) {
+            Log::warning('Archivo de compensaciones no disponible', [
+                'file_path' => self::COMPENSACIONES_FILE_PATH,
+            ]);
+            return [];
+        }
 
-                    Log::info('Archivo de compensaciones leído exitosamente', [
-                        'rows_count' => count($data),
-                        'file_path' => self::COMPENSACIONES_FILE_PATH,
+        // Leer directamente desde storage sin cachear el contenido
+        // Esto evita problemas de memoria con archivos grandes
+        return $this->withStoredExcel(self::COMPENSACIONES_FILE_PATH, function (string $localPath, string $disk) {
+            try {
+                $spreadsheet = IOFactory::load($localPath);
+                
+                // Obtener la hoja específica por nombre
+                $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
+                
+                if ($worksheet === null) {
+                    Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
+                        'file_path' => $localPath,
                         'disk' => $disk,
-                        'sheet_name' => self::COMPENSACIONES_SHEET_NAME,
+                        'hojas_disponibles' => $spreadsheet->getSheetNames(),
                     ]);
-
-                    return $data;
-                } catch (SpreadsheetException $e) {
-                    Log::error('Error al procesar archivo Excel de compensaciones', [
-                        'error' => $e->getMessage(),
-                        'file_path' => self::COMPENSACIONES_FILE_PATH,
-                        'disk' => $disk,
-                    ]);
-
-                    return [];
-                } catch (\Throwable $e) {
-                    Log::error('Error inesperado al leer archivo de compensaciones', [
-                        'error' => $e->getMessage(),
-                        'file_path' => self::COMPENSACIONES_FILE_PATH,
-                        'disk' => $disk,
-                        'trace' => $e->getTraceAsString(),
-                    ]);
-
                     return [];
                 }
-            }, []);
-        });
+                
+                $data = $worksheet->toArray();
+
+                Log::info('Archivo de compensaciones leído exitosamente (sin caché)', [
+                    'rows_count' => count($data),
+                    'file_path' => self::COMPENSACIONES_FILE_PATH,
+                    'disk' => $disk,
+                    'sheet_name' => self::COMPENSACIONES_SHEET_NAME,
+                ]);
+
+                return $data;
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar archivo Excel de compensaciones', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::COMPENSACIONES_FILE_PATH,
+                    'disk' => $disk,
+                ]);
+
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer archivo de compensaciones', [
+                    'error' => $e->getMessage(),
+                    'file_path' => self::COMPENSACIONES_FILE_PATH,
+                    'disk' => $disk,
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                return [];
+            }
+        }, []);
     }
 
     /**

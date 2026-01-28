@@ -113,6 +113,7 @@ class CertificadoConvenioAutomaticoService
 
             // 2. Crear respuesta automática y enviar correo con certificado
             // El certificado se guardará directamente en los anexos de la respuesta, no en los archivos de la solicitud
+            // Nota: Las compensaciones se usan solo para generar el certificado PDF, no se adjuntan al correo
             $this->crearYEnviarRespuestaAutomatica(
                 $requestForm,
                 $resultadoCertificado['ruta'],
@@ -122,7 +123,8 @@ class CertificadoConvenioAutomaticoService
                 $emailSubject,
                 $emailBody,
                 $status,
-                null // rejection_reason no aplica en este método
+                null, // rejection_reason no aplica en este método
+                $compensaciones // Solo para referencia, ya se usaron en generarCertificadoPDF
             );
 
             DB::commit();
@@ -505,6 +507,7 @@ class CertificadoConvenioAutomaticoService
      * @param string|null $emailSubject Asunto del correo personalizado (opcional)
      * @param string|null $emailBody Cuerpo del correo personalizado (opcional)
      * @param string|null $status Estado final de la solicitud (opcional, por defecto COMPLETED)
+     * @param array|null $compensaciones Datos de compensaciones (solo para referencia, ya se usaron en generarCertificadoPDF)
      */
     private function crearYEnviarRespuestaAutomatica(
         RequestForm $requestForm,
@@ -515,7 +518,8 @@ class CertificadoConvenioAutomaticoService
         ?string $emailSubject = null,
         ?string $emailBody = null,
         ?string $status = null,
-        ?string $rejectionReason = null
+        ?string $rejectionReason = null,
+        ?array $compensaciones = null
     ): void {
         // Preparar contenido del correo (usar valores personalizados si se proporcionan, sino generar automáticamente)
         $documentRef = trim(
@@ -530,6 +534,13 @@ class CertificadoConvenioAutomaticoService
         $finalEmailSubject = $emailSubject ?? $defaultSubject;
         $finalEmailBody = $emailBody ?? $this->generarCuerpoCorreo($requestForm, $consecutivo);
         $finalStatus = $status ?? RequestStatuses::COMPLETED;
+
+        // Sanitizar solo los strings de texto para evitar errores de serialización JSON
+        // NO sanitizar contenido binario (PDF) - se codificará en base64
+        $finalEmailSubject = mb_convert_encoding($finalEmailSubject, 'UTF-8', 'UTF-8');
+        $finalEmailBody = mb_convert_encoding($finalEmailBody, 'UTF-8', 'UTF-8');
+        $recipientEmail = mb_convert_encoding($requestForm->email, 'UTF-8', 'UTF-8');
+        $nombreArchivoAdjunto = $this->generarNombreArchivoAdjunto($requestForm->document_number, $consecutivo);
 
         // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
         // Solo actualizar el estado y guardar quién lo actualizó
@@ -555,25 +566,31 @@ class CertificadoConvenioAutomaticoService
         }
 
         // Crear un archivo temporal para adjuntar al correo con nombre personalizado
-        $nombreArchivoAdjunto = $this->generarNombreArchivoAdjunto($requestForm->document_number, $consecutivo);
         $archivoTemporal = $this->crearArchivoTemporalParaCorreo($rutaPdf, $nombreArchivoAdjunto);
 
         // Serialize attachment file before passing to Job
+        // Codificar contenido binario en base64 para evitar problemas de serialización JSON
         $attachmentData = [];
         if ($archivoTemporal && $archivoTemporal->isValid()) {
+            $pdfContent = file_get_contents($archivoTemporal->getRealPath());
             $attachmentData[] = [
-                'content' => file_get_contents($archivoTemporal->getRealPath()),
+                'content' => base64_encode($pdfContent), // Codificar en base64 para serialización segura
                 'name' => $archivoTemporal->getClientOriginalName(),
                 'mime' => $archivoTemporal->getMimeType(),
+                'encoded' => true, // Flag para indicar que está codificado
             ];
         }
+
+        // Nota: Los valores de compensaciones se usan solo para generar el certificado PDF.
+        // No se adjunta ningún archivo Excel de compensaciones al correo.
+        // El archivo COMPENSACIONES_AFILIADOS_ACTIVOS.xlsx es privado y solo para consulta interna del sistema.
 
         try {
             // Use dispatchSync to execute the job synchronously but more efficiently
             // This maintains the current logic where status is only updated after successful email
             SendRequestFormResponseEmailJob::dispatchSync(
-                $requestForm->id,
-                $requestForm->email,
+                (string) $requestForm->id,
+                $recipientEmail,
                 $finalEmailSubject,
                 $finalEmailBody,
                 $finalStatus,
@@ -669,12 +686,13 @@ class CertificadoConvenioAutomaticoService
             ]);
             throw $e;
         } finally {
-            // Limpiar archivo temporal
+            // Limpiar archivo temporal del PDF
             if (isset($archivoTemporal) && file_exists($archivoTemporal->getRealPath())) {
                 @unlink($archivoTemporal->getRealPath());
             }
         }
     }
+
 
     /**
      * Genera el cuerpo del correo de respuesta automática
@@ -944,5 +962,6 @@ class CertificadoConvenioAutomaticoService
 
         return $otros;
     }
+
 }
 
