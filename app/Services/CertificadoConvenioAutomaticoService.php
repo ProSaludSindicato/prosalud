@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Constants\{RequestStatuses, RequestTypes};
 use App\Domain\RequestForm\RequestFormDTO;
-use App\Jobs\{SendRequestFormReceivedEmailJob, SendRequestFormResponseEmailJob};
+// No usamos Jobs para correos en este servicio; todos los envíos son síncronos
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment};
 use Carbon\Carbon;
@@ -27,14 +27,23 @@ class CertificadoConvenioAutomaticoService
      * Genera el certificado, envía correos y cierra la solicitud
      *
      * @param RequestForm $requestForm RequestForm ya creado
-     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
-     * @param string|null $emailSubject Asunto del correo personalizado (opcional)
-     * @param string|null $emailBody Cuerpo del correo personalizado (opcional)
-     * @param string|null $status Estado final de la solicitud (opcional, por defecto COMPLETED)
-     * @param string|null $rejectionReason Razón de rechazo (opcional, requerida si status es REJECTED)
+     * @param array|null        $compensaciones    Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @param string|null       $emailSubject      Asunto del correo personalizado (opcional)
+     * @param string|null       $emailBody        Cuerpo del correo personalizado (opcional)
+     * @param string|null       $status           Estado final de la solicitud (opcional, por defecto COMPLETED)
+     * @param string|null       $rejectionReason  Razón de rechazo (opcional, requerida si status es REJECTED)
+     * @param array<\Illuminate\Http\UploadedFile>|null $extraAttachments Archivos adjuntos adicionales (no comprimidos) que deben ir en el correo
      * @return array Resultado del proceso
      */
-    public function procesarConRequestFormExistenteYCompensaciones(RequestForm $requestForm, ?array $compensaciones = null, ?string $emailSubject = null, ?string $emailBody = null, ?string $status = null, ?string $rejectionReason = null): array
+    public function procesarConRequestFormExistenteYCompensaciones(
+        RequestForm $requestForm,
+        ?array $compensaciones = null,
+        ?string $emailSubject = null,
+        ?string $emailBody = null,
+        ?string $status = null,
+        ?string $rejectionReason = null,
+        ?array $extraAttachments = null
+    ): array
     {
         DB::beginTransaction();
 
@@ -123,8 +132,9 @@ class CertificadoConvenioAutomaticoService
                 $emailSubject,
                 $emailBody,
                 $status,
-                null, // rejection_reason no aplica en este método
-                $compensaciones // Solo para referencia, ya se usaron en generarCertificadoPDF
+                $rejectionReason,
+                $compensaciones, // Solo para referencia, ya se usaron en generarCertificadoPDF
+                $extraAttachments ?? [] // Adjuntos adicionales proporcionados manualmente
             );
 
             DB::commit();
@@ -427,15 +437,15 @@ class CertificadoConvenioAutomaticoService
     private function enviarCorreoConfirmacion(RequestForm $requestForm): void
     {
         try {
-            // Enviar correo de confirmación de forma asíncrona usando Job encolado
-            SendRequestFormReceivedEmailJob::dispatch($requestForm->id);
+            // Enviar correo de confirmación de forma síncrona sin usar Jobs
+            Mail::to($requestForm->email)->send(new RequestFormReceived($requestForm));
 
-            Log::info('Correo de confirmación encolado para solicitud automática', [
+            Log::info('Correo de confirmación de solicitud automática enviado exitosamente', [
                 'request_id' => $requestForm->id,
                 'email' => $requestForm->email,
             ]);
         } catch (\Throwable $e) {
-            Log::error('Error encolando correo de confirmación para solicitud automática', [
+            Log::error('Error enviando correo de confirmación para solicitud automática', [
                 'request_id' => $requestForm->id,
                 'error' => $e->getMessage(),
             ]);
@@ -499,15 +509,17 @@ class CertificadoConvenioAutomaticoService
     /**
      * Crea y envía la respuesta automática con el certificado adjunto
      *
-     * @param RequestForm $requestForm
-     * @param string $rutaPdf Ruta temporal del PDF para adjuntar al correo
-     * @param string $nombreArchivo Nombre del archivo
-     * @param string $consecutivo Consecutivo del certificado
-     * @param string|null $bucketPath Ruta del archivo en el bucket (ya guardado, no se duplica)
-     * @param string|null $emailSubject Asunto del correo personalizado (opcional)
-     * @param string|null $emailBody Cuerpo del correo personalizado (opcional)
-     * @param string|null $status Estado final de la solicitud (opcional, por defecto COMPLETED)
-     * @param array|null $compensaciones Datos de compensaciones (solo para referencia, ya se usaron en generarCertificadoPDF)
+     * @param RequestForm                              $requestForm
+     * @param string                                   $rutaPdf           Ruta temporal del PDF para adjuntar al correo
+     * @param string                                   $nombreArchivo     Nombre del archivo
+     * @param string                                   $consecutivo       Consecutivo del certificado
+     * @param string|null                              $bucketPath        Ruta del archivo en el bucket (ya guardado, no se duplica)
+     * @param string|null                              $emailSubject      Asunto del correo personalizado (opcional)
+     * @param string|null                              $emailBody        Cuerpo del correo personalizado (opcional)
+     * @param string|null                              $status           Estado final de la solicitud (opcional, por defecto COMPLETED)
+     * @param string|null                              $rejectionReason  Razón de rechazo (opcional, requerida si status es REJECTED)
+     * @param array|null                               $compensaciones   Datos de compensaciones (solo para referencia, ya se usaron en generarCertificadoPDF)
+     * @param array<\Illuminate\Http\UploadedFile>|null $extraAttachments Archivos adjuntos adicionales (no comprimidos) que deben ir en el correo
      */
     private function crearYEnviarRespuestaAutomatica(
         RequestForm $requestForm,
@@ -519,7 +531,8 @@ class CertificadoConvenioAutomaticoService
         ?string $emailBody = null,
         ?string $status = null,
         ?string $rejectionReason = null,
-        ?array $compensaciones = null
+        ?array $compensaciones = null,
+        ?array $extraAttachments = null
     ): void {
         // Preparar contenido del correo (usar valores personalizados si se proporcionan, sino generar automáticamente)
         $documentRef = trim(
@@ -568,17 +581,30 @@ class CertificadoConvenioAutomaticoService
         // Crear un archivo temporal para adjuntar al correo con nombre personalizado
         $archivoTemporal = $this->crearArchivoTemporalParaCorreo($rutaPdf, $nombreArchivoAdjunto);
 
-        // Serialize attachment file before passing to Job
-        // Codificar contenido binario en base64 para evitar problemas de serialización JSON
         $attachmentData = [];
         if ($archivoTemporal && $archivoTemporal->isValid()) {
             $pdfContent = file_get_contents($archivoTemporal->getRealPath());
             $attachmentData[] = [
-                'content' => base64_encode($pdfContent), // Codificar en base64 para serialización segura
+                // Contenido binario directo: no usamos Jobs/cola para este correo
+                'content' => $pdfContent,
                 'name' => $archivoTemporal->getClientOriginalName(),
                 'mime' => $archivoTemporal->getMimeType(),
-                'encoded' => true, // Flag para indicar que está codificado
             ];
+        }
+
+        // Adjuntar también los archivos adicionales proporcionados manualmente (no comprimidos)
+        if (!empty($extraAttachments)) {
+            foreach ($extraAttachments as $file) {
+                if ($file && $file->isValid()) {
+                    $content = file_get_contents($file->getRealPath());
+
+                    $attachmentData[] = [
+                        'content' => $content,
+                        'name' => $file->getClientOriginalName(),
+                        'mime' => $file->getMimeType(),
+                    ];
+                }
+            }
         }
 
         // Nota: Los valores de compensaciones se usan solo para generar el certificado PDF.
@@ -586,17 +612,16 @@ class CertificadoConvenioAutomaticoService
         // El archivo COMPENSACIONES_AFILIADOS_ACTIVOS.xlsx es privado y solo para consulta interna del sistema.
 
         try {
-            // Use dispatchSync to execute the job synchronously but more efficiently
-            // This maintains the current logic where status is only updated after successful email
-            SendRequestFormResponseEmailJob::dispatchSync(
-                (string) $requestForm->id,
-                $recipientEmail,
+            // Enviar correo de respuesta de forma síncrona sin usar Jobs
+            $mail = Mail::to($recipientEmail);
+            $mail->send(new RequestFormResponse(
+                $requestForm,
                 $finalEmailSubject,
                 $finalEmailBody,
                 $finalStatus,
                 $attachmentData,
                 [] // Sin archivos comprimidos
-            );
+            ));
 
             Log::info('Correo de respuesta automática enviado con certificado', [
                 'request_id' => $requestForm->id,

@@ -7,7 +7,7 @@ use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\RequestStatusLogResource;
 use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest, RedirectSubtypeRequest};
-use App\Jobs\{SendRequestFormReceivedEmailJob, SendRequestFormResponseEmailJob};
+// Import only Mailables, no Jobs – all emails se envían de forma síncrona
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestStatusLog, RequestSubtypeAssignment, RequestTypeAssignment};
 use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
@@ -88,9 +88,10 @@ class RequestController extends Controller
             'affiliate_email' => $requestForm->email,
         ]));
 
-        // Enviar correo de confirmación de forma asíncrona usando Job encolado
-        // Esto evita que el envío de correo bloquee la respuesta al frontend
-        SendRequestFormReceivedEmailJob::dispatch($requestForm->id);
+        // Enviar correo de confirmación de forma síncrona (sin Job/cola)
+        // Incluir archivos originales que llegaron en la solicitud como adjuntos
+        $originalFiles = $this->extractOriginalFiles($request);
+        Mail::to($requestForm->email)->send(new RequestFormReceived($requestForm, $originalFiles));
 
         $response = [
             'success' => true,
@@ -1179,6 +1180,37 @@ class RequestController extends Controller
         $emailSubject = $validated['email_subject'];
         $emailBody = $this->sanitizeHtmlContent($validated['email_body']);
 
+        // Obtener archivos adjuntos adicionales (no comprimidos) enviados por el usuario
+        // para que viajen junto con el certificado generado automáticamente
+        $attachments = [];
+        if ($request->hasFile('attachments')) {
+            $files = $request->file('attachments');
+            if (is_array($files)) {
+                foreach ($files as $file) {
+                    if ($file && $file->isValid()) {
+                        $attachments[] = $file;
+                    }
+                }
+            } elseif ($files && $files->isValid()) {
+                $attachments[] = $files;
+            }
+        }
+
+        // Obtener archivos adjuntos adicionales (no comprimidos) enviados por el usuario
+        $attachments = [];
+        if ($request->hasFile('attachments')) {
+            $files = $request->file('attachments');
+            if (is_array($files)) {
+                foreach ($files as $file) {
+                    if ($file && $file->isValid()) {
+                        $attachments[] = $file;
+                    }
+                }
+            } elseif ($files && $files->isValid()) {
+                $attachments[] = $files;
+            }
+        }
+
         // Get attachments if provided (needed for validation of dirigidoFondoPensiones)
         // Laravel automatically handles attachments as array when sent as attachments[0], attachments[1], etc.
         $attachments = [];
@@ -1945,8 +1977,10 @@ class RequestController extends Controller
         $userId = $user ? $user->id : null;
 
         // IMPORTANT: Send email FIRST, before updating status or creating response record (if not already created)
-        // This ensures that if email fails, we don't update the request status
-        // Serialize attachment files before passing to Job
+        // This ensures that if email fails, we don't update the request status.
+        //
+        // Aquí ya NO encolamos el envío en un Job para evitar problemas de serialización
+        // de binarios en la cola. Enviamos el correo directamente usando el Mailable.
         $attachmentData = [];
         foreach ($nonCompressedFiles as $file) {
             if ($file && $file->isValid()) {
@@ -1957,6 +1991,12 @@ class RequestController extends Controller
                 ];
             }
         }
+
+        // Sanitizar únicamente los strings de texto para evitar errores de codificación UTF-8
+        // NO tocar los binarios (ya van en base64 en $attachmentData)
+        $emailSubject = mb_convert_encoding($emailSubject, 'UTF-8', 'UTF-8');
+        $emailBody = mb_convert_encoding($emailBody, 'UTF-8', 'UTF-8');
+        $recipientEmail = mb_convert_encoding($recipientEmail, 'UTF-8', 'UTF-8');
 
         try {
             Log::info('Intentando enviar correo de respuesta', [
@@ -1971,17 +2011,27 @@ class RequestController extends Controller
                 'has_compressed_urls' => !empty($compressedFileUrls),
             ]);
 
-            // Use dispatchSync to execute the job synchronously but more efficiently
-            // This maintains the current logic where status is only updated after successful email
-            SendRequestFormResponseEmailJob::dispatchSync(
-                $requestFormId,
-                $recipientEmail,
+            // Enviar correo directamente SIN usar Job encolado
+            $mail = Mail::to($recipientEmail);
+
+            // Agregar CC para solicitudes de microcrédito
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+                $mail->cc('ceiisas@hotmail.com');
+            }
+
+            // Agregar CC para solicitudes de retiro sindical
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
+                $mail->cc('talentohumano@sindicatoprosalud.com');
+            }
+
+            $mail->send(new RequestFormResponse(
+                $requestForm,
                 $emailSubject,
                 $emailBody,
                 $status,
                 $attachmentData,
                 $compressedFileUrls
-            );
+            ));
 
             Log::info('Correo de respuesta enviado exitosamente', [
                 'request_id' => $requestFormId,
@@ -2298,6 +2348,22 @@ class RequestController extends Controller
         $status = $validated['status'];
         $emailSubject = $validated['email_subject'];
         $emailBody = $this->sanitizeHtmlContent($validated['email_body']);
+
+        // Obtener archivos adjuntos adicionales (no comprimidos) enviados por el usuario
+        // para que viajen junto con el certificado generado automáticamente
+        $attachments = [];
+        if ($request->hasFile('attachments')) {
+            $files = $request->file('attachments');
+            if (is_array($files)) {
+                foreach ($files as $file) {
+                    if ($file && $file->isValid()) {
+                        $attachments[] = $file;
+                    }
+                }
+            } elseif ($files && $files->isValid()) {
+                $attachments[] = $files;
+            }
+        }
         
         // Verificar si se enviaron compensaciones manuales
         $tBasicosInput = $validated['t_basicos'] ?? null;
@@ -2554,7 +2620,8 @@ class RequestController extends Controller
                 $emailSubject,
                 $emailBody,
                 $status,
-                $rejectionReason
+                $rejectionReason,
+                $attachments // Adjuntos adicionales que deben viajar en el correo
             );
 
             Log::info('Certificado generado exitosamente con compensaciones manuales', [

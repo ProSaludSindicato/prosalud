@@ -106,8 +106,18 @@ class RequestFormResponse extends Mailable
 
         // Attach files if provided (using stored file data)
         foreach ($this->attachmentData as $attachment) {
+            // Si el contenido viene codificado en base64 (para compatibilidad con la cola JSON),
+            // decodificarlo antes de adjuntarlo. Mantener compatibilidad con contenido sin codificar.
+            $content = $attachment['content'] ?? '';
+            if (!empty($attachment['encoded'])) {
+                $decoded = base64_decode($content, true);
+                if ($decoded !== false) {
+                    $content = $decoded;
+                }
+            }
+
             $mail->attachData(
-                $attachment['content'],
+                $content,
                 $attachment['name'],
                 [
                     'mime' => $attachment['mime'],
