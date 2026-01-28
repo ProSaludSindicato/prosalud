@@ -71,7 +71,8 @@ class StoreRequestFormRequest extends FormRequest
                 // Campos condicionales - Nivel educativo
                 'payload.nivelEducativo' => 'nullable|string|in:primaria,bachiller,tecnico,tecnologo,profesional,especialista,maestria,doctorado',
 
-                // Campos condicionales - Cuenta bancaria (si se envía numeroCuenta, los demás son requeridos)
+                // Campos condicionales - Cuenta bancaria
+                // tipoCuenta es opcional porque si no cambia, el frontend no lo envía
                 'payload.numeroCuenta' => 'nullable|string|max:255',
                 'payload.tipoCuenta' => 'nullable|string|in:ahorros,corriente',
                 'payload.banco' => 'nullable|string|in:bancolombia,davivienda,bbva,bogota,occidente,popular,av_villas,caja_social,colpatria,agrario,cooperativo,otros',
@@ -259,11 +260,9 @@ class StoreRequestFormRequest extends FormRequest
                     return false;
                 };
 
-                // Validación condicional: Si se envía numeroCuenta, tipoCuenta, banco y certificacionBancaria son requeridos
+                // Validación condicional: Si se envía numeroCuenta, banco y certificacionBancaria son requeridos
+                // tipoCuenta es opcional porque si no cambia, el frontend no lo envía
                 if (!empty($payload['numeroCuenta'])) {
-                    if (empty($payload['tipoCuenta'])) {
-                        $validator->errors()->add('payload.tipoCuenta', 'El tipo de cuenta es obligatorio cuando se actualiza el número de cuenta.');
-                    }
                     if (empty($payload['banco'])) {
                         $validator->errors()->add('payload.banco', 'El banco es obligatorio cuando se actualiza el número de cuenta.');
                     }
@@ -426,7 +425,6 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.proceso.required' => 'El proceso es obligatorio.',
                 'payload.dondeRealizaProceso.required' => 'El campo donde realiza el proceso es obligatorio.',
                 'payload.nivelEducativo.in' => 'El nivel educativo seleccionado no es válido.',
-                'payload.tipoCuenta.required_with' => 'El tipo de cuenta es obligatorio cuando se actualiza el número de cuenta.',
                 'payload.tipoCuenta.in' => 'El tipo de cuenta seleccionado no es válido.',
                 'payload.banco.required_with' => 'El banco es obligatorio cuando se actualiza el número de cuenta.',
                 'payload.banco.in' => 'El banco seleccionado no es válido.',
