@@ -10,6 +10,7 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
 use PhpOffice\PhpSpreadsheet\Worksheet\{Drawing, Worksheet};
+use PhpOffice\PhpSpreadsheet\Chart\{Chart, DataSeries, DataSeriesValues, Legend, PlotArea, Title};
 
 class WellnessDeliveryExcelExportService
 {
@@ -50,6 +51,7 @@ class WellnessDeliveryExcelExportService
             // Guardar en archivo temporal
             $tempFile = tempnam(sys_get_temp_dir(), 'wellness_delivery_report_') . '.xlsx';
             $writer = new Xlsx($spreadsheet);
+            $writer->setIncludeCharts(true);
             $writer->save($tempFile);
 
             // Limpiar archivos temporales de imágenes
@@ -184,6 +186,8 @@ class WellnessDeliveryExcelExportService
             ['Solicitudes entregadas', $stats['entregado']],
             ['Solicitudes canceladas', $stats['cancelado']],
             ['Total cantidad entregada', $stats['total_cantidad_entregada']],
+            ['Total cantidad por entregar (según beneficiarios)', $stats['total_por_entregar']],
+            ['Cantidad pendiente por entregar', $stats['total_pendiente_por_entregar']],
         ];
 
         $summaryStartRow = $row;
@@ -213,6 +217,9 @@ class WellnessDeliveryExcelExportService
         // Ajustar anchos de columna
         $sheet->getColumnDimension('A')->setWidth(40);
         $sheet->getColumnDimension('B')->setWidth(15);
+
+        // Agregar gráficas estratégicas usando los datos calculados
+        $this->addChartsToSummarySheet($sheet, $requests, $stats);
     }
 
     /**
@@ -233,6 +240,7 @@ class WellnessDeliveryExcelExportService
             'Beneficiarios',
             'Estado',
             'Cantidad Entregada',
+            'Por entregar',
             'Observaciones',
             'Usuario Entrega',
             'Email Usuario Entrega',
@@ -280,17 +288,18 @@ class WellnessDeliveryExcelExportService
             'G' => 40,  // Beneficiarios
             'H' => 15,  // Estado
             'I' => 18,  // Cantidad Entregada
-            'J' => 40,  // Observaciones
-            'K' => 30,  // Usuario Entrega
-            'L' => 30,  // Email Usuario Entrega
-            'M' => 18,  // IP Address
-            'N' => 18,  // Fecha Creación
-            'O' => 18,  // Fecha Actualización
+            'J' => 15,  // Por entregar
+            'K' => 40,  // Observaciones
+            'L' => 30,  // Usuario Entrega
+            'M' => 30,  // Email Usuario Entrega
+            'N' => 18,  // IP Address
+            'O' => 18,  // Fecha Creación
+            'P' => 18,  // Fecha Actualización
         ];
 
         if ($includeFirmas) {
-            $columnWidths['P'] = 30;  // Firma Solicitud
-            $columnWidths['Q'] = 30;  // Firma Recibido
+            $columnWidths['Q'] = 30;  // Firma Solicitud
+            $columnWidths['R'] = 30;  // Firma Recibido
         }
 
         foreach ($columnWidths as $col => $width) {
@@ -313,6 +322,12 @@ class WellnessDeliveryExcelExportService
                 $beneficiariosText = implode('; ', $beneficiariosList);
             }
 
+            // Calcular "Por entregar" como la cantidad de beneficiarios asociados al registro
+            $porEntregar = '';
+            if (!empty($request->beneficiarios) && is_array($request->beneficiarios)) {
+                $porEntregar = count($request->beneficiarios);
+            }
+
             $rowData = [
                 $request->id,
                 $request->tipo_entrega_text,
@@ -323,6 +338,7 @@ class WellnessDeliveryExcelExportService
                 $beneficiariosText,
                 $request->estado_text,
                 $request->cantidad_entregada ?? '',
+                $porEntregar,
                 $request->observaciones ?? '',
                 $request->entregadoPor ? $request->entregadoPor->name : '',
                 $request->entregadoPor ? $request->entregadoPor->email : '',
@@ -364,8 +380,8 @@ class WellnessDeliveryExcelExportService
 
             // Embeber firmas como imágenes si es necesario
             if ($includeFirmas) {
-                $firmaSolicitudCol = $this->getColumnLetter(16); // Columna P
-                $firmaRecibidoCol = $this->getColumnLetter(17); // Columna Q
+                $firmaSolicitudCol = $this->getColumnLetter(17); // Columna Q
+                $firmaRecibidoCol = $this->getColumnLetter(18); // Columna R
 
                 // Embeber firma de solicitud
                 if (!empty($request->firma)) {
@@ -428,6 +444,8 @@ class WellnessDeliveryExcelExportService
             'entregado' => 0,
             'cancelado' => 0,
             'total_cantidad_entregada' => 0,
+            'total_por_entregar' => 0,
+            'total_pendiente_por_entregar' => 0,
         ];
 
         foreach ($requests as $request) {
@@ -435,9 +453,195 @@ class WellnessDeliveryExcelExportService
             if ($request->estado === 'entregado' && $request->cantidad_entregada !== null) {
                 $stats['total_cantidad_entregada'] += $request->cantidad_entregada;
             }
+            // Acumular cantidad total "por entregar" basada en los beneficiarios
+            if (!empty($request->beneficiarios) && is_array($request->beneficiarios)) {
+                $stats['total_por_entregar'] += count($request->beneficiarios);
+            }
         }
 
+        // Calcular cantidad pendiente por entregar
+        $stats['total_pendiente_por_entregar'] = max(
+            0,
+            $stats['total_por_entregar'] - $stats['total_cantidad_entregada']
+        );
+
         return $stats;
+    }
+
+    /**
+     * Agregar gráficas estratégicas a la hoja de resumen.
+     *
+     * - Progreso de entregas: cantidad entregada vs cantidad pendiente por entregar.
+     * - Top usuarios que más han entregado (por cantidad entregada).
+     */
+    private function addChartsToSummarySheet(Worksheet $sheet, Collection $requests, array $stats): void
+    {
+        if ($requests->isEmpty()) {
+            return;
+        }
+
+        // Gráfica 1: Progreso de entregas (Entregado vs Pendiente por entregar)
+        if ($stats['total_por_entregar'] > 0) {
+            $labels = ['Entregado', 'Pendiente por entregar'];
+            $values = [
+                (float) $stats['total_cantidad_entregada'],
+                (float) $stats['total_pendiente_por_entregar'],
+            ];
+            $this->addDeliveryProgressChart($sheet, $labels, $values, 'D2', 'I18');
+        }
+
+        // Gráfica 2: Top usuarios que más han entregado (por cantidad entregada)
+        $delivererTotals = [];
+
+        foreach ($requests as $request) {
+            if ($request->estado === 'entregado' && $request->cantidad_entregada !== null && $request->entregadoPor) {
+                $responder = $request->entregadoPor;
+                $key = $responder->name . ' (' . $responder->email . ')';
+                $delivererTotals[$key] = ($delivererTotals[$key] ?? 0) + (int) $request->cantidad_entregada;
+            }
+        }
+
+        if (!empty($delivererTotals)) {
+            // Ordenar y tomar los top 10
+            arsort($delivererTotals);
+            $topDeliverers = array_slice($delivererTotals, 0, 10, true);
+            $this->addTopDeliverersChart($sheet, $topDeliverers, 'D20', 'K36');
+        }
+    }
+
+    /**
+     * Gráfica de progreso de entregas (pastel) usando cantidades entregadas vs pendientes.
+     */
+    private function addDeliveryProgressChart(Worksheet $sheet, array $labels, array $values, string $topLeft, string $bottomRight): void
+    {
+        // Evitar gráficas sin datos útiles
+        if (array_sum($values) <= 0) {
+            return;
+        }
+
+        $dataSeriesLabels = [
+            new DataSeriesValues(DataSeriesValues::DATASERIES_TYPE_STRING, null, null, 1),
+        ];
+
+        $xAxisTickValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_STRING,
+                null,
+                null,
+                count($labels),
+                $labels
+            ),
+        ];
+
+        $dataSeriesValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_NUMBER,
+                null,
+                null,
+                count($values),
+                $values
+            ),
+        ];
+
+        $series = new DataSeries(
+            DataSeries::TYPE_PIECHART,
+            DataSeries::GROUPING_STANDARD,
+            range(0, count($dataSeriesValues) - 1),
+            $dataSeriesLabels,
+            $xAxisTickValues,
+            $dataSeriesValues
+        );
+
+        $plotArea = new PlotArea(null, [$series]);
+        $legend = new Legend(Legend::POSITION_RIGHT, null, false);
+        $title = new Title('Cantidad entregada vs pendiente por entregar');
+
+        $chart = new Chart(
+            'chart_delivery_progress',
+            $title,
+            $legend,
+            $plotArea,
+            true,
+            0
+        );
+
+        $chart->setTopLeftPosition($topLeft);
+        $chart->setBottomRightPosition($bottomRight);
+
+        $sheet->addChart($chart);
+    }
+
+    /**
+     * Gráfica de barras con los usuarios que más han entregado.
+     */
+    private function addTopDeliverersChart(Worksheet $sheet, array $delivererTotals, string $topLeft, string $bottomRight): void
+    {
+        if (empty($delivererTotals)) {
+            return;
+        }
+
+        $names = array_keys($delivererTotals);
+        // Truncar nombres largos para mejor visualización
+        $names = array_map(function ($name) {
+            return mb_strlen($name) > 30 ? mb_substr($name, 0, 27) . '...' : $name;
+        }, $names);
+
+        $values = array_values($delivererTotals);
+
+        $dataSeriesLabels = [
+            new DataSeriesValues(DataSeriesValues::DATASERIES_TYPE_STRING, null, null, 1),
+        ];
+
+        $xAxisTickValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_STRING,
+                null,
+                null,
+                count($names),
+                $names
+            ),
+        ];
+
+        $dataSeriesValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_NUMBER,
+                null,
+                null,
+                count($values),
+                $values
+            ),
+        ];
+
+        $series = new DataSeries(
+            DataSeries::TYPE_BARCHART,
+            DataSeries::GROUPING_STANDARD,
+            range(0, count($dataSeriesValues) - 1),
+            $dataSeriesLabels,
+            $xAxisTickValues,
+            $dataSeriesValues
+        );
+
+        $series->setPlotDirection(DataSeries::DIRECTION_VERTICAL);
+
+        $plotArea = new PlotArea(null, [$series]);
+        $legend = new Legend(Legend::POSITION_RIGHT, null, false);
+        $title = new Title('Top usuarios que más han entregado (cantidad de kits)');
+
+        $chart = new Chart(
+            'chart_top_deliverers',
+            $title,
+            $legend,
+            $plotArea,
+            true,
+            0,
+            new Title('Usuario'),
+            new Title('Cantidad entregada')
+        );
+
+        $chart->setTopLeftPosition($topLeft);
+        $chart->setBottomRightPosition($bottomRight);
+
+        $sheet->addChart($chart);
     }
 
     /**
