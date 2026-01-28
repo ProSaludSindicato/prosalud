@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Constants\{RequestStatuses, RequestTypes};
 use App\Domain\RequestForm\RequestFormDTO;
+use App\Jobs\{SendRequestFormReceivedEmailJob, SendRequestFormResponseEmailJob};
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment};
 use Carbon\Carbon;
@@ -424,21 +425,15 @@ class CertificadoConvenioAutomaticoService
     private function enviarCorreoConfirmacion(RequestForm $requestForm): void
     {
         try {
-            $mail = Mail::to($requestForm->email);
-            
-            // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
-                $mail->cc('ceiisas@hotmail.com');
-            }
-            
-            $mail->send(new RequestFormReceived($requestForm, []));
+            // Enviar correo de confirmación de forma asíncrona usando Job encolado
+            SendRequestFormReceivedEmailJob::dispatch($requestForm->id);
 
-            Log::info('Correo de confirmación enviado para solicitud automática', [
+            Log::info('Correo de confirmación encolado para solicitud automática', [
                 'request_id' => $requestForm->id,
                 'email' => $requestForm->email,
             ]);
         } catch (\Throwable $e) {
-            Log::error('Error enviando correo de confirmación para solicitud automática', [
+            Log::error('Error encolando correo de confirmación para solicitud automática', [
                 'request_id' => $requestForm->id,
                 'error' => $e->getMessage(),
             ]);
@@ -563,26 +558,28 @@ class CertificadoConvenioAutomaticoService
         $nombreArchivoAdjunto = $this->generarNombreArchivoAdjunto($requestForm->document_number, $consecutivo);
         $archivoTemporal = $this->crearArchivoTemporalParaCorreo($rutaPdf, $nombreArchivoAdjunto);
 
-        try {
-            $mail = Mail::to($requestForm->email);
-            
-            // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
-                $mail->cc('ceiisas@hotmail.com');
-            }
+        // Serialize attachment file before passing to Job
+        $attachmentData = [];
+        if ($archivoTemporal && $archivoTemporal->isValid()) {
+            $attachmentData[] = [
+                'content' => file_get_contents($archivoTemporal->getRealPath()),
+                'name' => $archivoTemporal->getClientOriginalName(),
+                'mime' => $archivoTemporal->getMimeType(),
+            ];
+        }
 
-            // Agregar CC para solicitudes de retiro sindical
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                $mail->cc('talentohumano@sindicatoprosalud.com');
-            }
-            
-            $mail->send(new RequestFormResponse(
-                $requestForm,
+        try {
+            // Use dispatchSync to execute the job synchronously but more efficiently
+            // This maintains the current logic where status is only updated after successful email
+            SendRequestFormResponseEmailJob::dispatchSync(
+                $requestForm->id,
+                $requestForm->email,
                 $finalEmailSubject,
                 $finalEmailBody,
                 $finalStatus,
-                [$archivoTemporal]
-            ));
+                $attachmentData,
+                [] // Sin archivos comprimidos
+            );
 
             Log::info('Correo de respuesta automática enviado con certificado', [
                 'request_id' => $requestForm->id,

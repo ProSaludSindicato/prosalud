@@ -20,6 +20,7 @@ class RequestStatusLogResource extends JsonResource
             'changed_by' => $this->changed_by,
             'changed_by_name' => $this->user?->name,
             'changed_by_email' => $this->user?->email,
+            'reason' => $this->reason,
             'created_at' => $this->created_at,
             'created_at_formatted' => $this->created_at
                 ? $this->created_at->format('d/m/Y H:i:s')

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Constants\{RequestStatuses, RequestTypes};
+use App\Jobs\SendRequestFormResponseEmailJob;
 use App\Models\{RequestForm, RequestResponse, RequestStatusLog};
 use App\Mail\RequestFormResponse;
 use Carbon\Carbon;
@@ -770,26 +771,18 @@ class BulkRequestResponseService
         }
 
         // Enviar correo PRIMERO (si falla, no actualizamos el estado)
+        // Use dispatchSync to execute the job synchronously but more efficiently
+        // This maintains the current logic where status is only updated after successful email
         try {
-            $mail = Mail::to($recipientEmail);
-
-            // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
-                $mail->cc('ceiisas@hotmail.com');
-            }
-
-            // Agregar CC para solicitudes de retiro sindical
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                $mail->cc('talentohumano@sindicatoprosalud.com');
-            }
-
-            $mail->send(new RequestFormResponse(
-                $requestForm,
+            SendRequestFormResponseEmailJob::dispatchSync(
+                $requestId,
+                $recipientEmail,
                 $emailSubject,
                 $emailBody,
                 $normalizedStatus,
-                [] // Sin adjuntos en respuesta masiva por ahora
-            ));
+                [], // Sin adjuntos en respuesta masiva por ahora
+                [] // Sin archivos comprimidos
+            );
 
             Log::info('Correo de respuesta masiva enviado exitosamente', [
                 'request_id' => $requestId,

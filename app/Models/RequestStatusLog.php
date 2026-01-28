@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $old_status
  * @property string      $new_status
  * @property int|null    $changed_by
+ * @property string|null $reason
  * @property string      $created_at
  * @property RequestForm $requestForm
  * @property User|null   $user
@@ -24,6 +25,7 @@ class RequestStatusLog extends Model
         'old_status',
         'new_status',
         'changed_by',
+        'reason',
         'created_at',
     ];
 

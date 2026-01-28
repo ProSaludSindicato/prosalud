@@ -7,6 +7,7 @@ use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\RequestStatusLogResource;
 use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest, RedirectSubtypeRequest};
+use App\Jobs\{SendRequestFormReceivedEmailJob, SendRequestFormResponseEmailJob};
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestStatusLog, RequestSubtypeAssignment, RequestTypeAssignment};
 use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
@@ -87,39 +88,9 @@ class RequestController extends Controller
             'affiliate_email' => $requestForm->email,
         ]));
 
-        // Enviar correo de confirmación de forma asíncrona después de enviar la respuesta HTTP
+        // Enviar correo de confirmación de forma asíncrona usando Job encolado
         // Esto evita que el envío de correo bloquee la respuesta al frontend
-        // Importante: no capturar objetos UploadedFile en el cierre para evitar errores de serialización
-        $requestFormForEmail = $requestForm;
-        dispatch(function () use ($requestFormForEmail) {
-            try {
-                $mail = Mail::to($requestFormForEmail->email);
-
-                // Agregar CC para solicitudes de microcrédito
-                if ($requestFormForEmail->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
-                    $mail->cc('ceiisas@hotmail.com');
-                }
-
-                // Agregar CC para solicitudes de retiro sindical
-                if ($requestFormForEmail->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestFormForEmail->request_type === 'retiro-sindical') {
-                    $mail->cc('talentohumano@sindicatoprosalud.com');
-                }
-
-                $mail->send(new RequestFormReceived($requestFormForEmail));
-
-                Log::info('Correo de confirmación de solicitud enviado exitosamente', [
-                    'request_id' => $requestFormForEmail->id,
-                    'email' => $requestFormForEmail->email,
-                ]);
-            } catch (\Throwable $e) {
-                Log::error('Error enviando correo de confirmación de solicitud', [
-                    'request_id' => $requestFormForEmail->id,
-                    'email' => $requestFormForEmail->email,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-            }
-        })->afterResponse();
+        SendRequestFormReceivedEmailJob::dispatch($requestForm->id);
 
         $response = [
             'success' => true,
@@ -421,8 +392,10 @@ class RequestController extends Controller
         // Order by created_at desc by default
         $query->orderBy('created_at', 'desc');
 
-        // Eager load responses with attachments and responder for better performance
-        $requests = $query->with('responses.attachments', 'responses.responder')->get();
+        // Eager load responses with attachments and responder, and status logs for last change info
+        $requests = $query
+            ->with('responses.attachments', 'responses.responder', 'statusLogs.user')
+            ->get();
 
         Log::info('Lista de solicitudes consultada', [
             'total_requests' => $requests->count(),
@@ -435,8 +408,24 @@ class RequestController extends Controller
         return response()->json([
             'success' => true,
             'data' => $requests->map(function ($request) {
-                // Get raw attributes to avoid any accessor transformations
-                $attributes = $request->getAttributes();
+                // Último cambio de estado (si existe)
+                $lastStatusLog = $request->relationLoaded('statusLogs') ? $request->statusLogs->last() : null;
+
+                $lastStatusChange = null;
+                if ($lastStatusLog) {
+                    $lastStatusChange = [
+                        'old_status' => $lastStatusLog->old_status,
+                        'new_status' => $lastStatusLog->new_status,
+                        'reason' => $lastStatusLog->reason,
+                        'changed_by' => $lastStatusLog->changed_by,
+                        'changed_by_name' => $lastStatusLog->user?->name,
+                        'changed_by_email' => $lastStatusLog->user?->email,
+                        'changed_at' => $lastStatusLog->created_at?->toIso8601String(),
+                        'changed_at_formatted' => $lastStatusLog->created_at
+                            ? $lastStatusLog->created_at->format('d/m/Y H:i:s')
+                            : null,
+                    ];
+                }
 
                 return [
                     'id' => $request->id,
@@ -462,6 +451,7 @@ class RequestController extends Controller
                     'formatted_processed_at' => $request->formatted_processed_at,
                     'validated_at' => $request->validated_at?->toIso8601String(),
                     'validated_by' => $request->validator?->email,
+                    'last_status_change' => $lastStatusChange,
                     'responses' => $request->responses->map(function ($response) {
                         $attachments = $response->relationLoaded('attachments')
                             ? $response->attachments
@@ -817,6 +807,7 @@ class RequestController extends Controller
         }
 
         $previousStatus = $request->getOriginal('status');
+        $statusReason = $statusRequest->input('status_reason');
 
         $request->update($updateData);
 
@@ -826,6 +817,7 @@ class RequestController extends Controller
             'old_status' => $previousStatus,
             'new_status' => $status,
             'changed_by' => $user?->id,
+            'reason' => $statusReason,
             'created_at' => now(),
         ]);
 
@@ -1292,6 +1284,7 @@ class RequestController extends Controller
         if ($status === RequestStatuses::IN_REVIEW) {
             $user = auth()->user();
             $userId = $user ? $user->id : null;
+            $statusReason = $request->input('status_reason');
 
             Log::info('Estado IN_REVIEW detectado - actualizando estado sin enviar correo', [
                 'request_id' => $requestFormId,
@@ -1319,6 +1312,7 @@ class RequestController extends Controller
                 'old_status' => $oldStatus,
                 'new_status' => $status,
                 'changed_by' => $userId,
+                'reason' => $statusReason,
                 'created_at' => now(),
             ]);
 
@@ -1952,6 +1946,18 @@ class RequestController extends Controller
 
         // IMPORTANT: Send email FIRST, before updating status or creating response record (if not already created)
         // This ensures that if email fails, we don't update the request status
+        // Serialize attachment files before passing to Job
+        $attachmentData = [];
+        foreach ($nonCompressedFiles as $file) {
+            if ($file && $file->isValid()) {
+                $attachmentData[] = [
+                    'content' => file_get_contents($file->getRealPath()),
+                    'name' => $file->getClientOriginalName(),
+                    'mime' => $file->getMimeType(),
+                ];
+            }
+        }
+
         try {
             Log::info('Intentando enviar correo de respuesta', [
                 'request_id' => $requestFormId,
@@ -1965,26 +1971,17 @@ class RequestController extends Controller
                 'has_compressed_urls' => !empty($compressedFileUrls),
             ]);
 
-            $mail = Mail::to($recipientEmail);
-
-            // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
-                $mail->cc('ceiisas@hotmail.com');
-            }
-
-            // Agregar CC para solicitudes de retiro sindical
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                $mail->cc('talentohumano@sindicatoprosalud.com');
-            }
-
-            $mail->send(new RequestFormResponse(
-                $requestForm,
+            // Use dispatchSync to execute the job synchronously but more efficiently
+            // This maintains the current logic where status is only updated after successful email
+            SendRequestFormResponseEmailJob::dispatchSync(
+                $requestFormId,
+                $recipientEmail,
                 $emailSubject,
                 $emailBody,
                 $status,
-                $nonCompressedFiles, // Only pass non-compressed files as attachments
-                $compressedFileUrls // Pass compressed file URLs separately
-            ));
+                $attachmentData,
+                $compressedFileUrls
+            );
 
             Log::info('Correo de respuesta enviado exitosamente', [
                 'request_id' => $requestFormId,
@@ -2390,6 +2387,7 @@ class RequestController extends Controller
                     'old_status' => $oldStatus,
                     'new_status' => $status,
                     'changed_by' => $userId,
+                    'reason' => $request->input('status_reason'),
                     'created_at' => now(),
                 ]);
 
@@ -3852,8 +3850,8 @@ class RequestController extends Controller
             ->where('status', RequestStatuses::PENDING)
             ->orderBy('created_at', 'desc');
 
-        // Eager load responses and validator for better performance
-        $requests = $query->with('responses', 'validator')->get();
+        // Eager load responses, validator y logs de estado para obtener el último cambio
+        $requests = $query->with('responses', 'validator', 'statusLogs.user')->get();
 
         Log::info('Lista de solicitudes pendientes de actualización de datos personales consultada', [
             'total_requests' => $requests->count(),
@@ -3864,8 +3862,24 @@ class RequestController extends Controller
         return response()->json([
             'success' => true,
             'data' => $requests->map(function ($requestForm) {
-                // Get raw attributes to avoid any accessor transformations
-                $attributes = $requestForm->getAttributes();
+                // Último cambio de estado (si existe)
+                $lastStatusLog = $requestForm->relationLoaded('statusLogs') ? $requestForm->statusLogs->last() : null;
+
+                $lastStatusChange = null;
+                if ($lastStatusLog) {
+                    $lastStatusChange = [
+                        'old_status' => $lastStatusLog->old_status,
+                        'new_status' => $lastStatusLog->new_status,
+                        'reason' => $lastStatusLog->reason,
+                        'changed_by' => $lastStatusLog->user?->id,
+                        'changed_by_name' => $lastStatusLog->user?->name,
+                        'changed_by_email' => $lastStatusLog->user?->email,
+                        'changed_at' => $lastStatusLog->created_at?->toIso8601String(),
+                        'changed_at_formatted' => $lastStatusLog->created_at
+                            ? $lastStatusLog->created_at->format('d/m/Y H:i:s')
+                            : null,
+                    ];
+                }
 
                 return [
                     'id' => $requestForm->id,
@@ -3900,6 +3914,7 @@ class RequestController extends Controller
                     'responses_count' => $requestForm->responses->count(),
                     'files' => $this->formatFilesMetadata($requestForm->files, $requestForm->id),
                     'files_count' => is_array($requestForm->files) ? count($requestForm->files) : 0,
+                    'last_status_change' => $lastStatusChange,
                 ];
             }),
         ]);

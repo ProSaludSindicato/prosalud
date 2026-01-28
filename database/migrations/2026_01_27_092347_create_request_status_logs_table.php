@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('old_status')->nullable();
             $table->string('new_status');
             $table->unsignedBigInteger('changed_by')->nullable();
+            $table->string('reason', 1000)->nullable();
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('request_form_id')

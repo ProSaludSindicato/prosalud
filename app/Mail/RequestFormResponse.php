@@ -39,6 +39,15 @@ class RequestFormResponse extends Mailable
         $compressedExtensions = ['zip', 'rar'];
         
         foreach ($uploadedFiles as $file) {
+            // Check if it's already serialized data (from Job)
+            if (is_array($file) && isset($file['content']) && isset($file['name']) && isset($file['mime'])) {
+                // Already serialized data, use directly
+                $this->attachmentData[] = $file;
+                ++$fileIndex;
+                continue;
+            }
+            
+            // Otherwise, it's an UploadedFile object
             if ($file && $file->isValid()) {
                 $extension = strtolower($file->getClientOriginalExtension() ?? '');
                 

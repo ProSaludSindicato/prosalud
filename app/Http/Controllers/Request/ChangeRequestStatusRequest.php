@@ -33,6 +33,9 @@ class ChangeRequestStatusRequest extends FormRequest
             $rules['rejection_reason'] = 'nullable|string|max:1000';
         }
 
+        // Razón opcional para cambios de estado (por ejemplo, IN_REVIEW)
+        $rules['status_reason'] = 'nullable|string|max:1000';
+
         return $rules;
     }
 
@@ -59,6 +62,7 @@ class ChangeRequestStatusRequest extends FormRequest
         return [
             'status' => 'estado',
             'rejection_reason' => 'razón de rechazo',
+            'status_reason' => 'razón de cambio de estado',
         ];
     }
 
