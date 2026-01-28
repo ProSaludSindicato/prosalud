@@ -341,6 +341,8 @@ class KitBienestarController extends Controller
 
             // Formatear datos para incluir información del usuario
             $formattedData = $deliveryRequests->getCollection()->map(function ($deliveryRequest) {
+                $beneficiarios = $deliveryRequest->beneficiarios;
+
                 return [
                     'id' => $deliveryRequest->id,
                     'tipo_entrega' => $deliveryRequest->tipo_entrega,
@@ -348,6 +350,7 @@ class KitBienestarController extends Controller
                     'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
                     'hospital' => $deliveryRequest->hospital,
                     'estado' => $deliveryRequest->estado,
+                    'beneficiarios_count' => is_array($beneficiarios) ? count($beneficiarios) : 0,
                     'cantidad_entregada' => $deliveryRequest->cantidad_entregada,
                     'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
                     'entregado_por' => $deliveryRequest->entregadoPor ? [
@@ -402,6 +405,7 @@ class KitBienestarController extends Controller
                     'hospital' => $deliveryRequest->hospital,
                     'fecha_expedicion' => $deliveryRequest->fecha_expedicion,
                     'beneficiarios' => $deliveryRequest->beneficiarios,
+                    'beneficiarios_count' => is_array($deliveryRequest->beneficiarios) ? count($deliveryRequest->beneficiarios) : 0,
                     'beneficiarios_nombres' => $deliveryRequest->beneficiarios_nombres,
                     'firma' => $deliveryRequest->firma,
                     'firma_recibido' => $deliveryRequest->firma_recibido,
