@@ -1405,10 +1405,10 @@ class CertificadoConvenioService
 
     /**
      * Formatea la lista de actividades para el placeholder LISTA_ACTIVIDADES
-     * Genera una lista numerada de actividades con saltos de línea entre cada item
+     * Genera una lista con viñetas de actividades con saltos de línea entre cada item
      *
      * @param array $actividades Array de strings con las actividades
-     * @return string Lista formateada con números y saltos de línea
+     * @return string Lista formateada con viñetas y saltos de línea
      */
     private function formatearListaActividades(array $actividades): string
     {
@@ -1426,12 +1426,10 @@ class CertificadoConvenioService
             return '';
         }
 
-        // Generar lista numerada con saltos de línea entre cada item
+        // Generar lista con viñetas y saltos de línea entre cada item
         $lista = [];
-        $numero = 1;
         foreach ($actividadesLimpias as $actividad) {
-            $lista[] = "{$numero}. {$actividad}";
-            $numero++;
+            $lista[] = "• {$actividad}";
         }
 
         // Unir con doble salto de línea para que haya espacio entre cada actividad
