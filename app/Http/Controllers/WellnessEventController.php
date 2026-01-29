@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Constants\Providers;
 use App\Http\Requests\{ApproveWellnessEventRequest, ChangeWellnessEventVisibilityRequest, RejectWellnessEventRequest, ReviewWellnessEventRequest, StoreWellnessEventRequest, UpdateWellnessEventRequest};
 use App\Models\{WellnessEvent, WellnessEventImage};
+use Carbon\Carbon;
 use Illuminate\Http\{Request, Response};
 use Illuminate\Support\Facades\{Log, Storage};
 
@@ -26,12 +27,20 @@ class WellnessEventController extends Controller
             $query->where('category', $request->input('category'));
         }
         if ($request->filled('from_date')) {
-            $from = $request->date('from_date');
-            $query->whereDate('date', '>=', $from->format('Y-m-d'));
+            try {
+                $from = Carbon::parse($request->input('from_date'))->startOfDay();
+                $query->where('date', '>=', $from);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
         if ($request->filled('to_date')) {
-            $to = $request->date('to_date');
-            $query->whereDate('date', '<=', $to->format('Y-m-d'));
+            try {
+                $to = Carbon::parse($request->input('to_date'))->endOfDay();
+                $query->where('date', '<=', $to);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         // Pagination with default of 50 and max of 100
@@ -66,12 +75,20 @@ class WellnessEventController extends Controller
             $query->where('review_status', $request->input('review_status'));
         }
         if ($request->filled('from_date')) {
-            $from = $request->date('from_date');
-            $query->whereDate('date', '>=', $from->format('Y-m-d'));
+            try {
+                $from = Carbon::parse($request->input('from_date'))->startOfDay();
+                $query->where('date', '>=', $from);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
         if ($request->filled('to_date')) {
-            $to = $request->date('to_date');
-            $query->whereDate('date', '<=', $to->format('Y-m-d'));
+            try {
+                $to = Carbon::parse($request->input('to_date'))->endOfDay();
+                $query->where('date', '<=', $to);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         // Pagination with default of 50 and max of 100

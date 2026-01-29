@@ -313,12 +313,22 @@ class VoteController extends Controller
             $query = Vote::query();
 
             // Apply filters
-            if ($request->has('start_date')) {
-                $query->where('vote_timestamp', '>=', $request->input('start_date'));
+            if ($request->has('start_date') && $request->filled('start_date')) {
+                try {
+                    $startDate = Carbon::parse($request->input('start_date'))->startOfDay();
+                    $query->where('vote_timestamp', '>=', $startDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
-            if ($request->has('end_date')) {
-                $query->where('vote_timestamp', '<=', $request->input('end_date'));
+            if ($request->has('end_date') && $request->filled('end_date')) {
+                try {
+                    $endDate = Carbon::parse($request->input('end_date'))->endOfDay();
+                    $query->where('vote_timestamp', '<=', $endDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             if ($request->has('candidate_id')) {
@@ -423,11 +433,21 @@ class VoteController extends Controller
             $summaryStats = [
                 'total_votes_in_period' => $totalVotes,
                 'votes_by_candidate' => Vote::selectRaw('candidate_id, candidate_name, candidate_hospital, COUNT(*) as vote_count')
-                    ->when($request->has('start_date'), function ($q) use ($request) {
-                        return $q->where('vote_timestamp', '>=', $request->input('start_date'));
+                    ->when($request->has('start_date') && $request->filled('start_date'), function ($q) use ($request) {
+                        try {
+                            $startDate = Carbon::parse($request->input('start_date'))->startOfDay();
+                            return $q->where('vote_timestamp', '>=', $startDate);
+                        } catch (\Exception $e) {
+                            return $q;
+                        }
                     })
-                    ->when($request->has('end_date'), function ($q) use ($request) {
-                        return $q->where('vote_timestamp', '<=', $request->input('end_date'));
+                    ->when($request->has('end_date') && $request->filled('end_date'), function ($q) use ($request) {
+                        try {
+                            $endDate = Carbon::parse($request->input('end_date'))->endOfDay();
+                            return $q->where('vote_timestamp', '<=', $endDate);
+                        } catch (\Exception $e) {
+                            return $q;
+                        }
                     })
                     ->when($request->has('voter_hospital'), function ($q) use ($request) {
                         return $q->where('voter_hospital', $request->input('voter_hospital'));
@@ -444,11 +464,21 @@ class VoteController extends Controller
                         ];
                     }),
                 'votes_by_hospital' => Vote::selectRaw('voter_hospital, COUNT(*) as vote_count')
-                    ->when($request->has('start_date'), function ($q) use ($request) {
-                        return $q->where('vote_timestamp', '>=', $request->input('start_date'));
+                    ->when($request->has('start_date') && $request->filled('start_date'), function ($q) use ($request) {
+                        try {
+                            $startDate = Carbon::parse($request->input('start_date'))->startOfDay();
+                            return $q->where('vote_timestamp', '>=', $startDate);
+                        } catch (\Exception $e) {
+                            return $q;
+                        }
                     })
-                    ->when($request->has('end_date'), function ($q) use ($request) {
-                        return $q->where('vote_timestamp', '<=', $request->input('end_date'));
+                    ->when($request->has('end_date') && $request->filled('end_date'), function ($q) use ($request) {
+                        try {
+                            $endDate = Carbon::parse($request->input('end_date'))->endOfDay();
+                            return $q->where('vote_timestamp', '<=', $endDate);
+                        } catch (\Exception $e) {
+                            return $q;
+                        }
                     })
                     ->when($request->has('candidate_id'), function ($q) use ($request) {
                         return $q->where('candidate_id', $request->input('candidate_id'));
@@ -457,11 +487,21 @@ class VoteController extends Controller
                     ->orderBy('vote_count', 'desc')
                     ->get(),
                 'votes_by_date' => Vote::selectRaw('DATE(vote_timestamp) as vote_date, COUNT(*) as vote_count')
-                    ->when($request->has('start_date'), function ($q) use ($request) {
-                        return $q->where('vote_timestamp', '>=', $request->input('start_date'));
+                    ->when($request->has('start_date') && $request->filled('start_date'), function ($q) use ($request) {
+                        try {
+                            $startDate = Carbon::parse($request->input('start_date'))->startOfDay();
+                            return $q->where('vote_timestamp', '>=', $startDate);
+                        } catch (\Exception $e) {
+                            return $q;
+                        }
                     })
-                    ->when($request->has('end_date'), function ($q) use ($request) {
-                        return $q->where('vote_timestamp', '<=', $request->input('end_date'));
+                    ->when($request->has('end_date') && $request->filled('end_date'), function ($q) use ($request) {
+                        try {
+                            $endDate = Carbon::parse($request->input('end_date'))->endOfDay();
+                            return $q->where('vote_timestamp', '<=', $endDate);
+                        } catch (\Exception $e) {
+                            return $q;
+                        }
                     })
                     ->groupBy('vote_date')
                     ->orderBy('vote_date', 'desc')

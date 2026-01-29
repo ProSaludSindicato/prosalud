@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Assembly;
 use App\Http\Controllers\Controller;
 use App\Models\Assembly;
 use App\Models\AssemblyAttendance;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -46,11 +47,21 @@ class AssemblyAttendanceController extends Controller
         }
 
         if (!empty($validated['from'])) {
-            $query->whereDate('authenticated_at', '>=', $validated['from']);
+            try {
+                $startDate = Carbon::parse($validated['from'])->startOfDay();
+                $query->where('authenticated_at', '>=', $startDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         if (!empty($validated['to'])) {
-            $query->whereDate('authenticated_at', '<=', $validated['to']);
+            try {
+                $endDate = Carbon::parse($validated['to'])->endOfDay();
+                $query->where('authenticated_at', '<=', $endDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         $perPage = $validated['perPage'] ?? 50;

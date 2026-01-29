@@ -8,6 +8,7 @@ use App\Http\Resources\HospitalRequestResource;
 use App\Mail\HospitalRequestStatusUpdated;
 use App\Models\{Hospital, HospitalRequest, InventoryLocation, InventoryVariant, User};
 use App\Services\InventoryStockService;
+use Carbon\Carbon;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{DB, Log, Mail};
 use Illuminate\Support\Str;
@@ -47,12 +48,22 @@ class HospitalRequestController extends Controller
             }
 
             // Date range filter
-            if ($request->has('dateFrom') && $request->dateFrom) {
-                $query->where('created_at', '>=', $request->dateFrom);
+            if ($request->has('dateFrom') && $request->filled('dateFrom')) {
+                try {
+                    $startDate = Carbon::parse($request->input('dateFrom'))->startOfDay();
+                    $query->where('created_at', '>=', $startDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
-            if ($request->has('dateTo') && $request->dateTo) {
-                $query->where('created_at', '<=', $request->dateTo);
+            if ($request->has('dateTo') && $request->filled('dateTo')) {
+                try {
+                    $endDate = Carbon::parse($request->input('dateTo'))->endOfDay();
+                    $query->where('created_at', '<=', $endDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             // Check if summary is requested

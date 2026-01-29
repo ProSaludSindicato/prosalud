@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -59,7 +60,25 @@ class Vote extends Model
      */
     public function scopeByDateRange($query, $startDate, $endDate)
     {
-        return $query->whereBetween('vote_timestamp', [$startDate, $endDate]);
+        if ($startDate) {
+            try {
+                $start = Carbon::parse($startDate)->startOfDay();
+                $query->where('vote_timestamp', '>=', $start);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
+        }
+
+        if ($endDate) {
+            try {
+                $end = Carbon::parse($endDate)->endOfDay();
+                $query->where('vote_timestamp', '<=', $end);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
+        }
+
+        return $query;
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Http\Requests\Inventory\StoreInventoryEntryRequest;
 use App\Http\Resources\InventoryEntryResource;
 use App\Models\{InventoryEntry, InventoryLocation, InventoryProduct, InventoryVariant};
 use App\Services\InventoryStockService;
+use Carbon\Carbon;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{DB, Log};
 use Illuminate\Support\Str;
@@ -32,11 +33,21 @@ class InventoryEntryController extends Controller
             }
 
             if ($request->filled('dateFrom')) {
-                $query->whereDate('received_at', '>=', $request->date('dateFrom'));
+                try {
+                    $startDate = Carbon::parse($request->input('dateFrom'))->startOfDay();
+                    $query->where('received_at', '>=', $startDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             if ($request->filled('dateTo')) {
-                $query->whereDate('received_at', '<=', $request->date('dateTo'));
+                try {
+                    $endDate = Carbon::parse($request->input('dateTo'))->endOfDay();
+                    $query->where('received_at', '<=', $endDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             $page = (int) $request->input('page', 1);

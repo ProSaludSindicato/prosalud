@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Inventory;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InventoryStockMovementResource;
 use App\Models\InventoryStockMovement;
+use Carbon\Carbon;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Log;
 
@@ -37,11 +38,21 @@ class InventoryStockMovementController extends Controller
             }
 
             if ($request->filled('dateFrom')) {
-                $query->whereDate('moved_at', '>=', $request->input('dateFrom'));
+                try {
+                    $startDate = Carbon::parse($request->input('dateFrom'))->startOfDay();
+                    $query->where('moved_at', '>=', $startDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             if ($request->filled('dateTo')) {
-                $query->whereDate('moved_at', '<=', $request->input('dateTo'));
+                try {
+                    $endDate = Carbon::parse($request->input('dateTo'))->endOfDay();
+                    $query->where('moved_at', '<=', $endDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             $page = (int) $request->input('page', 1);

@@ -6,6 +6,7 @@ use App\Http\Requests\{ExportWellnessExcelRequest, StoreWellnessRequestRequest, 
 use App\Mail\{WellnessRequestReceived, WellnessRequestUpdated};
 use App\Models\{User, WellnessRequest};
 use App\Services\{AuditLogService, WellnessExcelExportService};
+use Carbon\Carbon;
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -41,12 +42,22 @@ class WellnessRequestController extends Controller
         }
 
         // Filter by date range
-        if ($request->has('fechaDesde')) {
-            $query->whereDate('proposed_date', '>=', $request->input('fechaDesde'));
+        if ($request->has('fechaDesde') && $request->filled('fechaDesde')) {
+            try {
+                $startDate = Carbon::parse($request->input('fechaDesde'))->startOfDay();
+                $query->where('proposed_date', '>=', $startDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
-        if ($request->has('fechaHasta')) {
-            $query->whereDate('proposed_date', '<=', $request->input('fechaHasta'));
+        if ($request->has('fechaHasta') && $request->filled('fechaHasta')) {
+            try {
+                $endDate = Carbon::parse($request->input('fechaHasta'))->endOfDay();
+                $query->where('proposed_date', '<=', $endDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         // Search by activity name
@@ -680,12 +691,22 @@ class WellnessRequestController extends Controller
             }
 
             // Filter by date range
-            if ($request->has('fechaDesde')) {
-                $query->whereDate('proposed_date', '>=', $request->input('fechaDesde'));
+            if ($request->has('fechaDesde') && $request->filled('fechaDesde')) {
+                try {
+                    $startDate = Carbon::parse($request->input('fechaDesde'))->startOfDay();
+                    $query->where('proposed_date', '>=', $startDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
-            if ($request->has('fechaHasta')) {
-                $query->whereDate('proposed_date', '<=', $request->input('fechaHasta'));
+            if ($request->has('fechaHasta') && $request->filled('fechaHasta')) {
+                try {
+                    $endDate = Carbon::parse($request->input('fechaHasta'))->endOfDay();
+                    $query->where('proposed_date', '<=', $endDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             // Search by activity name

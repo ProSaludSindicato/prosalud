@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\{StoreChatbotConversationRequest, UpdateChatbotFeedbackRequest};
 use App\Models\ChatbotConversation;
+use Carbon\Carbon;
 use Illuminate\Http\{Request, Response};
 
 class ChatbotConversationController extends Controller
@@ -22,12 +23,20 @@ class ChatbotConversationController extends Controller
             $query->where('conversation_id', $request->input('conversation_id'));
         }
         if ($request->filled('from_date')) {
-            $from = $request->date('from_date');
-            $query->whereDate('created_at', '>=', $from->format('Y-m-d'));
+            try {
+                $from = Carbon::parse($request->input('from_date'))->startOfDay();
+                $query->where('created_at', '>=', $from);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
         if ($request->filled('to_date')) {
-            $to = $request->date('to_date');
-            $query->whereDate('created_at', '<=', $to->format('Y-m-d'));
+            try {
+                $to = Carbon::parse($request->input('to_date'))->endOfDay();
+                $query->where('created_at', '<=', $to);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
         if ($request->filled('q')) {
             $q = $request->input('q');

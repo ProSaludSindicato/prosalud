@@ -258,10 +258,10 @@ class InventoryReportService
         $query = SupplierDelivery::with(['items.variant.color', 'items.product']);
 
         if ($startDate) {
-            $query->where('delivery_date', '>=', $startDate->format('Y-m-d'));
+            $query->where('delivery_date', '>=', $startDate->startOfDay());
         }
         if ($endDate) {
-            $query->where('delivery_date', '<=', $endDate->format('Y-m-d'));
+            $query->where('delivery_date', '<=', $endDate->endOfDay());
         }
 
         $deliveries = $query->get();
