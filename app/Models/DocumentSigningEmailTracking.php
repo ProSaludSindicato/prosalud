@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -94,11 +95,21 @@ class DocumentSigningEmailTracking extends Model
     public function scopeByDateRange($query, ?string $fechaDesde = null, ?string $fechaHasta = null)
     {
         if ($fechaDesde) {
-            $query->whereDate('created_at', '>=', $fechaDesde);
+            try {
+                $startDate = Carbon::parse($fechaDesde)->startOfDay();
+                $query->where('created_at', '>=', $startDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         if ($fechaHasta) {
-            $query->whereDate('created_at', '<=', $fechaHasta);
+            try {
+                $endDate = Carbon::parse($fechaHasta)->endOfDay();
+                $query->where('created_at', '<=', $endDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         return $query;

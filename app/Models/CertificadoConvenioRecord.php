@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -51,11 +52,21 @@ class CertificadoConvenioRecord extends Model
     public function scopeByFechaRango($query, ?string $fechaDesde = null, ?string $fechaHasta = null)
     {
         if ($fechaDesde) {
-            $query->whereDate('generated_at', '>=', $fechaDesde);
+            try {
+                $startDate = Carbon::parse($fechaDesde)->startOfDay();
+                $query->where('generated_at', '>=', $startDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
         
         if ($fechaHasta) {
-            $query->whereDate('generated_at', '<=', $fechaHasta);
+            try {
+                $endDate = Carbon::parse($fechaHasta)->endOfDay();
+                $query->where('generated_at', '<=', $endDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
         
         return $query;

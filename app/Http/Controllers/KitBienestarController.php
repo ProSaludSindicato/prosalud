@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\{ExportWellnessDeliveryExcelRequest, StoreKitBienestarRequest, UpdateWellnessDeliveryRequestStatusRequest, UploadKitBienestarFileRequest};
 use App\Models\{KitBienestarFileVersion, WellnessDeliveryRequest};
 use App\Services\{KitBienestarService, LogSanitizationService, WellnessDeliveryExcelExportService};
+use Carbon\Carbon;
 use Illuminate\Http\{JsonResponse, Request};
 use Symfony\Component\HttpFoundation\{BinaryFileResponse as SymfonyBinaryFileResponse, StreamedResponse};
 use Illuminate\Support\Facades\{Cache, DB, Log, Storage};
@@ -328,6 +329,25 @@ class KitBienestarController extends Controller
 
             if ($request->has('documento')) {
                 $query->porDocumento($request->input('documento'));
+            }
+
+            // Filtro por rango de fechas (fecha de creación)
+            if ($request->has('fecha_desde') && $request->filled('fecha_desde')) {
+                try {
+                    $startDate = Carbon::parse($request->input('fecha_desde'))->startOfDay();
+                    $query->where('created_at', '>=', $startDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
+            }
+
+            if ($request->has('fecha_hasta') && $request->filled('fecha_hasta')) {
+                try {
+                    $endDate = Carbon::parse($request->input('fecha_hasta'))->endOfDay();
+                    $query->where('created_at', '<=', $endDate);
+                } catch (\Exception $e) {
+                    // Ignorar fecha inválida
+                }
             }
 
             // Ordenamiento

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -62,7 +63,25 @@ class ConvenioEmailTracking extends Model
      */
     public function scopeByFechaRango($query, $fechaInicio, $fechaFin)
     {
-        return $query->whereBetween('created_at', [$fechaInicio, $fechaFin]);
+        if ($fechaInicio) {
+            try {
+                $startDate = Carbon::parse($fechaInicio)->startOfDay();
+                $query->where('created_at', '>=', $startDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
+        }
+
+        if ($fechaFin) {
+            try {
+                $endDate = Carbon::parse($fechaFin)->endOfDay();
+                $query->where('created_at', '<=', $endDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
+        }
+
+        return $query;
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -70,11 +71,21 @@ class DocusignConvenioFirmado extends Model
     public function scopeByDateRange($query, ?string $fechaDesde = null, ?string $fechaHasta = null)
     {
         if ($fechaDesde) {
-            $query->whereDate('envelope_completed_at', '>=', $fechaDesde);
+            try {
+                $startDate = Carbon::parse($fechaDesde)->startOfDay();
+                $query->where('envelope_completed_at', '>=', $startDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         if ($fechaHasta) {
-            $query->whereDate('envelope_completed_at', '<=', $fechaHasta);
+            try {
+                $endDate = Carbon::parse($fechaHasta)->endOfDay();
+                $query->where('envelope_completed_at', '<=', $endDate);
+            } catch (\Exception $e) {
+                // Ignorar fecha inválida
+            }
         }
 
         return $query;
