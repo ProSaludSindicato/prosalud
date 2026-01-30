@@ -8,6 +8,8 @@ use App\Models\{
     ChatbotConversation,
     ConvenioEmailTracking,
     RequestForm,
+    RequestResponse,
+    RequestResponseAttachment,
     RequestStatusLog,
     SocioDemographicSurvey,
     SstDeliveryItem,
@@ -411,22 +413,59 @@ class GenerateSystemMetricsCommand extends Command
         $total = $query->count();
 
         // Certificados automáticos vs manuales
-        // Automáticos: RequestForm de tipo certificado-convenio que son "simples"
-        $automaticQuery = $this->applyDateFilter(RequestForm::query())
+        // Obtener todas las solicitudes de certificado de convenio completadas en el período
+        $certificateRequestsQuery = $this->applyDateFilter(RequestForm::query())
             ->where('request_type', RequestTypes::CERTIFICADO_CONVENIO)
             ->where('status', RequestStatuses::COMPLETED);
 
-        $automaticCount = 0;
+        $certificateRequests = $certificateRequestsQuery->get();
+
+        $automaticCase1Count = 0; // Sistema resuelve automáticamente sin intervención
+        $automaticCase2Count = 0; // Usuario comparte datos, sistema genera certificado
         $manualCount = 0;
 
-        $certificateRequests = $automaticQuery->get();
         foreach ($certificateRequests as $request) {
-            if ($request->esCertificadoConvenioSimple()) {
-                $automaticCount++;
+            // Buscar respuestas de esta solicitud que tengan certificados adjuntos
+            $responses = RequestResponse::where('request_form_id', $request->id)->get();
+            
+            $hasCertificateAttachment = false;
+            $hasUserResponse = false;
+            
+            foreach ($responses as $response) {
+                // Verificar si hay attachments que sean certificados
+                $attachments = RequestResponseAttachment::where('request_response_id', $response->id)->get();
+                
+                foreach ($attachments as $attachment) {
+                    // Los certificados se guardan en paths que contienen "certificados/convenio"
+                    if (str_contains($attachment->path, 'certificados/convenio') || 
+                        str_contains($attachment->path, 'certificado') ||
+                        str_contains(strtolower($attachment->original_name), 'certificado')) {
+                        $hasCertificateAttachment = true;
+                        
+                        // Si la respuesta tiene un usuario que respondió, es caso 2
+                        if ($response->responded_by !== null) {
+                            $hasUserResponse = true;
+                        }
+                        break 2; // Salir de ambos loops
+                    }
+                }
+            }
+            
+            if ($hasCertificateAttachment) {
+                if ($hasUserResponse) {
+                    // Caso 2: Usuario compartió datos, sistema generó certificado
+                    $automaticCase2Count++;
+                } else {
+                    // Caso 1: Sistema resolvió automáticamente
+                    $automaticCase1Count++;
+                }
             } else {
+                // No hay certificado generado por el sistema, es manual
                 $manualCount++;
             }
         }
+
+        $automaticCount = $automaticCase1Count + $automaticCase2Count;
 
         // Certificados con/sin compensaciones
         $withCompensations = $query->clone()
@@ -465,16 +504,18 @@ class GenerateSystemMetricsCommand extends Command
             ->toArray();
 
         return [
-            'total' => $total,
-            'automatic' => $automaticCount,
-            'manual' => $manualCount,
-            'with_compensations' => $withCompensations,
-            'without_compensations' => $withoutCompensations,
-            'by_type' => $byType,
-            'directed_to_entity' => $directedToEntity,
-            'not_directed_to_entity' => $notDirectedToEntity,
-            'avg_per_day' => $avgPerDay,
-            'by_month' => $byMonth,
+            'total' => (int) $total,
+            'automatic' => (int) $automaticCount,
+            'automatic_case1' => (int) $automaticCase1Count, // Sistema resuelve automáticamente
+            'automatic_case2' => (int) $automaticCase2Count, // Usuario comparte datos, sistema genera
+            'manual' => (int) $manualCount,
+            'with_compensations' => (int) $withCompensations,
+            'without_compensations' => (int) $withoutCompensations,
+            'by_type' => array_map('intval', $byType),
+            'directed_to_entity' => (int) $directedToEntity,
+            'not_directed_to_entity' => (int) $notDirectedToEntity,
+            'avg_per_day' => round($avgPerDay, 2),
+            'by_month' => array_map('intval', $byMonth),
         ];
     }
 
@@ -1158,6 +1199,8 @@ class GenerateSystemMetricsCommand extends Command
         $this->line('');
 
         $this->line('Certificados Automáticos: ' . $this->formatNumber($metrics['automatic']));
+        $this->line('  - Caso 1 (Sistema resuelve automáticamente): ' . $this->formatNumber($metrics['automatic_case1']));
+        $this->line('  - Caso 2 (Usuario comparte datos, sistema genera): ' . $this->formatNumber($metrics['automatic_case2']));
         $this->line('Certificados Manuales: ' . $this->formatNumber($metrics['manual']));
         $this->line('');
 
