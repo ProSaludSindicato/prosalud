@@ -330,14 +330,73 @@ class WellnessEventController extends Controller
             $hasFileUpdates = false;
             $updateData = $data;
 
+            // Log current state of images before update
+            $currentImagesCount = $wellnessEvent->images()->count();
+            $currentImages = $wellnessEvent->images()->get()->map(function ($img) {
+                return ['id' => $img->id, 'url' => $img->image_url, 'is_main' => $img->is_main];
+            })->toArray();
+
+            Log::info('Estado actual de imágenes antes de actualizar', [
+                'event_id' => $wellnessEvent->id,
+                'current_images_count' => $currentImagesCount,
+                'current_images' => $currentImages,
+                'timestamp' => now()->toISOString(),
+            ]);
+
             // Handle image uploads if provided (check both validated data and direct request)
             $images = null;
+            $imagesSource = null;
+            
+            // Detailed logging of image detection
+            $imageDetectionInfo = [
+                'has_images_in_data' => isset($data['images']),
+                'has_images_in_request' => $request->hasFile('images'),
+                'images_in_data_type' => isset($data['images']) ? gettype($data['images']) : null,
+                'images_in_data_count' => isset($data['images']) ? (is_array($data['images']) ? count($data['images']) : 'not_array') : 0,
+                'request_file_images' => $request->file('images'),
+                'request_file_images_type' => gettype($request->file('images')),
+                'request_file_images_count' => is_array($request->file('images', [])) ? count($request->file('images', [])) : 0,
+                'all_request_files' => array_keys($request->allFiles()),
+            ];
+
+            Log::info('Detección de imágenes en request de actualización', [
+                'event_id' => $wellnessEvent->id,
+                'detection_info' => $imageDetectionInfo,
+                'timestamp' => now()->toISOString(),
+            ]);
+
             if (isset($data['images'])) {
                 $images = $data['images'];
+                $imagesSource = 'validated_data';
                 unset($updateData['images']);
+                Log::info('Imágenes encontradas en validated data', [
+                    'event_id' => $wellnessEvent->id,
+                    'images_count' => is_array($images) ? count($images) : 'not_array',
+                    'images_type' => gettype($images),
+                ]);
             } elseif ($request->hasFile('images')) {
                 // If images are in request but not in validated data, get them directly
                 $images = $request->file('images');
+                $imagesSource = 'request_file';
+                Log::info('Imágenes encontradas en request file', [
+                    'event_id' => $wellnessEvent->id,
+                    'images_count' => is_array($images) ? count($images) : 'not_array',
+                    'images_type' => gettype($images),
+                ]);
+            } else {
+                Log::warning('No se encontraron imágenes en el request', [
+                    'event_id' => $wellnessEvent->id,
+                    'detection_info' => $imageDetectionInfo,
+                ]);
+            }
+
+            // Normalize images to array if needed
+            if ($images !== null && !is_array($images)) {
+                $images = [$images];
+                Log::info('Imágenes normalizadas a array', [
+                    'event_id' => $wellnessEvent->id,
+                    'normalized_count' => count($images),
+                ]);
             }
 
             if ($images !== null && !empty($images)) {
@@ -346,14 +405,44 @@ class WellnessEventController extends Controller
                 Log::info('Procesando imágenes para actualización de evento de bienestar', [
                     'event_id' => $wellnessEvent->id,
                     'images_count' => count($images),
+                    'images_source' => $imagesSource,
+                    'images_details' => array_map(function ($img, $idx) {
+                        return [
+                            'index' => $idx,
+                            'original_name' => method_exists($img, 'getClientOriginalName') ? $img->getClientOriginalName() : 'N/A',
+                            'mime_type' => method_exists($img, 'getMimeType') ? $img->getMimeType() : 'N/A',
+                            'size' => method_exists($img, 'getSize') ? $img->getSize() : 'N/A',
+                            'is_valid' => method_exists($img, 'isValid') ? $img->isValid() : 'N/A',
+                        ];
+                    }, $images, array_keys($images)),
                     'timestamp' => now()->toISOString(),
                 ]);
 
                 // Delete existing images
+                Log::info('Iniciando eliminación de imágenes existentes', [
+                    'event_id' => $wellnessEvent->id,
+                    'images_to_delete_count' => $currentImagesCount,
+                ]);
                 $this->deleteEventImages($wellnessEvent);
+                Log::info('Eliminación de imágenes existentes completada', [
+                    'event_id' => $wellnessEvent->id,
+                ]);
 
                 // Upload new images
+                Log::info('Iniciando carga de nuevas imágenes', [
+                    'event_id' => $wellnessEvent->id,
+                    'new_images_count' => count($images),
+                ]);
                 $this->handleImageUploads($wellnessEvent, $images);
+                Log::info('Carga de nuevas imágenes completada', [
+                    'event_id' => $wellnessEvent->id,
+                ]);
+            } else {
+                Log::info('No se procesarán imágenes - imágenes es null o vacío', [
+                    'event_id' => $wellnessEvent->id,
+                    'images_is_null' => $images === null,
+                    'images_is_empty' => $images !== null && empty($images),
+                ]);
             }
 
             // Handle attendance_list file if provided
@@ -434,7 +523,12 @@ class WellnessEventController extends Controller
                     'error' => 'La solicitud no contiene datos válidos para actualizar el evento',
                 ], 422);
             }
+            // Reload images to get final state
             $wellnessEvent->load('images');
+            $finalImagesCount = $wellnessEvent->images()->count();
+            $finalImages = $wellnessEvent->images()->get()->map(function ($img) {
+                return ['id' => $img->id, 'url' => $img->image_url, 'is_main' => $img->is_main];
+            })->toArray();
 
             Log::info('Evento de bienestar actualizado exitosamente', [
                 'event_id' => $wellnessEvent->id,
@@ -442,8 +536,12 @@ class WellnessEventController extends Controller
                 'category' => $wellnessEvent->category,
                 'date' => $wellnessEvent->date,
                 'is_visible' => $wellnessEvent->is_visible,
-                'images_count' => $wellnessEvent->images->count(),
+                'images_count' => $finalImagesCount,
+                'images_before' => $currentImagesCount,
+                'images_after' => $finalImagesCount,
+                'final_images' => $finalImages,
                 'has_attendance_list' => !empty($wellnessEvent->attendance_list_path),
+                'has_file_updates' => $hasFileUpdates,
                 'user_id' => $request->user()?->id,
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
@@ -824,6 +922,13 @@ class WellnessEventController extends Controller
         $disk = 'prosalud-public';
         $fallbackDisk = 'public';
 
+        Log::info('handleImageUploads - Iniciando procesamiento', [
+            'event_id' => $event->id,
+            'images_count' => count($images),
+            'images_types' => array_map('gettype', $images),
+            'timestamp' => now()->toISOString(),
+        ]);
+
         foreach ($images as $index => $image) {
             // Generate unique filename with descriptive name
             $extension = $image->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($image->getMimeType());
@@ -950,6 +1055,16 @@ class WellnessEventController extends Controller
                 'timestamp' => now()->toISOString(),
             ]);
         }
+
+        // Reload event images to verify
+        $event->load('images');
+        $finalImagesCount = $event->images()->count();
+        Log::info('handleImageUploads - Procesamiento completado', [
+            'event_id' => $event->id,
+            'images_processed_count' => count($images),
+            'final_images_count_in_db' => $finalImagesCount,
+            'timestamp' => now()->toISOString(),
+        ]);
     }
 
     /**
@@ -959,6 +1074,16 @@ class WellnessEventController extends Controller
     {
         $disk = 'prosalud-public';
         $fallbackDisk = 'public';
+
+        $imagesCount = $event->images()->count();
+        Log::info('deleteEventImages - Iniciando eliminación', [
+            'event_id' => $event->id,
+            'images_to_delete_count' => $imagesCount,
+            'timestamp' => now()->toISOString(),
+        ]);
+
+        // Reload images to ensure we have fresh data
+        $event->load('images');
 
         foreach ($event->images as $image) {
             try {
@@ -984,14 +1109,27 @@ class WellnessEventController extends Controller
 
                 // Delete database record
                 $image->delete();
+                Log::info('Registro de imagen eliminado de BD', [
+                    'event_id' => $event->id,
+                    'image_id' => $image->id,
+                ]);
             } catch (\Exception $e) {
                 Log::error('Error eliminando imagen en deleteEventImages', [
                     'event_id' => $event->id,
                     'image_id' => $image->id,
                     'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
                 ]);
             }
         }
+
+        $remainingCount = $event->images()->count();
+        Log::info('deleteEventImages - Eliminación completada', [
+            'event_id' => $event->id,
+            'images_deleted_count' => $imagesCount,
+            'remaining_images_count' => $remainingCount,
+            'timestamp' => now()->toISOString(),
+        ]);
     }
 
     /**

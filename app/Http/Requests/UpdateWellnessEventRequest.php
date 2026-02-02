@@ -85,6 +85,22 @@ class UpdateWellnessEventRequest extends FormRequest
         $inputData = $this->input();
         $contentType = $this->header('Content-Type', '');
         
+        // Detailed file logging
+        $imagesFiles = $this->file('images', []);
+        $imagesInfo = [];
+        if (!empty($imagesFiles)) {
+            foreach ($imagesFiles as $index => $file) {
+                $imagesInfo[] = [
+                    'index' => $index,
+                    'original_name' => $file->getClientOriginalName(),
+                    'mime_type' => $file->getMimeType(),
+                    'size' => $file->getSize(),
+                    'is_valid' => $file->isValid(),
+                    'error' => $file->getError(),
+                ];
+            }
+        }
+
         Log::info('UpdateWellnessEventRequest - Datos recibidos', [
             'method' => $this->method(),
             'content_type' => $contentType,
@@ -92,9 +108,19 @@ class UpdateWellnessEventRequest extends FormRequest
             'json_data' => $this->json()->all(),
             'input_data' => $inputData,
             'has_files' => $this->hasFile('images') || $this->hasFile('attendance_list'),
-            'files_count' => count($this->file('images', [])),
+            'has_images_file' => $this->hasFile('images'),
             'has_attendance_list_file' => $this->hasFile('attendance_list'),
-            'request_body' => substr($this->getContent(), 0, 500), // Limit log size
+            'files_count' => count($imagesFiles),
+            'images_info' => $imagesInfo,
+            'all_files_keys' => array_keys($this->allFiles()),
+            'file_methods_check' => [
+                'hasFile_images' => $this->hasFile('images'),
+                'hasFile_images_array' => $this->hasFile('images.*'),
+                'file_images' => !empty($this->file('images')),
+                'file_images_array' => !empty($this->file('images', [])),
+            ],
+            'request_body_preview' => substr($this->getContent(), 0, 1000), // Increased preview
+            'request_body_length' => strlen($this->getContent()),
             'ip_address' => $this->ip(),
             'user_agent' => $this->userAgent(),
             'timestamp' => now()->toISOString(),
