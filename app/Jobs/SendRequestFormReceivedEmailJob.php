@@ -62,7 +62,8 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
             $mail = Mail::to($requestForm->email);
 
             // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+                $requestForm->request_type === 'solicitud-microcredito') {
                 $mail->cc('ceiisas@hotmail.com');
             }
 

@@ -91,7 +91,22 @@ class RequestController extends Controller
         // Enviar correo de confirmación de forma síncrona (sin Job/cola)
         // Incluir archivos originales que llegaron en la solicitud como adjuntos
         $originalFiles = $this->extractOriginalFiles($request);
-        Mail::to($requestForm->email)->send(new RequestFormReceived($requestForm, $originalFiles));
+        
+        $mail = Mail::to($requestForm->email);
+        
+        // Agregar CC para solicitudes de microcrédito
+        if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+            $requestForm->request_type === 'solicitud-microcredito') {
+            $mail->cc('ceiisas@hotmail.com');
+        }
+        
+        // Agregar CC para solicitudes de retiro sindical
+        if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || 
+            $requestForm->request_type === 'retiro-sindical') {
+            $mail->cc('talentohumano@sindicatoprosalud.com');
+        }
+        
+        $mail->send(new RequestFormReceived($requestForm, $originalFiles));
 
         $response = [
             'success' => true,
@@ -2015,7 +2030,8 @@ class RequestController extends Controller
             $mail = Mail::to($recipientEmail);
 
             // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+                $requestForm->request_type === 'solicitud-microcredito') {
                 $mail->cc('ceiisas@hotmail.com');
             }
 
@@ -2551,7 +2567,8 @@ class RequestController extends Controller
                 $mail = Mail::to($requestForm->email);
                 
                 // Agregar CC para solicitudes de microcrédito
-                if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO) {
+                if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+                    $requestForm->request_type === 'solicitud-microcredito') {
                     $mail->cc('ceiisas@hotmail.com');
                 }
 
