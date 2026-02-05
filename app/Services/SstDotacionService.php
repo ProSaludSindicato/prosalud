@@ -463,7 +463,11 @@ class SstDotacionService
             $documentType = strtoupper($afiliado['tipo_documento'] ?? '');
             $documentNumber = $afiliado['documento'] ?? '';
             $id = sprintf('%s-%s', $documentType, $documentNumber);
-            $convenio = $afiliado['convenios'][0] ?? null;
+            
+            // Seleccionar el convenio más reciente o activo usando la misma lógica que otros servicios
+            $convenios = $afiliado['convenios'] ?? [];
+            $convenio = $this->selectMostRecentConvenio($convenios);
+            
             $hospital = $convenio['cliente'] ?? 'SIN ASIGNAR';
             $role = $convenio['proceso'] ?? null;
             $status = strtoupper($afiliado['estado'] ?? '');
@@ -488,6 +492,106 @@ class SstDotacionService
                 'notes' => null,
             ];
         });
+    }
+
+    /**
+     * Select the most recent convenio from an array of convenios.
+     * Priority: Active convenios first, then by fecha_fin (most recent), then by fecha_ingreso.
+     * Uses the same logic as AfiliadoService::selectMostRecentConvenio().
+     *
+     * @param array $convenios Array of convenio arrays
+     * @return array|null The most recent convenio or null if no convenios
+     */
+    private function selectMostRecentConvenio(array $convenios): ?array
+    {
+        if (empty($convenios)) {
+            return null;
+        }
+
+        // Si solo hay un convenio, retornarlo directamente
+        if (count($convenios) === 1) {
+            return $convenios[0];
+        }
+
+        // Filtrar convenios activos
+        $conveniosActivos = array_filter($convenios, function ($conv) {
+            $estado = is_string($conv['estado'] ?? null) ? trim($conv['estado']) : '';
+            return strcasecmp($estado, 'Activo') === 0;
+        });
+
+        $selectedConvenio = null;
+
+        if (!empty($conveniosActivos)) {
+            // Si hay convenios activos, seleccionar el más reciente/actual
+            // Prioridad: fecha_fin vacía/null > fecha_fin más reciente > fecha_ingreso más reciente
+            usort($conveniosActivos, function ($a, $b) {
+                // Normalizar valores de fecha_fin (pueden ser null, '', o string con fecha)
+                $aFechaFin = $a['fecha_fin'] ?? null;
+                $bFechaFin = $b['fecha_fin'] ?? null;
+                
+                // Considerar vacío tanto null como string vacío
+                $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
+                $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
+
+                // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad (más reciente)
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return -1; // $a tiene prioridad (viene primero)
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return 1; // $b tiene prioridad (viene primero)
+                }
+
+                // Si ambos tienen fecha_fin, comparar por fecha_fin (más reciente primero)
+                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                    if ($comparison !== 0) {
+                        return $comparison; // Más reciente primero
+                    }
+                }
+
+                // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
+                $aFechaIngreso = $a['fecha_ingreso'] ?? '';
+                $bFechaIngreso = $b['fecha_ingreso'] ?? '';
+                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso); // Más reciente primero
+            });
+
+            $selectedConvenio = reset($conveniosActivos);
+        } else {
+            // Si no hay activos, seleccionar el más reciente por fecha_fin
+            usort($convenios, function ($a, $b) {
+                // Normalizar valores de fecha_fin
+                $aFechaFin = $a['fecha_fin'] ?? null;
+                $bFechaFin = $b['fecha_fin'] ?? null;
+                
+                $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
+                $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
+
+                // Fecha_fin vacía tiene menor prioridad cuando no hay activos
+                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                    return 1; // $b tiene prioridad
+                }
+                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                    return -1; // $a tiene prioridad
+                }
+
+                // Comparar por fecha_fin (más reciente primero)
+                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                    if ($comparison !== 0) {
+                        return $comparison;
+                    }
+                }
+
+                // Si las fechas_fin son iguales, usar fecha_ingreso
+                $aFechaIngreso = $a['fecha_ingreso'] ?? '';
+                $bFechaIngreso = $b['fecha_ingreso'] ?? '';
+                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso);
+            });
+
+            $selectedConvenio = $convenios[0];
+        }
+
+        return $selectedConvenio;
     }
 
     private function transformDeliveryRecord(SstDeliveryRecord $record): array

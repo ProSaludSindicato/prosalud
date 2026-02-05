@@ -882,15 +882,17 @@ class AfiliadoService
                         );
 
                         $documentKey = $documento;
-                        $convenioSummary = $conveniosMap[$documentKey] ?? null;
+                        $conveniosArray = $conveniosMap[$documentKey] ?? [];
 
+                        // Los convenios ya vienen como array de arrays desde buildConveniosSummaryMap
                         $convenios = [];
-                        if ($convenioSummary) {
+                        foreach ($conveniosArray as $convenioData) {
                             $convenios[] = [
-                                'cliente' => $convenioSummary['cliente'] ?? 'SIN ASIGNAR',
-                                'proceso' => $convenioSummary['proceso'] ?? null,
-                                'estado' => $convenioSummary['estado'] ?? null,
-                                'fecha_fin' => $convenioSummary['fecha_fin'] ?? null,
+                                'cliente' => $convenioData['cliente'] ?? 'SIN ASIGNAR',
+                                'proceso' => $convenioData['proceso'] ?? null,
+                                'estado' => $convenioData['estado'] ?? null,
+                                'fecha_ingreso' => $convenioData['fecha_ingreso'] ?? null,
+                                'fecha_fin' => $convenioData['fecha_fin'] ?? null,
                             ];
                         }
 
@@ -2359,52 +2361,33 @@ class AfiliadoService
                     $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_ESTADO + 1) . $rowIndex)
                 )
             );
+            $fechaIngreso = $this->normalizeDate(
+                $this->getCellValue(
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_FECHA_INGRESO + 1) . $rowIndex)
+                )
+            );
             $fechaFin = $this->normalizeDate(
                 $this->getCellValue(
                     $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_FECHA_FIN + 1) . $rowIndex)
                 )
             );
 
-            $candidate = [
+            $convenio = [
                 'cliente' => $cliente ?? 'SIN ASIGNAR',
                 'proceso' => $proceso,
                 'estado' => $estado,
+                'fecha_ingreso' => $fechaIngreso,
                 'fecha_fin' => $fechaFin,
             ];
 
-            $existing = $summary[$documento] ?? null;
-            $summary[$documento] = $this->pickBetterConvenioSummary($existing, $candidate);
+            // Agregar el convenio al array de convenios del documento
+            if (!isset($summary[$documento])) {
+                $summary[$documento] = [];
+            }
+            $summary[$documento][] = $convenio;
         }
 
         return $summary;
     }
 
-    private function pickBetterConvenioSummary(?array $current, array $candidate): array
-    {
-        if (null === $current) {
-            return $candidate;
-        }
-
-        $currentActive = isset($current['estado']) && 0 === strcasecmp($current['estado'], 'Activo');
-        $candidateActive = isset($candidate['estado']) && 0 === strcasecmp($candidate['estado'], 'Activo');
-
-        if ($currentActive && !$candidateActive) {
-            return $current;
-        }
-
-        if (!$currentActive && $candidateActive) {
-            return $candidate;
-        }
-
-        $currentTs = isset($current['fecha_fin']) ? strtotime($current['fecha_fin']) : null;
-        $candidateTs = isset($candidate['fecha_fin']) ? strtotime($candidate['fecha_fin']) : null;
-
-        if (false !== $candidateTs && null !== $candidateTs) {
-            if (false === $currentTs || null === $currentTs || $candidateTs > $currentTs) {
-                return $candidate;
-            }
-        }
-
-        return $current;
-    }
 }
