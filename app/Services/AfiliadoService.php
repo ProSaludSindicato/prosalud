@@ -2185,13 +2185,12 @@ class AfiliadoService
 
     /**
      * Filter affiliate information to exclude sensitive/unnecessary fields.
+     * Note: fecha_nacimiento and sexo are included in the response as they're needed for data update forms.
      */
     private function filterAfiliadoCompleteInfo(array $afiliadoFull): array
     {
         // Fields to exclude from response
         $excludedFields = [
-            'fecha_nacimiento',
-            'sexo',
             'fecha_ingreso',
             'carnet',
             'archivo_liquidado',

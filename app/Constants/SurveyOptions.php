@@ -274,12 +274,13 @@ class SurveyOptions
      * Tipos de documento válidos
      */
     public const TIPOS_DOCUMENTO = [
-        'CC',  // Cédula de Ciudadanía
-        'TI',  // Tarjeta de Identidad
-        'CE',  // Cédula de Extranjería
-        'PA',  // Pasaporte
-        'RC',  // Registro Civil
-        'PT',  // Pasaporte (alternativa)
+        'CC',   // Cédula de Ciudadanía
+        'TI',   // Tarjeta de Identidad
+        'CE',   // Cédula de Extranjería
+        'PA',   // Pasaporte
+        'RC',   // Registro Civil
+        'PT',   // Permiso por Protección Temporal
+        'NUIP', // Número Único de Identificación Personal
     ];
 
     /**
@@ -424,6 +425,20 @@ class SurveyOptions
     public const SI_NO = [
         'si', 'SI',
         'no', 'NO',
+    ];
+
+    /**
+     * Niveles educativos válidos
+     */
+    public const NIVELES_EDUCATIVOS = [
+        'primaria',
+        'bachiller',
+        'tecnico',
+        'tecnologo',
+        'profesional',
+        'especialista',
+        'maestria',
+        'doctorado',
     ];
 }
 

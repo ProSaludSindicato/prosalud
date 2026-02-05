@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, StoreSocioDemographicSurveyRequest};
-use App\Models\{SocioDemographicSurvey, SurveyConfig};
+use App\Models\SocioDemographicSurvey;
 use App\Services\{AuditLogService, SocioDemographicSurveyExcelExportService};
 use Illuminate\Http\{JsonResponse, Request, Response};
 use Illuminate\Support\Facades\{DB, Log, Storage};
@@ -40,6 +40,7 @@ class SocioDemographicSurveyController extends Controller
                 'peso' => $validated['peso'],
                 'genero' => $validated['genero'],
                 'raza' => $validated['raza'],
+                'nivelEducativo' => $validated['nivelEducativo'],
                 'numeroHijos' => $validated['numeroHijos'] ?? null,
                 'hijos' => $validated['hijos'] ?? [],
                 'numeroPersonasDependientes' => $validated['numeroPersonasDependientes'] ?? '0',
@@ -109,9 +110,66 @@ class SocioDemographicSurveyController extends Controller
                 'agacharseArrodillarse' => $validated['agacharseArrodillarse'],
             ];
 
-            // Determinar el tipo de encuesta según la configuración
-            $isBulkEntryMode = SurveyConfig::isBulkEntryModeEnabled();
-            $surveyType = $isBulkEntryMode ? 'bulk_entry' : 'active_affiliate';
+            // Determinar el tipo de encuesta según si el afiliado existe o es nuevo ingreso
+            // La encuesta siempre está habilitada públicamente
+            // Si el afiliado existe y está activo, es "active_affiliate"
+            // Si el afiliado no existe o no está activo, es "new_entry" (nuevo ingreso)
+            // Mantener compatibilidad con encuestas existentes que usaron "bulk_entry"
+            $surveyType = 'new_entry'; // Por defecto, asumimos nuevo ingreso hasta verificar
+            
+            // Intentar verificar si el afiliado existe en el sistema
+            // Nota: fechaExpedicion es opcional, puede no estar disponible
+            try {
+                $afiliadoService = app(\App\Services\AfiliadoService::class);
+                if ($afiliadoService->isFileAvailable()) {
+                    // Intentar autenticar con fechaExpedicion si está disponible
+                    $fechaExpedicion = $validated['fechaExpedicion'] ?? '';
+                    $afiliado = null;
+                    
+                    if (!empty($fechaExpedicion)) {
+                        $afiliado = $afiliadoService->authenticateAndGetAfiliado(
+                            $validated['tipoDocumento'],
+                            $validated['numeroDocumento'],
+                            $fechaExpedicion
+                        );
+                    }
+                    
+                    // Si el afiliado existe y está activo, es afiliado activo
+                    if (null !== $afiliado) {
+                        $estado = strtoupper(trim($afiliado['estado'] ?? ''));
+                        $isActivo = $estado === 'ACTIVO';
+                        
+                        Log::info('Verificación de estado de afiliado para tipo de encuesta', [
+                            'tipo_documento' => $validated['tipoDocumento'],
+                            'numero_documento' => $validated['numeroDocumento'],
+                            'estado' => $afiliado['estado'] ?? 'N/A',
+                            'estado_normalizado' => $estado,
+                            'es_activo' => $isActivo,
+                        ]);
+                        
+                        if ($isActivo) {
+                            $surveyType = 'active_affiliate';
+                        }
+                    } else {
+                        Log::info('Afiliado no encontrado en autenticación, marcando como nuevo ingreso', [
+                            'tipo_documento' => $validated['tipoDocumento'],
+                            'numero_documento' => $validated['numeroDocumento'],
+                            'fecha_expedicion_provista' => !empty($fechaExpedicion),
+                        ]);
+                    }
+                } else {
+                    // Si el archivo no está disponible, asumimos nuevo ingreso
+                    Log::info('Archivo de afiliados no disponible, marcando como nuevo ingreso');
+                }
+            } catch (\Exception $e) {
+                // Si hay error al verificar, asumimos nuevo ingreso
+                Log::warning('Error al verificar estado del afiliado para determinar tipo de encuesta', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                    'tipo_documento' => $validated['tipoDocumento'],
+                    'numero_documento' => $validated['numeroDocumento'],
+                ]);
+            }
 
             // Crear el registro de la encuesta
             $survey = new SocioDemographicSurvey([
@@ -223,7 +281,10 @@ class SocioDemographicSurveyController extends Controller
                     $q->where('survey_type', 'active_affiliate')
                       ->orWhereNull('survey_type');
                 });
+            } elseif ($surveyType === 'new_entry') {
+                $query->where('survey_type', 'new_entry');
             } elseif ($surveyType === 'bulk_entry') {
+                // Compatibilidad con encuestas antiguas
                 $query->where('survey_type', 'bulk_entry');
             }
             // Si es 'all' o cualquier otro valor, no se aplica filtro
@@ -270,7 +331,10 @@ class SocioDemographicSurveyController extends Controller
                     $q->where('survey_type', 'active_affiliate')
                       ->orWhereNull('survey_type');
                 });
+            } elseif ($surveyType === 'new_entry') {
+                $baseQuery->where('survey_type', 'new_entry');
             } elseif ($surveyType === 'bulk_entry') {
+                // Compatibilidad con encuestas antiguas
                 $baseQuery->where('survey_type', 'bulk_entry');
             }
             // Si es 'all' o cualquier otro valor, no se aplica filtro
@@ -293,10 +357,11 @@ class SocioDemographicSurveyController extends Controller
             ->pluck('count', 'survey_type')
             ->toArray();
 
-        // Asegurar que ambos tipos estén presentes (incluso si son 0)
+        // Asegurar que todos los tipos estén presentes (incluso si son 0)
         $surveysByType = [
             'active_affiliate' => $surveysByType['active_affiliate'] ?? 0,
-            'bulk_entry' => $surveysByType['bulk_entry'] ?? 0,
+            'new_entry' => $surveysByType['new_entry'] ?? 0,
+            'bulk_entry' => $surveysByType['bulk_entry'] ?? 0, // Compatibilidad con encuestas antiguas
         ];
 
         // Encuestas del mes actual por tipo
@@ -309,7 +374,8 @@ class SocioDemographicSurveyController extends Controller
 
         $surveysCurrentMonthByType = [
             'active_affiliate' => $surveysCurrentMonthByType['active_affiliate'] ?? 0,
-            'bulk_entry' => $surveysCurrentMonthByType['bulk_entry'] ?? 0,
+            'new_entry' => $surveysCurrentMonthByType['new_entry'] ?? 0,
+            'bulk_entry' => $surveysCurrentMonthByType['bulk_entry'] ?? 0, // Compatibilidad con encuestas antiguas
         ];
 
         return response()->json([

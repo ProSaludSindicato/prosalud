@@ -26,6 +26,9 @@ class AfiliadoController extends Controller
      */
     public function authenticate(Request $request): JsonResponse
     {
+        // Increase execution time limit for Excel processing
+        set_time_limit(120);
+        
         try {
             // Validate input
             $request->validate([
@@ -259,6 +262,9 @@ class AfiliadoController extends Controller
      */
     public function verifyOtp(AfiliadoVerifyOtpRequest $request): JsonResponse
     {
+        // Increase execution time limit for Excel processing
+        set_time_limit(120);
+        
         try {
             $tipoDocumento = trim($request->input('tipo_documento'));
             $documento = trim($request->input('documento'));
@@ -380,6 +386,9 @@ class AfiliadoController extends Controller
      */
     public function authenticateForDataUpdate(Request $request): JsonResponse
     {
+        // Increase execution time limit for Excel processing
+        set_time_limit(120);
+        
         try {
             // Validate input
             $request->validate([

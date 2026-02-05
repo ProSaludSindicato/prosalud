@@ -120,8 +120,11 @@ class SocioDemographicSurveyExcelExportService
                     $q->where('survey_type', 'active_affiliate')
                       ->orWhereNull('survey_type');
                 });
-            } else {
-                $query->where('survey_type', $surveyType);
+            } elseif ($surveyType === 'new_entry') {
+                $query->where('survey_type', 'new_entry');
+            } elseif ($surveyType === 'bulk_entry') {
+                // Compatibilidad con encuestas antiguas
+                $query->where('survey_type', 'bulk_entry');
             }
         }
 
@@ -179,7 +182,7 @@ class SocioDemographicSurveyExcelExportService
         $row++;
 
         $surveyType = $filters['survey_type'] ?? 'all';
-        $typeLabel = $surveyType === 'all' ? 'Todos' : ($surveyType === 'active_affiliate' ? 'Afiliados Activos' : 'Ingreso Masivo');
+        $typeLabel = $surveyType === 'all' ? 'Todos' : ($surveyType === 'active_affiliate' ? 'Afiliados Activos' : ($surveyType === 'new_entry' ? 'Nuevo Ingreso' : 'Ingreso Masivo'));
         $sheet->setCellValue('A' . $row, "Tipo de encuesta: {$typeLabel}");
         $row += 2;
 
@@ -190,7 +193,8 @@ class SocioDemographicSurveyExcelExportService
 
         $total = $surveys->count();
         $activeAffiliate = $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count();
-        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count();
+        $newEntry = $surveys->where('survey_type', 'new_entry')->count();
+        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count(); // Compatibilidad con encuestas antiguas
 
         $sheet->setCellValue('A' . $row, 'Total de encuestas:');
         $sheet->setCellValue('B' . $row, $total);
@@ -202,10 +206,17 @@ class SocioDemographicSurveyExcelExportService
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
         $row++;
 
-        $sheet->setCellValue('A' . $row, 'Encuestas de Ingreso Masivo:');
-        $sheet->setCellValue('B' . $row, $bulkEntry);
+        $sheet->setCellValue('A' . $row, 'Encuestas de Nuevo Ingreso:');
+        $sheet->setCellValue('B' . $row, $newEntry);
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
         $row++;
+
+        if ($bulkEntry > 0) {
+            $sheet->setCellValue('A' . $row, 'Encuestas de Ingreso Masivo (legacy):');
+            $sheet->setCellValue('B' . $row, $bulkEntry);
+            $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+            $row++;
+        }
 
         // Fecha de generación
         $row += 2;
@@ -266,6 +277,7 @@ class SocioDemographicSurveyExcelExportService
             'Peso (kg)',
             'Género',
             'Grupo Étnico',
+            'Nivel Educativo',
             'Número Hijos',
             'Número Personas Dependientes',
             'Tipo Vivienda',
@@ -416,6 +428,7 @@ class SocioDemographicSurveyExcelExportService
                 $datosSociodemograficos['peso'] ?? '',
                 $this->getGeneroDisplayName($datosSociodemograficos['genero'] ?? null),
                 $this->getRazaDisplayName($datosSociodemograficos['raza'] ?? null),
+                $this->getNivelEducativoDisplayName($datosSociodemograficos['nivelEducativo'] ?? null),
                 $datosSociodemograficos['numeroHijos'] ?? '',
                 $datosSociodemograficos['numeroPersonasDependientes'] ?? '',
                 $this->getViviendaDisplayName($datosSociodemograficos['vivienda'] ?? null),
@@ -672,12 +685,14 @@ class SocioDemographicSurveyExcelExportService
             
             $total = $monthSurveys->count();
             $activeAffiliate = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
-            $bulkEntry = $monthSurveys->where('survey_type', 'bulk_entry')->count();
+            $newEntry = $monthSurveys->where('survey_type', 'new_entry')->count();
+            $bulkEntry = $monthSurveys->where('survey_type', 'bulk_entry')->count(); // Compatibilidad con encuestas antiguas
 
             $sheet->setCellValue('A' . $row, $monthLabel);
             $sheet->setCellValue('B' . $row, $total);
             $sheet->setCellValue('C' . $row, $activeAffiliate);
-            $sheet->setCellValue('D' . $row, $bulkEntry);
+            $sheet->setCellValue('D' . $row, $newEntry);
+            $sheet->setCellValue('E' . $row, $bulkEntry);
             $row++;
         }
 
@@ -685,8 +700,9 @@ class SocioDemographicSurveyExcelExportService
         $sheet->setCellValue('A' . $row, 'TOTAL');
         $sheet->setCellValue('B' . $row, $surveys->count());
         $sheet->setCellValue('C' . $row, $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count());
-        $sheet->setCellValue('D' . $row, $surveys->where('survey_type', 'bulk_entry')->count());
-        $sheet->getStyle('A' . $row . ':D' . $row)->getFont()->setBold(true);
+        $sheet->setCellValue('D' . $row, $surveys->where('survey_type', 'new_entry')->count());
+        $sheet->setCellValue('E' . $row, $surveys->where('survey_type', 'bulk_entry')->count());
+        $sheet->getStyle('A' . $row . ':E' . $row)->getFont()->setBold(true);
 
         // Ajustar ancho de columnas
         $sheet->getColumnDimension('A')->setWidth(25);
@@ -727,17 +743,25 @@ class SocioDemographicSurveyExcelExportService
 
         $total = $surveys->count();
         $activeAffiliate = $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count();
-        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count();
+        $newEntry = $surveys->where('survey_type', 'new_entry')->count();
+        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count(); // Compatibilidad con encuestas antiguas
 
         $sheet->setCellValue('A' . $row, 'Afiliados Activos');
         $sheet->setCellValue('B' . $row, $activeAffiliate);
         $sheet->setCellValue('C' . $row, $total > 0 ? round(($activeAffiliate / $total) * 100, 2) . '%' : '0%');
         $row++;
 
-        $sheet->setCellValue('A' . $row, 'Ingreso Masivo');
-        $sheet->setCellValue('B' . $row, $bulkEntry);
-        $sheet->setCellValue('C' . $row, $total > 0 ? round(($bulkEntry / $total) * 100, 2) . '%' : '0%');
+        $sheet->setCellValue('A' . $row, 'Nuevo Ingreso');
+        $sheet->setCellValue('B' . $row, $newEntry);
+        $sheet->setCellValue('C' . $row, $total > 0 ? round(($newEntry / $total) * 100, 2) . '%' : '0%');
         $row++;
+
+        if ($bulkEntry > 0) {
+            $sheet->setCellValue('A' . $row, 'Ingreso Masivo (legacy)');
+            $sheet->setCellValue('B' . $row, $bulkEntry);
+            $sheet->setCellValue('C' . $row, $total > 0 ? round(($bulkEntry / $total) * 100, 2) . '%' : '0%');
+            $row++;
+        }
 
         $sheet->setCellValue('A' . $row, 'TOTAL');
         $sheet->setCellValue('B' . $row, $total);
@@ -750,7 +774,7 @@ class SocioDemographicSurveyExcelExportService
         // ===== ESTADÍSTICAS POR MES =====
         // Título
         $sheet->setCellValue('A' . $row, 'ESTADÍSTICAS POR MES');
-        $sheet->mergeCells('A' . $row . ':D' . $row);
+        $sheet->mergeCells('A' . $row . ':E' . $row);
         $sheet->getStyle('A' . $row)->applyFromArray([
             'font' => ['bold' => true, 'size' => 14],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
@@ -761,8 +785,9 @@ class SocioDemographicSurveyExcelExportService
         $sheet->setCellValue('A' . $row, 'Mes');
         $sheet->setCellValue('B' . $row, 'Total');
         $sheet->setCellValue('C' . $row, 'Afiliados Activos');
-        $sheet->setCellValue('D' . $row, 'Ingreso Masivo');
-        $sheet->getStyle('A' . $row . ':D' . $row)->applyFromArray([
+        $sheet->setCellValue('D' . $row, 'Nuevo Ingreso');
+        $sheet->setCellValue('E' . $row, 'Ingreso Masivo (legacy)');
+        $sheet->getStyle('A' . $row . ':E' . $row)->applyFromArray([
             'font' => ['bold' => true],
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
@@ -783,12 +808,14 @@ class SocioDemographicSurveyExcelExportService
             
             $totalMonth = $monthSurveys->count();
             $activeAffiliateMonth = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
-            $bulkEntryMonth = $monthSurveys->where('survey_type', 'bulk_entry')->count();
+            $newEntryMonth = $monthSurveys->where('survey_type', 'new_entry')->count();
+            $bulkEntryMonth = $monthSurveys->where('survey_type', 'bulk_entry')->count(); // Compatibilidad con encuestas antiguas
 
             $sheet->setCellValue('A' . $row, $monthLabel);
             $sheet->setCellValue('B' . $row, $totalMonth);
             $sheet->setCellValue('C' . $row, $activeAffiliateMonth);
-            $sheet->setCellValue('D' . $row, $bulkEntryMonth);
+            $sheet->setCellValue('D' . $row, $newEntryMonth);
+            $sheet->setCellValue('E' . $row, $bulkEntryMonth);
             $row++;
         }
 
@@ -796,14 +823,16 @@ class SocioDemographicSurveyExcelExportService
         $sheet->setCellValue('A' . $row, 'TOTAL');
         $sheet->setCellValue('B' . $row, $surveys->count());
         $sheet->setCellValue('C' . $row, $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count());
-        $sheet->setCellValue('D' . $row, $surveys->where('survey_type', 'bulk_entry')->count());
-        $sheet->getStyle('A' . $row . ':D' . $row)->getFont()->setBold(true);
+        $sheet->setCellValue('D' . $row, $surveys->where('survey_type', 'new_entry')->count());
+        $sheet->setCellValue('E' . $row, $surveys->where('survey_type', 'bulk_entry')->count());
+        $sheet->getStyle('A' . $row . ':E' . $row)->getFont()->setBold(true);
 
         // Ajustar ancho de columnas
         $sheet->getColumnDimension('A')->setWidth(25);
         $sheet->getColumnDimension('B')->setWidth(15);
         $sheet->getColumnDimension('C')->setWidth(20);
         $sheet->getColumnDimension('D')->setWidth(20);
+        $sheet->getColumnDimension('E')->setWidth(25);
     }
 
     /**
@@ -1167,6 +1196,29 @@ class SocioDemographicSurveyExcelExportService
     }
 
     /**
+     * Transformar nivel educativo.
+     */
+    private function getNivelEducativoDisplayName(?string $value): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $map = [
+            'primaria' => 'Primaria',
+            'bachiller' => 'Bachiller',
+            'tecnico' => 'Técnico',
+            'tecnologo' => 'Tecnólogo',
+            'profesional' => 'Profesional',
+            'especialista' => 'Especialista',
+            'maestria' => 'Maestría',
+            'doctorado' => 'Doctorado',
+        ];
+
+        return $map[strtolower(trim($value))] ?? ucfirst($value);
+    }
+
+    /**
      * Transformar estado civil.
      */
     private function getEstadoCivilDisplayName(?string $value): string
@@ -1219,8 +1271,12 @@ class SocioDemographicSurveyExcelExportService
             return 'Afiliados Activos';
         }
 
+        if ($value === 'new_entry') {
+            return 'Nuevo Ingreso';
+        }
+
         if ($value === 'bulk_entry') {
-            return 'Ingreso Masivo';
+            return 'Ingreso Masivo (legacy)';
         }
 
         return 'Afiliados Activos';
@@ -1240,8 +1296,9 @@ class SocioDemographicSurveyExcelExportService
             'TI' => 'Tarjeta de Identidad',
             'CE' => 'Cédula de Extranjería',
             'PA' => 'Pasaporte',
-            'PT' => 'Pasaporte',
+            'PT' => 'Permiso por Protección Temporal',
             'RC' => 'Registro Civil',
+            'NUIP' => 'Número Único de Identificación Personal',
         ];
 
         return $map[strtoupper(trim($value))] ?? $value;

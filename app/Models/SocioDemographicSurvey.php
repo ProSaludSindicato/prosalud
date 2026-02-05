@@ -183,8 +183,9 @@ class SocioDemographicSurvey extends Model
             'CE' => 'Cédula de Extranjería',
             'TI' => 'Tarjeta de Identidad',
             'PA' => 'Pasaporte',
-            'PT' => 'Pasaporte',
+            'PT' => 'Permiso por Protección Temporal',
             'RC' => 'Registro Civil',
+            'NUIP' => 'Número Único de Identificación Personal',
         ];
 
         $docType = strtoupper(trim($this->tipo_documento ?? ''));

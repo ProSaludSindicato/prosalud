@@ -156,6 +156,10 @@ Route::prefix('certificados')->group(function () {
 // Rutas para el proceso de envío manual de correos con PDF adjunto.
 // Este proceso no implica costos de proveedores externos.
 Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')->group(function () {
+    // Generate and send convenio from frontend data
+    Route::post('/generate-and-send', [ConvenioManualController::class, 'generateAndSendConvenio'])
+        ->middleware('permission:document_signing.manage');
+    
     // Bulk email sending
     Route::post('/send-bulk-emails', [ConvenioManualController::class, 'sendBulkEmails'])
         ->middleware('permission:document_signing.manage');

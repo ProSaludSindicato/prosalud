@@ -3,7 +3,6 @@
 namespace App\Http\Requests;
 
 use App\Constants\SurveyOptions;
-use App\Models\SurveyConfig;
 use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -36,6 +35,9 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
 
         // Convertir booleanos que vienen como strings "1"/"0" desde FormData
         $this->convertFormDataBooleans();
+
+        // Normalizar valores que pueden venir en mayúsculas a minúsculas
+        $this->normalizeCaseSensitiveFields();
     }
 
     /**
@@ -77,6 +79,93 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
     }
 
     /**
+     * Normalizar campos case-sensitive a minúsculas.
+     * El frontend puede enviar valores en mayúsculas pero el backend espera minúsculas.
+     */
+    private function normalizeCaseSensitiveFields(): void
+    {
+        $data = $this->all();
+        $normalized = [];
+
+        // Campos que deben normalizarse a minúsculas
+        $caseSensitiveFields = [
+            'nivelEducativo',
+            'tienePersonasACargo',
+            'estadoCivil',
+            'genero',
+            'raza',
+            'vivienda',
+            'estratoSocioeconomico',
+            'conviveCon',
+            'transporte',
+            'tiempoLibreCon',
+            'consumoLicor',
+            'frecuenciaLicor',
+            'consumoCigarrillo',
+            'frecuenciaCigarrillo',
+            'esfuerzosIntensos',
+            'esfuerzosModerados',
+            'subirPisos',
+            'agacharseArrodillarse',
+            'recomendacionRestriccionLaboral',
+            // Condiciones de salud (todos son si/no)
+            'sobrepesoObesidad',
+            'hipertensionArterial',
+            'enfermedadesCorazon',
+            'diabetes',
+            'problemasRenales',
+            'depresionBipolaridad',
+            'antecedentesMedicosMentales',
+            'epilepsiaConvulsiones',
+            'trasplante',
+            'cancer',
+            'problemasPulmonares',
+            'alergias',
+            'tuberculosis',
+            'problemasVisuales',
+            'doloresArticulares',
+            'problemasSangre',
+            'otraEnfermedad',
+            'protesisArticular',
+            'medicamentoPermanente',
+            'tratamientoMedico',
+            'cirugias',
+            'accidenteLaboral',
+            'accidenteTransitoCasero',
+            'vacunadoCovid',
+        ];
+
+        foreach ($caseSensitiveFields as $field) {
+            if ($this->has($field) && is_string($this->input($field))) {
+                $normalized[$field] = strtolower(trim($this->input($field)));
+            }
+        }
+
+        // Normalizar campos en arrays de hijos
+        if ($this->has('hijos') && is_array($this->input('hijos'))) {
+            $hijos = $this->input('hijos');
+            $normalizedHijos = [];
+            foreach ($hijos as $index => $hijo) {
+                if (is_array($hijo)) {
+                    $normalizedHijo = $hijo;
+                    if (isset($hijo['genero']) && is_string($hijo['genero'])) {
+                        $normalizedHijo['genero'] = strtolower(trim($hijo['genero']));
+                    }
+                    $normalizedHijos[$index] = $normalizedHijo;
+                }
+            }
+            if (!empty($normalizedHijos)) {
+                $normalized['hijos'] = $normalizedHijos;
+            }
+        }
+
+        // Aplicar normalizaciones
+        if (!empty($normalized)) {
+            $this->merge($normalized);
+        }
+    }
+
+    /**
      * Parse various value types to boolean.
      */
     private function parseBooleanValue($value): bool
@@ -104,19 +193,18 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
      */
     public function rules(): array
     {
-        // Verificar si está en modo ingreso masivo
-        $isBulkEntryMode = SurveyConfig::isBulkEntryModeEnabled();
-
+        // La encuesta siempre está habilitada públicamente
+        // Los campos nombres, apellidos, hospital y profesion son opcionales
+        // ya que pueden venir de la autenticación o ser completados manualmente
         $rules = [
             // Datos Básicos
             'correo' => 'required|email|max:255',
             'tipoDocumento' => ['required', 'string', Rule::in(SurveyOptions::TIPOS_DOCUMENTO)],
             'numeroDocumento' => 'required|string|max:255',
-            // En modo ingreso masivo, nombres y apellidos son requeridos
-            'nombres' => $isBulkEntryMode ? 'required|string|max:255' : 'nullable|string|max:255',
-            'apellidos' => $isBulkEntryMode ? 'required|string|max:255' : 'nullable|string|max:255',
-            'hospital' => $isBulkEntryMode ? 'nullable|string|max:255' : 'required|string|max:255',
-            'profesion' =>$isBulkEntryMode ? 'nullable|string|max:255' : 'required|string|max:255',
+            'nombres' => 'nullable|string|max:255',
+            'apellidos' => 'nullable|string|max:255',
+            'hospital' => 'nullable|string|max:255',
+            'profesion' => 'nullable|string|max:255',
             'rh' => ['nullable', 'string', Rule::in(SurveyOptions::TIPOS_RH)],
             'fechaExpedicion' => 'nullable|date|date_format:Y-m-d',
             'lugarNacimiento' => 'nullable|string|max:255',
@@ -141,9 +229,10 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'peso' => 'required|numeric|min:20|max:300',
             'genero' => ['required', 'string', Rule::in(SurveyOptions::GENEROS)],
             'raza' => ['required', 'string', Rule::in(SurveyOptions::RAZAS)],
+            'nivelEducativo' => ['required', 'string', Rule::in(SurveyOptions::NIVELES_EDUCATIVOS)],
             'numeroHijos' => 'nullable|string|max:10',
             'hijos' => 'nullable|array',
-            'hijos.*.tipoDocumento' => ['required_with:hijos', 'string', Rule::in(['CC', 'TI', 'RC'])],
+            'hijos.*.tipoDocumento' => ['required_with:hijos', 'string', Rule::in(['CC', 'TI', 'RC', 'CE', 'PT', 'NUIP'])],
             'hijos.*.numeroDocumento' => 'required_with:hijos|string|max:255',
             'hijos.*.nombre' => 'required_with:hijos|string|max:255',
             'hijos.*.genero' => ['required_with:hijos', 'string', Rule::in(SurveyOptions::GENEROS)],
@@ -292,14 +381,12 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'correo.max' => 'El correo electrónico no puede exceder 255 caracteres.',
             'tipoDocumento.required' => 'El tipo de documento es obligatorio.',
             'tipoDocumento.string' => 'El tipo de documento debe ser texto.',
-            'tipoDocumento.in' => 'El tipo de documento seleccionado no es válido. Valores permitidos: CC, TI, CE, PA, RC, PT.',
+            'tipoDocumento.in' => 'El tipo de documento seleccionado no es válido. Valores permitidos: CC, TI, CE, PA, RC, PT, NUIP.',
             'numeroDocumento.required' => 'El número de documento es obligatorio.',
             'numeroDocumento.string' => 'El número de documento debe ser texto.',
             'numeroDocumento.max' => 'El número de documento no puede exceder 255 caracteres.',
-            'nombres.required' => 'Los nombres son obligatorios en modo ingreso masivo.',
             'nombres.string' => 'Los nombres deben ser texto.',
             'nombres.max' => 'Los nombres no pueden exceder 255 caracteres.',
-            'apellidos.required' => 'Los apellidos son obligatorios en modo ingreso masivo.',
             'apellidos.string' => 'Los apellidos deben ser texto.',
             'apellidos.max' => 'Los apellidos no pueden exceder 255 caracteres.',
             'hospital.required' => 'El hospital es obligatorio.',
@@ -362,12 +449,15 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'raza.required' => 'La raza es obligatoria.',
             'raza.string' => 'La raza debe ser texto.',
             'raza.in' => 'La raza seleccionada no es válida. Valores permitidos: ninguno, afro, indigena, otro, no_responde.',
+            'nivelEducativo.required' => 'El nivel educativo es obligatorio.',
+            'nivelEducativo.string' => 'El nivel educativo debe ser texto.',
+            'nivelEducativo.in' => 'El nivel educativo seleccionado no es válido. Valores permitidos: primaria, bachiller, tecnico, tecnologo, profesional, especialista, maestria, doctorado.',
             'numeroHijos.string' => 'El número de hijos debe ser texto.',
             'numeroHijos.max' => 'El número de hijos no puede exceder 10 caracteres.',
             'hijos.array' => 'Los hijos deben ser un array.',
             'hijos.*.tipoDocumento.required_with' => 'El tipo de documento del hijo es obligatorio.',
             'hijos.*.tipoDocumento.string' => 'El tipo de documento del hijo debe ser texto.',
-            'hijos.*.tipoDocumento.in' => 'El tipo de documento del hijo no es válido. Valores permitidos: CC, TI, RC.',
+            'hijos.*.tipoDocumento.in' => 'El tipo de documento del hijo no es válido. Valores permitidos: CC, TI, RC, CE, PT, NUIP.',
             'hijos.*.numeroDocumento.required_with' => 'El número de documento del hijo es obligatorio.',
             'hijos.*.numeroDocumento.string' => 'El número de documento del hijo debe ser texto.',
             'hijos.*.numeroDocumento.max' => 'El número de documento del hijo no puede exceder 255 caracteres.',
@@ -605,6 +695,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'peso' => 'peso',
             'genero' => 'género',
             'raza' => 'raza',
+            'nivelEducativo' => 'nivel educativo',
             'numeroHijos' => 'número de hijos',
             'hijos' => 'hijos',
             'hijos.*.tipoDocumento' => 'tipo de documento del hijo',
