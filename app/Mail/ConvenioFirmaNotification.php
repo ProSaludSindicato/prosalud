@@ -30,13 +30,19 @@ class ConvenioFirmaNotification extends Mailable
                 'auxiliar.talento@sindicatoprosalud.com',
                 'Sindicato ProSalud'
             ),
-            subject: $this->nombreArchivo,
+            cc: [
+                new Address(
+                    'auxiliar.talento@sindicatoprosalud.com',
+                    'Sindicato ProSalud'
+                ),
+            ],
             replyTo: [
                 new Address(
                     'auxiliar.talento@sindicatoprosalud.com',
                     'Sindicato ProSalud'
                 ),
             ],
+            subject: $this->nombreArchivo,
         );
     }
 
