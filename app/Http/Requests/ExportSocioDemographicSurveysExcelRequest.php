@@ -26,7 +26,7 @@ class ExportSocioDemographicSurveysExcelRequest extends FormRequest
             'survey_type' => [
                 'sometimes',
                 'string',
-                Rule::in(['all', 'active_affiliate', 'new_entry', 'bulk_entry']),
+                Rule::in(['all', 'active_affiliate', 'new_entry']),
             ],
             'date_range.include_all' => [
                 'sometimes',
@@ -62,7 +62,7 @@ class ExportSocioDemographicSurveysExcelRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'survey_type.in' => 'El tipo de encuesta seleccionado no es válido. Valores permitidos: all, active_affiliate, new_entry, bulk_entry.',
+            'survey_type.in' => 'El tipo de encuesta seleccionado no es válido. Valores permitidos: all, active_affiliate, new_entry.',
             'date_range.start_date.required_if' => 'La fecha de inicio es requerida cuando no se incluyen todos los registros.',
             'date_range.end_date.required_if' => 'La fecha de fin es requerida cuando no se incluyen todos los registros.',
             'date_range.end_date.after_or_equal' => 'La fecha de fin debe ser posterior o igual a la fecha de inicio.',
