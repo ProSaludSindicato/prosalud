@@ -40,10 +40,10 @@ class SocioDemographicSurveyExcelExportService
             $spreadsheet = new Spreadsheet();
             $spreadsheet->removeSheetByIndex(0);
 
-            // Crear hoja "Resumen"
-            $summarySheet = $spreadsheet->createSheet();
-            $summarySheet->setTitle('Resumen');
-            $this->buildSummarySheet($summarySheet, $surveys, $filters);
+            // Crear hoja unificada "Resumen y Estadísticas"
+            $summaryStatsSheet = $spreadsheet->createSheet();
+            $summaryStatsSheet->setTitle('Resumen y Estadísticas');
+            $this->buildSummaryAndStatsSheet($summaryStatsSheet, $surveys, $filters);
 
             // Crear hoja "Detalle Encuestas"
             $detailSheet = $spreadsheet->createSheet();
@@ -54,11 +54,6 @@ class SocioDemographicSurveyExcelExportService
             $beneficiariosSheet = $spreadsheet->createSheet();
             $beneficiariosSheet->setTitle('Beneficiarios');
             $this->buildBeneficiariosSheet($beneficiariosSheet, $surveys);
-
-            // Crear hoja unificada "Estadísticas"
-            $statsSheet = $spreadsheet->createSheet();
-            $statsSheet->setTitle('Estadísticas');
-            $this->buildStatsSheet($statsSheet, $surveys);
 
             // Establecer primera hoja como activa
             $spreadsheet->setActiveSheetIndex(0);
@@ -122,9 +117,6 @@ class SocioDemographicSurveyExcelExportService
                 });
             } elseif ($surveyType === 'new_entry') {
                 $query->where('survey_type', 'new_entry');
-            } elseif ($surveyType === 'bulk_entry') {
-                // Compatibilidad con encuestas antiguas
-                $query->where('survey_type', 'bulk_entry');
             }
         }
 
@@ -151,14 +143,14 @@ class SocioDemographicSurveyExcelExportService
     }
 
     /**
-     * Construir hoja de resumen.
+     * Construir hoja unificada de Resumen y Estadísticas.
      */
-    private function buildSummarySheet(Worksheet $sheet, Collection $surveys, array $filters): void
+    private function buildSummaryAndStatsSheet(Worksheet $sheet, Collection $surveys, array $filters): void
     {
         $row = 1;
 
-        // Título
-        $sheet->setCellValue('A1', 'RESUMEN DE ENCUESTAS SOCIODEMOGRÁFICAS');
+        // ===== TÍTULO Y FILTROS =====
+        $sheet->setCellValue('A1', 'RESUMEN Y ESTADÍSTICAS DE ENCUESTAS SOCIODEMOGRÁFICAS');
         $sheet->mergeCells('A1:D1');
         $sheet->getStyle('A1')->applyFromArray([
             'font' => ['bold' => true, 'size' => 16],
@@ -182,19 +174,18 @@ class SocioDemographicSurveyExcelExportService
         $row++;
 
         $surveyType = $filters['survey_type'] ?? 'all';
-        $typeLabel = $surveyType === 'all' ? 'Todos' : ($surveyType === 'active_affiliate' ? 'Afiliados Activos' : ($surveyType === 'new_entry' ? 'Nuevo Ingreso' : 'Ingreso Masivo'));
+        $typeLabel = $surveyType === 'all' ? 'Todos' : ($surveyType === 'active_affiliate' ? 'Afiliados Activos' : 'Nuevo Ingreso');
         $sheet->setCellValue('A' . $row, "Tipo de encuesta: {$typeLabel}");
         $row += 2;
 
-        // Métricas generales
-        $sheet->setCellValue('A' . $row, 'Métricas Generales');
-        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        // ===== MÉTRICAS GENERALES =====
+        $sheet->setCellValue('A' . $row, 'MÉTRICAS GENERALES');
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true)->setSize(14);
         $row++;
 
         $total = $surveys->count();
         $activeAffiliate = $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count();
         $newEntry = $surveys->where('survey_type', 'new_entry')->count();
-        $bulkEntry = $surveys->where('survey_type', 'bulk_entry')->count(); // Compatibilidad con encuestas antiguas
 
         $sheet->setCellValue('A' . $row, 'Total de encuestas:');
         $sheet->setCellValue('B' . $row, $total);
@@ -211,22 +202,638 @@ class SocioDemographicSurveyExcelExportService
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
         $row++;
 
-        if ($bulkEntry > 0) {
-            $sheet->setCellValue('A' . $row, 'Encuestas de Ingreso Masivo (legacy):');
-            $sheet->setCellValue('B' . $row, $bulkEntry);
-            $sheet->getStyle('A' . $row)->getFont()->setBold(true);
-            $row++;
-        }
-
         // Fecha de generación
         $row += 2;
         $sheet->setCellValue('A' . $row, 'Fecha de generación:');
         $sheet->setCellValue('B' . $row, now()->setTimezone('America/Bogota')->format('d/m/Y H:i:s'));
         $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row += 4;
+
+        // ===== PRIMERA FILA DE TABLAS (3 columnas) =====
+        $startRow = $row;
+        
+        // Columna A-C: Tipo de Encuesta
+        $endRow1 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TIPO DE ENCUESTA', [
+            'Tipo de Encuesta' => function($s) {
+                $type = $s->survey_type;
+                if (!$type || $type === 'active_affiliate') return 'Afiliados Activos';
+                if ($type === 'new_entry') return 'Nuevo Ingreso';
+                return 'Afiliados Activos';
+            }
+        ], $surveys, 'A');
+        
+        // Columna E-G: Hospital
+        $endRow2 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR HOSPITAL', [
+            'Hospital' => function($s) { return $s->hospital ?? 'No especificado'; }
+        ], $surveys, 'E');
+        
+        // Columna I-K: Género
+        $endRow3 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR GÉNERO', [
+            'Género' => function($s) {
+                $genero = $s->datos_sociodemograficos['genero'] ?? null;
+                return $this->getGeneroDisplayName($genero) ?: 'No especificado';
+            }
+        ], $surveys, 'I');
+        
+        $row = max($endRow1, $endRow2, $endRow3) + 3; // Espacio entre filas
+
+        // ===== SEGUNDA FILA DE TABLAS =====
+        $startRow = $row;
+        
+        // Columna A-C: Transporte
+        $endRow1 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TRANSPORTE', [
+            'Transporte' => function($s) {
+                $transporte = $s->datos_sociodemograficos['transporte'] ?? null;
+                return $this->getTransporteDisplayName($transporte) ?: 'No especificado';
+            }
+        ], $surveys, 'A');
+        
+        // Columna E-G: Estrato Socioeconómico
+        $endRow2 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR ESTRATO', [
+            'Estrato' => function($s) {
+                $estrato = $s->datos_sociodemograficos['estratoSocioeconomico'] ?? null;
+                return $estrato ? "Estrato {$estrato}" : 'No especificado';
+            }
+        ], $surveys, 'E');
+        
+        // Columna I-K: Tipo de Vivienda
+        $endRow3 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR VIVIENDA', [
+            'Tipo de Vivienda' => function($s) {
+                $vivienda = $s->datos_sociodemograficos['vivienda'] ?? null;
+                return $this->getViviendaDisplayName($vivienda) ?: 'No especificado';
+            }
+        ], $surveys, 'I');
+        
+        $row = max($endRow1, $endRow2, $endRow3) + 3;
+
+        // ===== TERCERA FILA DE TABLAS =====
+        $startRow = $row;
+        
+        // Columna A-C: Talla Calzado
+        $endRow1 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TALLA CALZADO', [
+            'Talla Calzado' => function($s) { return $s->talla_calzado ?? 'No especificado'; }
+        ], $surveys, 'A');
+        
+        // Columna E-G: Talla Vestimenta
+        $endRow2 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TALLA VESTIMENTA', [
+            'Talla Vestimenta' => function($s) {
+                $talla = $s->talla_vestimenta;
+                return $this->getTallaVestimentaDisplayName($talla) ?: 'No especificado';
+            }
+        ], $surveys, 'E');
+        
+        // Columna I-K: Sobrepeso/Obesidad
+        $endRow3 = $this->addSobrepesoObesidadTable($sheet, $startRow, $surveys, 'I');
+        
+        $row = max($endRow1, $endRow2, $endRow3) + 3;
+
+        // ===== SERVICIOS PÚBLICOS (tabla completa) =====
+        $row = $this->addServiciosPublicosTable($sheet, $row, $surveys);
+        $row += 3;
+
+        // ===== MANEJO DE TIEMPO LIBRE (tabla completa) =====
+        $row = $this->addManejoTiempoLibreTable($sheet, $row, $surveys);
+        $row += 3;
+
+        // ===== ESTADÍSTICAS POR MES (tabla completa) =====
+        $this->addStatsByMonthTable($sheet, $row, $surveys);
 
         // Ajustar ancho de columnas
-        $sheet->getColumnDimension('A')->setWidth(35);
-        $sheet->getColumnDimension('B')->setWidth(20);
+        $sheet->getColumnDimension('A')->setWidth(25);
+        $sheet->getColumnDimension('B')->setWidth(12);
+        $sheet->getColumnDimension('C')->setWidth(12);
+        $sheet->getColumnDimension('D')->setWidth(2); // Espacio entre columnas
+        $sheet->getColumnDimension('E')->setWidth(25);
+        $sheet->getColumnDimension('F')->setWidth(12);
+        $sheet->getColumnDimension('G')->setWidth(12);
+        $sheet->getColumnDimension('H')->setWidth(2); // Espacio entre columnas
+        $sheet->getColumnDimension('I')->setWidth(25);
+        $sheet->getColumnDimension('J')->setWidth(12);
+        $sheet->getColumnDimension('K')->setWidth(12);
+    }
+
+    /**
+     * Agregar tabla de estadísticas genérica.
+     */
+    private function addStatsTable(Worksheet $sheet, int $startRow, string $title, array $groupBy, Collection $surveys, string $startCol = 'A'): int
+    {
+        $row = $startRow;
+        $col1 = $startCol;
+        $col2 = $this->getNextColumn($col1);
+        $col3 = $this->getNextColumn($col2);
+
+        // Título
+        $sheet->setCellValue($col1 . $row, $title);
+        $sheet->mergeCells($col1 . $row . ':' . $col3 . $row);
+        $sheet->getStyle($col1 . $row)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 11],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'D9E1F2'],
+            ],
+        ]);
+        $row++;
+
+        // Encabezados
+        $sheet->setCellValue($col1 . $row, array_key_first($groupBy));
+        $sheet->setCellValue($col2 . $row, 'Cantidad');
+        $sheet->setCellValue($col3 . $row, 'Porcentaje');
+        $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+        $row++;
+
+        // Agrupar datos
+        $grouped = [];
+        $total = $surveys->count();
+        
+        foreach ($surveys as $survey) {
+            $key = '';
+            foreach ($groupBy as $label => $callback) {
+                $key = $callback($survey);
+                break;
+            }
+            
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = 0;
+            }
+            $grouped[$key]++;
+        }
+
+        // Ordenar por cantidad descendente
+        arsort($grouped);
+
+        // Escribir datos
+        foreach ($grouped as $key => $count) {
+            $percentage = $total > 0 ? round(($count / $total) * 100, 2) : 0;
+            $sheet->setCellValue($col1 . $row, $key);
+            $sheet->setCellValue($col2 . $row, $count);
+            $sheet->setCellValue($col3 . $row, $percentage . '%');
+            
+            $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                    ],
+                ],
+            ]);
+            $row++;
+        }
+
+        // Total
+        $sheet->setCellValue($col1 . $row, 'TOTAL');
+        $sheet->setCellValue($col2 . $row, $total);
+        $sheet->setCellValue($col3 . $row, '100%');
+        $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'F2F2F2'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+
+        return $row;
+    }
+
+    /**
+     * Obtener la siguiente columna.
+     */
+    private function getNextColumn(string $col): string
+    {
+        // Convertir columna a número (A=1, B=2, ..., Z=26, AA=27, etc.)
+        $colNum = 0;
+        for ($i = 0; $i < strlen($col); $i++) {
+            $colNum = $colNum * 26 + (ord($col[$i]) - ord('A') + 1);
+        }
+        
+        // Incrementar
+        $colNum++;
+        
+        // Convertir de vuelta a letra
+        $result = '';
+        while ($colNum > 0) {
+            $colNum--;
+            $result = chr(ord('A') + ($colNum % 26)) . $result;
+            $colNum = intval($colNum / 26);
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Agregar tabla de servicios públicos desglosada.
+     */
+    private function addServiciosPublicosTable(Worksheet $sheet, int $startRow, Collection $surveys): int
+    {
+        $row = $startRow;
+
+        // Título
+        $sheet->setCellValue('A' . $row, 'SERVICIOS PÚBLICOS - DESGLOSE');
+        $sheet->mergeCells('A' . $row . ':C' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 12],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'D9E1F2'],
+            ],
+        ]);
+        $row++;
+
+        // Encabezados
+        $sheet->setCellValue('A' . $row, 'Servicio');
+        $sheet->setCellValue('B' . $row, 'Tiene el Servicio');
+        $sheet->setCellValue('C' . $row, 'No Tiene el Servicio');
+        $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+        $row++;
+
+        $total = $surveys->count();
+        $servicios = [
+            'agua' => 'Agua',
+            'luz' => 'Luz',
+            'telefono' => 'Teléfono',
+            'internet' => 'Internet',
+            'gas' => 'Gas'
+        ];
+
+        foreach ($servicios as $key => $label) {
+            $tiene = 0;
+            $noTiene = 0;
+
+            foreach ($surveys as $survey) {
+                $serviciosPublicos = $survey->datos_sociodemograficos['serviciosPublicos'] ?? [];
+                $valor = $serviciosPublicos[$key] ?? false;
+                
+                if ($this->parseBooleanValue($valor)) {
+                    $tiene++;
+                } else {
+                    $noTiene++;
+                }
+            }
+
+            $sheet->setCellValue('A' . $row, $label);
+            $sheet->setCellValue('B' . $row, $tiene . ' (' . ($total > 0 ? round(($tiene / $total) * 100, 2) : 0) . '%)');
+            $sheet->setCellValue('C' . $row, $noTiene . ' (' . ($total > 0 ? round(($noTiene / $total) * 100, 2) : 0) . '%)');
+            
+            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                    ],
+                ],
+            ]);
+            $row++;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Agregar tabla de manejo de tiempo libre.
+     */
+    private function addManejoTiempoLibreTable(Worksheet $sheet, int $startRow, Collection $surveys): int
+    {
+        $row = $startRow;
+
+        // Título
+        $sheet->setCellValue('A' . $row, 'MANEJO DE TIEMPO LIBRE');
+        $sheet->mergeCells('A' . $row . ':C' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 12],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'D9E1F2'],
+            ],
+        ]);
+        $row++;
+
+        // Encabezados
+        $sheet->setCellValue('A' . $row, 'Actividad');
+        $sheet->setCellValue('B' . $row, 'Realiza la Actividad');
+        $sheet->setCellValue('C' . $row, 'No Realiza la Actividad');
+        $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+        $row++;
+
+        $total = $surveys->count();
+        $actividades = [
+            'recreativas' => 'Recreativas',
+            'deportivas' => 'Deportivas',
+            'educativas' => 'Educativas',
+            'descanso' => 'Descanso',
+            'artisticas' => 'Artísticas',
+            'religiosas' => 'Religiosas',
+            'otras' => 'Otras'
+        ];
+
+        foreach ($actividades as $key => $label) {
+            $realiza = 0;
+            $noRealiza = 0;
+
+            foreach ($surveys as $survey) {
+                $manejoTiempoLibre = $survey->datos_sociodemograficos['manejoTiempoLibre'] ?? [];
+                $valor = $manejoTiempoLibre[$key] ?? false;
+                
+                if ($this->parseBooleanValue($valor)) {
+                    $realiza++;
+                } else {
+                    $noRealiza++;
+                }
+            }
+
+            $sheet->setCellValue('A' . $row, $label);
+            $sheet->setCellValue('B' . $row, $realiza . ' (' . ($total > 0 ? round(($realiza / $total) * 100, 2) : 0) . '%)');
+            $sheet->setCellValue('C' . $row, $noRealiza . ' (' . ($total > 0 ? round(($noRealiza / $total) * 100, 2) : 0) . '%)');
+            
+            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                    ],
+                ],
+            ]);
+            $row++;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Agregar tabla de sobrepeso/obesidad.
+     */
+    private function addSobrepesoObesidadTable(Worksheet $sheet, int $startRow, Collection $surveys, string $startCol = 'A'): int
+    {
+        $row = $startRow;
+        $col1 = $startCol;
+        $col2 = $this->getNextColumn($col1);
+        $col3 = $this->getNextColumn($col2);
+
+        // Título
+        $sheet->setCellValue($col1 . $row, 'SOBREPESO/OBESIDAD');
+        $sheet->mergeCells($col1 . $row . ':' . $col3 . $row);
+        $sheet->getStyle($col1 . $row)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 11],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'D9E1F2'],
+            ],
+        ]);
+        $row++;
+
+        // Encabezados
+        $sheet->setCellValue($col1 . $row, 'Condición');
+        $sheet->setCellValue($col2 . $row, 'Cantidad');
+        $sheet->setCellValue($col3 . $row, 'Porcentaje');
+        $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+        $row++;
+
+        $total = $surveys->count();
+        $si = 0;
+        $no = 0;
+        $noEspecificado = 0;
+
+        foreach ($surveys as $survey) {
+            $condicionesSalud = $survey->condiciones_salud ?? [];
+            $sobrepesoObesidad = $condicionesSalud['sobrepesoObesidad'] ?? null;
+            
+            // También calcular por IMC si está disponible
+            $datosSociodemograficos = $survey->datos_sociodemograficos ?? [];
+            $estatura = $datosSociodemograficos['estatura'] ?? null;
+            $peso = $datosSociodemograficos['peso'] ?? null;
+            
+            if ($sobrepesoObesidad !== null) {
+                if ($this->parseBooleanValue($sobrepesoObesidad)) {
+                    $si++;
+                } else {
+                    $no++;
+                }
+            } elseif ($estatura && $peso) {
+                // Calcular IMC
+                $estaturaMetros = $estatura / 100; // Convertir cm a metros
+                $imc = $peso / ($estaturaMetros * $estaturaMetros);
+                
+                if ($imc >= 25) {
+                    $si++;
+                } else {
+                    $no++;
+                }
+            } else {
+                $noEspecificado++;
+            }
+        }
+
+        $sheet->setCellValue($col1 . $row, 'Sí');
+        $sheet->setCellValue($col2 . $row, $si);
+        $sheet->setCellValue($col3 . $row, $total > 0 ? round(($si / $total) * 100, 2) . '%' : '0%');
+        $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+        $row++;
+
+        $sheet->setCellValue($col1 . $row, 'No');
+        $sheet->setCellValue($col2 . $row, $no);
+        $sheet->setCellValue($col3 . $row, $total > 0 ? round(($no / $total) * 100, 2) . '%' : '0%');
+        $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+        $row++;
+
+        if ($noEspecificado > 0) {
+            $sheet->setCellValue($col1 . $row, 'No especificado');
+            $sheet->setCellValue($col2 . $row, $noEspecificado);
+            $sheet->setCellValue($col3 . $row, $total > 0 ? round(($noEspecificado / $total) * 100, 2) . '%' : '0%');
+            $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                    ],
+                ],
+            ]);
+            $row++;
+        }
+
+        // Total
+        $sheet->setCellValue($col1 . $row, 'TOTAL');
+        $sheet->setCellValue($col2 . $row, $total);
+        $sheet->setCellValue($col3 . $row, '100%');
+        $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'F2F2F2'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+
+        return $row;
+    }
+
+    /**
+     * Agregar tabla de estadísticas por mes.
+     */
+    private function addStatsByMonthTable(Worksheet $sheet, int $startRow, Collection $surveys): int
+    {
+        $row = $startRow;
+
+        // Título
+        $sheet->setCellValue('A' . $row, 'ESTADÍSTICAS POR MES');
+        $sheet->mergeCells('A' . $row . ':D' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 12],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'D9E1F2'],
+            ],
+        ]);
+        $row++;
+
+        // Encabezados
+        $sheet->setCellValue('A' . $row, 'Mes');
+        $sheet->setCellValue('B' . $row, 'Total');
+        $sheet->setCellValue('C' . $row, 'Afiliados Activos');
+        $sheet->setCellValue('D' . $row, 'Nuevo Ingreso');
+        $sheet->getStyle('A' . $row . ':D' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'E0E0E0'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+        $row++;
+
+        // Agrupar por mes
+        $byMonth = $surveys->groupBy(function ($survey) {
+            return $survey->created_at?->format('Y-m') ?? 'Sin fecha';
+        })->sortKeys();
+
+        foreach ($byMonth as $month => $monthSurveys) {
+            $monthLabel = $month !== 'Sin fecha' 
+                ? $this->formatMonthInSpanish($month)
+                : 'Sin fecha';
+            
+            $totalMonth = $monthSurveys->count();
+            $activeAffiliateMonth = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
+            $newEntryMonth = $monthSurveys->where('survey_type', 'new_entry')->count();
+
+            $sheet->setCellValue('A' . $row, $monthLabel);
+            $sheet->setCellValue('B' . $row, $totalMonth);
+            $sheet->setCellValue('C' . $row, $activeAffiliateMonth);
+            $sheet->setCellValue('D' . $row, $newEntryMonth);
+            
+            $sheet->getStyle('A' . $row . ':D' . $row)->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                    ],
+                ],
+            ]);
+            $row++;
+        }
+
+        // Totales
+        $sheet->setCellValue('A' . $row, 'TOTAL');
+        $sheet->setCellValue('B' . $row, $surveys->count());
+        $sheet->setCellValue('C' . $row, $surveys->where('survey_type', 'active_affiliate')->count() + $surveys->whereNull('survey_type')->count());
+        $sheet->setCellValue('D' . $row, $surveys->where('survey_type', 'new_entry')->count());
+        $sheet->getStyle('A' . $row . ':D' . $row)->applyFromArray([
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => 'F2F2F2'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                ],
+            ],
+        ]);
+
+        return $row;
+    }
+
+    /**
+     * Parsear valor booleano.
+     */
+    private function parseBooleanValue($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        $normalized = strtolower(trim((string) $value));
+        
+        return in_array($normalized, ['si', 'sí', 'yes', 'true', '1', '1.0']);
     }
 
     /**
@@ -1275,9 +1882,6 @@ class SocioDemographicSurveyExcelExportService
             return 'Nuevo Ingreso';
         }
 
-        if ($value === 'bulk_entry') {
-            return 'Ingreso Masivo (legacy)';
-        }
 
         return 'Afiliados Activos';
     }
