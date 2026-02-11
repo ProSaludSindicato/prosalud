@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Request;
 
-use App\Constants\RequestTypes;
+use App\Constants\{RequestSubtypes, RequestTypes};
 use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -130,6 +130,22 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.otrosDescripcion' => 'nullable|string|max:1000',
                 'files.actividadesPdf' => 'nullable|file|max:4096|mimes:pdf',
                 'files.adjuntarArchivoAdicional' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,webp',
+            ]);
+        }
+
+        // Validaciones específicas para verificacion-pagos
+        if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
+            $validSubtypes = RequestSubtypes::forRequestType(RequestTypes::VERIFICACION_PAGOS);
+            $rules = array_merge($rules, [
+                'payload.solicitudRelacionadaCon' => [
+                    'required',
+                    'string',
+                    function ($attribute, $value, $fail) use ($validSubtypes) {
+                        if (!in_array($value, $validSubtypes, true)) {
+                            $fail('El subtipo de solicitud seleccionado no es válido.');
+                        }
+                    },
+                ],
             ]);
         }
 

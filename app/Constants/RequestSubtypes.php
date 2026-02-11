@@ -14,6 +14,7 @@ class RequestSubtypes
     public const COMPENSACION_MENSUAL = 'COMPENSACIÓN. MENSUAL';
     public const COMPENSACION_SEMESTRAL = 'COMPENSACIÓN SEMESTRAL';
     public const INCAPACIDADES = 'INCAPACIDADES';
+    public const SUBSIDIOS = 'SUBSIDIOS';
 
     /**
      * Get all valid subtypes for verificacion-pagos.
@@ -31,6 +32,7 @@ class RequestSubtypes
             self::COMPENSACION_MENSUAL,
             self::COMPENSACION_SEMESTRAL,
             self::INCAPACIDADES,
+            self::SUBSIDIOS,
         ];
     }
 
