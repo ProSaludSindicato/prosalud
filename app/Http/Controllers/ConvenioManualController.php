@@ -4,13 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ConvenioEmailTracking;
+use App\Services\ConvenioGenerationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class ConvenioManualController extends Controller
 {
+    public function __construct(
+        private readonly ConvenioGenerationService $convenioGenerationService
+    ) {
+    }
     /**
      * Send bulk emails with PDF attachments to multiple affiliates.
      *
@@ -398,5 +404,180 @@ class ConvenioManualController extends Controller
             'success' => true,
             'data' => $stats,
         ]);
+    }
+
+    /**
+     * Generate and optionally send convenio from frontend data.
+     * 
+     * This endpoint allows the frontend to send convenio data via API
+     * instead of relying only on Excel files.
+     *
+     * @param Request $request
+     * @return JsonResponse|BinaryFileResponse
+     */
+    public function generateAndSendConvenio(Request $request): JsonResponse|BinaryFileResponse
+    {
+        $validator = Validator::make($request->all(), [
+            // Campos requeridos básicos
+            'numero_documento' => 'required|string|max:50',
+            'apellidos' => 'required|string|max:255',
+            'nombres' => 'required|string|max:255',
+            'fecha_nacimiento' => 'required|date',
+            'lugar_nacimiento' => 'required|string|max:255',
+            
+            // Campos opcionales del afiliado y convenio (todos los que se usan en la plantilla Word)
+            'proceso' => 'nullable|string|max:255',
+            'ciudad' => 'nullable|string|max:255',
+            'sede' => 'nullable|string|max:255',
+            'hospital' => 'nullable|string|max:255', // Campo adicional para hospital/entidad
+            'fecha_inicio' => 'nullable|date',
+            'fecha_finalizacion' => 'nullable|date',
+            'direccion' => 'nullable|string|max:500',
+            'telefono' => 'nullable|string|max:50',
+            'celular' => 'nullable|string|max:50',
+            'nombre_archivo' => 'nullable|string|max:255',
+            
+            // Compensación básica redactada (puede venir del frontend o generarse automáticamente)
+            'compensacion_basica_redactada' => 'nullable|string',
+            
+            // Nuevos campos de compensación (todos opcionales)
+            'basico' => 'nullable|numeric',
+            'auxilios' => 'nullable|numeric',
+            'manutencion' => 'nullable|numeric',
+            'provisiones' => 'nullable|numeric',
+            'horas' => 'nullable|numeric',
+            'valor_hora_diurna' => 'nullable|numeric',
+            'valor_hora_nocturna' => 'nullable|numeric',
+            'valor_hora_diurna_festiva' => 'nullable|numeric',
+            'valor_hora_nocturna_festiva' => 'nullable|numeric',
+            'auxilio_de_transporte' => 'nullable|numeric',
+            'auxilio_de_manutencion' => 'nullable|numeric',
+            'auxilio_de_encierro' => 'nullable|numeric',
+            'auxilio_de_rodamiento' => 'nullable|numeric',
+            'auxilio_especial' => 'nullable|numeric', // Auxilio especial (diferente del auxilio general)
+            'auxilio_prosalud' => 'nullable|numeric', // Auxilio Prosalud no constitutivo de compensación básica
+            'valor_auxilio_diurno' => 'nullable|numeric',
+            'valor_auxilio_recargo_nocturno' => 'nullable|numeric',
+            'valor_auxilio_recargo_festivo' => 'nullable|numeric',
+            'valor_auxilio_recargo_festivo_nocturno' => 'nullable|numeric',
+            
+            // Opciones de procesamiento
+            // Opciones de procesamiento (envío de correo se activará cuando exista PDF)
+            'send_email' => 'nullable|boolean',
+            'email' => 'nullable|email|max:255',
+            // Control de descarga directa del archivo Word
+            'download' => 'nullable|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            Log::info('Generando convenio desde API', [
+                'documento' => $request->input('numero_documento'),
+                'send_email' => $request->input('send_email', false),
+            ]);
+
+            // Preparar datos para el servicio de generación (todos los campos que se usan en la plantilla Word)
+            $convenioData = [
+                'numero_documento' => $request->input('numero_documento'),
+                'apellidos' => $request->input('apellidos'),
+                'nombres' => $request->input('nombres'),
+                'proceso' => $request->input('proceso'),
+                'ciudad' => $request->input('ciudad'),
+                'sede' => $request->input('sede'),
+                'hospital' => $request->input('hospital'), // Campo adicional para hospital/entidad
+                'fecha_nacimiento' => $request->input('fecha_nacimiento'),
+                'lugar_nacimiento' => $request->input('lugar_nacimiento'),
+                'fecha_inicio' => $request->input('fecha_inicio'),
+                'fecha_finalizacion' => $request->input('fecha_finalizacion'),
+                'direccion' => $request->input('direccion'),
+                'telefono' => $request->input('telefono'),
+                'celular' => $request->input('celular'),
+                'nombre_archivo' => $request->input('nombre_archivo'),
+                'compensacion_basica_redactada' => $request->input('compensacion_basica_redactada'),
+                // Nuevos campos de compensación
+                'basico' => $request->input('basico'),
+                'auxilios' => $request->input('auxilios'),
+                'manutencion' => $request->input('manutencion'),
+                'provisiones' => $request->input('provisiones'),
+                'horas' => $request->input('horas'),
+                'valor_hora_diurna' => $request->input('valor_hora_diurna'),
+                'valor_hora_nocturna' => $request->input('valor_hora_nocturna'),
+                'valor_hora_diurna_festiva' => $request->input('valor_hora_diurna_festiva'),
+                'valor_hora_nocturna_festiva' => $request->input('valor_hora_nocturna_festiva'),
+                'auxilio_de_transporte' => $request->input('auxilio_de_transporte'),
+                'auxilio_de_manutencion' => $request->input('auxilio_de_manutencion'),
+                'auxilio_de_encierro' => $request->input('auxilio_de_encierro'),
+                'auxilio_de_rodamiento' => $request->input('auxilio_de_rodamiento'),
+                'auxilio_especial' => $request->input('auxilio_especial'),
+                'auxilio_prosalud' => $request->input('auxilio_prosalud'),
+                'valor_auxilio_diurno' => $request->input('valor_auxilio_diurno'),
+                'valor_auxilio_recargo_nocturno' => $request->input('valor_auxilio_recargo_nocturno'),
+                'valor_auxilio_recargo_festivo' => $request->input('valor_auxilio_recargo_festivo'),
+                'valor_auxilio_recargo_festivo_nocturno' => $request->input('valor_auxilio_recargo_festivo_nocturno'),
+            ];
+
+            // Generar convenio Word (se guarda en resources/convenios)
+            $resultado = $this->convenioGenerationService->generarConvenio($convenioData);
+            
+            $responseData = [
+                'success' => true,
+                'message' => 'Convenio generado exitosamente',
+                'data' => [
+                    'nombre_archivo' => $resultado['nombre'],
+                    'ruta' => $resultado['ruta'],
+                    'tipo' => $resultado['tipo'],
+                ],
+            ];
+
+            // NOTA TEMPORAL (DESARROLLO):
+            // - No se convierte a PDF (solo Word)
+            // - El envío por correo queda deshabilitado hasta que se active la generación de PDF
+            if ($request->boolean('send_email')) {
+                $responseData['warnings'][] = 'El envío por correo está temporalmente deshabilitado mientras se completa la implementación de PDF.';
+            }
+
+            // Si se solicita descarga directa del Word, devolver el archivo
+            if ($request->boolean('download')) {
+                if (!file_exists($resultado['ruta'])) {
+                    Log::error('Archivo de convenio no encontrado para descarga', [
+                        'ruta' => $resultado['ruta'],
+                        'nombre_archivo' => $resultado['nombre'],
+                        'documento' => $request->input('numero_documento'),
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'El archivo del convenio no se encontró en el servidor.',
+                    ], 500);
+                }
+
+                return response()->download(
+                    $resultado['ruta'],
+                    $resultado['nombre'],
+                    ['Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+                );
+            }
+
+            // Caso normal: responder con JSON (metadata del archivo generado)
+            return response()->json($responseData, 200);
+        } catch (\Exception $e) {
+            Log::error('Error generando convenio desde API', [
+                'documento' => $request->input('numero_documento'),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el convenio: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

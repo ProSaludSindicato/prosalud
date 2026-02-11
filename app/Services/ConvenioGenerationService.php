@@ -10,7 +10,7 @@ use PhpOffice\PhpSpreadsheet\{IOFactory, Cell\Coordinate};
 class ConvenioGenerationService
 {
     private const TEMPLATE_PATH = 'resources/templates/Plantilla_convenios.docx';
-    private const OUTPUT_DIR = 'resources/convenios';
+    private const OUTPUT_DIR = 'resources/templates/convenios';
     private const AFILIADOS_FILE_PATH = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
 
     public function __construct(
@@ -145,29 +145,83 @@ class ConvenioGenerationService
 
         // Crear directorio si no existe
         $outputDir = base_path(self::OUTPUT_DIR);
+        Log::debug('[CONVENIO GENERATION] Verificando directorio de salida', [
+            'output_dir' => $outputDir,
+            'existe' => is_dir($outputDir),
+            'es_escribible' => is_dir($outputDir) ? is_writable($outputDir) : false,
+        ]);
+        
         if (!is_dir($outputDir)) {
-            mkdir($outputDir, 0755, true);
-            Log::info('[CONVENIO GENERATION] Directorio de salida creado', [
+            $creado = mkdir($outputDir, 0755, true);
+            Log::info('[CONVENIO GENERATION] Intento de creación de directorio de salida', [
                 'output_dir' => $outputDir,
+                'creado' => $creado,
+                'existe_despues' => is_dir($outputDir),
+                'permisos' => is_dir($outputDir) ? substr(sprintf('%o', fileperms($outputDir)), -4) : null,
             ]);
+            
+            if (!is_dir($outputDir)) {
+                Log::error('[CONVENIO GENERATION] No se pudo crear el directorio de salida', [
+                    'output_dir' => $outputDir,
+                ]);
+                throw new \Exception("No se pudo crear el directorio de salida: {$outputDir}");
+            }
         }
 
         // Guardar documento
+        Log::debug('[CONVENIO GENERATION] Iniciando guardado del documento', [
+            'documento' => $documento,
+            'ruta_salida' => $rutaSalida,
+            'directorio_existe' => is_dir($outputDir),
+            'directorio_escribible' => is_writable($outputDir),
+            'archivo_existe_antes' => file_exists($rutaSalida),
+        ]);
+        
         try {
             $templateProcessor->saveAs($rutaSalida);
+            
+            // Verificar que el archivo realmente se guardó
+            $archivoExiste = file_exists($rutaSalida);
+            $tamañoArchivo = $archivoExiste ? filesize($rutaSalida) : null;
+            $esLegible = $archivoExiste ? is_readable($rutaSalida) : false;
             
             Log::info('[CONVENIO GENERATION] Convenio generado exitosamente', [
                 'documento' => $documento,
                 'nombre_completo' => $nombreCompleto,
                 'nombre_archivo' => $nombreArchivo,
                 'ruta' => $rutaSalida,
-                'tamaño_bytes' => file_exists($rutaSalida) ? filesize($rutaSalida) : null,
+                'archivo_existe' => $archivoExiste,
+                'tamaño_bytes' => $tamañoArchivo,
+                'es_legible' => $esLegible,
+                'permisos_archivo' => $archivoExiste ? substr(sprintf('%o', fileperms($rutaSalida)), -4) : null,
             ]);
+            
+            if (!$archivoExiste) {
+                Log::error('[CONVENIO GENERATION] El archivo no existe después de guardar', [
+                    'documento' => $documento,
+                    'ruta_salida' => $rutaSalida,
+                    'output_dir' => $outputDir,
+                    'directorio_existe' => is_dir($outputDir),
+                    'directorio_escribible' => is_writable($outputDir),
+                ]);
+                throw new \Exception("El archivo no se guardó correctamente en: {$rutaSalida}");
+            }
+            
+            if ($tamañoArchivo === 0 || $tamañoArchivo === null) {
+                Log::warning('[CONVENIO GENERATION] El archivo se guardó pero tiene tamaño 0', [
+                    'documento' => $documento,
+                    'ruta_salida' => $rutaSalida,
+                    'tamaño_bytes' => $tamañoArchivo,
+                ]);
+            }
         } catch (\Exception $e) {
             Log::error('[CONVENIO GENERATION] Error al guardar convenio', [
                 'documento' => $documento,
                 'nombre_archivo' => $nombreArchivo,
                 'ruta_salida' => $rutaSalida,
+                'output_dir' => $outputDir,
+                'directorio_existe' => is_dir($outputDir),
+                'directorio_escribible' => is_dir($outputDir) ? is_writable($outputDir) : false,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -195,26 +249,402 @@ class ConvenioGenerationService
         // Formatear fecha de inicio
         $fechaInicio = $this->formatearFechaEspanol($data['fecha_inicio'] ?? null);
 
+        // Formatear fecha de nacimiento (dd/mm/aaaa)
+        $fechaNacimiento = $this->formatearFechaNacimiento($data['fecha_nacimiento'] ?? null);
+
         // Calcular duración
         $duracion = $this->calcularDuracion(
             $data['fecha_inicio'] ?? null,
             $data['fecha_finalizacion'] ?? null
         );
 
+        // Obtener compensación básica redactada o generarla automáticamente si no está definida
+        $compensacionBasicaRedactada = $data['compensacion_basica_redactada'] ?? '';
+        if (empty(trim($compensacionBasicaRedactada))) {
+            $compensacionBasicaRedactada = $this->generarCompensacionBasicaRedactada($data);
+        }
+
+        // Formatear valores numéricos para mostrar en la plantilla
+        $formatearValor = function($valor) {
+            if (empty($valor) && $valor !== '0' && $valor !== 0) {
+                return '';
+            }
+            // Si es numérico, formatear con separador de miles
+            if (is_numeric($valor)) {
+                return number_format((float) $valor, 0, ',', '.');
+            }
+            return (string) $valor;
+        };
+
         return [
             'PROCESO' => strtoupper($data['proceso'] ?? ''),
             'CIUDAD' => $data['ciudad'] ?? '',
             'SEDE' => strtoupper($data['sede'] ?? ''),
+            'HOSPITAL' => strtoupper($data['hospital'] ?? ''), // Campo adicional para hospital/entidad
             'FECHA' => $fechaInicio,
             'APELLIDOS' => strtoupper($data['apellidos'] ?? ''),
             'NOMBRES' => strtoupper($data['nombres'] ?? ''),
+            'LUGAR_NACIMIENTO' => strtoupper($data['lugar_nacimiento'] ?? ''),
+            'FECHA_NACIMIENTO' => $fechaNacimiento,
             'NUMERO_DOCUMENTO' => $numeroDocumento,
-            'COMPENSACION_BASICA_REDACTADA' => $data['compensacion_basica_redactada'] ?? '',
+            'COMPENSACION_BASICA_REDACTADA' => $compensacionBasicaRedactada,
             'DURACION' => $duracion,
             'DIRECCION' => !empty(trim($data['direccion'] ?? '')) ? $data['direccion'] : '__________________________',
             'TELEFONO' => !empty(trim($data['telefono'] ?? '')) ? $data['telefono'] : '__________________________',
             'CELULAR' => !empty(trim($data['celular'] ?? '')) ? $data['celular'] : '__________________________',
+            // Nuevos campos de compensación
+            'BASICO' => $formatearValor($data['basico'] ?? ''),
+            'AUXILIOS' => $formatearValor($data['auxilios'] ?? ''),
+            'MANUTENCION' => $formatearValor($data['manutencion'] ?? ''),
+            'PROVISIONES' => $formatearValor($data['provisiones'] ?? ''),
+            'HORAS' => $formatearValor($data['horas'] ?? ''),
+            'VALOR_HORA_DIURNA' => $formatearValor($data['valor_hora_diurna'] ?? ''),
+            'VALOR_HORA_NOCTURNA' => $formatearValor($data['valor_hora_nocturna'] ?? ''),
+            'VALOR_HORA_DIURNA_FESTIVA' => $formatearValor($data['valor_hora_diurna_festiva'] ?? ''),
+            'VALOR_HORA_NOCTURNA_FESTIVA' => $formatearValor($data['valor_hora_nocturna_festiva'] ?? ''),
+            'AUXILIO_DE_TRANSPORTE' => $formatearValor($data['auxilio_de_transporte'] ?? ''),
+            'AUXILIO_DE_MANUTENCION' => $formatearValor($data['auxilio_de_manutencion'] ?? ''),
+            'AUXILIO_DE_ENCIERRO' => $formatearValor($data['auxilio_de_encierro'] ?? ''),
+            'AUXILIO_DE_RODAMIENTO' => $formatearValor($data['auxilio_de_rodamiento'] ?? ''),
+            'AUXILIO_ESPECIAL' => $formatearValor($data['auxilio_especial'] ?? ''),
+            'VALOR_AUXILIO_DIURNO' => $formatearValor($data['valor_auxilio_diurno'] ?? ''),
+            'VALOR_AUXILIO_RECARGO_NOCTURNO' => $formatearValor($data['valor_auxilio_recargo_nocturno'] ?? ''),
+            'VALOR_AUXILIO_RECARGO_FESTIVO' => $formatearValor($data['valor_auxilio_recargo_festivo'] ?? ''),
+            'VALOR_AUXILIO_RECARGO_FESTIVO_NOCTURNO' => $formatearValor($data['valor_auxilio_recargo_festivo_nocturno'] ?? ''),
         ];
+    }
+
+    /**
+     * Genera automáticamente el texto de compensación básica redactada
+     * basándose en los valores proporcionados.
+     *
+     * @param array $data Datos del convenio con valores de compensación
+     * @return string Texto de compensación básica redactada
+     */
+    private function generarCompensacionBasicaRedactada(array $data): string
+    {
+        Log::debug('[CONVENIO GENERATION] Iniciando generación automática de compensación básica redactada', [
+            'datos_recibidos' => array_keys(array_filter($data, function($v) {
+                return !empty($v) && $v !== null && $v !== '';
+            })),
+        ]);
+
+        // Función auxiliar para formatear valores monetarios
+        $formatearMoneda = function ($valor) {
+            if (null === $valor || $valor === '') {
+                return null;
+            }
+            if (!is_numeric($valor)) {
+                return null;
+            }
+
+            return '$' . number_format((float) $valor, 0, ',', '.');
+        };
+
+        // Obtener valores (normalizar a números)
+        $valorHoraDiurna = $this->normalizarValor($data['valor_hora_diurna'] ?? null);
+        $valorHoraNocturna = $this->normalizarValor($data['valor_hora_nocturna'] ?? null);
+        $valorHoraDiurnaFestiva = $this->normalizarValor($data['valor_hora_diurna_festiva'] ?? null);
+        $valorHoraNocturnaFestiva = $this->normalizarValor($data['valor_hora_nocturna_festiva'] ?? null);
+
+        $auxilioDiurno = $this->normalizarValor($data['valor_auxilio_diurno'] ?? null);
+        $auxilioRecargoNocturno = $this->normalizarValor($data['valor_auxilio_recargo_nocturno'] ?? null);
+        $auxilioRecargoFestivo = $this->normalizarValor($data['valor_auxilio_recargo_festivo'] ?? null);
+        $auxilioRecargoFestivoNocturno = $this->normalizarValor($data['valor_auxilio_recargo_festivo_nocturno'] ?? null);
+
+        $auxilioTransporte = $this->normalizarValor($data['auxilio_de_transporte'] ?? null);
+        $auxilioManutencion = $this->normalizarValor($data['auxilio_de_manutencion'] ?? null);
+        $auxilioEncierro = $this->normalizarValor($data['auxilio_de_encierro'] ?? null);
+        $auxilioRodamiento = $this->normalizarValor($data['auxilio_de_rodamiento'] ?? null);
+        $auxilioEspecial = $this->normalizarValor($data['auxilio_especial'] ?? null);
+        $auxilioProsalud = $this->normalizarValor($data['auxilio_prosalud'] ?? $data['auxilio_prosalud_no_constitutivo'] ?? null);
+
+        $basico = $this->normalizarValor($data['basico'] ?? null);
+        $auxilios = $this->normalizarValor($data['auxilios'] ?? null);
+        $provisiones = $this->normalizarValor($data['provisiones'] ?? null); // Devolución de compensaciones
+        $horas = $this->normalizarValor($data['horas'] ?? null);
+
+        Log::debug('[CONVENIO GENERATION] Valores normalizados para compensación', [
+            'valores_hora' => [
+                'diurna' => $valorHoraDiurna,
+                'nocturna' => $valorHoraNocturna,
+                'diurna_festiva' => $valorHoraDiurnaFestiva,
+                'nocturna_festiva' => $valorHoraNocturnaFestiva,
+            ],
+            'auxilios_por_hora' => [
+                'diurno' => $auxilioDiurno,
+                'recargo_nocturno' => $auxilioRecargoNocturno,
+                'recargo_festivo' => $auxilioRecargoFestivo,
+                'recargo_festivo_nocturno' => $auxilioRecargoFestivoNocturno,
+            ],
+            'auxilios_especiales' => [
+                'transporte' => $auxilioTransporte,
+                'manutencion' => $auxilioManutencion,
+                'encierro' => $auxilioEncierro,
+                'rodamiento' => $auxilioRodamiento,
+                'auxilio_especial' => $auxilioEspecial,
+                'prosalud' => $auxilioProsalud,
+            ],
+            'otros' => [
+                'basico' => $basico,
+                'auxilios' => $auxilios,
+                'provisiones' => $provisiones,
+                'horas' => $horas,
+            ],
+        ]);
+
+        $tieneValoresHora = $valorHoraDiurna || $valorHoraNocturna || $valorHoraDiurnaFestiva || $valorHoraNocturnaFestiva;
+        $tieneAuxiliosEspeciales = $auxilioTransporte || $auxilioManutencion || $auxilioEncierro || $auxilioProsalud;
+        $tieneAuxiliosPorHora = $auxilioDiurno || $auxilioRecargoNocturno || $auxilioRecargoFestivo || $auxilioRecargoFestivoNocturno;
+
+        Log::debug('[CONVENIO GENERATION] Análisis de patrones para compensación', [
+            'tiene_valores_hora' => $tieneValoresHora,
+            'tiene_auxilios_especiales' => $tieneAuxiliosEspeciales,
+            'tiene_auxilios_por_hora' => $tieneAuxiliosPorHora,
+        ]);
+
+        $texto = '';
+        $patronUsado = null;
+
+        // PATRÓN "V/R": V/R Basica Diurna + V/R Auxilio Diurna
+        if ($valorHoraDiurna && $auxilioDiurno && !$valorHoraNocturna && !$valorHoraDiurnaFestiva && !$valorHoraNocturnaFestiva) {
+            $patronUsado = 'V/R';
+            Log::debug('[CONVENIO GENERATION] Usando patrón V/R', [
+                'valor_hora_diurna' => $valorHoraDiurna,
+                'auxilio_diurno' => $auxilioDiurno,
+                'auxilio_transporte' => $auxilioTransporte,
+            ]);
+            
+            $texto = 'V/R Basica Diurna ' . $formatearMoneda($valorHoraDiurna) . '; V/R Auxilio Diurna ' . $formatearMoneda($auxilioDiurno) . '.';
+
+            if ($auxilioTransporte) {
+                $horasTexto = $horas ? $horas . ' horas' : '186 horas';
+                $texto .= ' El afiliado participe recibirá un auxilio de transporte correspondiente a  ' .
+                    $formatearMoneda($auxilioTransporte) . ' por ' . $horasTexto .
+                    ' o proporción de las mismas sin que este valor exceda ese monto en caso de superarse las ' .
+                    ($horas ? $horas : '186') . ' horas.';
+            }
+        }
+        // PATRÓN 1: Valores por hora + auxilios especiales (transporte, manutención, encierro, prosalud)
+        elseif ($tieneValoresHora && $tieneAuxiliosEspeciales) {
+            $patronUsado = 'Patrón 1: Valores por hora + auxilios especiales';
+            $usarValorHora = $auxilioProsalud && !$auxilioTransporte && !$auxilioManutencion && !$auxilioEncierro;
+            $prefijoHora = $usarValorHora ? 'Valor Hora' : 'Hora';
+            
+            Log::debug('[CONVENIO GENERATION] Usando patrón 1: Valores por hora + auxilios especiales', [
+                'prefijo_hora' => $prefijoHora,
+                'usar_valor_hora' => $usarValorHora,
+                'auxilios_presentes' => [
+                    'transporte' => !empty($auxilioTransporte),
+                    'manutencion' => !empty($auxilioManutencion),
+                    'encierro' => !empty($auxilioEncierro),
+                    'prosalud' => !empty($auxilioProsalud),
+                ],
+            ]);
+
+            $partesHora = [];
+            if ($valorHoraDiurna) {
+                $partesHora[] = $prefijoHora . ' Diurna ' . $formatearMoneda($valorHoraDiurna);
+            }
+            if ($valorHoraNocturna) {
+                $partesHora[] = $prefijoHora . ' Nocturna ' . $formatearMoneda($valorHoraNocturna);
+            }
+            if ($valorHoraDiurnaFestiva) {
+                $partesHora[] = $prefijoHora . ' Diurna Festiva ' . $formatearMoneda($valorHoraDiurnaFestiva);
+            }
+            if ($valorHoraNocturnaFestiva) {
+                $partesHora[] = $prefijoHora . ' Nocturna Festiva ' . $formatearMoneda($valorHoraNocturnaFestiva);
+            }
+
+            if (!empty($partesHora)) {
+                $texto = implode('; ', $partesHora) . '.';
+
+                if ($auxilioTransporte) {
+                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
+                    $texto .= ' El afiliado participe recibirá un auxilio de transporte correspondiente a  ' .
+                        $formatearMoneda($auxilioTransporte) . ' por ' . $horasTexto .
+                        ' o proporción de las mismas sin que este valor exceda ese monto en caso de superarse las ' .
+                        ($horas ? $horas : '186') . ' horas.';
+                }
+
+                if ($auxilioManutencion) {
+                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
+                    $texto .= ' Prosalud cancelará un auxilio de manutencion no constitutiva de compensación básica de  ' .
+                        $formatearMoneda($auxilioManutencion) . ' por la prestación efectiva de las ' . $horasTexto .
+                        ', la cual será proporcional a las mismas pero que en ningún caso excederá dicho valor.';
+                }
+
+                if ($auxilioEncierro) {
+                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
+                    $texto .= ' Prosalud cancelará un auxilio de encierro por valor de  ' .
+                        $formatearMoneda($auxilioEncierro) . ' en caso de que el afiliado participe realice las ' .
+                        $horasTexto . ' o proporción pero que en ningún caso excederá dicho valor.';
+                }
+
+                if ($auxilioProsalud) {
+                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
+                    $texto .= ' Prosalud cancelará un auxilio prosalud no constitutiva de compensación básica de  ' .
+                        $formatearMoneda($auxilioProsalud) . ' por la prestación efectiva de las ' . $horasTexto .
+                        ', la cual será proporcional a las mismas pero que en ningún caso excederá dicho valor.';
+                }
+            }
+        }
+        // PATRÓN 2: Valores por hora + auxilios por hora
+        elseif ($tieneValoresHora && $tieneAuxiliosPorHora) {
+            $patronUsado = 'Patrón 2: Valores por hora + auxilios por hora';
+            Log::debug('[CONVENIO GENERATION] Usando patrón 2: Valores por hora + auxilios por hora', [
+                'valores_hora_presentes' => [
+                    'diurna' => !empty($valorHoraDiurna),
+                    'nocturna' => !empty($valorHoraNocturna),
+                    'diurna_festiva' => !empty($valorHoraDiurnaFestiva),
+                    'nocturna_festiva' => !empty($valorHoraNocturnaFestiva),
+                ],
+                'auxilios_por_hora_presentes' => [
+                    'diurno' => !empty($auxilioDiurno),
+                    'recargo_nocturno' => !empty($auxilioRecargoNocturno),
+                    'recargo_festivo' => !empty($auxilioRecargoFestivo),
+                    'recargo_festivo_nocturno' => !empty($auxilioRecargoFestivoNocturno),
+                ],
+            ]);
+            
+            $partesHora = [];
+            if ($valorHoraDiurna) {
+                $partesHora[] = 'HORA DIURNA ' . $formatearMoneda($valorHoraDiurna);
+            }
+            if ($valorHoraNocturna) {
+                $partesHora[] = 'HORA NOCTURNA ' . $formatearMoneda($valorHoraNocturna);
+            }
+            if ($valorHoraDiurnaFestiva) {
+                $partesHora[] = 'HORA FESTIVA ' . $formatearMoneda($valorHoraDiurnaFestiva);
+            }
+            if ($valorHoraNocturnaFestiva) {
+                $partesHora[] = 'HORA NOCTURNA FESTIVA ' . $formatearMoneda($valorHoraNocturnaFestiva);
+            }
+
+            if (!empty($partesHora)) {
+                $texto = implode('; ', $partesHora);
+
+                $partesAuxilio = [];
+                if ($auxilioDiurno) {
+                    $partesAuxilio[] = 'HORA DIURNA ' . $formatearMoneda($auxilioDiurno);
+                }
+                if ($auxilioRecargoNocturno) {
+                    $partesAuxilio[] = 'HORA NOCTURNA ' . $formatearMoneda($auxilioRecargoNocturno);
+                }
+                if ($auxilioRecargoFestivo) {
+                    $partesAuxilio[] = 'HORA FESTIVA ' . $formatearMoneda($auxilioRecargoFestivo);
+                }
+                if ($auxilioRecargoFestivoNocturno) {
+                    $partesAuxilio[] = 'HORA NOCTURNA FESTIVA ' . $formatearMoneda($auxilioRecargoFestivoNocturno);
+                }
+
+                if (!empty($partesAuxilio)) {
+                    $texto .= ' y unos AUXILIOS por ' . implode('; ', $partesAuxilio) . '.';
+                }
+                
+                Log::debug('[CONVENIO GENERATION] Patrón 2 - Partes construidas', [
+                    'partes_hora_count' => count($partesHora),
+                    'partes_auxilio_count' => count($partesAuxilio),
+                    'texto_preview' => substr($texto, 0, 200) . '...',
+                ]);
+            }
+        }
+        // PATRÓN 3: Básico + auxilios + provisiones (devolución de compensaciones)
+        elseif ($basico || $auxilios || $provisiones || $auxilioRodamiento || $auxilioEspecial) {
+            $patronUsado = 'Patrón 3: Básico + auxilios + provisiones';
+            Log::debug('[CONVENIO GENERATION] Usando patrón 3: Básico + auxilios + provisiones', [
+                'valores_presentes' => [
+                    'basico' => !empty($basico),
+                    'auxilios' => !empty($auxilios),
+                    'provisiones' => !empty($provisiones),
+                    'auxilio_rodamiento' => !empty($auxilioRodamiento),
+                    'auxilio_especial' => !empty($auxilioEspecial),
+                ],
+            ]);
+            
+            $texto = '';
+
+            // Si hay básico, empezar con el básico
+            if ($basico) {
+                $texto = $formatearMoneda($basico);
+            }
+
+            // Si hay básico Y hay auxilios (con valor real), agregar auxilio no constitutivo (auxilios generales)
+            // Si solo hay básico sin auxilios (null o 0), no se agrega esta línea
+            if ($basico && $auxilios !== null && $auxilios !== 0 && $auxilios !== '0') {
+                $texto .= ' y un AUXILIO no constitutivo de compensación básica por: ';
+                $texto .= $formatearMoneda($auxilios);
+            } elseif ($auxilios && $auxilios !== 0 && $auxilios !== '0' && !$basico) {
+                // Si no hay básico pero hay auxilios, empezar con auxilios
+                $texto = $formatearMoneda($auxilios) . ' y un AUXILIO no constitutivo de compensación básica por:';
+            }
+
+            // Agregar auxilio especial (nuevo campo, diferente de auxilio_de_rodamiento)
+            // Priorizar auxilio_especial sobre auxilio_de_rodamiento si ambos están presentes
+            if ($auxilioEspecial) {
+                // Si solo hay auxilio_especial sin básico ni auxilios, empezar con "un" en lugar de "y un"
+                if (empty($basico) && empty($auxilios) && empty($provisiones)) {
+                    $texto = 'un AUXILIO especial por: ' . $formatearMoneda($auxilioEspecial);
+                } else {
+                    $texto .= (!empty($texto) ? ' ' : '') . 'y un AUXILIO especial por: ' . $formatearMoneda($auxilioEspecial);
+                }
+            } elseif ($auxilioRodamiento) {
+                // Mantener compatibilidad con auxilio_de_rodamiento (legacy)
+                $texto .= (!empty($texto) ? ' ' : '') . 'y un AUXILIO especial por: ' . $formatearMoneda($auxilioRodamiento);
+            }
+
+            // Agregar devolución de compensaciones (provisiones)
+            if ($provisiones) {
+                $texto .= (!empty($texto) ? ' ' : '') . 'y una devolución de compensaciones por valor de: ' . $formatearMoneda($provisiones);
+            }
+
+            if (!empty($texto)) {
+                $texto .= '.';
+            }
+        }
+
+        Log::info('[CONVENIO GENERATION] Compensación básica redactada generada automáticamente', [
+            'patron_usado' => $patronUsado ?? 'Ninguno (texto vacío)',
+            'tiene_valores_hora' => $tieneValoresHora,
+            'tiene_auxilios_especiales' => $tieneAuxiliosEspeciales,
+            'tiene_auxilios_por_hora' => $tieneAuxiliosPorHora,
+            'tiene_basico' => !empty($basico),
+            'tiene_auxilios' => !empty($auxilios),
+            'tiene_provisiones' => !empty($provisiones),
+            'texto_generado_length' => strlen($texto),
+            'texto_generado_preview' => !empty($texto) ? substr($texto, 0, 200) . (strlen($texto) > 200 ? '...' : '') : 'vacío',
+            'texto_completo' => $texto, // Log completo para debugging
+        ]);
+
+        return $texto;
+    }
+
+    /**
+     * Normaliza un valor numérico removiendo separadores de miles
+     *
+     * @param mixed $valor Valor a normalizar
+     * @return float|null Valor normalizado o null si está vacío
+     */
+    private function normalizarValor($valor): ?float
+    {
+        if (empty($valor) && $valor !== '0' && $valor !== 0) {
+            return null;
+        }
+
+        if (is_numeric($valor)) {
+            return (float) $valor;
+        }
+
+        // Si es string, remover separadores de miles
+        $valorString = (string) $valor;
+        $normalizado = str_replace([',', '.', ' '], '', $valorString);
+        $normalizado = trim($normalizado);
+
+        if (is_numeric($normalizado) && $normalizado !== '') {
+            return (float) $normalizado;
+        }
+
+        return null;
     }
 
     /**
@@ -436,6 +866,32 @@ class ConvenioGenerationService
             return "{$carbon->day} de {$mes} de {$carbon->year}";
         } catch (\Exception $e) {
             Log::warning('Error formateando fecha para convenio', [
+                'fecha' => $fecha,
+                'error' => $e->getMessage(),
+            ]);
+
+            return '';
+        }
+    }
+
+    /**
+     * Formatea la fecha de nacimiento en formato dd/mm/aaaa
+     *
+     * @param mixed $fecha
+     * @return string
+     */
+    private function formatearFechaNacimiento($fecha): string
+    {
+        if (!$fecha) {
+            return '';
+        }
+
+        try {
+            $carbon = Carbon::parse($fecha);
+
+            return $carbon->format('d/m/Y');
+        } catch (\Exception $e) {
+            Log::warning('Error formateando fecha de nacimiento para convenio', [
                 'fecha' => $fecha,
                 'error' => $e->getMessage(),
             ]);

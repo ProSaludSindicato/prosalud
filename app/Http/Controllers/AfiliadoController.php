@@ -443,17 +443,20 @@ class AfiliadoController extends Controller
                 ], 401);
             }
 
-            // Obfuscate sensitive data in afiliado information, except email and phone
+            // Obfuscate sensitive data in afiliado information, except email, phone and address (for data update)
             // This matches the behavior of verifyOtp for consistency
             if (isset($afiliadoInfo['afiliado']) && is_array($afiliadoInfo['afiliado'])) {
                 $obfuscatedData = $this->obfuscationService->obfuscateAfiliadoData($afiliadoInfo['afiliado']);
 
-                // Restaurar correo y celular sin ofuscar (necesarios para actualización de datos)
+                // Restaurar correo, celular y dirección sin ofuscar (necesarios para actualización de datos)
                 if (isset($afiliadoInfo['afiliado']['correo_personal'])) {
                     $obfuscatedData['correo_personal'] = $afiliadoInfo['afiliado']['correo_personal'];
                 }
                 if (isset($afiliadoInfo['afiliado']['celular'])) {
                     $obfuscatedData['celular'] = $afiliadoInfo['afiliado']['celular'];
+                }
+                if (isset($afiliadoInfo['afiliado']['direccion'])) {
+                    $obfuscatedData['direccion'] = $afiliadoInfo['afiliado']['direccion'];
                 }
 
                 $afiliadoInfo['afiliado'] = $obfuscatedData;
