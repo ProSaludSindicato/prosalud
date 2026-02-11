@@ -56,7 +56,6 @@ class ConvenioGenerationService
             Log::debug('[CONVENIO GENERATION] Buscando datos faltantes en archivo de afiliados', [
                 'documento' => $documento,
                 'direccion_vacio' => empty(trim($data['direccion'] ?? '')),
-                'telefono_vacio' => empty(trim($data['telefono'] ?? '')),
                 'celular_vacio' => empty(trim($data['celular'] ?? '')),
             ]);
 
@@ -66,7 +65,6 @@ class ConvenioGenerationService
                 Log::info('[CONVENIO GENERATION] Datos de afiliado encontrados', [
                     'documento' => $documento,
                     'tiene_direccion' => !empty($afiliadoData['direccion']),
-                    'tiene_telefono' => !empty($afiliadoData['telefono']),
                     'tiene_celular' => !empty($afiliadoData['celular']),
                 ]);
             } else {
@@ -80,14 +78,6 @@ class ConvenioGenerationService
                 $data['direccion'] = !empty($afiliadoData['direccion']) ? trim($afiliadoData['direccion']) : '';
                 if (!empty($data['direccion'])) {
                     Log::debug('[CONVENIO GENERATION] Dirección completada desde afiliado', [
-                        'documento' => $documento,
-                    ]);
-                }
-            }
-            if (empty(trim($data['telefono'] ?? ''))) {
-                $data['telefono'] = !empty($afiliadoData['telefono']) ? trim($afiliadoData['telefono']) : '';
-                if (!empty($data['telefono'])) {
-                    Log::debug('[CONVENIO GENERATION] Teléfono completado desde afiliado', [
                         'documento' => $documento,
                     ]);
                 }
@@ -280,7 +270,6 @@ class ConvenioGenerationService
             'PROCESO' => strtoupper($data['proceso'] ?? ''),
             'CIUDAD' => $data['ciudad'] ?? '',
             'SEDE' => strtoupper($data['sede'] ?? ''),
-            'HOSPITAL' => strtoupper($data['hospital'] ?? ''), // Campo adicional para hospital/entidad
             'FECHA' => $fechaInicio,
             'APELLIDOS' => strtoupper($data['apellidos'] ?? ''),
             'NOMBRES' => strtoupper($data['nombres'] ?? ''),
@@ -290,7 +279,6 @@ class ConvenioGenerationService
             'COMPENSACION_BASICA_REDACTADA' => $compensacionBasicaRedactada,
             'DURACION' => $duracion,
             'DIRECCION' => !empty(trim($data['direccion'] ?? '')) ? $data['direccion'] : '__________________________',
-            'TELEFONO' => !empty(trim($data['telefono'] ?? '')) ? $data['telefono'] : '__________________________',
             'CELULAR' => !empty(trim($data['celular'] ?? '')) ? $data['celular'] : '__________________________',
             // Nuevos campos de compensación
             'BASICO' => $formatearValor($data['basico'] ?? ''),
@@ -761,16 +749,14 @@ class ConvenioGenerationService
                             $rowDocumento = $this->normalizeDocumento($cell->getValue());
 
                             if ($rowDocumento === $normalizedDocumento) {
-                                // Leer columnas: DIRECCION (13), TELEFONO (16), CELULAR (17)
+                                // Leer columnas: DIRECCION (13), CELULAR (17)
                                 $direccion = $this->getCellValue($informacionSheet->getCell('N' . $rowIndex));
-                                $telefono = $this->getCellValue($informacionSheet->getCell('Q' . $rowIndex));
                                 $celular = $this->getCellValue($informacionSheet->getCell('R' . $rowIndex));
 
                                 Log::info('[CONVENIO GENERATION] Datos de contacto encontrados en archivo de afiliados', [
                                     'documento' => $documento,
                                     'fila' => $rowIndex,
                                     'tiene_direccion' => !empty(trim($direccion)),
-                                    'tiene_telefono' => !empty(trim($telefono)),
                                     'tiene_celular' => !empty(trim($celular)),
                                 ]);
 
@@ -780,7 +766,6 @@ class ConvenioGenerationService
 
                                 return [
                                     'direccion' => trim($direccion),
-                                    'telefono' => trim($telefono),
                                     'celular' => trim($celular),
                                 ];
                             }
@@ -996,11 +981,6 @@ class ConvenioGenerationService
         $nombres = preg_replace('/[^a-zA-Z0-9]/', '_', $data['nombres'] ?? '');
 
         $nombreBase = "Convenio_{$documento}_{$apellidos}_{$nombres}";
-        
-        // Si hay nombre de archivo especificado en los datos, usarlo
-        if (!empty($data['nombre_archivo'])) {
-            $nombreBase = $data['nombre_archivo'];
-        }
 
         return $nombreBase . '.docx';
     }
