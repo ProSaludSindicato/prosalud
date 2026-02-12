@@ -141,11 +141,20 @@ class StoreRequestFormRequest extends FormRequest
                     'required',
                     'string',
                     function ($attribute, $value, $fail) use ($validSubtypes) {
+                        if (empty($value)) {
+                            $fail('El campo "Su solicitud está relacionada con" es obligatorio para verificaciones de pago.');
+                            return;
+                        }
                         if (!in_array($value, $validSubtypes, true)) {
-                            $fail('El subtipo de solicitud seleccionado no es válido.');
+                            $fail('El subtipo de solicitud seleccionado no es válido. Los valores válidos son: ' . implode(', ', $validSubtypes));
                         }
                     },
                 ],
+                // Campos adicionales para verificacion-pagos
+                'payload.proceso' => 'nullable|string|max:255',
+                'payload.dondeRealizaProceso' => 'nullable|string|max:255',
+                'payload.mesAnoNovedad' => 'nullable|string|max:50',
+                'payload.detalleNovedad' => 'nullable|string|max:1000',
             ]);
         }
 
@@ -160,6 +169,27 @@ class StoreRequestFormRequest extends FormRequest
         $validator->after(function ($validator) {
             $requestType = $this->input('request_type');
             $allFiles = $this->allFiles();
+
+            // Validación adicional para verificacion-pagos
+            if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
+                $payload = $this->input('payload', []);
+                $solicitudRelacionadaCon = $payload['solicitudRelacionadaCon'] ?? null;
+
+                if (empty($solicitudRelacionadaCon)) {
+                    $validator->errors()->add(
+                        'payload.solicitudRelacionadaCon',
+                        'El campo "Su solicitud está relacionada con" es obligatorio para verificaciones de pago.'
+                    );
+                } else {
+                    $validSubtypes = RequestSubtypes::forRequestType(RequestTypes::VERIFICACION_PAGOS);
+                    if (!in_array($solicitudRelacionadaCon, $validSubtypes, true)) {
+                        $validator->errors()->add(
+                            'payload.solicitudRelacionadaCon',
+                            'El subtipo de solicitud seleccionado no es válido. Los valores válidos son: ' . implode(', ', $validSubtypes)
+                        );
+                    }
+                }
+            }
 
             // Validar tamaño total de archivos (máximo 20MB = 20480 KB)
             $totalSize = 0;
@@ -467,6 +497,14 @@ class StoreRequestFormRequest extends FormRequest
             ]);
         }
 
+        // Mensajes específicos para verificacion-pagos
+        if (RequestTypes::VERIFICACION_PAGOS === $this->input('request_type')) {
+            $messages = array_merge($messages, [
+                'payload.solicitudRelacionadaCon.required' => 'El campo "Su solicitud está relacionada con" es obligatorio para verificaciones de pago.',
+                'payload.solicitudRelacionadaCon.string' => 'El campo "Su solicitud está relacionada con" debe ser un texto válido.',
+            ]);
+        }
+
         return $messages;
     }
 
@@ -512,6 +550,12 @@ class StoreRequestFormRequest extends FormRequest
                 'files.actaGrado' => 'acta de grado',
                 'files.certificadoEps' => 'certificado de EPS',
                 'files.certificadoAfp' => 'certificado de AFP',
+            ]);
+        }
+
+        if (RequestTypes::VERIFICACION_PAGOS === $this->input('request_type')) {
+            $attributes = array_merge($attributes, [
+                'payload.solicitudRelacionadaCon' => 'su solicitud está relacionada con',
             ]);
         }
 
@@ -562,10 +606,8 @@ class StoreRequestFormRequest extends FormRequest
         // This ensures all fields are captured even if Laravel didn't convert them properly
         $payload = array_merge($existingPayload, $payloadFromKeys);
 
-        // Only merge if we have payload data
-        if (!empty($payload)) {
-            $this->merge(['payload' => $payload]);
-        }
+        // Always merge payload, even if empty, to ensure structure is consistent
+        $this->merge(['payload' => $payload]);
 
         // Convert payload.infoCertificado from JSON string to array if needed
         $payload = $this->input('payload', []);
@@ -576,6 +618,15 @@ class StoreRequestFormRequest extends FormRequest
                 $payload['infoCertificado'] = $decoded;
                 $this->merge(['payload' => $payload]);
             }
+        }
+
+        // Log payload for verificacion-pagos to help debug
+        if (RequestTypes::VERIFICACION_PAGOS === $this->input('request_type')) {
+            Log::debug('Payload procesado para verificacion-pagos', [
+                'payload' => $payload,
+                'solicitudRelacionadaCon' => $payload['solicitudRelacionadaCon'] ?? 'NO ENCONTRADO',
+                'all_input_keys' => array_keys($allInput),
+            ]);
         }
     }
 
