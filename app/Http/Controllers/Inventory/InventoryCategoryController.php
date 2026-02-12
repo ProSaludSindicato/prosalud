@@ -6,8 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\{StoreCategoryRequest, StoreSubcategoryRequest, UpdateCategoryRequest, UpdateSubcategoryRequest};
 use App\Http\Resources\{InventoryCategoryResource, InventorySubcategoryResource};
 use App\Models\InventoryCategory;
+use App\Services\SstDotacionService;
 use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{DB, Log};
+use Illuminate\Support\{Str, Facades\DB, Facades\Log};
 
 class InventoryCategoryController extends Controller
 {
@@ -83,6 +84,11 @@ class InventoryCategoryController extends Controller
 
             DB::commit();
 
+            // Clear inventory cache for dotación/EPP if category affects EPP products
+            if (in_array(Str::slug($category->name), ['dotacion', 'dotación', 'epp'], true)) {
+                SstDotacionService::clearInventoryCache();
+            }
+
             $category->load('subcategories');
 
             Log::info('Category created', [
@@ -151,6 +157,11 @@ class InventoryCategoryController extends Controller
 
             $category->update($request->only(['name', 'description', 'icon']));
 
+            // Clear inventory cache for dotación/EPP if category affects EPP products
+            if (in_array(Str::slug($category->name), ['dotacion', 'dotación', 'epp'], true)) {
+                SstDotacionService::clearInventoryCache();
+            }
+
             Log::info('Category updated', [
                 'category_id' => $category->id,
                 'name' => $category->name,
@@ -198,6 +209,11 @@ class InventoryCategoryController extends Controller
 
             $categoryName = $category->name;
             $category->delete();
+
+            // Clear inventory cache for dotación/EPP if category affects EPP products
+            if (in_array(Str::slug($categoryName), ['dotacion', 'dotación', 'epp'], true)) {
+                SstDotacionService::clearInventoryCache();
+            }
 
             Log::info('Category deleted', [
                 'category_id' => $id,

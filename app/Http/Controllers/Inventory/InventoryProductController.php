@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\{StoreProductRequest, UpdateProductRequest};
 use App\Http\Resources\InventoryProductResource;
 use App\Models\{InventoryProduct, InventoryVariant};
-use App\Services\InventoryStockService;
+use App\Services\{InventoryStockService, SstDotacionService};
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{DB, Log};
 
@@ -126,6 +126,9 @@ class InventoryProductController extends Controller
             }
 
             DB::commit();
+
+            // Clear inventory cache for dotación/EPP
+            SstDotacionService::clearInventoryCache();
 
             $product->load(['category', 'subcategory', 'variants.color']);
 
@@ -284,6 +287,9 @@ class InventoryProductController extends Controller
 
             DB::commit();
 
+            // Clear inventory cache for dotación/EPP
+            SstDotacionService::clearInventoryCache();
+
             $product->load(['category', 'subcategory', 'variants.color']);
 
             Log::info('Product updated', [
@@ -337,6 +343,9 @@ class InventoryProductController extends Controller
 
             $productName = $product->name;
             $product->delete(); // Variants will be deleted automatically due to cascade
+
+            // Clear inventory cache for dotación/EPP
+            SstDotacionService::clearInventoryCache();
 
             Log::info('Product deleted', [
                 'product_id' => $id,

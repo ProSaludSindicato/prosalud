@@ -20,6 +20,15 @@ class SstDotacionService
     }
 
     /**
+     * Clear the static inventory cache.
+     * This should be called when products are created, updated, or deleted.
+     */
+    public static function clearInventoryCache(): void
+    {
+        self::$inventoryCache = null;
+    }
+
+    /**
      * Retrieve inventory items in frontend-friendly structure.
      */
     public function getInventoryItems(): array

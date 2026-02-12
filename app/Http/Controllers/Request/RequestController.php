@@ -664,23 +664,45 @@ class RequestController extends Controller
         }
 
         // Update request with validation information
+        $oldStatus = $request->status;
         $request->validated_at = now();
         $request->validated_by = $user->id;
+        
+        // Automatically change status to 'IN_REVIEW' if not already in that status
+        if ($request->status !== RequestStatuses::IN_REVIEW) {
+            $request->status = RequestStatuses::IN_REVIEW;
+        }
+        
         $request->save();
+
+        // Create status log entry for the automatic status change
+        if ($oldStatus !== RequestStatuses::IN_REVIEW) {
+            RequestStatusLog::create([
+                'request_form_id' => (string) $request->id,
+                'old_status' => $oldStatus,
+                'new_status' => RequestStatuses::IN_REVIEW,
+                'changed_by' => $user->id,
+                'reason' => 'Solicitud validada',
+                'created_at' => now(),
+            ]);
+        }
 
         // Load relationships for response
         $request->load('validator', 'responses.attachments');
 
-        Log::info('Solicitud validada', [
+        Log::info('Solicitud validada y estado cambiado automáticamente', [
             'request_id' => $request->id,
             'validated_by' => $user->id,
             'validated_by_email' => $user->email,
+            'old_status' => $oldStatus,
+            'new_status' => $request->status,
+            'status_change_reason' => 'Solicitud validada',
         ]);
 
         // Return response in the expected format
         return response()->json([
             'success' => true,
-            'message' => 'Solicitud validada exitosamente',
+            'message' => 'Solicitud validada exitosamente y cambiada a estado "En revisión"',
             'data' => [
                 'id' => $request->id,
                 'request_type' => $request->request_type,
