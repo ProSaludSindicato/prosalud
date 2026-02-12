@@ -847,6 +847,16 @@ class RequestController extends Controller
         $previousStatus = $request->getOriginal('status');
         $statusReason = $statusRequest->input('status_reason');
 
+        // Check if this request type should be auto-validated and if status is changing to IN_REVIEW, COMPLETED, or REJECTED
+        $shouldAutoValidate = $this->shouldAutoValidateRequest($request->request_type, $status);
+        $wasValidated = false;
+
+        if ($shouldAutoValidate && $request->validated_at === null) {
+            $updateData['validated_at'] = now();
+            $updateData['validated_by'] = $user->id;
+            $wasValidated = true;
+        }
+
         $request->update($updateData);
 
         // Registrar historial de cambio de estado
@@ -861,7 +871,7 @@ class RequestController extends Controller
 
         $statusText = $this->getStatusText($status);
 
-        Log::info("Solicitud marcada como {$statusText}", [
+        Log::info("Solicitud marcada como {$statusText}" . ($wasValidated ? " y validada automáticamente" : ""), [
             'request_id' => $request->id,
             'request_type' => $request->request_type,
             'affiliate_info' => [
@@ -873,6 +883,9 @@ class RequestController extends Controller
             'new_status' => $status,
             'processed_at' => $request->processed_at,
             'rejection_reason' => $request->rejection_reason ?? null,
+            'auto_validated' => $wasValidated,
+            'validated_at' => $request->validated_at,
+            'validated_by' => $wasValidated ? $user->id : null,
         ]);
 
         $this->auditLogService->logBusinessProcess('request_form', 'status_changed', $this->auditLogService->addRequestContext($statusRequest, [
@@ -886,7 +899,7 @@ class RequestController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => "Solicitud marcada como {$statusText} exitosamente",
+            'message' => "Solicitud marcada como {$statusText} exitosamente" . ($wasValidated ? " y validada automáticamente" : ""),
             'data' => [
                 'id' => $request->id,
                 'request_type' => $request->request_type,
@@ -896,6 +909,9 @@ class RequestController extends Controller
                 'rejection_reason' => $request->rejection_reason,
                 'processed_at' => $request->processed_at,
                 'formatted_processed_at' => $request->formatted_processed_at,
+                'validated_at' => $request->validated_at?->toIso8601String(),
+                'validated_by' => $wasValidated ? $user->email : null,
+                'auto_validated' => $wasValidated,
             ],
         ]);
     }
@@ -4809,5 +4825,36 @@ class RequestController extends Controller
         $normalized = trim($normalized);
         
         return $normalized;
+    }
+
+    /**
+     * Determine if a request should be automatically validated based on its type and target status.
+     * 
+     * @param string $requestType The request type
+     * @param string $targetStatus The target status
+     * @return bool True if the request should be auto-validated
+     */
+    private function shouldAutoValidateRequest(string $requestType, string $targetStatus): bool
+    {
+        // Only auto-validate for specific request types that require manual validation
+        $autoValidateRequestTypes = [
+            RequestTypes::COMPENSACION_DESCANSO,  // descanso-laboral
+            RequestTypes::COMPENSACION_ANUAL,     // compensacion-anual
+            RequestTypes::VERIFICACION_PAGOS,     // verificacion-pagos
+        ];
+
+        // Check if this is one of the specified request types
+        if (!in_array($requestType, $autoValidateRequestTypes, true)) {
+            return false;
+        }
+
+        // Only auto-validate when changing to IN_REVIEW, COMPLETED, or REJECTED status
+        $autoValidateStatuses = [
+            RequestStatuses::IN_REVIEW,
+            RequestStatuses::COMPLETED,
+            RequestStatuses::REJECTED,
+        ];
+
+        return in_array($targetStatus, $autoValidateStatuses, true);
     }
 }
