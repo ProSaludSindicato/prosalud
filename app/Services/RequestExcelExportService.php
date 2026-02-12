@@ -317,9 +317,11 @@ class RequestExcelExportService
             'Email',
             'Teléfono',
             'Tipo Solicitud',
+            'Subtipo de Solicitud',
             'Estado',
             'Fecha Creación',
             'Fecha Procesamiento',
+            'Tiempo Procesamiento (Horas Laborales)',
             'Razón de Rechazo',
             'Responsable de Respuesta Final',
         ];
@@ -327,7 +329,7 @@ class RequestExcelExportService
         $sheet->fromArray([$headers], null, 'A1');
 
         // Estilizar encabezados
-        $headerRange = 'A1:M1';
+        $headerRange = 'A1:O1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -353,11 +355,13 @@ class RequestExcelExportService
             'F' => 30, // Email
             'G' => 18, // Teléfono
             'H' => 30, // Tipo Solicitud
-            'I' => 18, // Estado
-            'J' => 20, // Fecha Creación
-            'K' => 20, // Fecha Procesamiento
-            'L' => 50, // Razón de Rechazo
-            'M' => 40, // Responsable de Respuesta Final
+            'I' => 35, // Subtipo de Solicitud
+            'J' => 18, // Estado
+            'K' => 20, // Fecha Creación
+            'L' => 20, // Fecha Procesamiento
+            'M' => 35, // Tiempo Procesamiento (Horas Laborales)
+            'N' => 50, // Razón de Rechazo
+            'O' => 40, // Responsable de Respuesta Final
         ];
 
         foreach ($columnWidths as $col => $width) {
@@ -384,6 +388,13 @@ class RequestExcelExportService
 
             // Transformar razón de rechazo técnica a etiqueta amigable
             $rejectionReason = $this->getRejectionReasonLabel($request->rejection_reason);
+            
+            // Formatear subtipo a etiqueta amigable
+            $formattedSubtype = $this->getSubtypeLabel($request->request_subtype);
+            
+            // Calcular horas laborales de procesamiento
+            $businessHours = $this->calculateBusinessHours($request->created_at, $request->processed_at);
+            $businessHoursDisplay = $businessHours > 0 ? $businessHours . ' horas' : '';
 
             $rowData = [
                 $request->id,
@@ -394,9 +405,11 @@ class RequestExcelExportService
                 $request->email,
                 $request->phone_number,
                 $this->getRequestTypeLabel($request->request_type),
+                $formattedSubtype,
                 $this->getStatusLabel($request->status),
                 $this->formatDateTime($request->created_at),
                 $this->formatDateTime($request->processed_at),
+                $businessHoursDisplay,
                 $rejectionReason,
                 $responsiblePerson,
             ];
@@ -404,7 +417,7 @@ class RequestExcelExportService
             $sheet->fromArray([$rowData], null, "A{$row}");
 
             // Aplicar formato condicional a la columna de estado
-            $statusCell = "I{$row}";
+            $statusCell = "J{$row}";
             $statusColor = $this->getStatusColor($request->status);
             if ($statusColor) {
                 $sheet->getStyle($statusCell)->getFill()
@@ -417,7 +430,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:M" . ($row - 1);
+            $dataRange = "A1:O" . ($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -428,7 +441,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:M" . ($row - 1));
+            $sheet->setAutoFilter("A1:O" . ($row - 1));
         }
 
         // Congelar primera fila
@@ -826,6 +839,97 @@ class RequestExcelExportService
 
         // Si no se encuentra, devolver el valor original (texto libre de "otro")
         return $rejectionReason;
+    }
+
+    /**
+     * Obtener etiqueta amigable para subtipo de solicitud.
+     * Convierte valores en mayúsculas a un formato más legible.
+     */
+    private function getSubtypeLabel(?string $subtype): string
+    {
+        if (!$subtype) {
+            return '';
+        }
+
+        // Mapeo de subtipos a etiquetas amigables
+        $subtypeLabels = [
+            'COMPENSACIÓN. FINAL (LIQUIDACIÓN)' => 'Compensación Final (Liquidación)',
+            'COMPENSACIÓN ANUAL DIFERIDA Y/O DESCANSO' => 'Compensación Anual Diferida y/o Descanso',
+            'COMPENSACIÓN POR DESCANSO' => 'Compensación por Descanso',
+            'DESCUENTOS SEGURIDAD SOCIAL' => 'Descuentos Seguridad Social',
+            'DUPLICADO COLILLAS' => 'Duplicado de Colillas',
+            'VIATICOS' => 'Viáticos',
+            'Ceiisas' => 'Ceiisas',
+            'COMPENSACIÓN. MENSUAL' => 'Compensación Mensual',
+            'COMPENSACIÓN SEMESTRAL' => 'Compensación Semestral',
+            'INCAPACIDADES' => 'Incapacidades',
+            'SUBSIDIOS' => 'Subsidios',
+        ];
+
+        // Si existe un mapeo, usarlo
+        if (isset($subtypeLabels[$subtype])) {
+            return $subtypeLabels[$subtype];
+        }
+
+        // Para otros valores, formatear automáticamente
+        // Convertir a título y limificar espacios
+        $formatted = ucwords(strtolower(trim($subtype)));
+        
+        // Reemplazar puntos y caracteres extraños
+        $formatted = str_replace(['.', '  ', '  '], [' ', ' ', ' '], $formatted);
+        
+        return $formatted;
+    }
+
+    /**
+     * Calcular horas laborales entre dos fechas.
+     * Solo cuenta horas de lunes a viernes de 7am a 5pm (10 horas día).
+     */
+    private function calculateBusinessHours($createdAt, $processedAt): float
+    {
+        if (!$createdAt || !$processedAt) {
+            return 0;
+        }
+
+        try {
+            $start = is_string($createdAt) ? Carbon::parse($createdAt) : $createdAt;
+            $end = is_string($processedAt) ? Carbon::parse($processedAt) : $processedAt;
+            
+            $totalHours = 0;
+            $current = $start->copy();
+            
+            while ($current < $end) {
+                // Solo procesar días laborales (lunes-viernes)
+                if ($current->dayOfWeek >= Carbon::MONDAY && $current->dayOfWeek <= Carbon::FRIDAY) {
+                    // Inicio del día laboral (7am)
+                    $dayStart = $current->copy()->setTime(7, 0, 0);
+                    // Fin del día laboral (5pm)
+                    $dayEnd = $current->copy()->setTime(17, 0, 0);
+                    
+                    // Ajustar el tiempo actual al inicio del rango del día
+                    $periodStart = max($current, $dayStart);
+                    // Ajustar el tiempo final al fin del rango del día
+                    $periodEnd = min($end, $dayEnd);
+                    
+                    // Si hay superposición, agregar las horas
+                    if ($periodStart < $periodEnd) {
+                        $totalHours += $periodStart->diffInHours($periodEnd);
+                    }
+                }
+                
+                // Mover al siguiente día
+                $current = $current->addDay()->setTime(0, 0, 0);
+            }
+            
+            return round($totalHours, 1);
+        } catch (\Exception $e) {
+            Log::error('Error calculating business hours', [
+                'error' => $e->getMessage(),
+                'created_at' => $createdAt,
+                'processed_at' => $processedAt,
+            ]);
+            return 0;
+        }
     }
 
     /**
