@@ -38,7 +38,6 @@ class StoreWellnessRequestRequest extends FormRequest
                 'required',
                 'date',
                 'date_format:Y-m-d',
-                'after_or_equal:today',
             ],
             'horaInicio' => 'nullable|date_format:H:i',
             'horaFin' => [
@@ -102,7 +101,6 @@ class StoreWellnessRequestRequest extends FormRequest
             'fechaPropuesta.required' => 'La fecha propuesta es obligatoria',
             'fechaPropuesta.date' => 'La fecha propuesta debe ser una fecha válida',
             'fechaPropuesta.date_format' => 'La fecha propuesta debe estar en formato YYYY-MM-DD',
-            'fechaPropuesta.after_or_equal' => 'La fecha propuesta no puede ser anterior a hoy',
             'horaInicio.date_format' => 'La hora de inicio debe estar en formato HH:mm',
             'horaFin.date_format' => 'La hora de fin debe estar en formato HH:mm',
             'horaFin.after' => 'La hora de fin debe ser posterior a la hora de inicio',

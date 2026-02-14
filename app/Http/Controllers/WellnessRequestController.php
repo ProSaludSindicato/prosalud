@@ -26,6 +26,18 @@ class WellnessRequestController extends Controller
     {
         $query = WellnessRequest::with(['requester', 'details']);
 
+        // Apply permission-based filtering
+        $user = $request->user();
+        if ($user) {
+            // Check if user has permission to update status (can see all requests)
+            $canUpdateStatus = $user->can('wellness_requests.update_status');
+            
+            // If user cannot update status, only show their own requests
+            if (!$canUpdateStatus) {
+                $query->where('requester_id', $user->id);
+            }
+        }
+
         // Filter by status
         if ($request->has('estado')) {
             $query->where('status', $request->input('estado'));
@@ -204,8 +216,23 @@ class WellnessRequestController extends Controller
     /**
      * Display the specified wellness request.
      */
-    public function show(WellnessRequest $wellnessRequest): JsonResponse
+    public function show(Request $request, WellnessRequest $wellnessRequest): JsonResponse
     {
+        // Apply permission-based filtering
+        $user = $request->user();
+        if ($user) {
+            // Check if user has permission to update status (can see all requests)
+            $canUpdateStatus = $user->can('wellness_requests.update_status');
+            
+            // If user cannot update status, only show their own requests
+            if (!$canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permiso para ver esta solicitud',
+                ], 403);
+            }
+        }
+
         $wellnessRequest->load(['requester', 'details', 'activityRealized.evidences']);
 
         return response()->json([
@@ -220,13 +247,31 @@ class WellnessRequestController extends Controller
      */
     public function update(UpdateWellnessRequestRequest $request, WellnessRequest $wellnessRequest): JsonResponse
     {
-        // Check if request is in a final state
+        // Apply permission-based filtering
+        $user = $request->user();
+        if ($user) {
+            // Check if user has permission to update status (can edit all requests)
+            $canUpdateStatus = $user->can('wellness_requests.update_status');
+            
+            // If user cannot update status, only edit their own requests
+            if (!$canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permiso para editar esta solicitud',
+                ], 403);
+            }
+        }
+
+        // Check if request is in a final state and user doesn't have update_status permission
         if (in_array($wellnessRequest->status, ['resolved', 'rejected'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se puede editar una solicitud que ya tiene un estado final',
-                'error' => "La solicitud está en estado '{$wellnessRequest->status}' y no puede ser modificada",
-            ], 403);
+            // Allow editing if user has update_status permission
+            if (!$user || !$user->can('wellness_requests.update_status')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se puede editar una solicitud que ya tiene un estado final',
+                    'error' => "La solicitud está en estado '{$wellnessRequest->status}' y no puede ser modificada",
+                ], 403);
+            }
         }
 
         try {
@@ -596,6 +641,17 @@ class WellnessRequestController extends Controller
         try {
             $user = $request->user();
 
+            // Apply permission-based filtering
+            if ($user) {
+                // Check if user has permission to update status (can export all requests)
+                $canUpdateStatus = $user->can('wellness_requests.update_status');
+                
+                // If user cannot update status, only export their own requests
+                if (!$canUpdateStatus) {
+                    $request->merge(['requester_id' => $user->id]);
+                }
+            }
+
             // Preparar filtros
             $filters = [
                 'cost_center' => $request->input('cost_center'),
@@ -679,6 +735,18 @@ class WellnessRequestController extends Controller
             $query = WellnessRequest::with(['requester', 'details'])
                 ->where('status', 'resolved')
                 ->whereDoesntHave('activityRealized');
+
+            // Apply permission-based filtering
+            $user = $request->user();
+            if ($user) {
+                // Check if user has permission to update status (can see all requests)
+                $canUpdateStatus = $user->can('wellness_requests.update_status');
+                
+                // If user cannot update status, only show their own requests
+                if (!$canUpdateStatus) {
+                    $query->where('requester_id', $user->id);
+                }
+            }
 
             // Filter by cost center
             if ($request->has('centroCostos')) {
