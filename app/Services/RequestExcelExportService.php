@@ -562,8 +562,9 @@ class RequestExcelExportService
 
             // Extraer valores del payload
             $payload = $request->payload ?? [];
-            $programa = $payload['dondeRealizaProceso'] ?? '';
-            $hospital = $this->getHospitalName($payload['dondeRealizaProceso'] ?? '');
+            // Soportar ambos campos: 'dondeRealizaProceso' y 'sedeProceso'
+            $programa = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
+            $hospital = $this->getHospitalName($payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '');
             $proceso = $payload['proceso'] ?? '';
 
             $rowData = [
@@ -843,7 +844,8 @@ class RequestExcelExportService
 
         foreach ($requests as $request) {
             $payload = $request->payload ?? [];
-            $hospitalCode = $payload['dondeRealizaProceso'] ?? '';
+            // Soportar ambos campos: 'dondeRealizaProceso' y 'sedeProceso'
+            $hospitalCode = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
             
             if (empty($hospitalCode)) {
                 continue;
