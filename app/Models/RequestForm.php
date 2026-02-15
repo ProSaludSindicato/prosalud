@@ -800,4 +800,30 @@ class RequestForm extends Model
         // Si tiene fechaIngresoRetiro o dirigidoAEntidad activo, es un certificado simple
         return $fechaIngresoRetiro || $dirigidoAEntidad;
     }
+
+    /**
+     * Check if the request form includes bank information updates
+     * Returns true if any of tipoCuenta, numeroCuenta, or banco fields are present in payload
+     */
+    public function hasBankInfoUpdate(): bool
+    {
+        // Only check for actualizar-datos-personales requests
+        if ($this->request_type !== RequestTypes::ACTUALIZAR_DATOS_PERSONALES && 
+            $this->request_type !== 'actualizar-datos-personales') {
+            return false;
+        }
+
+        $payload = $this->payload ?? [];
+        
+        // Check if any bank-related fields are present and not empty
+        $bankFields = ['tipoCuenta', 'numeroCuenta', 'banco'];
+        
+        foreach ($bankFields as $field) {
+            if (isset($payload[$field]) && $payload[$field] !== '' && $payload[$field] !== null) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
 }

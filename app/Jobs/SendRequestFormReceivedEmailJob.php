@@ -71,6 +71,11 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
             if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
                 $mail->cc('talentohumano@sindicatoprosalud.com');
             }
+            
+            // Agregar CC para solicitudes de actualización de datos personales que incluyen información bancaria
+            if ($requestForm->hasBankInfoUpdate()) {
+                $mail->cc('comunicaciones@sindicatoprosalud.com');
+            }
 
             $mail->send(new RequestFormReceived($requestForm));
 
