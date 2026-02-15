@@ -342,6 +342,7 @@ class RequestExcelExportService
             ['Solicitudes en proceso', $stats['in_progress']],
             ['Solicitudes resueltas', $stats['resolved']],
             ['Solicitudes rechazadas', $stats['rejected']],
+            ['Afiliados Únicos', $stats['unique_affiliates']],
         ];
 
         $summaryStartRow = $row;
@@ -447,6 +448,48 @@ class RequestExcelExportService
         // Aplicar bordes a todas las celdas de datos
         $hospitalDataRange = "A{$row}:B" . ($row + count($hospitalData) - 1);
         $sheet->getStyle($hospitalDataRange)->applyFromArray([
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+            ],
+        ]);
+
+        $row += count($hospitalData) + 3; // Add more space before unique affiliates table
+
+        // AFILIADOS ÚNICOS POR HOSPITAL
+        $sheet->setCellValue("A{$row}", 'AFILIADOS ÚNICOS POR HOSPITAL');
+        $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
+        $row++;
+
+        $uniqueAffiliatesByHospital = $this->calculateUniqueAffiliatesByHospital($requests);
+
+        $uniqueAffiliatesData = [['Hospital', 'Afiliados Únicos']];
+        if (empty($uniqueAffiliatesByHospital)) {
+            $uniqueAffiliatesData[] = ['No hay datos', 0];
+        } else {
+            foreach ($uniqueAffiliatesByHospital as $hospital => $count) {
+                $uniqueAffiliatesData[] = [$hospital, $count];
+            }
+        }
+
+        $uniqueAffiliatesStartRow = $row;
+        $sheet->fromArray($uniqueAffiliatesData, null, "A{$row}");
+
+        // Aplicar estilo a encabezados de tabla
+        $sheet->getStyle("A{$row}:B{$row}")->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => '4472C4'],
+            ],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+            ],
+        ]);
+
+        // Aplicar bordes a todas las celdas de datos
+        $uniqueAffiliatesDataRange = "A{$row}:B" . ($row + count($uniqueAffiliatesData) - 1);
+        $sheet->getStyle($uniqueAffiliatesDataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
             ],
@@ -804,6 +847,7 @@ class RequestExcelExportService
             'in_progress' => 0,
             'resolved' => 0,
             'rejected' => 0,
+            'unique_affiliates' => $requests->pluck('document_number')->unique()->count(),
         ];
 
         foreach ($requests as $request) {
@@ -859,6 +903,44 @@ class RequestExcelExportService
         arsort($distribution);
 
         return $distribution;
+    }
+
+    /**
+     * Calcular afiliados únicos por hospital.
+     */
+    private function calculateUniqueAffiliatesByHospital(Collection $requests): array
+    {
+        $distribution = [];
+
+        foreach ($requests as $request) {
+            $payload = $request->payload ?? [];
+            // Soportar ambos campos: 'dondeRealizaProceso' y 'sedeProceso'
+            $hospitalCode = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
+            
+            if (empty($hospitalCode)) {
+                continue;
+            }
+
+            $hospitalName = $this->getHospitalName($hospitalCode);
+            
+            // Agregar afiliado único a la distribución del hospital
+            if (!isset($distribution[$hospitalName])) {
+                $distribution[$hospitalName] = [];
+            }
+            
+            $distribution[$hospitalName][] = $request->document_number;
+        }
+
+        // Contar afiliados únicos por hospital
+        $uniqueDistribution = [];
+        foreach ($distribution as $hospital => $affiliates) {
+            $uniqueDistribution[$hospital] = count(array_unique($affiliates));
+        }
+
+        // Ordenar por cantidad descendente
+        arsort($uniqueDistribution);
+
+        return $uniqueDistribution;
     }
 
     /**
@@ -1172,12 +1254,12 @@ class RequestExcelExportService
             $this->addTypeDistributionChart($sheet, $typeData, 'K2', 'Q2', 'K17', 'Q30');
         }
 
-        // Gráfica 3: Tendencia Mensual de Solicitudes (Líneas) - Columna D, más abajo
+        // Gráfica 3: Tendencia Mensual de Solicitudes (Líneas) - Más abajo
         if (!empty($monthlyData)) {
             $this->addMonthlyTrendChart($sheet, $monthlyData, 'D32', 'I32', 'D47', 'I60');
         }
 
-        // Gráfica 4: Estados por Mes (Barras Apiladas) - Columna K, más abajo
+        // Gráfica 4: Estados por Mes (Barras Apiladas) - Más abajo
         if (!empty($statusByMonthData)) {
             $this->addStatusByMonthChart($sheet, $statusByMonthData, 'K32', 'Q32', 'K47', 'Q60');
         }
