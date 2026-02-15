@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\RequestForm;
-use App\Services\AfiliadoService;
+use App\Services\{AfiliadoService, CertificadoConvenioService};
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,7 +31,7 @@ class BatchUpdateRequestPayloadCommand extends Command
     /**
      * Execute the console command.
      */
-    public function handle(AfiliadoService $afiliadoService)
+    public function handle(AfiliadoService $afiliadoService, CertificadoConvenioService $certificadoConvenioService)
     {
         $requestIds = $this->argument('ids');
         $dryRun = $this->option('dry-run');
@@ -70,7 +70,7 @@ class BatchUpdateRequestPayloadCommand extends Command
             $this->info("\n📦 Procesando lote {$currentChunk}/{$totalChunks} (" . count($chunk) . " solicitudes)");
 
             foreach ($chunk as $requestId) {
-                $result = $this->processRequest($requestId, $afiliadoService, $dryRun, $force);
+                $result = $this->processRequest($requestId, $certificadoConvenioService, $dryRun, $force);
                 
                 $stats['encontradas'] += $result['encontrada'] ? 1 : 0;
                 $stats['actualizadas'] += $result['actualizada'] ? 1 : 0;
@@ -97,7 +97,7 @@ class BatchUpdateRequestPayloadCommand extends Command
     /**
      * Procesa una solicitud individual
      */
-    private function processRequest(string $requestId, AfiliadoService $afiliadoService, bool $dryRun, bool $force): array
+    private function processRequest(string $requestId, CertificadoConvenioService $certificadoConvenioService, bool $dryRun, bool $force): array
     {
         try {
             // Buscar la solicitud
@@ -128,15 +128,11 @@ class BatchUpdateRequestPayloadCommand extends Command
                 ];
             }
 
-            // Obtener información del afiliado y sus convenios
+            // Obtener información del afiliado y sus convenios usando el método optimizado
             $documento = $requestForm->document_number;
-            $afiliadoInfo = $afiliadoService->getCompleteAfiliadoInfo(
-                $requestForm->document_type,
-                $documento,
-                null // fecha de expedición no disponible en la solicitud
-            );
+            $afiliadoData = $certificadoConvenioService->obtenerDatosAfiliado($documento);
 
-            if (!$afiliadoInfo || empty($afiliadoInfo['convenios'])) {
+            if (!$afiliadoData || empty($afiliadoData['convenio'])) {
                 return [
                     'encontrada' => true,
                     'actualizada' => false,
@@ -154,7 +150,7 @@ class BatchUpdateRequestPayloadCommand extends Command
             }
 
             // Obtener el convenio más reciente (ya viene filtrado por el servicio)
-            $convenio = $afiliadoInfo['convenios'][0] ?? null;
+            $convenio = $afiliadoData['convenio'];
             if (!$convenio) {
                 return [
                     'encontrada' => true,
