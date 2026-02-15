@@ -68,6 +68,122 @@ class RequestExcelExportService
     ];
 
     /**
+     * Mapeo de códigos de hospital a nombres completos para generación de certificados.
+     */
+    private const HOSPITAL_NAME_MAPPINGS = [
+        'ABEJORRAL' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+        'ABEJORRAL - ADMON' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+        'ABEJORRAL - ADMON ' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+        'ABEJORRAL - ASIST' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+        'ABEJORRAL - BUEN COMIENZO' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Buen Comienzo',
+        'ABEJORRAL - CBA' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+        'ABEJORRAL - SALUD P' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Salud Pública',
+        'ABEJORRAL SP' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
+        'ADMON' => 'Sede Administrativa',
+        'ADMON-HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
+        'BARBOSA' => 'E.S.E. Hospital San Vicente de Paul de Barbosa (Ant)',
+        'BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
+        'BETANIA' => 'E.S.E. Hospital San Antonio de Betania',
+        'CALDAS' => 'E.S.E. Hospital San Vicente de Paúl de Caldas',
+        'CENTRO NEUROLOGICO' => 'Centro Neurológico',
+        'CISNEROS' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
+        'CIUDAD BOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
+        'CIUDADBOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
+        'E.S.E CARISMA ADMON ' => 'E.S.E. Hospital Carisma',
+        'E.S.E CARISMA ASISTENCIAL' => 'E.S.E. Hospital Carisma',
+        'E.S.ECARISMA' => 'E.S.E. Hospital Carisma',
+        'FREDONIA' => 'E.S.E. Hospital Santa Lucia - Fredonia (Ant)',
+        'HGM SEDE 80 ADMON' => 'E.S.E. Hospital General de Medellín - Sede 80',
+        'HGM SEDE 80 ASISTENCIAL' => 'E.S.E. Hospital General de Medellín - Sede 80',
+        'HGM SEDE 80 ASISTENCIAL ' => 'E.S.E. Hospital General de Medellín - Sede 80',
+        'HLM - GRUPO 1' => 'E.S.E. Hospital La María',
+        'HLM - GRUPO 2' => 'E.S.E. Hospital La María',
+        'HLM - GRUPO 3' => 'E.S.E. Hospital La María',
+        'HMFS - BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
+        'HSJD Rionegro - ADMON' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
+        'HSJD Rionegro - ASISTENCIAL' => 'Centro Neurológico',
+        'HSJD Rionegro - PIC ' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
+        'HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
+        'HSRI' => 'E.S.E. Hospital San Rafael de Itagüí',
+        'HSRI ' => 'E.S.E. Hospital San Rafael de Itagüí',
+        'JARDIN' => 'E.S.E. Hospital Gabriel Peláez Montoya',
+        'LA MARIA' => 'E.S.E. Hospital La María',
+        'LA MARIA - 000065-2021' => 'E.S.E. Hospital La María',
+        'LA MARIA - 262-2021' => 'E.S.E. Hospital La María',
+        'LA MARIA - COOSALUD' => 'E.S.E. Hospital La María',
+        'LA MARIA - ENTERRITORIO' => 'E.S.E. Hospital La María',
+        'LA MARIA - ENTERRITORIO 1 - 044' => 'E.S.E. Hospital La María',
+        'LA MARIA - ENTERRITORIO 2' => 'E.S.E. Hospital La María',
+        'LA MARIA - ENTERRITORIO 2 - 045' => 'E.S.E. Hospital La María',
+        'LA MARIA - INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
+        'LA MARIA - ITS 257' => 'E.S.E. Hospital La María',
+        'LA MARIA - PROGRAMA ESPECIAL SAVIA SALUD EPS - VIH-SIDA' => 'E.S.E. Hospital La María',
+        'LA MARIA - TRANSMISIBLES' => 'E.S.E. Hospital La María',
+        'LA MARIA - TRANSMISIBLES - 122 - 2023' => 'E.S.E. Hospital La María',
+        'LA MARIA - TRANSMISIBLES 176' => 'E.S.E. Hospital La María',
+        'LA MARIA - UNION TEMPORAL' => 'E.S.E. Hospital La María',
+        'LA MARIA - UNION TEMPORAL 020 - 2023' => 'E.S.E. Hospital La María',
+        'LA MARIA - VIH' => 'E.S.E. Hospital La María',
+        'LA MARIA - VIH - 1' => 'E.S.E. Hospital La María',
+        'LA MARIA 216 - 2021' => 'E.S.E. Hospital La María',
+        'LA MARIA 317 COOSALUD' => 'E.S.E. Hospital La María',
+        'LA MARIA COOSALUD - 046' => 'E.S.E. Hospital La María',
+        'LA MARIA COOSALUD 191' => 'E.S.E. Hospital La María',
+        'LA MARIA COOSALUD 36-2022' => 'E.S.E. Hospital La María',
+        'LA MARIA ENTERRITORIO - 287' => 'E.S.E. Hospital La María',
+        'LA MARIA ENTERRITORIO 038' => 'E.S.E. Hospital La María',
+        'LA MARIA ENTERRITORIO 238' => 'E.S.E. Hospital La María',
+        'LA MARIA- INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
+        'LA MARIA ITS ' => 'E.S.E. Hospital La María',
+        'LA MARIA ITS 127' => 'E.S.E. Hospital La María',
+        'LA MARIA ITS- 376' => 'E.S.E. Hospital La María',
+        'LA MARIA PAI ' => 'E.S.E. Hospital La María',
+        'LA MARIA TB 137' => 'E.S.E. Hospital La María',
+        'LA MARIA TB Y LEPRA  319-2021' => 'E.S.E. Hospital La María',
+        'LA MARIA TBC' => 'E.S.E. Hospital La María',
+        'LA MARIA TRANSMISIBLES - 122' => 'E.S.E. Hospital La María',
+        'LA MARIA TRANSMISIBLES - 275' => 'E.S.E. Hospital La María',
+        'LA MARIA TRANSMISIBLES 234' => 'E.S.E. Hospital La María',
+        'LA MARIA UPAI - 0028 - 2023' => 'E.S.E. Hospital La María',
+        'LA MARIA UPAI - 140 - 2023' => 'E.S.E. Hospital La María',
+        'LA MARIA UPAI - 271' => 'E.S.E. Hospital La María',
+        'LA MARIA UPAI 0028 - 2023' => 'E.S.E. Hospital La María',
+        'LA MARIA UPAI 245' => 'E.S.E. Hospital La María',
+        'LA MARIA UPAI 35' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH - 158' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH 037' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH 131' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH 131 - 2023' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH 158' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH 188' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH N°043' => 'E.S.E. Hospital La María',
+        'LA MARIA VIH UT ' => 'E.S.E. Hospital La María',
+        'LAMARIACOOSALUD36' => 'E.S.E. Hospital La María',
+        'LAMARIAENTERRITORIO038' => 'E.S.E. Hospital La María',
+        'LAMARIAITS127' => 'E.S.E. Hospital La María',
+        'LAMARIATB2022' => 'E.S.E. Hospital La María',
+        'LAMARIAUPAI35' => 'E.S.E. Hospital La María',
+        'LAMARIAVIH037' => 'E.S.E. Hospital La María',
+        'POLICLINICO' => 'POLICLINICO',
+        'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.' => 'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.',
+        'PUERTO BERRIO' => 'E.S.E. Hospital La Cruz',
+        'SOMER' => 'SOMER',
+        'STA GERTRUDIS' => 'E.S.E. Santa Gertrudis',
+        'UNION TEMPORAL - 020 - 2023' => 'E.S.E. Hospital La María',
+        'VENANCIO' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO -  SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO - ADMON' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO - ASIST' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO - ASIST ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO - PIC ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO - SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO - SALUD P.' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO - UCI' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENANCIO ADMON - APH' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
+        'VENECIA' => 'ESE Hospital San Rafael de Venecia',
+    ];
+
+    /**
      * Generar reporte Excel con las 4 hojas especificadas.
      */
     public function generateReport(array $filters): string
@@ -294,8 +410,50 @@ class RequestExcelExportService
             ],
         ]);
 
+        $row += count($distributionData) + 3; // Add more space before hospital table
+
+        // DISTRIBUCIÓN POR HOSPITAL
+        $sheet->setCellValue("A{$row}", 'DISTRIBUCIÓN POR HOSPITAL');
+        $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
+        $row++;
+
+        $hospitalDistribution = $this->calculateHospitalDistribution($requests);
+
+        $hospitalData = [['Hospital', 'Cantidad']];
+        if (empty($hospitalDistribution)) {
+            $hospitalData[] = ['No hay datos', 0];
+        } else {
+            foreach ($hospitalDistribution as $hospital => $count) {
+                $hospitalData[] = [$hospital, $count];
+            }
+        }
+
+        $hospitalStartRow = $row;
+        $sheet->fromArray($hospitalData, null, "A{$row}");
+
+        // Aplicar estilo a encabezados de tabla
+        $sheet->getStyle("A{$row}:B{$row}")->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => '4472C4'],
+            ],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+            ],
+        ]);
+
+        // Aplicar bordes a todas las celdas de datos
+        $hospitalDataRange = "A{$row}:B" . ($row + count($hospitalData) - 1);
+        $sheet->getStyle($hospitalDataRange)->applyFromArray([
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+            ],
+        ]);
+
         // Ajustar anchos de columna
-        $sheet->getColumnDimension('A')->setWidth(40);
+        $sheet->getColumnDimension('A')->setWidth(50);
         $sheet->getColumnDimension('B')->setWidth(15);
 
         // Agregar gráficas estratégicas
@@ -322,6 +480,9 @@ class RequestExcelExportService
             'Fecha Creación',
             'Fecha Procesamiento',
             'Tiempo Procesamiento (Horas Laborales)',
+            'Programa',
+            'Hospital',
+            'Proceso',
             'Razón de Rechazo',
             'Responsable de Respuesta Final',
         ];
@@ -329,7 +490,7 @@ class RequestExcelExportService
         $sheet->fromArray([$headers], null, 'A1');
 
         // Estilizar encabezados
-        $headerRange = 'A1:O1';
+        $headerRange = 'A1:R1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -360,8 +521,11 @@ class RequestExcelExportService
             'K' => 20, // Fecha Creación
             'L' => 20, // Fecha Procesamiento
             'M' => 35, // Tiempo Procesamiento (Horas Laborales)
-            'N' => 50, // Razón de Rechazo
-            'O' => 40, // Responsable de Respuesta Final
+            'N' => 30, // Programa
+            'O' => 40, // Hospital
+            'P' => 30, // Proceso
+            'Q' => 50, // Razón de Rechazo
+            'R' => 40, // Responsable de Respuesta Final
         ];
 
         foreach ($columnWidths as $col => $width) {
@@ -396,6 +560,12 @@ class RequestExcelExportService
             $businessHours = $this->calculateBusinessHours($request->created_at, $request->processed_at);
             $businessHoursDisplay = $businessHours > 0 ? $businessHours . ' horas' : '';
 
+            // Extraer valores del payload
+            $payload = $request->payload ?? [];
+            $programa = $payload['dondeRealizaProceso'] ?? '';
+            $hospital = $this->getHospitalName($payload['dondeRealizaProceso'] ?? '');
+            $proceso = $payload['proceso'] ?? '';
+
             $rowData = [
                 $request->id,
                 $request->name,
@@ -410,6 +580,9 @@ class RequestExcelExportService
                 $this->formatDateTime($request->created_at),
                 $this->formatDateTime($request->processed_at),
                 $businessHoursDisplay,
+                $programa,
+                $hospital,
+                $proceso,
                 $rejectionReason,
                 $responsiblePerson,
             ];
@@ -430,7 +603,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:O" . ($row - 1);
+            $dataRange = "A1:R" . ($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -441,7 +614,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:O" . ($row - 1));
+            $sheet->setAutoFilter("A1:R" . ($row - 1));
         }
 
         // Congelar primera fila
@@ -653,6 +826,31 @@ class RequestExcelExportService
         foreach ($requests as $request) {
             $typeLabel = $this->getRequestTypeLabel($request->request_type);
             $distribution[$typeLabel] = ($distribution[$typeLabel] ?? 0) + 1;
+        }
+
+        // Ordenar por cantidad descendente
+        arsort($distribution);
+
+        return $distribution;
+    }
+
+    /**
+     * Calcular distribución por hospital.
+     */
+    private function calculateHospitalDistribution(Collection $requests): array
+    {
+        $distribution = [];
+
+        foreach ($requests as $request) {
+            $payload = $request->payload ?? [];
+            $hospitalCode = $payload['dondeRealizaProceso'] ?? '';
+            
+            if (empty($hospitalCode)) {
+                continue;
+            }
+
+            $hospitalName = $this->getHospitalName($hospitalCode);
+            $distribution[$hospitalName] = ($distribution[$hospitalName] ?? 0) + 1;
         }
 
         // Ordenar por cantidad descendente
@@ -882,6 +1080,20 @@ class RequestExcelExportService
     }
 
     /**
+     * Obtener nombre completo del hospital a partir del código.
+     */
+    private function getHospitalName(string $hospitalCode): string
+    {
+        // Si el código ya contiene el nombre completo, retornarlo tal cual
+        if (empty($hospitalCode)) {
+            return '';
+        }
+
+        // Buscar en el mapeo de hospitales
+        return self::HOSPITAL_NAME_MAPPINGS[$hospitalCode] ?? $hospitalCode;
+    }
+
+    /**
      * Calcular horas laborales entre dos fechas.
      * Solo cuenta horas de lunes a viernes de 7am a 5pm (10 horas día).
      */
@@ -946,6 +1158,7 @@ class RequestExcelExportService
         $typeData = $this->prepareTypeDataForChart($requests);
         $monthlyData = $this->prepareMonthlyDataForChart($requests);
         $statusByMonthData = $this->prepareStatusByMonthDataForChart($requests);
+        $hospitalData = $this->prepareHospitalDataForChart($requests);
 
         // Gráfica 1: Distribución por Estado (Pastel) - Columna D
         if (!empty($statusData)) {
@@ -965,6 +1178,11 @@ class RequestExcelExportService
         // Gráfica 4: Estados por Mes (Barras Apiladas) - Columna K, más abajo
         if (!empty($statusByMonthData)) {
             $this->addStatusByMonthChart($sheet, $statusByMonthData, 'K32', 'Q32', 'K47', 'Q60');
+        }
+
+        // Gráfica 5: Distribución por Hospital (Barras Horizontales) - A la derecha de las gráficas superiores
+        if (!empty($hospitalData)) {
+            $this->addHospitalDistributionChart($sheet, $hospitalData, 'R2', 'Y2', 'R17', 'Y30');
         }
     }
 
@@ -1077,6 +1295,14 @@ class RequestExcelExportService
     }
 
     /**
+     * Preparar datos de distribución por hospital para gráfica.
+     */
+    private function prepareHospitalDataForChart(Collection $requests): array
+    {
+        return $this->calculateHospitalDistribution($requests);
+    }
+
+    /**
      * Agregar gráfica de distribución por estado (Pastel).
      */
     private function addStatusDistributionChart(Worksheet $sheet, array $data, string $topLeft, string $topRight, string $bottomLeft, string $bottomRight): void
@@ -1109,6 +1335,63 @@ class RequestExcelExportService
                 null,
                 count($values),
                 $values
+            ),
+        ];
+
+        $series = new DataSeries(
+            DataSeries::TYPE_PIECHART,
+            DataSeries::GROUPING_STANDARD,
+            range(0, count($dataSeriesValues) - 1),
+            $dataSeriesLabels,
+            $xAxisTickValues,
+            $dataSeriesValues
+        );
+
+        // Definir colores personalizados para cada estado
+        $colors = [];
+        foreach ($labels as $label) {
+            switch ($label) {
+                case 'Pendiente':
+                    $colors[] = 'FFE699'; // Amarillo suave
+                    break;
+                case 'En Proceso':
+                    $colors[] = '0070C0'; // Azul
+                    break;
+                case 'Resuelto':
+                    $colors[] = '00B050'; // Verde
+                    break;
+                case 'Rechazado':
+                    $colors[] = 'FF6B6B'; // Rojo suave
+                    break;
+                default:
+                    $colors[] = '95A5A6'; // Gris por defecto
+                    break;
+            }
+        }
+
+        $dataSeriesLabels = [
+            new DataSeriesValues(DataSeriesValues::DATASERIES_TYPE_STRING, null, null, 1),
+        ];
+
+        $xAxisTickValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_STRING,
+                null,
+                null,
+                count($labels),
+                $labels
+            ),
+        ];
+
+        $dataSeriesValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_NUMBER,
+                null,
+                null,
+                count($values),
+                $values,
+                null,
+                $colors
             ),
         ];
 
@@ -1330,28 +1613,36 @@ class RequestExcelExportService
                 null,
                 null,
                 count($pendingValues),
-                $pendingValues
+                $pendingValues,
+                null,
+                'FFE699' // Amarillo suave
             ),
             new DataSeriesValues(
                 DataSeriesValues::DATASERIES_TYPE_NUMBER,
                 null,
                 null,
                 count($inProgressValues),
-                $inProgressValues
+                $inProgressValues,
+                null,
+                '0070C0' // Azul
             ),
             new DataSeriesValues(
                 DataSeriesValues::DATASERIES_TYPE_NUMBER,
                 null,
                 null,
                 count($resolvedValues),
-                $resolvedValues
+                $resolvedValues,
+                null,
+                '00B050' // Verde
             ),
             new DataSeriesValues(
                 DataSeriesValues::DATASERIES_TYPE_NUMBER,
                 null,
                 null,
                 count($rejectedValues),
-                $rejectedValues
+                $rejectedValues,
+                null,
+                'FF6B6B' // Rojo suave
             ),
         ];
 
@@ -1414,6 +1705,76 @@ class RequestExcelExportService
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Agregar gráfica de distribución por hospital (Barras).
+     */
+    private function addHospitalDistributionChart(Worksheet $sheet, array $data, string $topLeft, string $topRight, string $bottomLeft, string $bottomRight): void
+    {
+        if (empty($data)) {
+            return;
+        }
+
+        $labels = array_keys($data);
+        $values = array_values($data);
+
+        $dataSeriesLabels = [
+            new DataSeriesValues(DataSeriesValues::DATASERIES_TYPE_STRING, null, null, 1),
+        ];
+
+        $xAxisTickValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_STRING,
+                null,
+                null,
+                count($labels),
+                $labels
+            ),
+        ];
+
+        $dataSeriesValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_NUMBER,
+                null,
+                null,
+                count($values),
+                $values
+            ),
+        ];
+
+        $series = new DataSeries(
+            DataSeries::TYPE_BARCHART,
+            DataSeries::GROUPING_STANDARD,
+            range(0, count($dataSeriesValues) - 1),
+            $dataSeriesLabels,
+            $xAxisTickValues,
+            $dataSeriesValues
+        );
+
+        $series->setPlotDirection(DataSeries::DIRECTION_VERTICAL);
+
+        $plotArea = new PlotArea(null, [$series]);
+        $legend = new Legend(Legend::POSITION_RIGHT, null, false);
+
+        $title = new Title('Distribución por Hospital');
+        $yAxisLabel = new Title('Cantidad de Solicitudes');
+
+        $chart = new Chart(
+            'chart_hospital_distribution',
+            $title,
+            $legend,
+            $plotArea,
+            true,
+            0,
+            null,
+            $yAxisLabel
+        );
+
+        $chart->setTopLeftPosition($topLeft);
+        $chart->setBottomRightPosition($bottomRight);
+
+        $sheet->addChart($chart);
     }
 
     /**
