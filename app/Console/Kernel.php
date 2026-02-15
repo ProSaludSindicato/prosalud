@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Illuminate\Support\Facades\Log;
 
 class Kernel extends ConsoleKernel
 {
@@ -15,17 +16,16 @@ class Kernel extends ConsoleKernel
         // Enviar recordatorios de actividades de bienestar todos los días a las 7:00 AM
         // (hora del servidor, que debería estar configurada en zona horaria de Colombia)
         $schedule->command('wellness:send-activity-reminders')
-                ->everyMinute()
-                // ->dailyAt('12:29')
+                ->dailyAt('07:00')
                 ->timezone('America/Bogota')
                 ->description('Enviar recordatorios de actividades de bienestar del día anterior')
                 ->withoutOverlapping()
                 ->runInBackground()
                 ->onSuccess(function () {
-                    \Log::info('Recordatorios de bienestar programados ejecutados exitosamente');
+                    Log::info('Recordatorios de bienestar programados ejecutados exitosamente');
                 })
                 ->onFailure(function () {
-                    \Log::error('Error en la ejecución programada de recordatorios de bienestar');
+                    Log::error('Error en la ejecución programada de recordatorios de bienestar');
                 });
 
         // Comando de limpieza de cache (opcional, semanal)

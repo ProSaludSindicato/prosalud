@@ -179,6 +179,7 @@ class WellnessRequestController extends Controller
                 dispatch(function () use ($wellnessRequestForEmail, $requesterEmail) {
                     try {
                         Mail::to($requesterEmail)
+                            ->cc('directoradmon@sindicatoprosalud.com')
                             ->send(new WellnessRequestReceived($wellnessRequestForEmail));
 
                         Log::info('Wellness request email sent successfully', [
