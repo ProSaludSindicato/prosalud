@@ -30,7 +30,28 @@ class UpdateProductRequest extends FormRequest
             'variant_mode' => 'sometimes|required|in:simple,size,color,size_color',
             'variants' => 'sometimes|array',
             'variants.*.id' => 'nullable|uuid|exists:inventory_variants,id',
-            'variants.*.size' => 'nullable|string|max:50',
+            'variants.*.size' => [
+                'nullable',
+                'string',
+                'max:50',
+                function ($attribute, $value, $fail) {
+                    if (!empty($value)) {
+                        // Allow traditional sizes (XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL)
+                        $traditionalSizes = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
+                        
+                        // Allow numeric sizes for pants (men: 28-42, women: 6-18)
+                        $isValidTraditional = in_array(strtoupper(trim($value)), $traditionalSizes);
+                        $isValidNumeric = is_numeric($value) && (
+                            (intval($value) >= 28 && intval($value) <= 42) || // Men's pants
+                            (intval($value) >= 6 && intval($value) <= 18)    // Women's pants
+                        );
+                        
+                        if (!$isValidTraditional && !$isValidNumeric) {
+                            $fail('La talla debe ser una de las siguientes: XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, o un número entre 6-18 o 28-42.');
+                        }
+                    }
+                },
+            ],
             'variants.*.color_id' => 'nullable|string|exists:inventory_colors,id',
             'variants.*.stock' => 'required|integer|min:0',
             'variants.*.min_stock' => 'required|integer|min:0',
