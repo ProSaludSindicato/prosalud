@@ -39,15 +39,16 @@ class UpdateProductRequest extends FormRequest
                         // Allow traditional sizes (XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL)
                         $traditionalSizes = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
                         
-                        // Allow numeric sizes for pants (men: 28-42, women: 6-18)
+                        // Allow numeric sizes for pants (men: 28-42, women: 6-18) and shoes (40-44)
                         $isValidTraditional = in_array(strtoupper(trim($value)), $traditionalSizes);
                         $isValidNumeric = is_numeric($value) && (
                             (intval($value) >= 28 && intval($value) <= 42) || // Men's pants
-                            (intval($value) >= 6 && intval($value) <= 18)    // Women's pants
+                            (intval($value) >= 6 && intval($value) <= 18)    || // Women's pants
+                            (intval($value) >= 40 && intval($value) <= 44)       // Shoes
                         );
                         
                         if (!$isValidTraditional && !$isValidNumeric) {
-                            $fail('La talla debe ser una de las siguientes: XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, o un número entre 6-18 o 28-42.');
+                            $fail('La talla debe ser una de las siguientes: XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, o un número entre 6-18, 28-42, o 40-44.');
                         }
                     }
                 },
