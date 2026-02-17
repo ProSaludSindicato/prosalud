@@ -375,6 +375,7 @@ class BulkRequestResponseService
             'Subtipo Solicitud',
             'Estado Actual',
             'Fecha Creación',
+            'Payload', // Información del payload JSON
         ];
 
         // Agregar columnas dinámicas de archivos
@@ -408,7 +409,7 @@ class BulkRequestResponseService
         ]);
 
         // Calcular índices de columnas
-        $baseCols = 10; // A-J (ID hasta Fecha Creación, incluyendo Subtipo)
+        $baseCols = 11; // A-K (ID hasta Payload, incluyendo Subtipo)
         $newStatusColIndex = $baseCols + $maxFiles + 1;
         $emailSubjectColIndex = $newStatusColIndex + 1;
         $emailBodyColIndex = $emailSubjectColIndex + 1;
@@ -417,9 +418,9 @@ class BulkRequestResponseService
         $columnWidths = [];
         for ($col = 1; $col <= count($headers); $col++) {
             $colLetter = Coordinate::stringFromColumnIndex($col);
-            if ($col <= 10) {
-                // Columnas base (ahora incluye Subtipo Solicitud)
-                $widths = [15, 15, 18, 30, 30, 18, 30, 35, 18, 18];
+            if ($col <= 11) {
+                // Columnas base (ahora incluye Subtipo Solicitud y Payload)
+                $widths = [15, 15, 18, 30, 30, 18, 30, 35, 18, 18, 80]; // Payload con ancho amplio
                 $columnWidths[$colLetter] = $widths[$col - 1];
             } elseif ($col <= $baseCols + $maxFiles) {
                 // Columnas de archivos
@@ -452,6 +453,12 @@ class BulkRequestResponseService
             // Obtener subtipo de solicitud
             $subtype = $request->request_subtype ?? '';
 
+            // Formatear payload como texto legible
+            $payloadFormatted = 'N/A';
+            if ($request->payload && is_array($request->payload)) {
+                $payloadFormatted = $this->formatPayloadAsReadableText($request->payload);
+            }
+
             // Construir fila de datos
             $rowData = [
                 $request->id,
@@ -464,6 +471,7 @@ class BulkRequestResponseService
                 $subtype,
                 $this->getStatusLabel($request->status),
                 $this->formatDate($request->created_at),
+                $payloadFormatted, // Payload formateado
             ];
 
             // Agregar archivos (llenar hasta maxFiles)
@@ -507,6 +515,13 @@ class BulkRequestResponseService
             $bodyColLetter = Coordinate::stringFromColumnIndex($emailBodyColIndex);
             $bodyCell = "{$bodyColLetter}{$row}";
             $sheet->getStyle($bodyCell)->getAlignment()->setWrapText(true);
+            $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
+
+            // Configurar formato de texto para columna de payload (columna K)
+            $payloadColLetter = Coordinate::stringFromColumnIndex(11); // Columna K
+            $payloadCell = "{$payloadColLetter}{$row}";
+            $sheet->getStyle($payloadCell)->getAlignment()->setWrapText(true);
+            $sheet->getStyle($payloadCell)->getAlignment()->setVertical(Alignment::VERTICAL_TOP);
             $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
 
             $row++;
@@ -1128,6 +1143,90 @@ class BulkRequestResponseService
 
         $strValue = strtolower(trim((string) $value));
         return in_array($strValue, ['true', '1', 'yes', 'si', 'sí']);
+    }
+
+    /**
+     * Formatear payload como texto legible en lugar de JSON.
+     */
+    private function formatPayloadAsReadableText(array $payload, int $indentLevel = 0): string
+    {
+        $lines = [];
+        $indent = str_repeat('  ', $indentLevel);
+
+        foreach ($payload as $key => $value) {
+            $formattedKey = $this->formatKeyAsLabel($key);
+
+            if (is_array($value)) {
+                // Si es un array, mostrar el título y luego los elementos
+                if (empty($value)) {
+                    $lines[] = "{$indent}{$formattedKey}: (vacío)";
+                } else {
+                    $lines[] = "{$indent}{$formattedKey}:";
+                    $lines[] = $this->formatPayloadAsReadableText($value, $indentLevel + 1);
+                }
+            } else {
+                // Formatear el valor según su tipo
+                $formattedValue = $this->formatValue($key, $value);
+                $lines[] = "{$indent}{$formattedKey}: {$formattedValue}";
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Formatear clave como etiqueta legible.
+     */
+    private function formatKeyAsLabel(string $key): string
+    {
+        // Reemplazar camelCase por espacios y capitalizar
+        $label = preg_replace('/([a-z])([A-Z])/', '$1 $2', $key);
+        // Reemplazar guiones bajos por espacios
+        $label = str_replace('_', ' ', $label);
+        // Capitalizar primera letra de cada palabra
+        return ucwords(strtolower($label));
+    }
+
+    /**
+     * Formatear un valor según su tipo y clave.
+     */
+    private function formatValue(string $key, $value): string
+    {
+        if ($value === null) {
+            return '(no especificado)';
+        }
+
+        if ($value === '') {
+            return '(vacío)';
+        }
+
+        // Formatear montoSolicitado como moneda
+        if ($key === 'montoSolicitado' && is_numeric($value)) {
+            return number_format($value, 0, ',', '.') . ' COP';
+        }
+
+        // Formatear valores booleanos
+        if (is_bool($value)) {
+            return $value ? 'Sí' : 'No';
+        }
+
+        // Formatear números
+        if (is_numeric($value)) {
+            return (string)$value;
+        }
+
+        // Formatear fechas si parecen ser fechas
+        if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
+            try {
+                $date = Carbon::parse($value);
+                return $date->format('d/m/Y');
+            } catch (\Exception $e) {
+                // Si no es una fecha válida, devolver el valor original
+            }
+        }
+
+        // Devolver el valor como string
+        return (string)$value;
     }
 }
 
