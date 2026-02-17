@@ -158,6 +158,26 @@ class SocioDemographicSurvey extends Model
     }
 
     /**
+     * Scope for surveys by name (searches in nombres, apellidos, or both).
+     */
+    public function scopeByName(Builder $query, string $name): Builder
+    {
+        $name = trim($name);
+        if (empty($name)) {
+            return $query;
+        }
+
+        return $query->where(function ($query) use ($name) {
+            // Search in nombres field
+            $query->where('nombres', 'LIKE', "%{$name}%")
+                  // Search in apellidos field
+                  ->orWhere('apellidos', 'LIKE', "%{$name}%")
+                  // Search in concatenated full name (nombres + ' ' + apellidos)
+                  ->orWhereRaw("CONCAT(COALESCE(nombres, ''), ' ', COALESCE(apellidos, '')) LIKE ?", ["%{$name}%"]);
+        });
+    }
+
+    /**
      * Get formatted created_at attribute.
      */
     public function getFormattedCreatedAtAttribute(): string

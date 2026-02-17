@@ -273,6 +273,11 @@ class SocioDemographicSurveyController extends Controller
             $query->byDocument($request->input('tipo_documento'), $request->input('numero_documento'));
         }
 
+        // Filtro por nombre del encuestado
+        if ($request->has('nombre')) {
+            $query->byName($request->input('nombre'));
+        }
+
         // Filtro por tipo de encuesta
         if ($request->has('survey_type')) {
             $surveyType = $request->input('survey_type');
@@ -321,6 +326,11 @@ class SocioDemographicSurveyController extends Controller
 
         if ($request->has('tipo_documento') && $request->has('numero_documento')) {
             $baseQuery->byDocument($request->input('tipo_documento'), $request->input('numero_documento'));
+        }
+
+        // Aplicar filtro por nombre en métricas
+        if ($request->has('nombre')) {
+            $baseQuery->byName($request->input('nombre'));
         }
 
         // Aplicar filtro por tipo de encuesta en métricas
