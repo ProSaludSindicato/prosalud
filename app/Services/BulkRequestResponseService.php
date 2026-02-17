@@ -371,11 +371,13 @@ class BulkRequestResponseService
             'Nombre Completo',
             'Email',
             'Teléfono',
+            'Proceso', // Extraído del payload
+            'Sede Proceso', // Extraído del payload (dondeRealizaProceso o sedeProceso)
             'Tipo Solicitud',
             'Subtipo Solicitud',
             'Estado Actual',
             'Fecha Creación',
-            'Payload', // Información del payload JSON
+            'Detalles', // Información del payload JSON (renombrado de Payload)
         ];
 
         // Agregar columnas dinámicas de archivos
@@ -409,7 +411,7 @@ class BulkRequestResponseService
         ]);
 
         // Calcular índices de columnas
-        $baseCols = 11; // A-K (ID hasta Payload, incluyendo Subtipo)
+        $baseCols = 13; // A-M (ID hasta Detalles, incluyendo Proceso, Sede Proceso y Subtipo)
         $newStatusColIndex = $baseCols + $maxFiles + 1;
         $emailSubjectColIndex = $newStatusColIndex + 1;
         $emailBodyColIndex = $emailSubjectColIndex + 1;
@@ -418,9 +420,9 @@ class BulkRequestResponseService
         $columnWidths = [];
         for ($col = 1; $col <= count($headers); $col++) {
             $colLetter = Coordinate::stringFromColumnIndex($col);
-            if ($col <= 11) {
-                // Columnas base (ahora incluye Subtipo Solicitud y Payload)
-                $widths = [15, 15, 18, 30, 30, 18, 30, 35, 18, 18, 80]; // Payload con ancho amplio
+            if ($col <= 13) {
+                // Columnas base (ahora incluye Proceso, Sede Proceso, Subtipo Solicitud y Detalles)
+                $widths = [15, 15, 18, 30, 30, 18, 35, 40, 30, 35, 18, 18, 80]; // Proceso: 35, Sede Proceso: 40, Detalles: 80
                 $columnWidths[$colLetter] = $widths[$col - 1];
             } elseif ($col <= $baseCols + $maxFiles) {
                 // Columnas de archivos
@@ -429,8 +431,8 @@ class BulkRequestResponseService
                 // Nuevo Estado
                 $columnWidths[$colLetter] = 18;
             } elseif ($col == $emailSubjectColIndex) {
-                // Asunto Correo
-                $columnWidths[$colLetter] = 60;
+                // Asunto Correo (ancho aumentado)
+                $columnWidths[$colLetter] = 80;
             } elseif ($col == $emailBodyColIndex) {
                 // Cuerpo Correo
                 $columnWidths[$colLetter] = 80;
@@ -453,6 +455,11 @@ class BulkRequestResponseService
             // Obtener subtipo de solicitud
             $subtype = $request->request_subtype ?? '';
 
+            // Extraer proceso y sede del payload
+            $payload = $request->payload ?? [];
+            $proceso = $payload['proceso'] ?? '';
+            $sedeProceso = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
+
             // Formatear payload como texto legible
             $payloadFormatted = 'N/A';
             if ($request->payload && is_array($request->payload)) {
@@ -467,11 +474,13 @@ class BulkRequestResponseService
                 $request->full_name,
                 $request->email,
                 $request->phone_number,
+                $proceso, // Proceso extraído del payload
+                $sedeProceso, // Sede Proceso extraída del payload
                 $this->getRequestTypeLabel($request->request_type),
                 $subtype,
                 $this->getStatusLabel($request->status),
                 $this->formatDate($request->created_at),
-                $payloadFormatted, // Payload formateado
+                $payloadFormatted, // Detalles formateados (payload completo)
             ];
 
             // Agregar archivos (llenar hasta maxFiles)
@@ -486,8 +495,8 @@ class BulkRequestResponseService
 
             $sheet->fromArray([$rowData], null, "A{$row}");
 
-            // Aplicar color de fondo a columna "Estado Actual" (I) según el estado
-            $statusCell = "I{$row}";
+            // Aplicar color de fondo a columna "Estado Actual" (K) según el estado
+            $statusCell = "K{$row}";
             $this->applyStatusColor($sheet, $statusCell, $request->status);
 
             // Agregar hipervínculos a las columnas de archivos
@@ -517,11 +526,11 @@ class BulkRequestResponseService
             $sheet->getStyle($bodyCell)->getAlignment()->setWrapText(true);
             $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
 
-            // Configurar formato de texto para columna de payload (columna K)
-            $payloadColLetter = Coordinate::stringFromColumnIndex(11); // Columna K
-            $payloadCell = "{$payloadColLetter}{$row}";
-            $sheet->getStyle($payloadCell)->getAlignment()->setWrapText(true);
-            $sheet->getStyle($payloadCell)->getAlignment()->setVertical(Alignment::VERTICAL_TOP);
+            // Configurar formato de texto para columna de detalles (columna M)
+            $detallesColLetter = Coordinate::stringFromColumnIndex(13); // Columna M
+            $detallesCell = "{$detallesColLetter}{$row}";
+            $sheet->getStyle($detallesCell)->getAlignment()->setWrapText(true);
+            $sheet->getStyle($detallesCell)->getAlignment()->setVertical(Alignment::VERTICAL_TOP);
             $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
 
             $row++;
