@@ -4439,6 +4439,8 @@ class RequestController extends Controller
             }
             $filters = [
                 'request_type' => $requestType,
+                'status' => $request->input('status', 'all'),
+                'subtype' => $request->input('subtype', 'all'),
                 'date_range' => [
                     'include_all' => $dateRange['include_all'] ?? true,
                     'start_date' => $dateRange['start_date'] ?? null,

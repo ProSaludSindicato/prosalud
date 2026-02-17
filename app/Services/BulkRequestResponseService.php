@@ -239,13 +239,36 @@ class BulkRequestResponseService
     {
         $query = RequestForm::query();
 
-        // Filtrar solo solicitudes pendientes o en revisión
+        // Filtro por estado si se especifica
+        $status = $filters['status'] ?? null;
+        if ($status && $status !== 'all') {
+            $query->where('status', $status);
+        } else {
+            // Por defecto, filtrar solo solicitudes pendientes o en revisión
         $query->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW]);
+        }
 
         // Filtro por tipo de solicitud si se especifica
         $requestType = $filters['request_type'] ?? null;
         if ($requestType && $requestType !== 'all') {
             $query->where('request_type', $requestType);
+        }
+
+        // Filtro por subtipo si se especifica
+        $subtype = $filters['subtype'] ?? null;
+        if ($subtype && $subtype !== 'all') {
+            // Usar whereJsonContains para MySQL 5.7+ y PostgreSQL
+            // Para otras bases de datos, usar whereRaw
+            $connection = $query->getConnection()->getDriverName();
+            if (in_array($connection, ['mysql', 'pgsql'])) {
+                $query->whereJsonContains('payload->solicitudRelacionadaCon', $subtype);
+            } else {
+                // Fallback para otras bases de datos
+                $query->whereRaw(
+                    "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.solicitudRelacionadaCon')) = ?",
+                    [$subtype]
+                );
+            }
         }
 
         // Filtro por rango de fechas si se especifica
@@ -272,13 +295,36 @@ class BulkRequestResponseService
     {
         $query = RequestForm::query();
 
-        // Filtrar solo solicitudes pendientes o en revisión
+        // Filtro por estado si se especifica
+        $status = $filters['status'] ?? null;
+        if ($status && $status !== 'all') {
+            $query->where('status', $status);
+        } else {
+            // Por defecto, filtrar solo solicitudes pendientes o en revisión
         $query->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW]);
+        }
 
         // Filtro por tipo de solicitud si se especifica
         $requestType = $filters['request_type'] ?? null;
         if ($requestType && $requestType !== 'all') {
             $query->where('request_type', $requestType);
+        }
+
+        // Filtro por subtipo si se especifica
+        $subtype = $filters['subtype'] ?? null;
+        if ($subtype && $subtype !== 'all') {
+            // Usar whereJsonContains para MySQL 5.7+ y PostgreSQL
+            // Para otras bases de datos, usar whereRaw
+            $connection = $query->getConnection()->getDriverName();
+            if (in_array($connection, ['mysql', 'pgsql'])) {
+                $query->whereJsonContains('payload->solicitudRelacionadaCon', $subtype);
+            } else {
+                // Fallback para otras bases de datos
+                $query->whereRaw(
+                    "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.solicitudRelacionadaCon')) = ?",
+                    [$subtype]
+                );
+            }
         }
 
         // Filtro por rango de fechas si se especifica
@@ -326,6 +372,7 @@ class BulkRequestResponseService
             'Email',
             'Teléfono',
             'Tipo Solicitud',
+            'Subtipo Solicitud',
             'Estado Actual',
             'Fecha Creación',
         ];
@@ -361,7 +408,7 @@ class BulkRequestResponseService
         ]);
 
         // Calcular índices de columnas
-        $baseCols = 9; // A-I (ID hasta Fecha Creación)
+        $baseCols = 10; // A-J (ID hasta Fecha Creación, incluyendo Subtipo)
         $newStatusColIndex = $baseCols + $maxFiles + 1;
         $emailSubjectColIndex = $newStatusColIndex + 1;
         $emailBodyColIndex = $emailSubjectColIndex + 1;
@@ -370,9 +417,9 @@ class BulkRequestResponseService
         $columnWidths = [];
         for ($col = 1; $col <= count($headers); $col++) {
             $colLetter = Coordinate::stringFromColumnIndex($col);
-            if ($col <= 9) {
-                // Columnas base
-                $widths = [15, 15, 18, 30, 30, 18, 30, 18, 18];
+            if ($col <= 10) {
+                // Columnas base (ahora incluye Subtipo Solicitud)
+                $widths = [15, 15, 18, 30, 30, 18, 30, 35, 18, 18];
                 $columnWidths[$colLetter] = $widths[$col - 1];
             } elseif ($col <= $baseCols + $maxFiles) {
                 // Columnas de archivos
@@ -402,6 +449,9 @@ class BulkRequestResponseService
             // Generar links de archivos (retorna array de archivos)
             $fileLinks = $this->generateFileLinksArray($request);
 
+            // Obtener subtipo de solicitud
+            $subtype = $request->request_subtype ?? '';
+
             // Construir fila de datos
             $rowData = [
                 $request->id,
@@ -411,6 +461,7 @@ class BulkRequestResponseService
                 $request->email,
                 $request->phone_number,
                 $this->getRequestTypeLabel($request->request_type),
+                $subtype,
                 $this->getStatusLabel($request->status),
                 $this->formatDate($request->created_at),
             ];
@@ -427,8 +478,8 @@ class BulkRequestResponseService
 
             $sheet->fromArray([$rowData], null, "A{$row}");
 
-            // Aplicar color de fondo a columna "Estado Actual" (H) según el estado
-            $statusCell = "H{$row}";
+            // Aplicar color de fondo a columna "Estado Actual" (I) según el estado
+            $statusCell = "I{$row}";
             $this->applyStatusColor($sheet, $statusCell, $request->status);
 
             // Agregar hipervínculos a las columnas de archivos

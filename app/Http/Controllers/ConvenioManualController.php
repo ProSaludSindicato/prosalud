@@ -595,11 +595,12 @@ class ConvenioManualController extends Controller
                     ], 500);
                 }
 
+                // Descargar y eliminar archivo después de enviarlo (es temporal)
                 return response()->download(
                     $resultado['ruta'],
                     $resultado['nombre'],
                     ['Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
-                )->deleteFileAfterSend(false);
+                )->deleteFileAfterSend(true);
             }
 
             // Si NO se solicita descarga, procesar de forma asíncrona (job)
@@ -669,8 +670,8 @@ class ConvenioManualController extends Controller
             'numero_documento_normalizado' => $numeroDocumentoNormalizado,
         ]);
 
-        // Directorio donde se guardan los convenios generados
-        $outputDir = base_path('resources/templates/convenios');
+        // Directorio donde se guardan los convenios generados (temporal en storage/app/temp/convenios)
+        $outputDir = storage_path('app/temp/convenios');
 
         if (!is_dir($outputDir)) {
             Log::warning('[CONVENIO API] Directorio de convenios no existe al intentar descargar', [
@@ -726,11 +727,12 @@ class ConvenioManualController extends Controller
             'tamaño_bytes' => filesize($filePath),
         ]);
 
+        // Descargar y eliminar archivo después de enviarlo (es temporal)
         return response()->download(
             $filePath,
             $fileName,
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
-        )->deleteFileAfterSend(false);
+        )->deleteFileAfterSend(true);
     }
 
     /**

@@ -10,7 +10,9 @@ use PhpOffice\PhpSpreadsheet\{IOFactory, Cell\Coordinate};
 class ConvenioGenerationService
 {
     private const TEMPLATE_PATH = 'resources/templates/Plantilla_convenios.docx';
-    private const OUTPUT_DIR = 'resources/templates/convenios';
+    // Usar directorio temporal en lugar de resources (no accesible en producción)
+    // El archivo se generará temporalmente y se descargará directamente
+    private const OUTPUT_DIR = 'temp/convenios';
     private const AFILIADOS_FILE_PATH = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
 
     public function __construct(
@@ -125,7 +127,10 @@ class ConvenioGenerationService
 
         // Generar nombre de archivo
         $nombreArchivo = $this->generarNombreArchivo($data);
-        $rutaSalida = base_path(self::OUTPUT_DIR . '/' . $nombreArchivo);
+        
+        // Usar storage/app/temp/convenios para archivos temporales (accesible en producción)
+        $outputDir = storage_path('app/' . self::OUTPUT_DIR);
+        $rutaSalida = $outputDir . '/' . $nombreArchivo;
 
         Log::debug('[CONVENIO GENERATION] Nombre de archivo generado', [
             'documento' => $documento,
@@ -134,7 +139,6 @@ class ConvenioGenerationService
         ]);
 
         // Crear directorio si no existe
-        $outputDir = base_path(self::OUTPUT_DIR);
         Log::debug('[CONVENIO GENERATION] Verificando directorio de salida', [
             'output_dir' => $outputDir,
             'existe' => is_dir($outputDir),

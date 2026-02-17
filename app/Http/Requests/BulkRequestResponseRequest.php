@@ -2,10 +2,11 @@
 
 namespace App\Http\Requests;
 
-use App\Constants\RequestTypes;
+use App\Constants\{RequestStatuses, RequestSubtypes, RequestTypes};
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class BulkRequestResponseRequest extends FormRequest
@@ -24,12 +25,38 @@ class BulkRequestResponseRequest extends FormRequest
     public function rules(): array
     {
         $validRequestTypes = array_merge(RequestTypes::all(), ['all']);
+        $validStatuses = [
+            RequestStatuses::PENDING,
+            RequestStatuses::IN_REVIEW,
+            RequestStatuses::COMPLETED,
+            RequestStatuses::REJECTED,
+            'all',
+        ];
 
         return [
             'request_type' => [
                 'sometimes',
                 'string',
                 Rule::in($validRequestTypes),
+            ],
+            'status' => [
+                'sometimes',
+                'string',
+                Rule::in($validStatuses),
+            ],
+            'subtype' => [
+                'sometimes',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value === 'all' || empty($value)) {
+                        return;
+                    }
+                    // Validar que el subtipo sea válido para algún tipo de solicitud
+                    $allSubtypes = RequestSubtypes::all();
+                    if (!in_array($value, $allSubtypes, true)) {
+                        $fail('El subtipo seleccionado no es válido.');
+                    }
+                },
             ],
             'date_range.include_all' => [
                 'sometimes',
@@ -72,6 +99,9 @@ class BulkRequestResponseRequest extends FormRequest
         return [
             'request_type.in' => 'El tipo de solicitud seleccionado no es válido.',
             'request_type.string' => 'El tipo de solicitud debe ser una cadena de texto.',
+            'status.in' => 'El estado seleccionado no es válido.',
+            'status.string' => 'El estado debe ser una cadena de texto.',
+            'subtype.string' => 'El subtipo debe ser una cadena de texto.',
             'date_range.start_date.required_if' => 'La fecha de inicio es requerida cuando no se incluyen todos los registros.',
             'date_range.end_date.required_if' => 'La fecha de fin es requerida cuando no se incluyen todos los registros.',
             'date_range.end_date.after_or_equal' => 'La fecha de fin debe ser posterior o igual a la fecha de inicio.',
@@ -125,6 +155,8 @@ class BulkRequestResponseRequest extends FormRequest
     {
         return [
             'request_type' => 'tipo de solicitud',
+            'status' => 'estado',
+            'subtype' => 'subtipo de solicitud',
             'date_range.include_all' => 'incluir todos los registros',
             'date_range.start_date' => 'fecha de inicio',
             'date_range.end_date' => 'fecha de fin',
