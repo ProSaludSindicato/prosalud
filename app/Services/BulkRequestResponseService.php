@@ -141,6 +141,13 @@ class BulkRequestResponseService
                         continue; // Saltar filas vacías intencionalmente
                     }
 
+                    // Si el estado está vacío, saltar la fila (no se puede procesar sin estado)
+                    // Incluso si hay asunto o cuerpo, sin estado no se puede procesar
+                    if (empty($newStatus)) {
+                        $skippedRows++;
+                        continue; // Saltar filas sin estado
+                    }
+
                     // Procesar respuesta individual
                     $this->processSingleResponse(
                         $requestId,
