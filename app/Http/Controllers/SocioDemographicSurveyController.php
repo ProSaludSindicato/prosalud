@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, StoreSocioDemographicSurveyRequest};
 use App\Models\SocioDemographicSurvey;
 use App\Services\{AuditLogService, SocioDemographicSurveyExcelExportService};
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\{JsonResponse, Request, Response};
 use Illuminate\Support\Facades\{DB, Log, Storage};
 use Illuminate\Support\Str;
@@ -858,6 +859,98 @@ class SocioDemographicSurveyController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al descargar el archivo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Download survey summary as PDF (includes signature image).
+     */
+    public function downloadPdf(SocioDemographicSurvey $survey): Response|JsonResponse
+    {
+        try {
+            // Load signature image if available
+            $signatureImageBase64 = null;
+            if ($survey->firma_path) {
+                try {
+                    // Try private disk first
+                    $disk = Storage::disk('prosalud-private');
+                    if ($disk->exists($survey->firma_path)) {
+                        $signatureContent = $disk->get($survey->firma_path);
+                        $signatureImageBase64 = base64_encode($signatureContent);
+                    } else {
+                        // Fallback to local disk
+                        $localDisk = Storage::disk('local');
+                        if ($localDisk->exists($survey->firma_path)) {
+                            $signatureContent = $localDisk->get($survey->firma_path);
+                            $signatureImageBase64 = base64_encode($signatureContent);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Error loading signature image for PDF', [
+                        'survey_id' => $survey->id,
+                        'path' => $survey->firma_path,
+                        'error' => $e->getMessage(),
+                    ]);
+                    // Continue without signature image
+                }
+            }
+
+            // Get logo path and convert to base64
+            $logoBase64 = null;
+            $logoPath = public_path('assets/logo.png');
+            if (file_exists($logoPath)) {
+                try {
+                    $logoContent = file_get_contents($logoPath);
+                    $logoBase64 = base64_encode($logoContent);
+                } catch (\Exception $e) {
+                    Log::warning('Error loading logo for PDF', [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // Generate PDF
+            $pdf = Pdf::loadView('surveys.socio-demographic-survey-pdf', [
+                'survey' => $survey,
+                'signatureImageBase64' => $signatureImageBase64,
+                'logoBase64' => $logoBase64,
+                'generatedAt' => now()->setTimezone('America/Bogota'),
+            ]);
+
+            // Set PDF options
+            $pdf->setPaper('a4', 'portrait');
+            $pdf->setOption('enable-local-file-access', true);
+            $pdf->setOption('isHtml5ParserEnabled', true);
+            $pdf->setOption('isRemoteEnabled', false);
+
+            // Generate filename
+            $documentoNormalizado = preg_replace('/[^0-9]/', '', $survey->numero_documento);
+            $fileName = "Encuesta_Sociodemografica_{$survey->id}_{$documentoNormalizado}.pdf";
+
+            Log::info('PDF de encuesta sociodemográfica generado', [
+                'survey_id' => $survey->id,
+                'file_name' => $fileName,
+                'has_signature' => !empty($signatureImageBase64),
+            ]);
+
+            // Register audit log
+            $this->auditLogService->logBusinessProcess('socio_demographic_survey', 'pdf_download', [
+                'survey_id' => $survey->id,
+                'file_name' => $fileName,
+            ]);
+
+            return $pdf->download($fileName);
+        } catch (\Exception $e) {
+            Log::error('Error generando PDF de encuesta sociodemográfica', [
+                'survey_id' => $survey->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el PDF: ' . $e->getMessage(),
             ], 500);
         }
     }
