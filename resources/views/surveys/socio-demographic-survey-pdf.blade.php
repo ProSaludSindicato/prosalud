@@ -142,6 +142,14 @@
             width: 25%;
         }
 
+        .field-2cols {
+            width: 50%;
+        }
+
+        .field-half {
+            width: 50%;
+        }
+
         .field-label {
             font-family: 'Helvetica', 'Arial', 'DejaVu Sans', sans-serif !important;
             font-size: 7px;
@@ -313,7 +321,7 @@
                     @if($survey->hospital)
                     <div class="field field-4cols">
                         <div class="field-label">Hospital</div>
-                        <div class="field-value">{{ $survey->hospital }}</div>
+                        <div class="field-value">{{ \App\Helpers\SurveyFormatter::getHospitalDisplayName($survey->hospital) }}</div>
                     </div>
                     @endif
                     @if($survey->profesion)
@@ -761,7 +769,6 @@
 
             @if($hasDetails)
             <div class="details-section">
-                <div class="details-title">Detalles Adicionales</div>
                 <div class="grid">
                     @foreach($detailChunks as $chunk)
                     <div class="grid-row">
@@ -784,42 +791,72 @@
         </div>
         @endif
 
-        <!-- Limitaciones Físicas -->
-        @if($survey->limitaciones_fisicas)
-        <div class="section">
-            <div class="section-title">Limitaciones Físicas</div>
-            <div class="grid">
-                <div class="grid-row">
-                    @if(isset($survey->limitaciones_fisicas['esfuerzosIntensos']))
-                    <div class="field field-4cols">
-                        <div class="field-label">Esfuerzos Intensos</div>
-                        <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['esfuerzosIntensos']) }}</div>
+        <!-- Limitaciones Físicas y Firma Digital -->
+        <div class="grid">
+            <div class="grid-row">
+                <!-- Limitaciones Físicas (2 columnas izquierda) -->
+                @if($survey->limitaciones_fisicas)
+                <div class="field field-half">
+                    <div class="section" style="margin-bottom: 0;">
+                        <div class="section-title">
+                            Limitaciones Físicas
+                            @if(strtolower($survey->recomendacion_restriccion_laboral ?? '') !== 'si')
+                            <span style="font-weight: normal; color: #64748b; font-size: 7px;">(No reporta recomendación o restricción laboral)</span>
+                            @endif
+                        </div>
+                        <div class="grid">
+                            <!-- Fila 1: Esfuerzos Intensos, Esfuerzos Moderados -->
+                            <div class="grid-row">
+                                @if(isset($survey->limitaciones_fisicas['esfuerzosIntensos']))
+                                <div class="field field-2cols">
+                                    <div class="field-label">Esfuerzos Intensos</div>
+                                    <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['esfuerzosIntensos']) }}</div>
+                                </div>
+                                @endif
+                                @if(isset($survey->limitaciones_fisicas['esfuerzosModerados']))
+                                <div class="field field-2cols">
+                                    <div class="field-label">Esfuerzos Moderados</div>
+                                    <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['esfuerzosModerados']) }}</div>
+                                </div>
+                                @endif
+                            </div>
+                            <!-- Fila 2: Subir Pisos, Agacharse/Arrodillarse -->
+                            <div class="grid-row">
+                                @if(isset($survey->limitaciones_fisicas['subirPisos']))
+                                <div class="field field-2cols">
+                                    <div class="field-label">Subir Pisos</div>
+                                    <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['subirPisos']) }}</div>
+                                </div>
+                                @endif
+                                @if(isset($survey->limitaciones_fisicas['agacharseArrodillarse']))
+                                <div class="field field-2cols">
+                                    <div class="field-label">Agacharse/Arrodillarse</div>
+                                    <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['agacharseArrodillarse']) }}</div>
+                                </div>
+                                @endif
+                            </div>
+                        </div>
                     </div>
-                    @endif
-                    @if(isset($survey->limitaciones_fisicas['esfuerzosModerados']))
-                    <div class="field field-4cols">
-                        <div class="field-label">Esfuerzos Moderados</div>
-                        <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['esfuerzosModerados']) }}</div>
-                    </div>
-                    @endif
-                    @if(isset($survey->limitaciones_fisicas['subirPisos']))
-                    <div class="field field-4cols">
-                        <div class="field-label">Subir Pisos</div>
-                        <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['subirPisos']) }}</div>
-                    </div>
-                    @endif
-                    @if(isset($survey->limitaciones_fisicas['agacharseArrodillarse']))
-                    <div class="field field-4cols">
-                        <div class="field-label">Agacharse/Arrodillarse</div>
-                        <div class="field-value">{{ \App\Helpers\SurveyFormatter::formatLimitacion($survey->limitaciones_fisicas['agacharseArrodillarse']) }}</div>
-                    </div>
-                    @endif
                 </div>
+                @endif
+                <!-- Firma Digital (2 columnas derecha) -->
+                @if(!empty($survey->firma_path))
+                <div class="field field-half">
+                    <div class="signature-container">
+                        <div class="field-label" style="margin-bottom: 4px;">Firma Digital</div>
+                        @if($signatureImageBase64)
+                        <img src="data:image/png;base64,{{ $signatureImageBase64 }}" alt="Firma digital" class="signature-image" />
+                        @else
+                        <div class="no-signature">No se pudo cargar la imagen de la firma</div>
+                        @endif
+                    </div>
+                </div>
+                @endif
             </div>
         </div>
-        @endif
 
         <!-- Recomendaciones Laborales -->
+        @if(strtolower($survey->recomendacion_restriccion_laboral ?? '') === 'si')
         <div class="section">
             <div class="section-title">Recomendaciones Laborales</div>
             <div class="grid">
@@ -827,12 +864,12 @@
                     <div class="field">
                         <div class="field-label">¿Tiene recomendación o restricción laboral?</div>
                         <div class="field-value">
-                            <span class="si-no {{ strtolower($survey->recomendacion_restriccion_laboral ?? '') === 'si' ? 'si' : (strtolower($survey->recomendacion_restriccion_laboral ?? '') === 'no' ? 'no' : 'no-especificado') }}">
+                            <span class="si-no si">
                                 {{ \App\Helpers\SurveyFormatter::formatSiNo($survey->recomendacion_restriccion_laboral) }}
                             </span>
                         </div>
                     </div>
-                    @if($survey->recomendacion_restriccion_laboral === 'si' && $survey->detalle_recomendacion_laboral)
+                    @if($survey->detalle_recomendacion_laboral)
                     <div class="field" style="width: 66.66%;">
                         <div class="field-label">Detalle Recomendación</div>
                         <div class="field-value" style="white-space: pre-wrap; font-size: 8px;">{{ $survey->detalle_recomendacion_laboral }}</div>
@@ -841,22 +878,8 @@
                 </div>
             </div>
         </div>
+        @endif
 
-        <!-- Información de Firma Digital -->
-        <div class="section">
-            <!-- <div class="section-title">Información de Firma Digital</div>  -->
-
-            @if(!empty($survey->firma_path) && $signatureImageBase64)
-            <div class="signature-container">
-                <div class="field-label" style="margin-bottom: 4px;">Firma Digital</div>
-                <img src="data:image/png;base64,{{ $signatureImageBase64 }}" alt="Firma digital" class="signature-image" />
-            </div>
-            @elseif(!empty($survey->firma_path))
-            <div class="signature-container">
-                <div class="no-signature">No se pudo cargar la imagen de la firma</div>
-            </div>
-            @endif
-        </div>
     </div>
 </body>
 </html>
