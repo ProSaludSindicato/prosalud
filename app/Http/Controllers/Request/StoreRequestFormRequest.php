@@ -235,7 +235,6 @@ class StoreRequestFormRequest extends FormRequest
                 RequestTypes::COMPENSACION_ANUAL,
                 RequestTypes::INCAPACIDADES_LICENCIAS,
                 RequestTypes::SOLICITUD_MICROCREDITO,
-                RequestTypes::SOLICITUD_RETIRO_SINDICAL,
                 'permisos-turnos', // Tipo mencionado en labels pero no definido como constante
             ];
 
@@ -257,7 +256,6 @@ class StoreRequestFormRequest extends FormRequest
                                     RequestTypes::COMPENSACION_ANUAL => 'Compensación anual diferida',
                                     RequestTypes::INCAPACIDADES_LICENCIAS => 'Incapacidades y licencias',
                                     RequestTypes::SOLICITUD_MICROCREDITO => 'Solicitud de microcrédito',
-                                    RequestTypes::SOLICITUD_RETIRO_SINDICAL => 'Solicitud de retiro sindical',
                                     'permisos-turnos' => 'Permisos y cambio de turnos',
                                     default => 'este trámite',
                                 };
