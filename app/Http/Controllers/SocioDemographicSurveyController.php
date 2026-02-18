@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, StoreSocioDemographicSurveyRequest};
+use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, ExportSocioDemographicSurveysPdfRequest, StoreSocioDemographicSurveyRequest};
 use App\Models\SocioDemographicSurvey;
 use App\Services\{AuditLogService, SocioDemographicSurveyExcelExportService};
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -951,6 +951,152 @@ class SocioDemographicSurveyController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al generar el PDF: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Download multiple surveys as a single PDF with filters.
+     */
+    public function downloadBulkPdf(ExportSocioDemographicSurveysPdfRequest $request): Response|JsonResponse
+    {
+        try {
+            $filters = $request->validated();
+            
+            // Build query with filters
+            $query = SocioDemographicSurvey::query();
+
+            // Filter by survey type
+            $surveyType = $filters['survey_type'] ?? 'all';
+            if ($surveyType !== 'all') {
+                if ($surveyType === 'active_affiliate') {
+                    $query->where(function ($q) {
+                        $q->where('survey_type', 'active_affiliate')
+                          ->orWhereNull('survey_type');
+                    });
+                } elseif ($surveyType === 'new_entry') {
+                    $query->where('survey_type', 'new_entry');
+                }
+            }
+
+            // Filter by date range
+            $dateRange = $filters['date_range'] ?? [];
+            if (!($dateRange['include_all'] ?? true)) {
+                if (isset($dateRange['start_date'])) {
+                    $startDate = \Carbon\Carbon::parse($dateRange['start_date'])->startOfDay();
+                    $query->where('created_at', '>=', $startDate);
+                }
+
+                if (isset($dateRange['end_date'])) {
+                    $endDate = \Carbon\Carbon::parse($dateRange['end_date'])->endOfDay();
+                    $query->where('created_at', '<=', $endDate);
+                }
+            }
+
+            // Filter by hospital
+            if (isset($filters['hospital']) && !empty($filters['hospital'])) {
+                $query->where('hospital', $filters['hospital']);
+            }
+
+            // Filter by profesion (process)
+            if (isset($filters['profesion']) && !empty($filters['profesion'])) {
+                $query->where('profesion', $filters['profesion']);
+            }
+
+            // Get surveys
+            $surveys = $query->orderBy('created_at', 'desc')->get();
+
+            if ($surveys->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se encontraron encuestas con los filtros especificados.',
+                ], 404);
+            }
+
+            // Load signature images for all surveys
+            $surveysWithSignatures = $surveys->map(function ($survey) {
+                $signatureImageBase64 = null;
+                if ($survey->firma_path) {
+                    try {
+                        $disk = Storage::disk('prosalud-private');
+                        if ($disk->exists($survey->firma_path)) {
+                            $signatureContent = $disk->get($survey->firma_path);
+                            $signatureImageBase64 = base64_encode($signatureContent);
+                        } else {
+                            $localDisk = Storage::disk('local');
+                            if ($localDisk->exists($survey->firma_path)) {
+                                $signatureContent = $localDisk->get($survey->firma_path);
+                                $signatureImageBase64 = base64_encode($signatureContent);
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        Log::warning('Error loading signature image for PDF', [
+                            'survey_id' => $survey->id,
+                            'path' => $survey->firma_path,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+                return [
+                    'survey' => $survey,
+                    'signatureImageBase64' => $signatureImageBase64,
+                ];
+            });
+
+            // Get logo path and convert to base64
+            $logoBase64 = null;
+            $logoPath = public_path('assets/logo.png');
+            if (file_exists($logoPath)) {
+                try {
+                    $logoContent = file_get_contents($logoPath);
+                    $logoBase64 = base64_encode($logoContent);
+                } catch (\Exception $e) {
+                    Log::warning('Error loading logo for PDF', [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // Generate PDF
+            $pdf = Pdf::loadView('surveys.socio-demographic-survey-bulk-pdf', [
+                'surveysWithSignatures' => $surveysWithSignatures,
+                'logoBase64' => $logoBase64,
+                'generatedAt' => now()->setTimezone('America/Bogota'),
+                'filters' => $filters,
+            ]);
+
+            // Set PDF options
+            $pdf->setPaper('a4', 'portrait');
+            $pdf->setOption('enable-local-file-access', true);
+            $pdf->setOption('isHtml5ParserEnabled', true);
+            $pdf->setOption('isRemoteEnabled', false);
+
+            // Generate filename
+            $fileName = 'Encuestas_Sociodemograficas_' . now()->format('Y-m-d_His') . '.pdf';
+
+            Log::info('PDF masivo de encuestas sociodemográficas generado', [
+                'count' => $surveys->count(),
+                'file_name' => $fileName,
+                'filters' => $filters,
+            ]);
+
+            // Register audit log
+            $this->auditLogService->logBusinessProcess('socio_demographic_survey', 'bulk_pdf_download', [
+                'count' => $surveys->count(),
+                'file_name' => $fileName,
+                'filters' => $filters,
+            ]);
+
+            return $pdf->download($fileName);
+        } catch (\Exception $e) {
+            Log::error('Error generando PDF masivo de encuestas sociodemográficas', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el PDF masivo: ' . $e->getMessage(),
             ], 500);
         }
     }

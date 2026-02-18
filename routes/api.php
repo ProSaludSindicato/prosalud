@@ -370,6 +370,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/socio-demographic-surveys/{survey}', [SocioDemographicSurveyController::class, 'show'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}/signature', [SocioDemographicSurveyController::class, 'downloadSignature'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}/pdf', [SocioDemographicSurveyController::class, 'downloadPdf'])->middleware('permission:socio_demographic_surveys.view');
+    Route::post('/socio-demographic-surveys/export/pdf', [SocioDemographicSurveyController::class, 'downloadBulkPdf'])->middleware('permission:socio_demographic_surveys.view');
     Route::post('/socio-demographic-surveys/export/excel', [SocioDemographicSurveyController::class, 'exportExcel'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/export/status/{jobId}', [SocioDemographicSurveyController::class, 'checkStatus'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/export/download/{jobId}', [SocioDemographicSurveyController::class, 'downloadReport'])->middleware('permission:socio_demographic_surveys.view');

@@ -1,9 +1,5 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Encuesta Sociodemográfica - {{ $survey->id }}</title>
-    <style>
+{{-- Partial view for survey content --}}
+<style>
         * {
             margin: 0;
             padding: 0;
@@ -300,9 +296,6 @@
             margin: 2cm 1.5cm;
         }
     </style>
-</head>
-<body>
-    <div class="container">
         <!-- Header -->
         <div class="header">
             @if($logoBase64)
@@ -972,6 +965,4 @@
         @endif
 
     </div>
-</body>
-</html>
 
