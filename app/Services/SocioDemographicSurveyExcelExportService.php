@@ -139,6 +139,11 @@ class SocioDemographicSurveyExcelExportService
             $query->where('hospital', $filters['hospital']);
         }
 
+        // Filtro por proceso/profesión (opcional)
+        if (isset($filters['profesion']) && !empty($filters['profesion'])) {
+            $query->where('profesion', $filters['profesion']);
+        }
+
         return $query->orderBy('created_at', 'desc')->get();
     }
 
@@ -176,6 +181,16 @@ class SocioDemographicSurveyExcelExportService
         $surveyType = $filters['survey_type'] ?? 'all';
         $typeLabel = $surveyType === 'all' ? 'Todos' : ($surveyType === 'active_affiliate' ? 'Afiliados Activos' : 'Nuevo Ingreso');
         $sheet->setCellValue('A' . $row, "Tipo de encuesta: {$typeLabel}");
+        $row++;
+
+        if (isset($filters['hospital']) && $filters['hospital'] !== null && $filters['hospital'] !== '') {
+            $sheet->setCellValue('A' . $row, 'Hospital: ' . $filters['hospital']);
+            $row++;
+        }
+        if (isset($filters['profesion']) && $filters['profesion'] !== null && $filters['profesion'] !== '') {
+            $sheet->setCellValue('A' . $row, 'Proceso: ' . $filters['profesion']);
+            $row++;
+        }
         $row += 2;
 
         // ===== MÉTRICAS GENERALES =====

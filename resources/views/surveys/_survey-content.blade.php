@@ -138,6 +138,10 @@
             width: 25%;
         }
 
+        .section-condiciones-salud .field-5cols {
+            width: 20%;
+        }
+
         .field-2cols {
             width: 50%;
         }
@@ -693,121 +697,100 @@
         @endif
 
 
-        <!-- Condiciones de Salud -->
+        <!-- Condiciones de Salud (5 columnas; detalles integrados en la misma grilla) -->
         @if($survey->condiciones_salud)
-        <div class="section">
+        @php
+            $condiciones = $survey->condiciones_salud;
+            $condicionesKeys = array_keys($condiciones);
+            $condicionesToShow = array_filter($condicionesKeys, function($key) {
+                return !str_starts_with($key, 'tipo') && !str_starts_with($key, 'tiempo');
+            });
+            usort($condicionesToShow, function($a, $b) {
+                return strcmp(
+                    \App\Helpers\SurveyFormatter::getCondicionSaludLabel($a),
+                    \App\Helpers\SurveyFormatter::getCondicionSaludLabel($b)
+                );
+            });
+            $condicionesItems = [];
+            foreach ($condicionesToShow as $key) {
+                $condicionesItems[] = [
+                    'type' => 'condition',
+                    'label' => \App\Helpers\SurveyFormatter::getCondicionSaludLabel($key),
+                    'value' => $condiciones[$key] ?? null,
+                ];
+            }
+            if (($condiciones['problemasPulmonares'] ?? '') === 'si' && isset($condiciones['tipoProblemaPulmonar'])) {
+                $condicionesItems[] = ['type' => 'detail', 'label' => 'Tipo Problema Pulmonar', 'value' => $condiciones['tipoProblemaPulmonar'], 'extra' => null];
+            }
+            if (($condiciones['alergias'] ?? '') === 'si' && isset($condiciones['tipoAlergia'])) {
+                $condicionesItems[] = ['type' => 'detail', 'label' => 'Tipo Alergia', 'value' => $condiciones['tipoAlergia'], 'extra' => null];
+            }
+            if (($condiciones['problemasVisuales'] ?? '') === 'si' && isset($condiciones['tipoProblemaVisual'])) {
+                $condicionesItems[] = ['type' => 'detail', 'label' => 'Tipo Problema Visual', 'value' => $condiciones['tipoProblemaVisual'], 'extra' => null];
+            }
+            if (($condiciones['doloresArticulares'] ?? '') === 'si' && isset($condiciones['tipoDolorArticular'])) {
+                $condicionesItems[] = ['type' => 'detail', 'label' => 'Tipo Dolor Articular', 'value' => $condiciones['tipoDolorArticular'], 'extra' => null];
+            }
+            if (($condiciones['trasplante'] ?? '') === 'si' && isset($condiciones['tipoTrasplante'])) {
+                $condicionesItems[] = ['type' => 'detail', 'label' => 'Tipo Trasplante', 'value' => $condiciones['tipoTrasplante'], 'extra' => null];
+            }
+            if (($condiciones['medicamentoPermanente'] ?? '') === 'si' && isset($condiciones['tipoMedicamento'])) {
+                $condicionesItems[] = ['type' => 'detail', 'label' => 'Medicamento Permanente', 'value' => $condiciones['tipoMedicamento'], 'extra' => null];
+            }
+            if (($condiciones['otraEnfermedad'] ?? '') === 'si' && isset($condiciones['tipoOtraEnfermedad'])) {
+                $condicionesItems[] = ['type' => 'detail', 'label' => 'Otra Enfermedad', 'value' => $condiciones['tipoOtraEnfermedad'], 'extra' => null];
+            }
+            if (($condiciones['cirugias'] ?? '') === 'si') {
+                $condicionesItems[] = [
+                    'type' => 'detail',
+                    'label' => 'Cirugías',
+                    'value' => $condiciones['tipoCirugia'] ?? 'N/A',
+                    'extra' => isset($condiciones['tiempoCirugia']) ? 'Tiempo: ' . $condiciones['tiempoCirugia'] : null
+                ];
+            }
+            if (($condiciones['accidenteLaboral'] ?? '') === 'si') {
+                $condicionesItems[] = [
+                    'type' => 'detail',
+                    'label' => 'Accidente Laboral',
+                    'value' => $condiciones['tipoAccidenteLaboral'] ?? 'N/A',
+                    'extra' => isset($condiciones['tiempoAccidenteLaboral']) ? 'Tiempo: ' . $condiciones['tiempoAccidenteLaboral'] : null
+                ];
+            }
+            if (($condiciones['accidenteTransitoCasero'] ?? '') === 'si') {
+                $condicionesItems[] = [
+                    'type' => 'detail',
+                    'label' => 'Accidente Tránsito/Casero',
+                    'value' => $condiciones['tipoAccidenteTransito'] ?? 'N/A',
+                    'extra' => isset($condiciones['tiempoAccidenteTransito']) ? 'Tiempo: ' . $condiciones['tiempoAccidenteTransito'] : null
+                ];
+            }
+            $condicionesChunks = array_chunk($condicionesItems, 5);
+        @endphp
+        <div class="section section-condiciones-salud">
             <div class="section-title">Condiciones de Salud</div>
             <div class="grid">
-                @php
-                    $condiciones = $survey->condiciones_salud;
-                    $condicionesKeys = array_keys($condiciones);
-                    $condicionesToShow = array_filter($condicionesKeys, function($key) {
-                        return !str_starts_with($key, 'tipo') && !str_starts_with($key, 'tiempo');
-                    });
-                    usort($condicionesToShow, function($a, $b) {
-                        return strcmp(
-                            \App\Helpers\SurveyFormatter::getCondicionSaludLabel($a),
-                            \App\Helpers\SurveyFormatter::getCondicionSaludLabel($b)
-                        );
-                    });
-                    $chunks = array_chunk($condicionesToShow, 4);
-                @endphp
-                @foreach($chunks as $chunk)
+                @foreach($condicionesChunks as $chunk)
                 <div class="grid-row">
-                    @foreach($chunk as $key)
-                    <div class="field field-4cols">
-                        <div class="field-label">{{ \App\Helpers\SurveyFormatter::getCondicionSaludLabel($key) }}</div>
+                    @foreach($chunk as $item)
+                    <div class="field field-5cols">
+                        <div class="field-label">{{ $item['label'] }}</div>
                         <div class="field-value">
-                            <span class="si-no {{ strtolower($condiciones[$key] ?? '') === 'si' ? 'si' : (strtolower($condiciones[$key] ?? '') === 'no' ? 'no' : 'no-especificado') }}">
-                                {{ \App\Helpers\SurveyFormatter::formatSiNo($condiciones[$key] ?? null) }}
+                            @if($item['type'] === 'condition')
+                            <span class="si-no {{ strtolower($item['value'] ?? '') === 'si' ? 'si' : (strtolower($item['value'] ?? '') === 'no' ? 'no' : 'no-especificado') }}">
+                                {{ \App\Helpers\SurveyFormatter::formatSiNo($item['value'] ?? null) }}
                             </span>
+                            @else
+                            {{ $item['value'] }}
+                            @if(!empty($item['extra']))
+                            <div style="font-size: 7px; color: #64748b; margin-top: 2px;">{{ $item['extra'] }}</div>
+                            @endif
+                            @endif
                         </div>
                     </div>
                     @endforeach
                 </div>
                 @endforeach
             </div>
-
-            @php
-                $hasDetails = false;
-                $details = [];
-                
-                if (($condiciones['problemasPulmonares'] ?? '') === 'si' && isset($condiciones['tipoProblemaPulmonar'])) {
-                    $hasDetails = true;
-                    $details[] = ['label' => 'Tipo Problema Pulmonar', 'value' => $condiciones['tipoProblemaPulmonar']];
-                }
-                if (($condiciones['alergias'] ?? '') === 'si' && isset($condiciones['tipoAlergia'])) {
-                    $hasDetails = true;
-                    $details[] = ['label' => 'Tipo Alergia', 'value' => $condiciones['tipoAlergia']];
-                }
-                if (($condiciones['problemasVisuales'] ?? '') === 'si' && isset($condiciones['tipoProblemaVisual'])) {
-                    $hasDetails = true;
-                    $details[] = ['label' => 'Tipo Problema Visual', 'value' => $condiciones['tipoProblemaVisual']];
-                }
-                if (($condiciones['doloresArticulares'] ?? '') === 'si' && isset($condiciones['tipoDolorArticular'])) {
-                    $hasDetails = true;
-                    $details[] = ['label' => 'Tipo Dolor Articular', 'value' => $condiciones['tipoDolorArticular']];
-                }
-                if (($condiciones['trasplante'] ?? '') === 'si' && isset($condiciones['tipoTrasplante'])) {
-                    $hasDetails = true;
-                    $details[] = ['label' => 'Tipo Trasplante', 'value' => $condiciones['tipoTrasplante']];
-                }
-                if (($condiciones['medicamentoPermanente'] ?? '') === 'si' && isset($condiciones['tipoMedicamento'])) {
-                    $hasDetails = true;
-                    $details[] = ['label' => 'Medicamento Permanente', 'value' => $condiciones['tipoMedicamento']];
-                }
-                if (($condiciones['otraEnfermedad'] ?? '') === 'si' && isset($condiciones['tipoOtraEnfermedad'])) {
-                    $hasDetails = true;
-                    $details[] = ['label' => 'Otra Enfermedad', 'value' => $condiciones['tipoOtraEnfermedad']];
-                }
-                if (($condiciones['cirugias'] ?? '') === 'si') {
-                    $hasDetails = true;
-                    $details[] = [
-                        'label' => 'Cirugías',
-                        'value' => $condiciones['tipoCirugia'] ?? 'N/A',
-                        'extra' => isset($condiciones['tiempoCirugia']) ? 'Tiempo: ' . $condiciones['tiempoCirugia'] : null
-                    ];
-                }
-                if (($condiciones['accidenteLaboral'] ?? '') === 'si') {
-                    $hasDetails = true;
-                    $details[] = [
-                        'label' => 'Accidente Laboral',
-                        'value' => $condiciones['tipoAccidenteLaboral'] ?? 'N/A',
-                        'extra' => isset($condiciones['tiempoAccidenteLaboral']) ? 'Tiempo: ' . $condiciones['tiempoAccidenteLaboral'] : null
-                    ];
-                }
-                if (($condiciones['accidenteTransitoCasero'] ?? '') === 'si') {
-                    $hasDetails = true;
-                    $details[] = [
-                        'label' => 'Accidente Tránsito/Casero',
-                        'value' => $condiciones['tipoAccidenteTransito'] ?? 'N/A',
-                        'extra' => isset($condiciones['tiempoAccidenteTransito']) ? 'Tiempo: ' . $condiciones['tiempoAccidenteTransito'] : null
-                    ];
-                }
-                $detailChunks = array_chunk($details, 4);
-            @endphp
-
-            @if($hasDetails)
-            <div class="details-section">
-                <div class="grid">
-                    @foreach($detailChunks as $chunk)
-                    <div class="grid-row">
-                        @foreach($chunk as $detail)
-                        <div class="field field-4cols">
-                            <div class="field-label">{{ $detail['label'] }}</div>
-                            <div class="field-value">
-                                {{ $detail['value'] }}
-                                @if(isset($detail['extra']))
-                                <div style="font-size: 7px; color: #64748b; margin-top: 2px;">{{ $detail['extra'] }}</div>
-                                @endif
-                            </div>
-                        </div>
-                        @endforeach
-                    </div>
-                    @endforeach
-                </div>
-            </div>
-            @endif
         </div>
         @endif
 

@@ -49,6 +49,12 @@ class ExportSocioDemographicSurveysExcelRequest extends FormRequest
                 'string',
                 'max:255',
             ],
+            'profesion' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
             'include_signatures' => [
                 'sometimes',
                 'boolean',
@@ -80,6 +86,7 @@ class ExportSocioDemographicSurveysExcelRequest extends FormRequest
             'date_range.start_date' => 'fecha de inicio',
             'date_range.end_date' => 'fecha de fin',
             'hospital' => 'hospital',
+            'profesion' => 'proceso',
         ];
     }
 }
