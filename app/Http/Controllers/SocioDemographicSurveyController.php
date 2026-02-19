@@ -1081,7 +1081,7 @@ class SocioDemographicSurveyController extends Controller
             ], 404);
         }
 
-        $disk = Storage::disk('local');
+        $disk = Storage::disk(config('filesystems.survey_reports_disk', 'local'));
 
         if (!$disk->exists($filePath)) {
             return response()->json([

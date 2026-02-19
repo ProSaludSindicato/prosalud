@@ -178,8 +178,9 @@ class GenerateBulkSurveyPdfJob implements ShouldQueue
             $pdf->setOption('isHtml5ParserEnabled', true);
             $pdf->setOption('isRemoteEnabled', false);
 
-            // Generate filename
-            $fileName = 'Encuestas_Sociodemograficas_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.pdf';
+            // Fecha de generación para nombre y carpetas (año/mes en S3)
+            $generatedAt = now()->setTimezone('America/Bogota');
+            $fileName = 'Encuestas_Sociodemograficas_' . $generatedAt->format('Y-m-d_His') . '.pdf';
 
             // Save PDF to temporary file
             $tempPath = storage_path('app/temp/' . $this->jobId . '_' . $fileName);
@@ -204,9 +205,11 @@ class GenerateBulkSurveyPdfJob implements ShouldQueue
                 throw new \RuntimeException('El archivo generado no es un PDF válido (cabecera incorrecta).');
             }
 
-            // Store file in storage for later download
-            $storagePath = 'reports/surveys-pdf/' . $this->jobId . '/' . $fileName;
-            $disk = Storage::disk('local');
+            // Store file in shared storage; en S3 se organiza por año/mes
+            $year = $generatedAt->format('Y');
+            $month = $generatedAt->format('m');
+            $storagePath = 'reports/surveys-pdf/' . $year . '/' . $month . '/' . $fileName;
+            $disk = Storage::disk(config('filesystems.survey_reports_disk', 'local'));
             $disk->put($storagePath, file_get_contents($tempPath));
 
             // Clean up temporary file
