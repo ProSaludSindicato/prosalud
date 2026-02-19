@@ -16,14 +16,10 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Survey reports PDF disk (shared between web and queue workers)
+    | Survey reports PDF disk (S3 privado, compartido entre web y workers)
     |--------------------------------------------------------------------------
-    |
-    | In production the PDF is stored in private S3 so worker and API can both
-    | access it. In other environments (local, staging, dev) local disk is used.
-    |
     */
-    'survey_reports_disk' => env('APP_ENV') === 'production' ? 's3' : 'local',
+    'survey_reports_disk' => 's3',
 
     /*
     |--------------------------------------------------------------------------
