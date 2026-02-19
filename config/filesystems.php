@@ -19,7 +19,7 @@ return [
     | Survey reports PDF disk (S3 privado, compartido entre web y workers)
     |--------------------------------------------------------------------------
     */
-    'survey_reports_disk' => 's3',
+    'survey_reports_disk' => 'prosalud-private',
 
     /*
     |--------------------------------------------------------------------------
