@@ -305,7 +305,7 @@
             @if($logoBase64)
             <img src="data:image/png;base64,{{ $logoBase64 }}" alt="ProSalud" class="header-logo" />
             @endif
-            <h1>Encuesta Sociodemográfica</h1>
+            <h1>Encuesta Sociodemográfica y Diagnóstico de Condiciones de Salud</h1>
             <div class="header-info">
                 <div class="header-info-row">
                     <div class="header-info-item"><strong>ID:</strong> <span style="font-family: monospace;">{{ $survey->id }}</span></div>

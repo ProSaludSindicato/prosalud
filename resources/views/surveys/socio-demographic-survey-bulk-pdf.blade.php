@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Encuestas Sociodemográficas - Reporte Masivo</title>
+    <title>Encuestas Sociodemográficas y Diagnóstico de Condiciones de Salud - Reporte Masivo</title>
     <style>
         * {
             margin: 0;
