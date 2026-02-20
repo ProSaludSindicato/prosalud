@@ -528,12 +528,13 @@ class RequestExcelExportService
             'Proceso',
             'Razón de Rechazo',
             'Responsable de Respuesta Final',
+            'Respuesta al afiliado',
         ];
 
         $sheet->fromArray([$headers], null, 'A1');
 
         // Estilizar encabezados
-        $headerRange = 'A1:R1';
+        $headerRange = 'A1:S1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -568,7 +569,8 @@ class RequestExcelExportService
             'O' => 40, // Hospital
             'P' => 30, // Proceso
             'Q' => 50, // Razón de Rechazo
-            'R' => 40, // Responsable de Respuesta Final
+            'R' => 55, // Responsable de Respuesta Final
+            'S' => 75, // Respuesta al afiliado
         ];
 
         foreach ($columnWidths as $col => $width) {
@@ -595,7 +597,14 @@ class RequestExcelExportService
 
             // Transformar razón de rechazo técnica a etiqueta amigable
             $rejectionReason = $this->getRejectionReasonLabel($request->rejection_reason);
-            
+
+            // Obtener cuerpo del correo de la última respuesta (la más reciente) para trazabilidad
+            $respuestaAlAfiliado = '';
+            $latestResponse = $request->responses->first();
+            if ($latestResponse && !empty($latestResponse->email_body)) {
+                $respuestaAlAfiliado = trim(strip_tags($latestResponse->email_body));
+            }
+
             // Formatear subtipo a etiqueta amigable
             $formattedSubtype = $this->getSubtypeLabel($request->request_subtype);
             
@@ -629,6 +638,7 @@ class RequestExcelExportService
                 $proceso,
                 $rejectionReason,
                 $responsiblePerson,
+                $respuestaAlAfiliado,
             ];
 
             $sheet->fromArray([$rowData], null, "A{$row}");
@@ -647,7 +657,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:R" . ($row - 1);
+            $dataRange = "A1:S" . ($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -658,7 +668,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:R" . ($row - 1));
+            $sheet->setAutoFilter("A1:S" . ($row - 1));
         }
 
         // Congelar primera fila
