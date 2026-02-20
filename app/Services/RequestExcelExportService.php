@@ -61,6 +61,7 @@ class RequestExcelExportService
         'no_aplica_otros_certificado' => 'No aplica la opción de "Otros" para el certificado de convenio',
         'no_cumple_causales_retiro' => 'No cumple con las causales para el retiro (Vivienda / Educación)',
         'no_vb_coordinadora' => 'No cuenta con el V°B de la coordinadora',
+        'retiro_sindical' => 'Retiro sindical',
         'sin_capacidad_endeudamiento' => 'No tiene capacidad de endeudamiento',
         'sin_evidencias' => 'No anexa evidencias de la solicitud',
         'sin_tiempo_provisionado' => 'No cuenta con el tiempo provisionado',
