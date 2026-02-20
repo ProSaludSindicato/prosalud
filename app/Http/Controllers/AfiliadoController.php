@@ -62,15 +62,22 @@ class AfiliadoController extends Controller
                 ], 503);
             }
 
-            // Authenticate and get affiliate
-            $afiliado = $this->afiliadoService->authenticateAndGetAfiliado(
+            // Authenticate and get affiliate with detailed failure reason for the frontend
+            $authResult = $this->afiliadoService->authenticateAndGetAfiliadoDetailed(
                 $tipoDocumento,
                 $documento,
                 $fechaExpedicion
             );
 
-            if (null === $afiliado) {
-                Log::warning('Autenticación fallida - afiliado no encontrado', LogSanitizationService::sanitize([
+            $status = $authResult['status'];
+            $afiliado = $authResult['afiliado'] ?? null;
+
+            if ($status !== 'success') {
+                $reason = $status === 'affiliate_data_mismatch'
+                    ? 'affiliate_data_mismatch'
+                    : 'affiliate_not_found';
+                Log::warning('Autenticación fallida', LogSanitizationService::sanitize([
+                    'auth_failure_reason' => $reason,
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
                     'fecha_expedicion' => $fechaExpedicion,
@@ -78,9 +85,14 @@ class AfiliadoController extends Controller
                     'timestamp' => now()->toISOString(),
                 ]));
 
+                $message = $reason === 'affiliate_data_mismatch'
+                    ? 'El número de documento existe pero el tipo de documento o la fecha de expedición no coinciden. Verifica los datos.'
+                    : 'No existe un afiliado con ese número de documento.';
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Credenciales incorrectas o afiliado no encontrado',
+                    'message' => $message,
+                    'auth_failure_reason' => $reason,
                     'afiliado' => null,
                 ], 401);
             }
@@ -421,15 +433,19 @@ class AfiliadoController extends Controller
                 ], 503);
             }
 
-            // Get complete affiliate information
-            $afiliadoInfo = $this->afiliadoService->getCompleteAfiliadoInfo(
+            // Authenticate with detailed failure reason (affiliate_not_found vs affiliate_data_mismatch)
+            $authResult = $this->afiliadoService->authenticateAndGetAfiliadoDetailed(
                 $tipoDocumento,
                 $documento,
                 $fechaExpedicion
             );
 
-            if (null === $afiliadoInfo) {
-                Log::warning('Autenticación fallida para actualización de datos - afiliado no encontrado', LogSanitizationService::sanitize([
+            if ($authResult['status'] !== 'success') {
+                $reason = $authResult['status'] === 'affiliate_data_mismatch'
+                    ? 'affiliate_data_mismatch'
+                    : 'affiliate_not_found';
+                Log::warning('Autenticación fallida para actualización de datos', LogSanitizationService::sanitize([
+                    'auth_failure_reason' => $reason,
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
                     'fecha_expedicion' => $fechaExpedicion,
@@ -437,10 +453,30 @@ class AfiliadoController extends Controller
                     'timestamp' => now()->toISOString(),
                 ]));
 
+                $message = $reason === 'affiliate_data_mismatch'
+                    ? 'El número de documento existe pero el tipo de documento o la fecha de expedición no coinciden. Verifica los datos.'
+                    : 'No existe un afiliado con ese número de documento.';
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'Credenciales incorrectas o afiliado no encontrado',
+                    'message' => $message,
+                    'auth_failure_reason' => $reason,
                 ], 401);
+            }
+
+            // Get complete affiliate information (convenios, beneficiarios, etc.) for data update
+            $afiliadoInfo = $this->afiliadoService->getCompleteAfiliadoInfo(
+                $tipoDocumento,
+                $documento,
+                $fechaExpedicion
+            );
+
+            if (null === $afiliadoInfo) {
+                Log::error('Afiliado autenticado pero getCompleteAfiliadoInfo retornó null');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al obtener información del afiliado',
+                ], 500);
             }
 
             // Obfuscate sensitive data in afiliado information, except email, phone and address (for data update)

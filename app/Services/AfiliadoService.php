@@ -299,6 +299,107 @@ class AfiliadoService
     }
 
     /**
+     * Authenticate and get affiliate with detailed failure reason for the frontend.
+     * Returns array with:
+     * - 'status': 'success' | 'affiliate_not_found' | 'affiliate_data_mismatch'
+     * - 'afiliado': array|null (only when status is 'success')
+     * So the frontend can tell when the document number does not exist vs when it exists but tipo/fecha are wrong.
+     */
+    public function authenticateAndGetAfiliadoDetailed(
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion,
+    ): array {
+        $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
+        $normalizedDocumento = $this->normalizeValue($documento);
+        $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
+        $cacheKey = sprintf(
+            'afiliado:auth:%s:%s:%s',
+            md5($normalizedTipoDocumento ?? ''),
+            md5($normalizedDocumento ?? ''),
+            md5($normalizedFechaExpedicion ?? '')
+        );
+
+        $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
+        if ($cachedData !== null) {
+            return ['status' => 'success', 'afiliado' => $cachedData];
+        }
+
+        $result = $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion, $cacheKey) {
+            $originalMemoryLimit = ini_get('memory_limit');
+            $originalMaxExecutionTime = ini_get('max_execution_time');
+            try {
+                ini_set('memory_limit', '512M');
+                set_time_limit(60);
+                $reader = IOFactory::createReader('Xlsx');
+                if (method_exists($reader, 'setReadDataOnly')) {
+                    $reader->setReadDataOnly(true);
+                }
+                if (method_exists($reader, 'setLoadSheetsOnly')) {
+                    $reader->setLoadSheetsOnly([
+                        self::SHEET_INFORMACION_GENERAL,
+                        self::SHEET_CONVENIOS,
+                    ]);
+                }
+                $spreadsheet = $reader->load($excelPath);
+                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+                if (!$informacionSheet) {
+                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+                    return ['status' => 'affiliate_not_found', 'afiliado' => null];
+                }
+
+                $matchResult = $this->findAfiliadoRowWithReason(
+                    $informacionSheet,
+                    $tipoDocumento,
+                    $documento,
+                    $fechaExpedicion
+                );
+
+                if ($matchResult['result'] === 'not_found') {
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+                    return ['status' => 'affiliate_not_found', 'afiliado' => null];
+                }
+                if ($matchResult['result'] === 'data_mismatch') {
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+                    return ['status' => 'affiliate_data_mismatch', 'afiliado' => null];
+                }
+
+                $afiliadoRowResult = ['data' => $matchResult['data'], 'mapping' => $matchResult['mapping']];
+                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
+                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                $conveniosFull = $conveniosSheet
+                    ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
+                    : [];
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
+                $afiliadoData = $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+                Cache::tags(['afiliados'])->put($cacheKey, $afiliadoData, now()->addHours(24));
+                return ['status' => 'success', 'afiliado' => $afiliadoData];
+            } catch (\Throwable $e) {
+                Log::error('Error en authenticateAndGetAfiliadoDetailed', [
+                    'error' => $e->getMessage(),
+                    'documento' => $documento,
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                return ['status' => 'affiliate_not_found', 'afiliado' => null];
+            } finally {
+                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                    ini_set('memory_limit', (string) $originalMemoryLimit);
+                }
+                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                    set_time_limit((int) $originalMaxExecutionTime);
+                }
+            }
+        }, null);
+
+        return $result ?? ['status' => 'affiliate_not_found', 'afiliado' => null];
+    }
+
+    /**
      * Authenticate and get affiliate information (reads entire file - kept for future use)
      * This method loads the entire Excel file into memory.
      * Use authenticateAndGetAfiliado() for better performance with large files.
@@ -1326,6 +1427,89 @@ class AfiliadoService
         }
 
         return null;
+    }
+
+    /**
+     * Find affiliate row and determine match reason in a single pass.
+     * Returns:
+     * - ['result' => 'match', 'data' => rowData, 'mapping' => columnMapping]
+     * - ['result' => 'data_mismatch'] when document number exists but tipo or fecha_expedicion do not match
+     * - ['result' => 'not_found'] when no row has that document number
+     */
+    private function findAfiliadoRowWithReason(
+        $sheet,
+        string $tipoDocumento,
+        string $documento,
+        ?string $fechaExpedicion,
+    ): array {
+        $columnMapping = $this->buildColumnMapping($sheet);
+        $requiredColumns = ['tipo_documento', 'documento', 'fecha_expedicion'];
+        foreach ($requiredColumns as $col) {
+            if (!isset($columnMapping[$col])) {
+                Log::error("Columna requerida no encontrada: {$col}", [
+                    'available_columns' => array_keys($columnMapping),
+                    'documento' => $documento,
+                ]);
+                return ['result' => 'not_found'];
+            }
+        }
+
+        $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
+        $normalizedDocumento = $this->normalizeValue($documento);
+        $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
+        $highestRow = $sheet->getHighestRow();
+        $foundDocumentMismatch = false;
+
+        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+            $colIndex = $columnMapping['tipo_documento'];
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+            $rowTipoDocumento = $this->normalizeValue($this->getCellValue($sheet->getCell($colLetter . $rowIndex)));
+
+            $colIndex = $columnMapping['documento'];
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+            $rowDocumento = $this->normalizeValue($this->getCellValue($sheet->getCell($colLetter . $rowIndex)));
+
+            $colIndex = $columnMapping['fecha_expedicion'];
+            $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+            $rowFechaExpedicion = $this->normalizeDate($this->getCellValue($sheet->getCell($colLetter . $rowIndex)));
+
+            if (empty($rowTipoDocumento) && empty($rowDocumento) && empty($rowFechaExpedicion)) {
+                continue;
+            }
+            if ($rowTipoDocumento && (
+                false !== stripos($rowTipoDocumento, 'tipo documento')
+                || 0 === stripos($rowTipoDocumento, 'documento')
+                || false !== stripos($rowTipoDocumento, 'nuip')
+            )) {
+                continue;
+            }
+
+            if ($rowDocumento !== $normalizedDocumento) {
+                continue;
+            }
+
+            if ($rowTipoDocumento === $normalizedTipoDocumento
+                && $rowFechaExpedicion === $normalizedFechaExpedicion) {
+                $rowData = [];
+                $highestColumn = $sheet->getHighestColumn();
+                $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
+                for ($colIndex = 0; $colIndex < $highestColumnIndex; ++$colIndex) {
+                    $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
+                    $rowData[] = $this->getCellValue($sheet->getCell($colLetter . $rowIndex));
+                }
+                return [
+                    'result' => 'match',
+                    'data' => $rowData,
+                    'mapping' => $columnMapping,
+                ];
+            }
+
+            $foundDocumentMismatch = true;
+        }
+
+        return $foundDocumentMismatch
+            ? ['result' => 'data_mismatch']
+            : ['result' => 'not_found'];
     }
 
     /**
