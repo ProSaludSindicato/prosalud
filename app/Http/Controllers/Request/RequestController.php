@@ -10,23 +10,26 @@ use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensac
 // Import only Mailables, no Jobs – all emails se envían de forma síncrona
 use App\Mail\{RequestFormReceived, RequestFormResponse};
 use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestStatusLog, RequestSubtypeAssignment, RequestTypeAssignment};
-use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
+use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ConvenioGenerationService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
 use App\Services\CertificadoConvenioService;
 use App\Http\Requests\{BulkRequestResponseRequest, ExportRequestsExcelRequest, ProcessBulkResponseRequest};
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Carbon\Carbon;
 
 class RequestController extends Controller
 {
+    /** Prefijo para mensaje de compensaciones cuando se usa texto redactado o valores individuales (no aplica para t_basicos/t_auxilios). */
+    private const PREFIJO_COMPENSACION_CONVENIO_SINDICAL = 'Acorde al Convenio de Ejecución Sindical, la compensación básica a recibir en el desarrollo de actividades de este proceso sería de: ';
+
     public function __construct(
         private AuditLogService $auditLogService,
         private RequestAssignmentService $assignmentService,
         private RequestExcelExportService $excelExportService,
         private CertificadoConvenioAutomaticoService $certificadoAutomaticoService,
+        private ConvenioGenerationService $convenioGenerationService,
         private ExcelReaderService $excelReaderService,
         private CertificadoConvenioService $certificadoService,
         private BulkRequestResponseService $bulkResponseService,
@@ -91,26 +94,26 @@ class RequestController extends Controller
         // Enviar correo de confirmación de forma síncrona (sin Job/cola)
         // Incluir archivos originales que llegaron en la solicitud como adjuntos
         $originalFiles = $this->extractOriginalFiles($request);
-        
+
         $mail = Mail::to($requestForm->email);
-        
+
         // Agregar CC para solicitudes de microcrédito
-        if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+        if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
             $requestForm->request_type === 'solicitud-microcredito') {
             $mail->cc('ceiisas@hotmail.com');
         }
-        
+
         // Agregar CC para solicitudes de retiro sindical
-        if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || 
+        if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL ||
             $requestForm->request_type === 'retiro-sindical') {
             $mail->cc('talentohumano@sindicatoprosalud.com');
         }
-        
+
         // Agregar CC para solicitudes de actualización de datos personales que incluyen información bancaria
         if ($requestForm->hasBankInfoUpdate()) {
             $mail->cc('comunicaciones@sindicatoprosalud.com');
         }
-        
+
         $mail->send(new RequestFormReceived($requestForm, $originalFiles));
 
         $response = [
@@ -676,12 +679,12 @@ class RequestController extends Controller
         $oldStatus = $request->status;
         $request->validated_at = now();
         $request->validated_by = $user->id;
-        
+
         // Automatically change status to 'IN_REVIEW' if not already in that status
         if ($request->status !== RequestStatuses::IN_REVIEW) {
             $request->status = RequestStatuses::IN_REVIEW;
         }
-        
+
         $request->save();
 
         // Create status log entry for the automatic status change
@@ -932,43 +935,43 @@ class RequestController extends Controller
     public function redirectSubtype(RedirectSubtypeRequest $request, RequestForm $requestForm = null): JsonResponse
     {
         $user = request()->user();
-        
+
         // Obtener el ID desde el parámetro de ruta (route model binding puede fallar con IDs string con ceros a la izquierda)
         $requestId = $request->route('request');
-        
+
         // Asegurar que requestId es un string
         $requestId = (string) $requestId;
-        
+
         Log::info('Redirect subtype - buscando RequestForm', [
             'route_id' => $requestId,
             'route_id_length' => strlen($requestId),
             'route_model_binding_result' => $requestForm ? 'found' : 'not_found',
         ]);
-        
+
         // Buscar el RequestForm manualmente para asegurar que funciona con IDs string con ceros a la izquierda
         if (!$requestForm || !$requestForm->exists) {
             $requestForm = RequestForm::where('id', $requestId)->first();
         }
-        
+
         if (!$requestForm) {
             Log::error('RequestForm no encontrado en redirectSubtype', [
                 'route_id' => $requestId,
                 'searched_id' => $requestId,
                 'searched_id_type' => gettype($requestId),
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Solicitud no encontrada',
             ], 404);
         }
-        
+
         Log::info('Redirect subtype - RequestForm encontrado', [
             'request_form_id' => $requestForm->id,
             'request_form_exists' => $requestForm->exists,
             'request_type' => $requestForm->request_type,
         ]);
-        
+
         // Validar que el usuario tiene acceso a la solicitud actual
         if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
             Log::warning('Intento de redirección de subtipo no autorizado', [
@@ -983,10 +986,10 @@ class RequestController extends Controller
                 'message' => 'No tienes acceso a esta solicitud',
             ], 403);
         }
-        
+
         $newSubtype = $request->validated()['subtype'];
         $requestType = $requestForm->request_type;
-        
+
         // Validar que la solicitud tiene un tipo válido
         if (empty($requestType)) {
             Log::warning('Intento de redirección de subtipo en solicitud sin tipo válido', [
@@ -1009,7 +1012,7 @@ class RequestController extends Controller
                 'message' => 'La solicitud no tiene un tipo de solicitud válido',
             ], 400);
         }
-        
+
         // Validar que el tipo de solicitud tiene subtipos
         if (!RequestTypes::hasSubtypes($requestType)) {
             Log::warning('Intento de redirección de subtipo en tipo de solicitud sin subtipos', [
@@ -1026,11 +1029,11 @@ class RequestController extends Controller
                 'message' => 'Este tipo de solicitud no tiene subtipos',
             ], 400);
         }
-        
+
         // Validar que el subtipo es válido para este tipo de solicitud
         if (!RequestSubtypes::isValid($requestType, $newSubtype)) {
             $validSubtypes = RequestSubtypes::forRequestType($requestType);
-            
+
             Log::warning('Intento de redirección con subtipo inválido', [
                 'request_id' => $requestForm->id,
                 'request_type' => $requestType,
@@ -1045,10 +1048,10 @@ class RequestController extends Controller
                 'message' => 'Subtipo no válido para este tipo de solicitud',
             ], 400);
         }
-        
+
         // Obtener el subtipo actual
         $currentSubtype = $this->assignmentService->getSubtypeFromRequest($requestForm);
-        
+
         // Si el subtipo es el mismo, no hacer nada
         if ($currentSubtype === $newSubtype) {
             return response()->json([
@@ -1056,16 +1059,16 @@ class RequestController extends Controller
                 'message' => 'La solicitud ya tiene este subtipo asignado',
             ], 400);
         }
-        
+
         // Actualizar el payload con el nuevo subtipo
         $payload = $requestForm->payload ?? [];
         $payload['solicitudRelacionadaCon'] = $newSubtype;
-        
+
         $requestForm->update(['payload' => $payload]);
-        
+
         // Obtener usuarios asignados al nuevo subtipo para mostrar en la respuesta
         $assignedUsers = $this->assignmentService->getUsersAssignedToSubtype($requestType, $newSubtype);
-        
+
         // Registrar en el log de auditoría
         $this->auditLogService->logBusinessProcess('request_form', 'subtype_redirected', $this->auditLogService->addRequestContext($request, [
             'request_id' => $requestForm->id,
@@ -1074,7 +1077,7 @@ class RequestController extends Controller
             'new_subtype' => $newSubtype,
             'redirected_by' => $user->id,
         ]));
-        
+
         Log::info('Solicitud redirigida a nuevo subtipo', [
             'request_id' => $requestForm->id,
             'request_type' => $requestType,
@@ -1083,7 +1086,7 @@ class RequestController extends Controller
             'redirected_by' => $user->id,
             'assigned_users_count' => count($assignedUsers),
         ]);
-        
+
         return response()->json([
             'success' => true,
             'message' => 'Solicitud redirigida exitosamente',
@@ -1461,20 +1464,20 @@ class RequestController extends Controller
             $compensacionesManuales = null;
             $tBasicosInput = $request->input('t_basicos');
             $tAuxiliosInput = $request->input('t_auxilios');
-            
+
             // Verificar que ambos campos estén presentes y no sean null o string vacío
-            if ($tBasicosInput !== null && $tAuxiliosInput !== null 
+            if ($tBasicosInput !== null && $tAuxiliosInput !== null
                 && $tBasicosInput !== '' && $tAuxiliosInput !== '') {
                 $tBasicos = (int) $tBasicosInput;
                 $tAuxilios = (int) $tAuxiliosInput;
-                
+
                 if ($tBasicos >= 0 && $tAuxilios >= 0) {
                     $compensacionesManuales = [
                         't_basicos' => $tBasicos,
                         't_auxilios' => $tAuxilios,
                         't_ingresos' => $tBasicos + $tAuxilios,
                     ];
-                    
+
                     Log::info('Compensaciones manuales detectadas en respondToRequest', [
                         'request_id' => $requestFormId,
                         'compensaciones' => $compensacionesManuales,
@@ -1494,7 +1497,7 @@ class RequestController extends Controller
                 if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
                     // Compensaciones encontradas en Excel, generar certificado automáticamente
                     $compensacionesExcel = $puedeProcesarConCompensaciones['compensaciones'];
-                    
+
                     Log::info('Compensaciones encontradas en Excel, generando certificado automáticamente', [
                         'request_id' => $requestFormId,
                         'compensaciones' => $compensacionesExcel,
@@ -1604,7 +1607,7 @@ class RequestController extends Controller
                     // Solo validar compensaciones si el estado es COMPLETED (no tiene sentido si se rechaza)
                     if ($status === RequestStatuses::COMPLETED) {
                         $razon = $puedeProcesarConCompensaciones['razon'] ?? 'No se encontraron compensaciones en el archivo de compensaciones';
-                        
+
                         Log::warning('No se encontraron compensaciones para certificado con valor de compensaciones', [
                             'request_id' => $requestFormId,
                             'documento' => $requestForm->document_number,
@@ -2077,7 +2080,7 @@ class RequestController extends Controller
             $mail = Mail::to($recipientEmail);
 
             // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
                 $requestForm->request_type === 'solicitud-microcredito') {
                 $mail->cc('ceiisas@hotmail.com');
             }
@@ -2356,7 +2359,7 @@ class RequestController extends Controller
         // Refresh the model to ensure we have the latest status from the database
         // This is important because the automatic processing might have just completed
         $requestForm->refresh();
-        
+
         // Validate that the request is pending (or in review)
         if (!in_array($requestForm->status, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])) {
             // Si la solicitud ya está completada, verificar si realmente fue procesada
@@ -2364,7 +2367,7 @@ class RequestController extends Controller
             if ($requestForm->status === RequestStatuses::COMPLETED) {
                 // Verificar si realmente tiene una respuesta asociada
                 $tieneRespuesta = $requestForm->responses()->exists();
-                
+
                 Log::info('Intento de responder solicitud que ya está completada', [
                     'request_id' => $requestId,
                     'status' => $requestForm->status,
@@ -2427,85 +2430,106 @@ class RequestController extends Controller
                 $attachments[] = $files;
             }
         }
-        
-        // Verificar si se enviaron compensaciones manuales
-        $tBasicosInput = $validated['t_basicos'] ?? null;
-        $tAuxiliosInput = $validated['t_auxilios'] ?? null;
-        
-        // Normalizar valores: convertir null, string vacío o '0' a 0
-        $tBasicosNormalizado = ($tBasicosInput === null || $tBasicosInput === '' || $tBasicosInput === '0') ? 0 : (int) $tBasicosInput;
-        $tAuxiliosNormalizado = ($tAuxiliosInput === null || $tAuxiliosInput === '' || $tAuxiliosInput === '0') ? 0 : (int) $tAuxiliosInput;
-        
-        // Si t_basicos es 0 o vacío, siempre intentar obtener del Excel
-        // Incluso si t_auxilios tiene un valor, si t_basicos es 0, se debe consultar el Excel
-        $debeConsultarExcel = ($tBasicosNormalizado === 0);
-        
-        // Determinar si se enviaron compensaciones manuales completas
-        // Solo se consideran manuales si t_basicos tiene un valor mayor a 0
-        $compensacionesManuales = null;
-        $compensaciones = null; // Inicializar variable para evitar undefined
-        if (!$debeConsultarExcel && $tBasicosNormalizado > 0) {
-            $compensacionesManuales = [
-                't_basicos' => $tBasicosNormalizado,
-                't_auxilios' => $tAuxiliosNormalizado,
-                't_ingresos' => $tBasicosNormalizado + $tAuxiliosNormalizado,
-            ];
+
+        // Texto de compensaciones: 1) literal (mensaje_compensaciones_parte1), 2) construido desde valores individuales (plantillas convenio), 3) t_basicos/t_auxilios o Excel
+        $mensajeParte1 = trim($validated['mensaje_compensaciones_parte1'] ?? '');
+        if ($mensajeParte1 !== '' && substr($mensajeParte1, -1) !== '.') {
+            $mensajeParte1 .= '.';
         }
-        
-        // Si t_basicos es 0 o vacío, intentar obtener las compensaciones del Excel
-        if ($debeConsultarExcel) {
-            Log::info('t_basicos es 0 o vacío, intentando obtener compensaciones del Excel', [
+        $compensaciones = null;
+        $compensacionesManuales = null;
+        $compensacionesConstruidasDesdeValores = false;
+
+        if ($mensajeParte1 !== '') {
+            $compensaciones = [
+                'mensaje_compensaciones_parte1' => self::PREFIJO_COMPENSACION_CONVENIO_SINDICAL . $mensajeParte1,
+                'mensaje_compensaciones_parte2' => '',
+            ];
+            Log::info('Usando mensaje de compensaciones redactado (parte1)', [
                 'request_id' => $requestId,
-                'documento' => $requestForm->document_number,
-                't_basicos_input' => $tBasicosInput,
-                't_auxilios_input' => $tAuxiliosInput,
             ]);
-            
-            $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
-            
-            if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
-                // Compensaciones encontradas en Excel
-                $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
-                
-                Log::info('Compensaciones obtenidas del Excel', [
-                    'request_id' => $requestId,
-                    'compensaciones' => $compensaciones,
-                ]);
-            } else {
-                // No se encontraron compensaciones ni manuales ni en Excel
-                // Solo validar compensaciones si el estado es COMPLETED (no tiene sentido si se rechaza)
-                if ($status === RequestStatuses::COMPLETED) {
-                    $razon = $puedeProcesarConCompensaciones['razon'] ?? 'No se encontraron compensaciones en el archivo de compensaciones';
-                    
-                    Log::warning('No se encontraron compensaciones para certificado con valor de compensaciones', [
+        } else {
+            if ($this->tieneValoresIndividualesCertificadoConvenio($validated)) {
+                $dataCompensacion = $this->extraerDatosCompensacionIndividualCertificado($validated);
+                $textoConstruido = $this->convenioGenerationService->construirTextoCompensacionDesdeValores($dataCompensacion);
+                if ($textoConstruido !== '') {
+                    if (substr($textoConstruido, -1) !== '.') {
+                        $textoConstruido .= '.';
+                    }
+                    $compensaciones = [
+                        'mensaje_compensaciones_parte1' => self::PREFIJO_COMPENSACION_CONVENIO_SINDICAL . $textoConstruido,
+                        'mensaje_compensaciones_parte2' => '',
+                    ];
+                    $compensacionesConstruidasDesdeValores = true;
+                    Log::info('Usando texto de compensaciones construido desde valores individuales (plantillas convenio)', [
+                        'request_id' => $requestId,
+                    ]);
+                }
+            }
+
+            if ($compensaciones === null) {
+                // Verificar si se enviaron compensaciones manuales (t_basicos / t_auxilios)
+                $tBasicosInput = $validated['t_basicos'] ?? null;
+                $tAuxiliosInput = $validated['t_auxilios'] ?? null;
+
+                $tBasicosNormalizado = ($tBasicosInput === null || $tBasicosInput === '' || $tBasicosInput === '0') ? 0 : (int) $tBasicosInput;
+                $tAuxiliosNormalizado = ($tAuxiliosInput === null || $tAuxiliosInput === '' || $tAuxiliosInput === '0') ? 0 : (int) $tAuxiliosInput;
+
+                $debeConsultarExcel = ($tBasicosNormalizado === 0);
+
+                if (!$debeConsultarExcel && $tBasicosNormalizado > 0) {
+                    $compensacionesManuales = [
+                        't_basicos' => $tBasicosNormalizado,
+                        't_auxilios' => $tAuxiliosNormalizado,
+                        't_ingresos' => $tBasicosNormalizado + $tAuxiliosNormalizado,
+                    ];
+                }
+
+                if ($debeConsultarExcel) {
+                    Log::info('t_basicos es 0 o vacío, intentando obtener compensaciones del Excel', [
                         'request_id' => $requestId,
                         'documento' => $requestForm->document_number,
-                        'razon' => $razon,
+                        't_basicos_input' => $tBasicosInput,
+                        't_auxilios_input' => $tAuxiliosInput,
                     ]);
-                    
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Este certificado requiere valores de compensaciones para ser generado.',
-                        'errors' => [
-                            'compensaciones' => [
-                                'No se proporcionaron valores de compensaciones manuales y no se encontraron valores en el archivo de compensaciones del sistema.',
-                                'Por favor, proporcione los valores de T. Basicos y T. Auxilios manualmente o verifique que el afiliado tenga registro en el archivo de compensaciones.',
-                            ],
-                        ],
-                        'sugerencia' => 'Puede proporcionar los valores de T. Basicos y T. Auxilios en el request, o verificar que el afiliado tenga registro en el archivo de compensaciones.',
-                    ], 422);
+
+                    $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
+
+                    if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
+                        $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
+                        Log::info('Compensaciones obtenidas del Excel', [
+                            'request_id' => $requestId,
+                            'compensaciones' => $compensaciones,
+                        ]);
+                    } else {
+                        if ($status === RequestStatuses::COMPLETED) {
+                            $razon = $puedeProcesarConCompensaciones['razon'] ?? 'No se encontraron compensaciones en el archivo de compensaciones';
+                            Log::warning('No se encontraron compensaciones para certificado con valor de compensaciones', [
+                                'request_id' => $requestId,
+                                'documento' => $requestForm->document_number,
+                                'razon' => $razon,
+                            ]);
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Este certificado requiere valores de compensaciones para ser generado.',
+                                'errors' => [
+                                    'compensaciones' => [
+                                        'No se proporcionaron valores de compensaciones manuales y no se encontraron valores en el archivo de compensaciones del sistema.',
+                                        'Proporcione t_basicos y t_auxilios, mensaje_compensaciones_parte1, valores individuales (basico, auxilios, auxilio_de_transporte, etc.) o verifique que el afiliado tenga registro en el archivo de compensaciones.',
+                                    ],
+                                ],
+                                'sugerencia' => 'Puede usar t_basicos/t_auxilios, mensaje_compensaciones_parte1 (texto redactado), valores individuales (basico, auxilios, provisiones, auxilio_de_transporte, etc.) o el archivo de compensaciones.',
+                            ], 422);
+                        }
+                    }
+                } else {
+                    $compensaciones = $compensacionesManuales;
+                    Log::info('Usando compensaciones manuales proporcionadas', [
+                        'request_id' => $requestId,
+                        'compensaciones' => $compensaciones,
+                    ]);
                 }
-                // Si el estado es REJECTED, no validar compensaciones y continuar
-                // En este caso, $compensaciones permanece como null
             }
-        } else {
-            // Usar compensaciones manuales
-            $compensaciones = $compensacionesManuales;
-            
-            Log::info('Usando compensaciones manuales proporcionadas', [
-                'request_id' => $requestId,
-                'compensaciones' => $compensaciones,
-            ]);
         }
 
         // Get authenticated user for logging
@@ -2515,6 +2539,7 @@ class RequestController extends Controller
         // Guardar estado anterior antes de cualquier actualización
         $oldStatus = $requestForm->status;
 
+        $fuenteCompensaciones = $compensacionesConstruidasDesdeValores ? 'construido' : (isset($compensaciones['mensaje_compensaciones_parte1']) ? 'redactado' : ($compensacionesManuales ? 'manual' : 'excel'));
         Log::info('Iniciando proceso de respuesta con compensaciones', [
             'request_id' => $requestId,
             'request_type' => $requestForm->request_type,
@@ -2524,7 +2549,7 @@ class RequestController extends Controller
             'old_status' => $oldStatus,
             'new_status' => $status,
             'compensaciones' => $compensaciones,
-            'fuente' => $compensacionesManuales ? 'manual' : 'excel',
+            'fuente' => $fuenteCompensaciones,
         ]);
 
         try {
@@ -2612,9 +2637,9 @@ class RequestController extends Controller
 
                 // Enviar correo de rechazo sin certificado
                 $mail = Mail::to($requestForm->email);
-                
+
                 // Agregar CC para solicitudes de microcrédito
-                if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+                if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
                     $requestForm->request_type === 'solicitud-microcredito') {
                     $mail->cc('ceiisas@hotmail.com');
                 }
@@ -2623,7 +2648,7 @@ class RequestController extends Controller
                 if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
                     $mail->cc('talentohumano@sindicatoprosalud.com');
                 }
-                
+
                 $mail->send(new RequestFormResponse(
                     $requestForm,
                     $emailSubject,
@@ -3835,12 +3860,12 @@ class RequestController extends Controller
 
             // Obtener estado original para diagnóstico
             $estadoOriginal = trim($afiliadoData['afiliado']['estado'] ?? '');
-            
+
             // Usar strcasecmp para comparación flexible sin importar mayúsculas/minúsculas
             // Esto es consistente con otros lugares del código (AfiliadoService, CertificadoConvenioService)
             // y maneja mejor casos como "Activo", "ACTIVO", "activo", "Active", "ACTIVE", etc.
             $estaActivo = (
-                strcasecmp($estadoOriginal, 'Activo') === 0 || 
+                strcasecmp($estadoOriginal, 'Activo') === 0 ||
                 strcasecmp($estadoOriginal, 'Active') === 0
             );
 
@@ -4450,12 +4475,12 @@ class RequestController extends Controller
 
             // Validar que existan solicitudes pendientes o en revisión antes de generar la plantilla
             $requestsCount = $this->bulkResponseService->countRequestsForTemplate($filters);
-            
+
             if ($requestsCount === 0) {
-                $requestTypeLabel = $requestType !== 'all' 
+                $requestTypeLabel = $requestType !== 'all'
                     ? $this->bulkResponseService->getRequestTypeLabel($requestType)
                     : 'solicitudes';
-                
+
                 Log::info('Intento de generar plantilla sin solicitudes disponibles', [
                     'user_id' => $user->id,
                     'user_email' => $user->email,
@@ -4509,7 +4534,7 @@ class RequestController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             $errors = $e->errors();
             $requestType = $request->input('request_type', 'no proporcionado');
-            
+
             Log::warning('Error de validación al generar plantilla de respuesta masiva', [
                 'error' => $e->getMessage(),
                 'errors' => $errors,
@@ -4536,7 +4561,7 @@ class RequestController extends Controller
             ], 422);
         } catch (\InvalidArgumentException $e) {
             $requestType = $request->input('request_type', 'no proporcionado');
-            
+
             Log::warning('Error de validación al generar plantilla de respuesta masiva', [
                 'error' => $e->getMessage(),
                 'request_type_received' => $requestType,
@@ -4553,7 +4578,7 @@ class RequestController extends Controller
             ], 400);
         } catch (\Exception $e) {
             $requestType = $request->input('request_type', 'no proporcionado');
-            
+
             Log::error('Error generando plantilla de respuesta masiva', [
                 'error' => $e->getMessage(),
                 'error_class' => get_class($e),
@@ -4605,7 +4630,7 @@ class RequestController extends Controller
                     'isValid' => $uploadedFile->isValid(),
                     'original_name' => $uploadedFile->getClientOriginalName(),
                 ]);
-                
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Error: No se pudo acceder al archivo subido',
@@ -4641,7 +4666,7 @@ class RequestController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             $errors = $e->errors();
             $fileName = $request->file('file')?->getClientOriginalName() ?? 'no proporcionado';
-            
+
             Log::warning('Error de validación al procesar respuesta masiva', [
                 'error' => $e->getMessage(),
                 'errors' => $errors,
@@ -4669,7 +4694,7 @@ class RequestController extends Controller
             ], 422);
         } catch (\InvalidArgumentException $e) {
             $fileName = $request->file('file')?->getClientOriginalName() ?? 'no proporcionado';
-            
+
             Log::warning('Error de validación al procesar respuesta masiva', [
                 'error' => $e->getMessage(),
                 'file_name' => $fileName,
@@ -4685,7 +4710,7 @@ class RequestController extends Controller
             ], 400);
         } catch (\Exception $e) {
             $fileName = $request->file('file')?->getClientOriginalName() ?? 'no proporcionado';
-            
+
             Log::error('Error procesando respuesta masiva', [
                 'error' => $e->getMessage(),
                 'error_class' => get_class($e),
@@ -4709,7 +4734,7 @@ class RequestController extends Controller
     /**
      * Ruta temporal pública para reintentar el proceso automático de generación de certificado
      * cuando falló por intermitencia del servicio de conversión Word a PDF
-     * 
+     *
      * @param Request $request
      * @param string $requestId ID de la solicitud
      * @return JsonResponse
@@ -4828,19 +4853,19 @@ class RequestController extends Controller
     {
         // Normalize to uppercase and trim
         $normalized = mb_strtoupper(trim($subtype));
-        
+
         // Remove common variations that don't affect matching
         // For example: "Y/O DESCANSO" variations
         $normalized = preg_replace('/\s*Y\/O\s*DESCANSO\s*/i', '', $normalized);
         $normalized = preg_replace('/\s+/', ' ', $normalized); // Normalize multiple spaces
         $normalized = trim($normalized);
-        
+
         return $normalized;
     }
 
     /**
      * Determine if a request should be automatically validated based on its type and target status.
-     * 
+     *
      * @param string $requestType The request type
      * @param string $targetStatus The target status
      * @return bool True if the request should be auto-validated
@@ -4867,5 +4892,54 @@ class RequestController extends Controller
         ];
 
         return in_array($targetStatus, $autoValidateStatuses, true);
+    }
+
+    /**
+     * Indica si en el request de respuesta con compensaciones se enviaron valores individuales
+     * (basico, auxilios, auxilio_de_transporte, etc.) para construir el texto con plantillas de convenio.
+     *
+     * @param array $validated Datos validados del request
+     * @return bool
+     */
+    private function tieneValoresIndividualesCertificadoConvenio(array $validated): bool
+    {
+        $campos = [
+            'basico', 'auxilios', 'manutencion', 'provisiones', 'horas',
+            'valor_hora_diurna', 'valor_hora_nocturna', 'valor_hora_diurna_festiva', 'valor_hora_nocturna_festiva',
+            'auxilio_de_transporte', 'auxilio_de_manutencion', 'auxilio_de_encierro', 'auxilio_de_rodamiento',
+            'auxilio_especial', 'auxilio_prosalud',
+            'valor_auxilio_diurno', 'valor_auxilio_recargo_nocturno', 'valor_auxilio_recargo_festivo', 'valor_auxilio_recargo_festivo_nocturno',
+        ];
+        foreach ($campos as $campo) {
+            $valor = $validated[$campo] ?? null;
+            if ($valor !== null && $valor !== '' && $valor !== '0' && $valor !== 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Extrae del request validado solo las claves de compensación individual usadas por ConvenioGenerationService.
+     *
+     * @param array $validated Datos validados del request
+     * @return array
+     */
+    private function extraerDatosCompensacionIndividualCertificado(array $validated): array
+    {
+        $claves = [
+            'basico', 'auxilios', 'manutencion', 'provisiones', 'horas',
+            'valor_hora_diurna', 'valor_hora_nocturna', 'valor_hora_diurna_festiva', 'valor_hora_nocturna_festiva',
+            'auxilio_de_transporte', 'auxilio_de_manutencion', 'auxilio_de_encierro', 'auxilio_de_rodamiento',
+            'auxilio_especial', 'auxilio_prosalud',
+            'valor_auxilio_diurno', 'valor_auxilio_recargo_nocturno', 'valor_auxilio_recargo_festivo', 'valor_auxilio_recargo_festivo_nocturno',
+        ];
+        $data = [];
+        foreach ($claves as $clave) {
+            if (array_key_exists($clave, $validated) && $validated[$clave] !== null && $validated[$clave] !== '') {
+                $data[$clave] = $validated[$clave];
+            }
+        }
+        return $data;
     }
 }

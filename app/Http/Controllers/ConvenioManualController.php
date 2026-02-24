@@ -673,15 +673,23 @@ class ConvenioManualController extends Controller
         // Directorio donde se guardan los convenios generados (temporal en storage/app/temp/convenios)
         $outputDir = storage_path('app/temp/convenios');
 
+        // Crear directorio si no existe (puede que el job aún no lo haya creado)
         if (!is_dir($outputDir)) {
-            Log::warning('[CONVENIO API] Directorio de convenios no existe al intentar descargar', [
+            Log::debug('[CONVENIO API] Directorio de convenios no existe, intentando crearlo', [
                 'output_dir' => $outputDir,
             ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'El directorio de convenios no existe en el servidor.',
-            ], 500);
+            
+            $creado = mkdir($outputDir, 0755, true);
+            if (!$creado || !is_dir($outputDir)) {
+                Log::error('[CONVENIO API] No se pudo crear el directorio de convenios', [
+                    'output_dir' => $outputDir,
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al acceder al directorio de convenios. Por favor, intente nuevamente.',
+                ], 500);
+            }
         }
 
         // Buscar el archivo más reciente para ese documento
@@ -692,11 +700,15 @@ class ConvenioManualController extends Controller
             Log::info('[CONVENIO API] Convenio no encontrado aún para descarga', [
                 'numero_documento_normalizado' => $numeroDocumentoNormalizado,
                 'pattern' => $pattern,
+                'output_dir' => $outputDir,
+                'directorio_existe' => is_dir($outputDir),
+                'directorio_escribible' => is_dir($outputDir) ? is_writable($outputDir) : false,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'No se encontró un convenio generado para el documento especificado. Es posible que aún esté en proceso de generación.',
+                'message' => 'No se encontró un convenio generado para el documento especificado. El convenio puede estar aún en proceso de generación. Por favor, espere unos momentos e intente nuevamente.',
+                'status' => 'processing', // Indicar que está en proceso
             ], 404);
         }
 
@@ -716,8 +728,9 @@ class ConvenioManualController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'El archivo del convenio no se encontró en el servidor.',
-            ], 500);
+                'message' => 'El archivo del convenio no se encontró en el servidor. Puede estar aún en proceso de generación.',
+                'status' => 'processing',
+            ], 404);
         }
 
         Log::info('[CONVENIO API] Descargando convenio generado', [
@@ -727,7 +740,7 @@ class ConvenioManualController extends Controller
             'tamaño_bytes' => filesize($filePath),
         ]);
 
-        // Descargar y eliminar archivo después de enviarlo (es temporal)
+        // Descargar y eliminar archivo después de enviarlo (es temporal, no se guarda permanentemente)
         return response()->download(
             $filePath,
             $fileName,

@@ -307,6 +307,23 @@ class ConvenioGenerationService
     }
 
     /**
+     * Construye el texto de compensación a partir de valores individuales (basico, auxilios, transporte, etc.).
+     * Misma lógica que la generación de convenios: usa plantillas de mensaje según los valores enviados.
+     * Útil para certificados de convenio que reciben estos valores por API.
+     *
+     * @param array $data Array con claves: basico, auxilios, manutencion, provisiones, horas,
+     *                     valor_hora_diurna, valor_hora_nocturna, valor_hora_diurna_festiva, valor_hora_nocturna_festiva,
+     *                     auxilio_de_transporte, auxilio_de_manutencion, auxilio_de_encierro, auxilio_de_rodamiento,
+     *                     auxilio_especial, auxilio_prosalud, valor_auxilio_diurno, valor_auxilio_recargo_nocturno,
+     *                     valor_auxilio_recargo_festivo, valor_auxilio_recargo_festivo_nocturno
+     * @return string Texto de compensación redactado (puede ser vacío si no hay valores)
+     */
+    public function construirTextoCompensacionDesdeValores(array $data): string
+    {
+        return $this->generarCompensacionBasicaRedactada($data);
+    }
+
+    /**
      * Genera automáticamente el texto de compensación básica redactada
      * basándose en los valores proporcionados.
      *

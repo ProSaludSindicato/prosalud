@@ -30,6 +30,28 @@ class RespondToCertificadoConCompensacionesRequest extends FormRequest
             'email_body' => 'required|string|max:1500',
             't_basicos' => 'nullable|integer|min:0',
             't_auxilios' => 'nullable|integer|min:0',
+            // Texto de compensaciones ya redactado (para certificados sin datos en archivo). PARTE2 queda vacía.
+            'mensaje_compensaciones_parte1' => 'nullable|string|max:1000',
+            // Valores individuales (como en convenios): el sistema construye el texto con las plantillas de mensaje
+            'basico' => 'nullable|numeric|min:0',
+            'auxilios' => 'nullable|numeric|min:0',
+            'manutencion' => 'nullable|numeric|min:0',
+            'provisiones' => 'nullable|numeric|min:0',
+            'horas' => 'nullable|numeric|min:0',
+            'valor_hora_diurna' => 'nullable|numeric|min:0',
+            'valor_hora_nocturna' => 'nullable|numeric|min:0',
+            'valor_hora_diurna_festiva' => 'nullable|numeric|min:0',
+            'valor_hora_nocturna_festiva' => 'nullable|numeric|min:0',
+            'auxilio_de_transporte' => 'nullable|numeric|min:0',
+            'auxilio_de_manutencion' => 'nullable|numeric|min:0',
+            'auxilio_de_encierro' => 'nullable|numeric|min:0',
+            'auxilio_de_rodamiento' => 'nullable|numeric|min:0',
+            'auxilio_especial' => 'nullable|numeric|min:0',
+            'auxilio_prosalud' => 'nullable|numeric|min:0',
+            'valor_auxilio_diurno' => 'nullable|numeric|min:0',
+            'valor_auxilio_recargo_nocturno' => 'nullable|numeric|min:0',
+            'valor_auxilio_recargo_festivo' => 'nullable|numeric|min:0',
+            'valor_auxilio_recargo_festivo_nocturno' => 'nullable|numeric|min:0',
         ];
 
         // Si el estado es REJECTED, la razón de rechazo es requerida
@@ -66,6 +88,7 @@ class RespondToCertificadoConCompensacionesRequest extends FormRequest
             't_basicos.min' => 'El valor de T. Basicos no puede ser negativo.',
             't_auxilios.integer' => 'El valor de T. Auxilios debe ser un número entero.',
             't_auxilios.min' => 'El valor de T. Auxilios no puede ser negativo.',
+            'mensaje_compensaciones_parte1.max' => 'El mensaje de compensaciones (parte 1) no puede exceder 1000 caracteres.',
             'attachments.array' => 'Los archivos adjuntos deben ser un array.',
             'attachments.max' => 'No se pueden adjuntar más de 4 archivos.',
             'attachments.*.file' => 'Cada archivo adjunto debe ser un archivo válido.',
@@ -86,6 +109,7 @@ class RespondToCertificadoConCompensacionesRequest extends FormRequest
             'email_body' => 'cuerpo del correo',
             't_basicos' => 'T. Basicos',
             't_auxilios' => 'T. Auxilios',
+            'mensaje_compensaciones_parte1' => 'mensaje de compensaciones (parte 1)',
             'attachments' => 'archivos adjuntos',
         ];
     }

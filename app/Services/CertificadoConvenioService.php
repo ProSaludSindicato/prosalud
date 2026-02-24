@@ -31,7 +31,7 @@ class CertificadoConvenioService
      *
      * @param string $documento Número de documento del afiliado
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @param array|null $compensaciones ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int] o ['mensaje_compensaciones_parte1' => string, 'mensaje_compensaciones_parte2' => string]
      * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
      * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
      * @param bool $esParaSubsidioDesempleo Indica si el certificado es para subsidio de desempleo (opcional)
@@ -135,7 +135,7 @@ class CertificadoConvenioService
      * @param string $documento Número de documento del afiliado
      * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
      * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @param array|null $compensaciones ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int] o ['mensaje_compensaciones_parte1' => string, 'mensaje_compensaciones_parte2' => string]
      * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
      * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
      * @param bool $esParaSubsidioDesempleo Indica si el certificado es para subsidio de desempleo (opcional)
@@ -943,10 +943,14 @@ class CertificadoConvenioService
             $consecutivo = $this->generarConsecutivo($fechaCertificado);
         }
 
-        // Generar mensaje de compensaciones si están disponibles (en dos partes separadas)
+        // Generar mensaje de compensaciones: texto redactado (API) o construido desde t_basicos/t_auxilios/t_ingresos
         $mensajeCompensacionesParte1 = '';
         $mensajeCompensacionesParte2 = '';
-        if ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
+        if ($compensaciones && isset($compensaciones['mensaje_compensaciones_parte1']) && (string) $compensaciones['mensaje_compensaciones_parte1'] !== '') {
+            $mensajeCompensacionesParte1 = (string) $compensaciones['mensaje_compensaciones_parte1'];
+            $mensajeCompensacionesParte2 = (string) ($compensaciones['mensaje_compensaciones_parte2'] ?? '');
+            Log::info('Usando mensaje de compensaciones redactado en prepararDatosCertificado');
+        } elseif ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
             Log::info('Compensaciones recibidas en prepararDatosCertificado', [
                 'compensaciones' => $compensaciones,
                 't_basicos' => $compensaciones['t_basicos'],
@@ -1112,10 +1116,14 @@ class CertificadoConvenioService
             $consecutivo = $this->generarConsecutivo($fechaCertificado);
         }
 
-        // Generar mensaje de compensaciones si están disponibles (en formato especial para subsidio de vivienda)
+        // Generar mensaje de compensaciones: texto redactado (API) o construido desde valores
         $mensajeCompensacionesParte1 = '';
         $mensajeCompensacionesParte2 = '';
-        if ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
+        if ($compensaciones && isset($compensaciones['mensaje_compensaciones_parte1']) && (string) $compensaciones['mensaje_compensaciones_parte1'] !== '') {
+            $mensajeCompensacionesParte1 = (string) $compensaciones['mensaje_compensaciones_parte1'];
+            $mensajeCompensacionesParte2 = (string) ($compensaciones['mensaje_compensaciones_parte2'] ?? '');
+            Log::info('Usando mensaje de compensaciones redactado en prepararDatosCertificadoSubsidioVivienda');
+        } elseif ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
             Log::info('Compensaciones recibidas en prepararDatosCertificadoSubsidioVivienda', [
                 'compensaciones' => $compensaciones,
                 't_basicos' => $compensaciones['t_basicos'],
@@ -1233,10 +1241,14 @@ class CertificadoConvenioService
             $consecutivo = $this->generarConsecutivo($fechaCertificado);
         }
 
-        // Generar mensaje de compensaciones si están disponibles (en formato especial para subsidio de desempleo, igual que subsidio de vivienda)
+        // Generar mensaje de compensaciones: texto redactado (API) o construido desde valores
         $mensajeCompensacionesParte1 = '';
         $mensajeCompensacionesParte2 = '';
-        if ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
+        if ($compensaciones && isset($compensaciones['mensaje_compensaciones_parte1']) && (string) $compensaciones['mensaje_compensaciones_parte1'] !== '') {
+            $mensajeCompensacionesParte1 = (string) $compensaciones['mensaje_compensaciones_parte1'];
+            $mensajeCompensacionesParte2 = (string) ($compensaciones['mensaje_compensaciones_parte2'] ?? '');
+            Log::info('Usando mensaje de compensaciones redactado en prepararDatosCertificadoSubsidioDesempleo');
+        } elseif ($compensaciones && isset($compensaciones['t_basicos']) && isset($compensaciones['t_auxilios']) && isset($compensaciones['t_ingresos'])) {
             Log::info('Compensaciones recibidas en prepararDatosCertificadoSubsidioDesempleo', [
                 'compensaciones' => $compensaciones,
                 't_basicos' => $compensaciones['t_basicos'],
