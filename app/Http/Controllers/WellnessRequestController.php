@@ -644,11 +644,11 @@ class WellnessRequestController extends Controller
 
             // Apply permission-based filtering
             if ($user) {
-                // Check if user has permission to update status (can export all requests)
-                $canUpdateStatus = $user->can('wellness_requests.update_status');
-                
-                // If user cannot update status, only export their own requests
-                if (!$canUpdateStatus) {
+                // Check if user has permission to export all requests (regardless of requester)
+                $canExportAll = $user->can('wellness_requests.export_all');
+
+                // If user cannot export all, only export their own requests
+                if (!$canExportAll) {
                     $request->merge(['requester_id' => $user->id]);
                 }
             }

@@ -26,6 +26,21 @@ class WellnessExcelExportService
     ];
 
     /**
+     * Orden fijo de estados para gráfico de distribución (para colores consistentes).
+     */
+    private const STATUS_CHART_ORDER = ['Pendiente', 'En revisión', 'Aprobada', 'Rechazada'];
+
+    /**
+     * Colores por estado para el gráfico de distribución (Aprobada=verde, Rechazada=rojo, etc.).
+     */
+    private const STATUS_CHART_COLORS = [
+        'Pendiente' => 'FFF2CC',    // Amarillo claro
+        'En revisión' => 'DAE3F3', // Azul claro
+        'Aprobada' => '70AD47',    // Verde
+        'Rechazada' => 'C55A5A',   // Rojo
+    ];
+
+    /**
      * Mapeo de centros de costos a etiquetas.
      */
     private const COST_CENTER_LABELS = [
@@ -531,7 +546,10 @@ class WellnessExcelExportService
             }
 
             $realized = $request->activityRealized;
-            $participantsDiff = ($request->participant_count ?? 0) - ($realized->real_attendees_count ?? 0);
+            // Diferencia para mostrar: Reales - Estimados → positivo = más asistencia que lo estimado (verde +), negativo = menos (rojo), 0 = iguales
+            $estimated = (int) ($request->participant_count ?? 0);
+            $real = (int) ($realized->real_attendees_count ?? 0);
+            $participantsDiff = $real - $estimated;
 
             // Generar URL del listado de asistencia
             $listadoUrl = $this->generateListadoAsistenciaUrl($realized);
@@ -545,7 +563,7 @@ class WellnessExcelExportService
                 $realized->real_location ?? '',
                 $request->participant_count ?? 0,
                 $realized->real_attendees_count ?? 0,
-                $participantsDiff,
+                $participantsDiff, // 0 explícito cuando son iguales
                 $realized->realized_description ?? '',
                 $realized->gift_delivered ?? 'N/A',
                 $realized->published_to_gallery ? 'Sí' : ($realized->published_to_gallery === false ? 'No' : 'N/A'),
@@ -569,10 +587,13 @@ class WellnessExcelExportService
                 $sheet->getStyle($linkCell)->getFont()->setUnderline(true);
             }
 
-            // Resaltar diferencia de participantes significativa
+            // Formato y color de la diferencia: positivo = verde con +, negativo = rojo, 0 = cero visible
             $diffCell = "I{$row}";
-            if (abs($participantsDiff) > ($request->participant_count ?? 0) * 0.2) {
-                $sheet->getStyle($diffCell)->getFont()->getColor()->setRGB('E74C3C');
+            $sheet->getStyle($diffCell)->getNumberFormat()->setFormatCode('+0;-0;0');
+            if ($participantsDiff > 0) {
+                $sheet->getStyle($diffCell)->getFont()->getColor()->setRGB('70AD47'); // Verde
+            } elseif ($participantsDiff < 0) {
+                $sheet->getStyle($diffCell)->getFont()->getColor()->setRGB('C55A5A'); // Rojo
             }
 
             // Embeber imágenes si se solicitan
@@ -1000,6 +1021,7 @@ class WellnessExcelExportService
 
     /**
      * Preparar datos de distribución por estado para gráfica.
+     * Devuelve los datos en orden fijo para que los colores del gráfico sean consistentes.
      */
     private function prepareStatusDataForChart(Collection $requests): array
     {
@@ -1017,7 +1039,14 @@ class WellnessExcelExportService
             }
         }
 
-        return array_filter($statusCounts, fn($count) => $count > 0);
+        // Mantener orden fijo para colores consistentes en el gráfico
+        $result = [];
+        foreach (self::STATUS_CHART_ORDER as $label) {
+            if (($statusCounts[$label] ?? 0) > 0) {
+                $result[$label] = $statusCounts[$label];
+            }
+        }
+        return $result;
     }
 
     /**
@@ -1084,6 +1113,7 @@ class WellnessExcelExportService
 
     /**
      * Agregar gráfica de distribución por estado (Pastel).
+     * Usa orden y colores fijos: Aprobada=verde, Rechazada=rojo, Pendiente=amarillo, En revisión=azul.
      */
     private function addStatusDistributionChart(Worksheet $sheet, array $data, string $topLeft, string $topRight, string $bottomLeft, string $bottomRight): void
     {
@@ -1093,6 +1123,7 @@ class WellnessExcelExportService
 
         $labels = array_keys($data);
         $values = array_values($data);
+        $colors = array_map(fn (string $label) => self::STATUS_CHART_COLORS[$label] ?? 'CCCCCC', $labels);
 
         $dataSeriesLabels = [
             new DataSeriesValues(DataSeriesValues::DATASERIES_TYPE_STRING, null, null, 1),
@@ -1114,7 +1145,9 @@ class WellnessExcelExportService
                 null,
                 null,
                 count($values),
-                $values
+                $values,
+                null,
+                $colors
             ),
         ];
 

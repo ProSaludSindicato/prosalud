@@ -45,6 +45,7 @@ class RolePermissionSeeder extends Seeder
             'wellness_requests.create' => 'Crear solicitudes de bienestar',
             'wellness_requests.edit' => 'Editar solicitudes de bienestar',
             'wellness_requests.update_status' => 'Actualizar el estado de las solicitudes de bienestar',
+            'wellness_requests.export_all' => 'Exportar todas las solicitudes de bienestar (sin importar el solicitante)',
             'wellness_activity.publish' => 'Revisar y publicar actividades de bienestar en la galería',
 
             // Wellness Delivery Requests (Kits escolares, desayunos, loncheras, etc.)
@@ -143,6 +144,7 @@ class RolePermissionSeeder extends Seeder
             // Wellness Requests / Activities
             'wellness_requests.view' => 'Ver solicitudes de bienestar', // SI
             'wellness_requests.manage' => 'Gestionar solicitudes de bienestar (crear, editar)',
+            'wellness_requests.export_all' => 'Exportar todas las solicitudes de bienestar (sin importar el solicitante)',
             'wellness_activity.manage' => 'Gestionar actividades realizadas y publicar en galería',
 
             // Comfenalco Events (nuevo formato)
