@@ -150,6 +150,23 @@ class SocioDemographicSurvey extends Model
     }
 
     /**
+     * Scope for surveys by document number only (partial match).
+     *
+     * This is useful for API filters where the document type is not provided
+     * and the user may search by a fragment of the document number.
+     */
+    public function scopeByDocumentNumber(Builder $query, string $numeroDocumento): Builder
+    {
+        $numeroDocumento = trim($numeroDocumento);
+
+        if ($numeroDocumento === '') {
+            return $query;
+        }
+
+        return $query->where('numero_documento', 'LIKE', '%' . $numeroDocumento . '%');
+    }
+
+    /**
      * Scope for surveys by hospital.
      */
     public function scopeByHospital(Builder $query, string $hospital): Builder

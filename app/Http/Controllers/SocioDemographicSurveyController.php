@@ -271,8 +271,17 @@ class SocioDemographicSurveyController extends Controller
             $query->byHospital($request->input('hospital'));
         }
 
-        if ($request->has('tipo_documento') && $request->has('numero_documento')) {
-            $query->byDocument($request->input('tipo_documento'), $request->input('numero_documento'));
+        // Filtro por documento:
+        // - Si vienen tipo_documento y numero_documento, se usa coincidencia exacta
+        // - Si sólo viene numero_documento, se busca por coincidencia parcial del número
+        if ($request->has('numero_documento')) {
+            $numeroDocumento = $request->input('numero_documento');
+
+            if ($request->filled('tipo_documento')) {
+                $query->byDocument($request->input('tipo_documento'), $numeroDocumento);
+            } else {
+                $query->byDocumentNumber($numeroDocumento);
+            }
         }
 
         // Filtro por nombre del encuestado
@@ -326,8 +335,14 @@ class SocioDemographicSurveyController extends Controller
             $baseQuery->byHospital($request->input('hospital'));
         }
 
-        if ($request->has('tipo_documento') && $request->has('numero_documento')) {
-            $baseQuery->byDocument($request->input('tipo_documento'), $request->input('numero_documento'));
+        if ($request->has('numero_documento')) {
+            $numeroDocumento = $request->input('numero_documento');
+
+            if ($request->filled('tipo_documento')) {
+                $baseQuery->byDocument($request->input('tipo_documento'), $numeroDocumento);
+            } else {
+                $baseQuery->byDocumentNumber($numeroDocumento);
+            }
         }
 
         // Aplicar filtro por nombre en métricas
