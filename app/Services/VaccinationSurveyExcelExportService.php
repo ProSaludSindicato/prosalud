@@ -113,9 +113,9 @@ class VaccinationSurveyExcelExportService
 
         // --- Título (fila 1, fusionada, centrado, negrita, fondo verde, bordes) ---
         $titleText = 'REVISIÓN Y VERIFICACIÓN DEL ESTADO DE VACUNACIÓN DEL PERSONAL DE LA INSTITUCIÓN CONTRA FIEBRE AMARILLA Y SARAMPIÓN, EN CUMPLIMIENTO DE LAS NORMATIVAS VIGENTES PARA INSTITUCIONES DE SALUD.';
-        $sheet->mergeCells('A' . self::TITLE_ROW . ':K' . self::TITLE_ROW);
+        $sheet->mergeCells('A' . self::TITLE_ROW . ':L' . self::TITLE_ROW);
         $sheet->setCellValue('A' . self::TITLE_ROW, $titleText);
-        $sheet->getStyle('A' . self::TITLE_ROW . ':K' . self::TITLE_ROW)->applyFromArray([
+        $sheet->getStyle('A' . self::TITLE_ROW . ':L' . self::TITLE_ROW)->applyFromArray([
             'font' => ['bold' => true],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
@@ -125,9 +125,9 @@ class VaccinationSurveyExcelExportService
 
         // --- Descripción (filas 2-3, fusionada, dos filas, centrada, fondo verde, bordes) ---
         $descText = 'En cumplimiento de los lineamientos del Programa Ampliado de Inmunizaciones (PAI) 2026, en especial lo establecido en la Circular 016 de febrero de 2025 sobre el fortalecimiento de la vacunación contra sarampión, rubéola y síndrome de rubéola congénita (SRC) en todo el territorio nacional y el inicio del plan de preparación ante eventos masivos por la Copa Mundial FIFA 2026; la Circular 012 y la Resolución 691 de 2025 relacionadas con las directrices por alerta de fiebre amarilla.';
-        $sheet->mergeCells('A' . self::DESC_START_ROW . ':K' . self::DESC_END_ROW);
+        $sheet->mergeCells('A' . self::DESC_START_ROW . ':L' . self::DESC_END_ROW);
         $sheet->setCellValue('A' . self::DESC_START_ROW, $descText);
-        $sheet->getStyle('A' . self::DESC_START_ROW . ':K' . self::DESC_END_ROW)->applyFromArray([
+        $sheet->getStyle('A' . self::DESC_START_ROW . ':L' . self::DESC_END_ROW)->applyFromArray([
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
             'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
@@ -153,7 +153,7 @@ class VaccinationSurveyExcelExportService
         foreach ($headers as $col => $h) {
             $sheet->setCellValue($col . self::HEADER_ROW, $h);
         }
-        $sheet->getStyle('A' . self::HEADER_ROW . ':K' . self::HEADER_ROW)->applyFromArray([
+        $sheet->getStyle('A' . self::HEADER_ROW . ':L' . self::HEADER_ROW)->applyFromArray([
             'font' => ['bold' => true],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
