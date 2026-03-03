@@ -94,9 +94,9 @@ class GenerateBulkSurveyPdfJob implements ShouldQueue
                 }
             }
 
-            // Filter by hospital
+            // Filter by hospital (coincidencia al inicio)
             if (isset($this->filters['hospital']) && !empty($this->filters['hospital'])) {
-                $query->where('hospital', $this->filters['hospital']);
+                $query->byHospital($this->filters['hospital']);
             }
 
             // Filter by profesion (process)

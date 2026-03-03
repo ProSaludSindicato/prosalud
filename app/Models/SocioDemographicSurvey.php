@@ -167,11 +167,15 @@ class SocioDemographicSurvey extends Model
     }
 
     /**
-     * Scope for surveys by hospital.
+     * Scope for surveys by hospital (coincidencia al inicio para reducir fricción).
      */
     public function scopeByHospital(Builder $query, string $hospital): Builder
     {
-        return $query->where('hospital', $hospital);
+        $hospital = trim($hospital);
+        if ($hospital === '') {
+            return $query;
+        }
+        return $query->where('hospital', 'LIKE', $hospital . '%');
     }
 
     /**

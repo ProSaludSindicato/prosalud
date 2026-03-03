@@ -134,9 +134,9 @@ class SocioDemographicSurveyExcelExportService
             }
         }
 
-        // Filtro por hospital (opcional)
+        // Filtro por hospital (opcional, coincidencia al inicio)
         if (isset($filters['hospital']) && !empty($filters['hospital'])) {
-            $query->where('hospital', $filters['hospital']);
+            $query->byHospital($filters['hospital']);
         }
 
         // Filtro por proceso/profesión (opcional)
