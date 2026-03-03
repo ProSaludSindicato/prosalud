@@ -12,6 +12,7 @@ class VaccinationSurvey extends Model
     protected $fillable = [
         'tipo_documento',
         'numero_documento',
+        'hospital',
         'fecha_nacimiento',
         'primer_nombre',
         'segundo_nombre',

@@ -69,6 +69,7 @@ class VaccinationSurveyController extends Controller
             $survey = VaccinationSurvey::create([
                 'tipo_documento' => $validated['tipo_documento'],
                 'numero_documento' => $validated['numero_documento'],
+                'hospital' => $validated['hospital'] ?? null,
                 'fecha_nacimiento' => $validated['fecha_nacimiento'],
                 'primer_nombre' => $validated['primer_nombre'] ?? '',
                 'segundo_nombre' => $validated['segundo_nombre'] ?? null,

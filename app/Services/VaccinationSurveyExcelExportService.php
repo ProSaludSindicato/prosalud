@@ -104,8 +104,8 @@ class VaccinationSurveyExcelExportService
     private function buildRegistrosSheet(Worksheet $sheet, Collection $surveys): void
     {
         $colWidths = [
-            'A' => 28, 'B' => 18, 'C' => 22, 'D' => 20, 'E' => 20, 'F' => 20, 'G' => 20,
-            'H' => 26, 'I' => 26, 'J' => 32, 'K' => 32,
+            'A' => 28, 'B' => 18, 'C' => 22, 'D' => 24, 'E' => 20, 'F' => 20, 'G' => 20, 'H' => 20,
+            'I' => 26, 'J' => 26, 'K' => 32, 'L' => 32,
         ];
         foreach ($colWidths as $col => $w) {
             $sheet->getColumnDimension($col)->setWidth($w);
@@ -140,14 +140,15 @@ class VaccinationSurveyExcelExportService
             'A' => 'FECHA DE CONSULTA',
             'B' => 'FECHA DE NACIMIENTO',
             'C' => 'DOCUMENTO DE IDENTIDAD',
-            'D' => 'PRIMER NOMBRE',
-            'E' => 'SEGUNDO NOMBRE',
-            'F' => 'PRIMER APELLIDO',
-            'G' => 'SEGUNDO APELLIDO',
-            'H' => 'FECHA APLICACIÓN SRP',
-            'I' => 'FECHA APLICACIÓN SR',
-            'J' => 'FECHA APLICACIÓN FIEBRE AMARILLA',
-            'K' => 'FIRMA DIGITAL',
+            'D' => 'HOSPITAL',
+            'E' => 'PRIMER NOMBRE',
+            'F' => 'SEGUNDO NOMBRE',
+            'G' => 'PRIMER APELLIDO',
+            'H' => 'SEGUNDO APELLIDO',
+            'I' => 'FECHA APLICACIÓN SRP',
+            'J' => 'FECHA APLICACIÓN SR',
+            'K' => 'FECHA APLICACIÓN FIEBRE AMARILLA',
+            'L' => 'FIRMA DIGITAL',
         ];
         foreach ($headers as $col => $h) {
             $sheet->setCellValue($col . self::HEADER_ROW, $h);
@@ -164,13 +165,13 @@ class VaccinationSurveyExcelExportService
         $dataStartRow = self::HEADER_ROW + 1;
         $lastDataRow = $dataStartRow + max(0, $surveys->count() - 1);
         if ($lastDataRow >= $dataStartRow) {
-            $sheet->setAutoFilter('A' . self::HEADER_ROW . ':J' . $lastDataRow);
-            $sheet->getStyle('A' . $dataStartRow . ':K' . $lastDataRow)->applyFromArray([
+            $sheet->setAutoFilter('A' . self::HEADER_ROW . ':K' . $lastDataRow);
+            $sheet->getStyle('A' . $dataStartRow . ':L' . $lastDataRow)->applyFromArray([
                 'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
             ]);
         }
 
-        $firmaCol = 'K';
+        $firmaCol = 'L';
         $row = $dataStartRow;
         foreach ($surveys as $s) {
             $sheet->setCellValue('A' . $row, $this->formatFechaConsulta($s->created_at));
@@ -180,13 +181,14 @@ class VaccinationSurveyExcelExportService
                 trim($s->tipo_documento . ' ' . ($s->numero_documento ?? '')),
                 DataType::TYPE_STRING
             );
-            $sheet->setCellValue('D' . $row, $s->primer_nombre ?? '');
-            $sheet->setCellValue('E' . $row, $s->segundo_nombre ?? '');
-            $sheet->setCellValue('F' . $row, $s->primer_apellido ?? '');
-            $sheet->setCellValue('G' . $row, $s->segundo_apellido ?? '');
-            $sheet->setCellValue('H' . $row, $this->formatFechaLegible($s->fecha_aplicacion_srp));
-            $sheet->setCellValue('I' . $row, $this->formatFechaLegible($s->fecha_aplicacion_sr));
-            $sheet->setCellValue('J' . $row, $this->formatFechaLegible($s->fecha_aplicacion_fiebre_amarilla));
+            $sheet->setCellValue('D' . $row, $s->hospital ?? '');
+            $sheet->setCellValue('E' . $row, $s->primer_nombre ?? '');
+            $sheet->setCellValue('F' . $row, $s->segundo_nombre ?? '');
+            $sheet->setCellValue('G' . $row, $s->primer_apellido ?? '');
+            $sheet->setCellValue('H' . $row, $s->segundo_apellido ?? '');
+            $sheet->setCellValue('I' . $row, $this->formatFechaLegible($s->fecha_aplicacion_srp));
+            $sheet->setCellValue('J' . $row, $this->formatFechaLegible($s->fecha_aplicacion_sr));
+            $sheet->setCellValue('K' . $row, $this->formatFechaLegible($s->fecha_aplicacion_fiebre_amarilla));
 
             if (!empty($s->firma_path)) {
                 try {
@@ -198,10 +200,10 @@ class VaccinationSurveyExcelExportService
                         'path' => $s->firma_path,
                         'error' => $e->getMessage(),
                     ]);
-                    $sheet->setCellValue('K' . $row, 'No disponible');
+                    $sheet->setCellValue('L' . $row, 'No disponible');
                 }
             } else {
-                $sheet->setCellValue('K' . $row, '');
+                $sheet->setCellValue('L' . $row, '');
             }
             $row++;
         }

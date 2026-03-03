@@ -27,11 +27,15 @@ class StoreVaccinationSurveyRequest extends FormRequest
 
         $data = $this->all();
 
-        // Normalizar tipo_documento y nombres/apellidos
+        // Normalizar tipo_documento, hospital y nombres/apellidos
         $normalized = [];
 
         if (isset($data['tipo_documento']) && is_string($data['tipo_documento'])) {
             $normalized['tipo_documento'] = strtoupper(trim($data['tipo_documento']));
+        }
+
+        if (isset($data['hospital']) && is_string($data['hospital'])) {
+            $normalized['hospital'] = mb_strtoupper(trim($data['hospital']), 'UTF-8');
         }
 
         foreach (['primer_nombre', 'segundo_nombre', 'primer_apellido', 'segundo_apellido'] as $field) {
@@ -65,6 +69,7 @@ class StoreVaccinationSurveyRequest extends FormRequest
             'numero_documento' => ['required', 'string', 'max:50', 'regex:/^[0-9]+$/'],
 
             // Datos personales (autocompletados)
+            'hospital' => 'nullable|string|max:255',
             'fecha_nacimiento' => 'required|date|date_format:Y-m-d|before:today',
             'primer_nombre' => 'required|string|max:100',
             'segundo_nombre' => 'nullable|string|max:150',
@@ -103,6 +108,7 @@ class StoreVaccinationSurveyRequest extends FormRequest
         return [
             'tipo_documento' => 'tipo de documento',
             'numero_documento' => 'número de documento',
+            'hospital' => 'hospital',
             'fecha_nacimiento' => 'fecha de nacimiento',
             'primer_nombre' => 'primer nombre',
             'segundo_nombre' => 'segundo nombre',
