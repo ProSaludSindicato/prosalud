@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers\Request;
 
-use App\Constants\{RequestSubtypes, RequestTypes};
+use App\Constants\{RequestSubtypes, RequestTypes, RequestStatuses};
+use App\Models\RequestForm;
 use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -169,6 +170,27 @@ class StoreRequestFormRequest extends FormRequest
         $validator->after(function ($validator) {
             $requestType = $this->input('request_type');
             $allFiles = $this->allFiles();
+
+            // Validación: evitar múltiples solicitudes de compensación del mismo tipo en proceso
+            if (in_array($requestType, [RequestTypes::COMPENSACION_ANUAL, RequestTypes::COMPENSACION_DESCANSO], true)) {
+                $documentNumber = $this->input('id_number');
+
+                if ($documentNumber) {
+                    $existingRequest = RequestForm::query()
+                        ->where('document_number', $documentNumber)
+                        ->where('request_type', $requestType)
+                        ->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])
+                        ->latest('created_at')
+                        ->first();
+
+                    if ($existingRequest) {
+                        $validator->errors()->add(
+                            'request_type',
+                            'Actualmente ya cuenta con una solicitud en proceso con ID ' . $existingRequest->id . ' para este mismo tipo de trámite. Debe esperar a recibir una respuesta antes de realizar una nueva solicitud del mismo tipo.'
+                        );
+                    }
+                }
+            }
 
             // Validación adicional para verificacion-pagos
             if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
