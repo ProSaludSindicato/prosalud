@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, KitBienestarController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, KitBienestarController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController, VaccinationSurveyController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -91,6 +91,9 @@ Route::get('/survey-config/public', [SurveyConfigController::class, 'show']);
 
 // Public route for creating socio-demographic surveys (used by affiliates from public site) - Rate limiting: 20 requests per minute
 Route::post('/socio-demographic-surveys', [SocioDemographicSurveyController::class, 'store'])->middleware('throttle:public-endpoints');
+
+// Public route for vaccination surveys (used by affiliates from public site) - Rate limiting: 20 requests per minute
+Route::post('/encuesta-vacunacion', [VaccinationSurveyController::class, 'store'])->middleware('throttle:public-endpoints');
 
 // RUTA TEMPORAL: Reintentar generación de certificado cuando falló por intermitencia del servicio Word a PDF
 // TODO: Eliminar esta ruta después de resolver el problema de intermitencia
@@ -376,6 +379,9 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::post('/socio-demographic-surveys/export/excel', [SocioDemographicSurveyController::class, 'exportExcel'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/export/status/{jobId}', [SocioDemographicSurveyController::class, 'checkStatus'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/export/download/{jobId}', [SocioDemographicSurveyController::class, 'downloadReport'])->middleware('permission:socio_demographic_surveys.view');
+
+    // Vaccination Surveys (encuesta vacunación) - export Excel
+    Route::post('/encuesta-vacunacion/export/excel', [VaccinationSurveyController::class, 'exportExcel'])->middleware('permission:vaccination_surveys.view');
 
     // Survey Configuration management routes (admin)
     Route::get('/survey-config', [SurveyConfigController::class, 'show'])->middleware('permission:socio_demographic_surveys.config.manage');

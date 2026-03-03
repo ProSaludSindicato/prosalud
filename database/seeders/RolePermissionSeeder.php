@@ -96,6 +96,9 @@ class RolePermissionSeeder extends Seeder
             'socio_demographic_surveys.view' => 'Ver encuestas sociodemográficas y diagnósticos de condiciones de salud',
             'socio_demographic_surveys.config.manage' => 'Gestionar configuración de encuestas sociodemográficas (cambiar modo ingreso masivo)',
 
+            // Vaccination Surveys (encuesta vacunación - fiebre amarilla / sarampión)
+            'vaccination_surveys.view' => 'Ver encuestas de vacunación y exportar reportes Excel',
+
             // Document Signing
             'document_signing.view' => 'Ver historial de envíos de correos de firma y estadísticas',
             'document_signing.manage' => 'Enviar correos masivos de firma y reenviar correos a afiliados',
