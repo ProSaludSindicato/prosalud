@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
@@ -93,8 +95,47 @@ class VaccinationSurveyExcelExportService
         return $query->orderBy('created_at', 'desc')->get();
     }
 
+    private const TITLE_ROW = 1;
+    private const DESC_START_ROW = 2;
+    private const DESC_END_ROW = 3;
+    private const HEADER_ROW = 4;
+    private const LIGHT_GREEN = 'C6EFCE';
+
     private function buildRegistrosSheet(Worksheet $sheet, Collection $surveys): void
     {
+        $colWidths = [
+            'A' => 28, 'B' => 18, 'C' => 22, 'D' => 20, 'E' => 20, 'F' => 20, 'G' => 20,
+            'H' => 26, 'I' => 26, 'J' => 32, 'K' => 32,
+        ];
+        foreach ($colWidths as $col => $w) {
+            $sheet->getColumnDimension($col)->setWidth($w);
+        }
+
+        // --- Título (fila 1, fusionada, centrado, negrita, fondo verde, bordes) ---
+        $titleText = 'REVISIÓN Y VERIFICACIÓN DEL ESTADO DE VACUNACIÓN DEL PERSONAL DE LA INSTITUCIÓN CONTRA FIEBRE AMARILLA Y SARAMPIÓN, EN CUMPLIMIENTO DE LAS NORMATIVAS VIGENTES PARA INSTITUCIONES DE SALUD.';
+        $sheet->mergeCells('A' . self::TITLE_ROW . ':K' . self::TITLE_ROW);
+        $sheet->setCellValue('A' . self::TITLE_ROW, $titleText);
+        $sheet->getStyle('A' . self::TITLE_ROW . ':K' . self::TITLE_ROW)->applyFromArray([
+            'font' => ['bold' => true],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
+        ]);
+        $sheet->getRowDimension(self::TITLE_ROW)->setRowHeight(45);
+
+        // --- Descripción (filas 2-3, fusionada, dos filas, centrada, fondo verde, bordes) ---
+        $descText = 'En cumplimiento de los lineamientos del Programa Ampliado de Inmunizaciones (PAI) 2026, en especial lo establecido en la Circular 016 de febrero de 2025 sobre el fortalecimiento de la vacunación contra sarampión, rubéola y síndrome de rubéola congénita (SRC) en todo el territorio nacional y el inicio del plan de preparación ante eventos masivos por la Copa Mundial FIFA 2026; la Circular 012 y la Resolución 691 de 2025 relacionadas con las directrices por alerta de fiebre amarilla.';
+        $sheet->mergeCells('A' . self::DESC_START_ROW . ':K' . self::DESC_END_ROW);
+        $sheet->setCellValue('A' . self::DESC_START_ROW, $descText);
+        $sheet->getStyle('A' . self::DESC_START_ROW . ':K' . self::DESC_END_ROW)->applyFromArray([
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
+        ]);
+        $sheet->getRowDimension(self::DESC_START_ROW)->setRowHeight(38);
+        $sheet->getRowDimension(self::DESC_END_ROW)->setRowHeight(38);
+
+        // --- Encabezados de columnas (fila 4, fondo verde, bordes) ---
         $headers = [
             'A' => 'FECHA DE CONSULTA',
             'B' => 'FECHA DE NACIMIENTO',
@@ -107,30 +148,30 @@ class VaccinationSurveyExcelExportService
             'I' => 'FECHA APLICACIÓN SR',
             'J' => 'FECHA APLICACIÓN FIEBRE AMARILLA',
             'K' => 'FIRMA DIGITAL',
-            // 'L' => 'IP / USER-AGENT', // Comentado por ahora
         ];
         foreach ($headers as $col => $h) {
-            $sheet->setCellValue($col . '1', $h);
-            $sheet->getStyle($col . '1')->getFont()->setBold(true);
+            $sheet->setCellValue($col . self::HEADER_ROW, $h);
         }
-        $sheet->getStyle('A1:K1')->applyFromArray([
-            'fill' => [
-                'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['rgb' => 'C6EFCE'],
+        $sheet->getStyle('A' . self::HEADER_ROW . ':K' . self::HEADER_ROW)->applyFromArray([
+            'font' => ['bold' => true],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
             ],
         ]);
-        $sheet->setAutoFilter('A1:K1');
 
-        $colWidths = [
-            'A' => 28, 'B' => 18, 'C' => 22, 'D' => 20, 'E' => 20, 'F' => 20, 'G' => 20,
-            'H' => 26, 'I' => 26, 'J' => 32, 'K' => 32, // K (FIRMA DIGITAL) más ancha
-        ];
-        foreach ($colWidths as $col => $w) {
-            $sheet->getColumnDimension($col)->setWidth($w);
+        $dataStartRow = self::HEADER_ROW + 1;
+        $lastDataRow = $dataStartRow + max(0, $surveys->count() - 1);
+        if ($lastDataRow >= $dataStartRow) {
+            $sheet->setAutoFilter('A' . self::HEADER_ROW . ':J' . $lastDataRow);
+            $sheet->getStyle('A' . $dataStartRow . ':K' . $lastDataRow)->applyFromArray([
+                'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
+            ]);
         }
 
         $firmaCol = 'K';
-        $row = 2;
+        $row = $dataStartRow;
         foreach ($surveys as $s) {
             $sheet->setCellValue('A' . $row, $this->formatFechaConsulta($s->created_at));
             $sheet->setCellValue('B' . $row, $s->fecha_nacimiento?->format('Y-m-d'));
@@ -146,9 +187,6 @@ class VaccinationSurveyExcelExportService
             $sheet->setCellValue('H' . $row, $this->formatFechaLegible($s->fecha_aplicacion_srp));
             $sheet->setCellValue('I' . $row, $this->formatFechaLegible($s->fecha_aplicacion_sr));
             $sheet->setCellValue('J' . $row, $this->formatFechaLegible($s->fecha_aplicacion_fiebre_amarilla));
-            // Columna IP / USER-AGENT comentada por ahora:
-            // $ipUserAgent = trim(($s->ip_address ?? '') . ' ' . ($s->user_agent ?? ''));
-            // $sheet->setCellValue('L' . $row, $ipUserAgent !== '' ? $ipUserAgent : '');
 
             if (!empty($s->firma_path)) {
                 try {
