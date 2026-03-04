@@ -574,7 +574,7 @@ class BulkRequestResponseService
         $noteRow++;
         $sheet->setCellValue("A{$noteRow}", '1. Complete las columnas "Nuevo Estado", "Asunto Correo" y "Cuerpo Correo" para cada solicitud.');
         $noteRow++;
-        $sheet->setCellValue("A{$noteRow}", '2. Los estados válidos son: Pendiente, En Revisión, Completada, Rechazada');
+        $sheet->setCellValue("A{$noteRow}", '2. Los estados válidos son: Completada, Rechazada');
         $noteRow++;
         $sheet->setCellValue("A{$noteRow}", '3. No modifique las columnas de identificación (ID Solicitud, Tipo Documento, etc.)');
         $noteRow++;
@@ -694,11 +694,11 @@ class BulkRequestResponseService
         $validation->setShowErrorMessage(true);
         $validation->setShowDropDown(true);
         $validation->setErrorTitle('Estado inválido');
-        $validation->setError('El estado debe ser uno de los valores permitidos: Pendiente, En Revisión, Completada, Rechazada');
+        $validation->setError('El estado debe ser uno de los valores permitidos: Completada, Rechazada');
         $validation->setPromptTitle('Seleccione un estado');
         $validation->setPrompt('Seleccione un estado válido de la lista desplegable');
         // Usar lista en español separada por comas para la validación
-        $validation->setFormula1('"Pendiente,En Revisión,Completada,Rechazada"');
+        $validation->setFormula1('"Completada,Rechazada"');
     }
 
     /**
@@ -759,8 +759,14 @@ class BulkRequestResponseService
         // Normalizar estado desde español a valor técnico
         $normalizedStatus = $this->normalizeStatusFromSpanish($newStatus);
 
-        if (!$normalizedStatus) {
-            $validStatusesSpanish = ['Pendiente', 'En Revisión', 'Completada', 'Rechazada'];
+        // Para respuestas masivas solo se permiten estados finales (Completada, Rechazada)
+        $allowedFinalStatuses = [
+            RequestStatuses::COMPLETED,
+            RequestStatuses::REJECTED,
+        ];
+
+        if (!$normalizedStatus || !in_array($normalizedStatus, $allowedFinalStatuses, true)) {
+            $validStatusesSpanish = ['Completada', 'Rechazada'];
             throw new \Exception("Estado inválido: {$newStatus}. Estados válidos: " . implode(', ', $validStatusesSpanish));
         }
 
