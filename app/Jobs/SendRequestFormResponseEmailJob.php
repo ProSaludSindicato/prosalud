@@ -69,17 +69,6 @@ class SendRequestFormResponseEmailJob implements ShouldQueue
 
             $mail = Mail::to($this->recipientEmail);
 
-            // Agregar CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
-                $requestForm->request_type === 'solicitud-microcredito') {
-                $mail->cc('ceiisas@hotmail.com');
-            }
-
-            // Agregar CC para solicitudes de retiro sindical
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                $mail->cc('talentohumano@sindicatoprosalud.com');
-            }
-
             // Create mailable with serialized attachment data
             // The attachmentData array contains: ['content' => string, 'name' => string, 'mime' => string]
             // RequestFormResponse now accepts serialized data directly
@@ -91,6 +80,17 @@ class SendRequestFormResponseEmailJob implements ShouldQueue
                 $this->attachmentData, // Pass serialized attachment data directly
                 $this->compressedFileUrls
             );
+
+            // Configurar Reply-To para solicitudes de microcrédito
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+                $requestForm->request_type === 'solicitud-microcredito') {
+                $mailable->replyTo('ceiisas@hotmail.com');
+            }
+
+            // Agregar CC para solicitudes de retiro sindical
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
+                $mail->cc('talentohumano@sindicatoprosalud.com');
+            }
 
             $mail->send($mailable);
 

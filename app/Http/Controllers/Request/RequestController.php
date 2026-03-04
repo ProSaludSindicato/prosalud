@@ -96,10 +96,12 @@ class RequestController extends Controller
         $originalFiles = $this->extractOriginalFiles($request);
 
         $mail = Mail::to($requestForm->email);
+        $mailable = new RequestFormReceived($requestForm, $originalFiles);
 
-        // Agregar CC para solicitudes de microcrédito
+        // Configurar Reply-To y CC para solicitudes de microcrédito
         if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
             $requestForm->request_type === 'solicitud-microcredito') {
+            $mailable->replyTo('ceiisas@hotmail.com');
             $mail->cc('ceiisas@hotmail.com');
         }
 
@@ -114,7 +116,7 @@ class RequestController extends Controller
             $mail->cc('comunicaciones@sindicatoprosalud.com');
         }
 
-        $mail->send(new RequestFormReceived($requestForm, $originalFiles));
+        $mail->send($mailable);
 
         $response = [
             'success' => true,
@@ -2078,11 +2080,19 @@ class RequestController extends Controller
 
             // Enviar correo directamente SIN usar Job encolado
             $mail = Mail::to($recipientEmail);
+            $mailable = new RequestFormResponse(
+                $requestForm,
+                $emailSubject,
+                $emailBody,
+                $status,
+                $attachmentData,
+                $compressedFileUrls
+            );
 
-            // Agregar CC para solicitudes de microcrédito
+            // Configurar Reply-To para solicitudes de microcrédito
             if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
                 $requestForm->request_type === 'solicitud-microcredito') {
-                $mail->cc('ceiisas@hotmail.com');
+                $mailable->replyTo('ceiisas@hotmail.com');
             }
 
             // Agregar CC para solicitudes de retiro sindical
@@ -2090,14 +2100,7 @@ class RequestController extends Controller
                 $mail->cc('talentohumano@sindicatoprosalud.com');
             }
 
-            $mail->send(new RequestFormResponse(
-                $requestForm,
-                $emailSubject,
-                $emailBody,
-                $status,
-                $attachmentData,
-                $compressedFileUrls
-            ));
+            $mail->send($mailable);
 
             Log::info('Correo de respuesta enviado exitosamente', [
                 'request_id' => $requestFormId,
@@ -2637,11 +2640,18 @@ class RequestController extends Controller
 
                 // Enviar correo de rechazo sin certificado
                 $mail = Mail::to($requestForm->email);
+                $mailable = new RequestFormResponse(
+                    $requestForm,
+                    $emailSubject,
+                    $emailBody,
+                    RequestStatuses::REJECTED,
+                    []
+                );
 
-                // Agregar CC para solicitudes de microcrédito
+                // Configurar Reply-To para solicitudes de microcrédito
                 if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
                     $requestForm->request_type === 'solicitud-microcredito') {
-                    $mail->cc('ceiisas@hotmail.com');
+                    $mailable->replyTo('ceiisas@hotmail.com');
                 }
 
                 // Agregar CC para solicitudes de retiro sindical
@@ -2649,13 +2659,7 @@ class RequestController extends Controller
                     $mail->cc('talentohumano@sindicatoprosalud.com');
                 }
 
-                $mail->send(new RequestFormResponse(
-                    $requestForm,
-                    $emailSubject,
-                    $emailBody,
-                    RequestStatuses::REJECTED,
-                    []
-                ));
+                $mail->send($mailable);
 
                 // Crear registro de respuesta para trazabilidad
                 $requestResponse = RequestResponse::create([

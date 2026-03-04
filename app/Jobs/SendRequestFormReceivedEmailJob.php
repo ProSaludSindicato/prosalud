@@ -60,10 +60,12 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
             }
 
             $mail = Mail::to($requestForm->email);
+            $mailable = new RequestFormReceived($requestForm);
 
-            // Agregar CC para solicitudes de microcrédito
+            // Configurar Reply-To y CC para solicitudes de microcrédito
             if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
                 $requestForm->request_type === 'solicitud-microcredito') {
+                $mailable->replyTo('ceiisas@hotmail.com');
                 $mail->cc('ceiisas@hotmail.com');
             }
 
@@ -77,7 +79,7 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
                 $mail->cc('comunicaciones@sindicatoprosalud.com');
             }
 
-            $mail->send(new RequestFormReceived($requestForm));
+            $mail->send($mailable);
 
             Log::info('Correo de confirmación de solicitud enviado exitosamente', [
                 'request_id' => $this->requestFormId,
