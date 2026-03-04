@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Helpers\StringHelper;
 use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, ExportSocioDemographicSurveysPdfRequest, StoreSocioDemographicSurveyRequest};
 use App\Jobs\GenerateBulkSurveyPdfJob;
 use App\Models\SocioDemographicSurvey;
@@ -318,8 +319,8 @@ class SocioDemographicSurveyController extends Controller
                 'correo' => $survey->correo,
                 'tipo_documento' => $survey->tipo_documento,
                 'numero_documento' => $survey->numero_documento,
-                'nombres' => $survey->nombres,
-                'apellidos' => $survey->apellidos,
+                'nombres' => StringHelper::normalizeForApi($survey->nombres),
+                'apellidos' => StringHelper::normalizeForApi($survey->apellidos),
                 'hospital' => $survey->hospital,
                 'profesion' => $survey->profesion,
                 'created_at' => $survey->created_at?->format('Y-m-d H:i:s'),
@@ -438,8 +439,8 @@ class SocioDemographicSurveyController extends Controller
                     'correo' => $survey->correo,
                     'tipo_documento' => $survey->tipo_documento,
                     'numero_documento' => $survey->numero_documento,
-                    'nombres' => $survey->nombres,
-                    'apellidos' => $survey->apellidos,
+                    'nombres' => StringHelper::normalizeForApi($survey->nombres),
+                    'apellidos' => StringHelper::normalizeForApi($survey->apellidos),
                     'hospital' => $survey->hospital,
                 'profesion' => $survey->profesion,
                 'rh' => $survey->rh,
@@ -1012,7 +1013,7 @@ class SocioDemographicSurveyController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'El PDF se está generando. Use el job_id para verificar el estado.',
+                'message' => 'El archivo ZIP con los PDFs se está generando. Use el job_id para verificar el estado.',
                 'job_id' => $jobId,
                 'status' => 'processing',
                 'check_status_url' => url("/api/socio-demographic-surveys/export/pdf/status/{$jobId}"),
@@ -1112,7 +1113,7 @@ class SocioDemographicSurveyController extends Controller
             ]);
 
             return $disk->download($filePath, $fileName, [
-                'Content-Type' => 'application/pdf',
+                'Content-Type' => 'application/zip',
                 'Content-Transfer-Encoding' => 'binary',
             ]);
         } catch (\Exception $e) {

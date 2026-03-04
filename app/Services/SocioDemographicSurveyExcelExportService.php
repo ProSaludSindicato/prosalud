@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Constants\SurveyOptions;
+use App\Helpers\StringHelper;
 use App\Models\SocioDemographicSurvey;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -11,7 +11,6 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
-use PhpOffice\PhpSpreadsheet\Worksheet\AutoFilter\Column;
 use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use Illuminate\Support\Facades\Storage;
 
@@ -226,7 +225,7 @@ class SocioDemographicSurveyExcelExportService
 
         // ===== PRIMERA FILA DE TABLAS (3 columnas) =====
         $startRow = $row;
-        
+
         // Columna A-C: Tipo de Encuesta
         $endRow1 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TIPO DE ENCUESTA', [
             'Tipo de Encuesta' => function($s) {
@@ -236,12 +235,12 @@ class SocioDemographicSurveyExcelExportService
                 return 'Afiliados Activos';
             }
         ], $surveys, 'A');
-        
+
         // Columna E-G: Hospital
         $endRow2 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR HOSPITAL', [
             'Hospital' => function($s) { return $s->hospital ?? 'No especificado'; }
         ], $surveys, 'E');
-        
+
         // Columna I-K: Género
         $endRow3 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR GÉNERO', [
             'Género' => function($s) {
@@ -249,12 +248,12 @@ class SocioDemographicSurveyExcelExportService
                 return $this->getGeneroDisplayName($genero) ?: 'No especificado';
             }
         ], $surveys, 'I');
-        
+
         $row = max($endRow1, $endRow2, $endRow3) + 3; // Espacio entre filas
 
         // ===== SEGUNDA FILA DE TABLAS =====
         $startRow = $row;
-        
+
         // Columna A-C: Transporte
         $endRow1 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TRANSPORTE', [
             'Transporte' => function($s) {
@@ -262,7 +261,7 @@ class SocioDemographicSurveyExcelExportService
                 return $this->getTransporteDisplayName($transporte) ?: 'No especificado';
             }
         ], $surveys, 'A');
-        
+
         // Columna E-G: Estrato Socioeconómico
         $endRow2 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR ESTRATO', [
             'Estrato' => function($s) {
@@ -270,7 +269,7 @@ class SocioDemographicSurveyExcelExportService
                 return $estrato ? "Estrato {$estrato}" : 'No especificado';
             }
         ], $surveys, 'E');
-        
+
         // Columna I-K: Tipo de Vivienda
         $endRow3 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR VIVIENDA', [
             'Tipo de Vivienda' => function($s) {
@@ -278,17 +277,17 @@ class SocioDemographicSurveyExcelExportService
                 return $this->getViviendaDisplayName($vivienda) ?: 'No especificado';
             }
         ], $surveys, 'I');
-        
+
         $row = max($endRow1, $endRow2, $endRow3) + 3;
 
         // ===== TERCERA FILA DE TABLAS =====
         $startRow = $row;
-        
+
         // Columna A-C: Talla Calzado
         $endRow1 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TALLA CALZADO', [
             'Talla Calzado' => function($s) { return $s->talla_calzado ?? 'No especificado'; }
         ], $surveys, 'A');
-        
+
         // Columna E-G: Talla Vestimenta
         $endRow2 = $this->addStatsTable($sheet, $startRow, 'ESTADÍSTICAS POR TALLA VESTIMENTA', [
             'Talla Vestimenta' => function($s) {
@@ -296,10 +295,10 @@ class SocioDemographicSurveyExcelExportService
                 return $this->getTallaVestimentaDisplayName($talla) ?: 'No especificado';
             }
         ], $surveys, 'E');
-        
+
         // Columna I-K: Sobrepeso/Obesidad
         $endRow3 = $this->addSobrepesoObesidadTable($sheet, $startRow, $surveys, 'I');
-        
+
         $row = max($endRow1, $endRow2, $endRow3) + 3;
 
         // ===== SERVICIOS PÚBLICOS (tabla completa) =====
@@ -371,14 +370,14 @@ class SocioDemographicSurveyExcelExportService
         // Agrupar datos
         $grouped = [];
         $total = $surveys->count();
-        
+
         foreach ($surveys as $survey) {
             $key = '';
             foreach ($groupBy as $label => $callback) {
                 $key = $callback($survey);
                 break;
             }
-            
+
             if (!isset($grouped[$key])) {
                 $grouped[$key] = 0;
             }
@@ -394,7 +393,7 @@ class SocioDemographicSurveyExcelExportService
             $sheet->setCellValue($col1 . $row, $key);
             $sheet->setCellValue($col2 . $row, $count);
             $sheet->setCellValue($col3 . $row, $percentage . '%');
-            
+
             $sheet->getStyle($col1 . $row . ':' . $col3 . $row)->applyFromArray([
                 'borders' => [
                     'allBorders' => [
@@ -435,10 +434,10 @@ class SocioDemographicSurveyExcelExportService
         for ($i = 0; $i < strlen($col); $i++) {
             $colNum = $colNum * 26 + (ord($col[$i]) - ord('A') + 1);
         }
-        
+
         // Incrementar
         $colNum++;
-        
+
         // Convertir de vuelta a letra
         $result = '';
         while ($colNum > 0) {
@@ -446,7 +445,7 @@ class SocioDemographicSurveyExcelExportService
             $result = chr(ord('A') + ($colNum % 26)) . $result;
             $colNum = intval($colNum / 26);
         }
-        
+
         return $result;
     }
 
@@ -504,7 +503,7 @@ class SocioDemographicSurveyExcelExportService
             foreach ($surveys as $survey) {
                 $serviciosPublicos = $survey->datos_sociodemograficos['serviciosPublicos'] ?? [];
                 $valor = $serviciosPublicos[$key] ?? false;
-                
+
                 if ($this->parseBooleanValue($valor)) {
                     $tiene++;
                 } else {
@@ -515,7 +514,7 @@ class SocioDemographicSurveyExcelExportService
             $sheet->setCellValue('A' . $row, $label);
             $sheet->setCellValue('B' . $row, $tiene . ' (' . ($total > 0 ? round(($tiene / $total) * 100, 2) : 0) . '%)');
             $sheet->setCellValue('C' . $row, $noTiene . ' (' . ($total > 0 ? round(($noTiene / $total) * 100, 2) : 0) . '%)');
-            
+
             $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
                 'borders' => [
                     'allBorders' => [
@@ -585,7 +584,7 @@ class SocioDemographicSurveyExcelExportService
             foreach ($surveys as $survey) {
                 $manejoTiempoLibre = $survey->datos_sociodemograficos['manejoTiempoLibre'] ?? [];
                 $valor = $manejoTiempoLibre[$key] ?? false;
-                
+
                 if ($this->parseBooleanValue($valor)) {
                     $realiza++;
                 } else {
@@ -596,7 +595,7 @@ class SocioDemographicSurveyExcelExportService
             $sheet->setCellValue('A' . $row, $label);
             $sheet->setCellValue('B' . $row, $realiza . ' (' . ($total > 0 ? round(($realiza / $total) * 100, 2) : 0) . '%)');
             $sheet->setCellValue('C' . $row, $noRealiza . ' (' . ($total > 0 ? round(($noRealiza / $total) * 100, 2) : 0) . '%)');
-            
+
             $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
                 'borders' => [
                     'allBorders' => [
@@ -659,12 +658,12 @@ class SocioDemographicSurveyExcelExportService
         foreach ($surveys as $survey) {
             $condicionesSalud = $survey->condiciones_salud ?? [];
             $sobrepesoObesidad = $condicionesSalud['sobrepesoObesidad'] ?? null;
-            
+
             // También calcular por IMC si está disponible
             $datosSociodemograficos = $survey->datos_sociodemograficos ?? [];
             $estatura = $datosSociodemograficos['estatura'] ?? null;
             $peso = $datosSociodemograficos['peso'] ?? null;
-            
+
             if ($sobrepesoObesidad !== null) {
                 if ($this->parseBooleanValue($sobrepesoObesidad)) {
                     $si++;
@@ -675,7 +674,7 @@ class SocioDemographicSurveyExcelExportService
                 // Calcular IMC
                 $estaturaMetros = $estatura / 100; // Convertir cm a metros
                 $imc = $peso / ($estaturaMetros * $estaturaMetros);
-                
+
                 if ($imc >= 25) {
                     $si++;
                 } else {
@@ -789,10 +788,10 @@ class SocioDemographicSurveyExcelExportService
         })->sortKeys();
 
         foreach ($byMonth as $month => $monthSurveys) {
-            $monthLabel = $month !== 'Sin fecha' 
+            $monthLabel = $month !== 'Sin fecha'
                 ? $this->formatMonthInSpanish($month)
                 : 'Sin fecha';
-            
+
             $totalMonth = $monthSurveys->count();
             $activeAffiliateMonth = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
             $newEntryMonth = $monthSurveys->where('survey_type', 'new_entry')->count();
@@ -801,7 +800,7 @@ class SocioDemographicSurveyExcelExportService
             $sheet->setCellValue('B' . $row, $totalMonth);
             $sheet->setCellValue('C' . $row, $activeAffiliateMonth);
             $sheet->setCellValue('D' . $row, $newEntryMonth);
-            
+
             $sheet->getStyle('A' . $row . ':D' . $row)->applyFromArray([
                 'borders' => [
                     'allBorders' => [
@@ -841,13 +840,13 @@ class SocioDemographicSurveyExcelExportService
         if (is_bool($value)) {
             return $value;
         }
-        
+
         if ($value === null || $value === '') {
             return false;
         }
 
         $normalized = strtolower(trim((string) $value));
-        
+
         return in_array($normalized, ['si', 'sí', 'yes', 'true', '1', '1.0']);
     }
 
@@ -859,7 +858,7 @@ class SocioDemographicSurveyExcelExportService
         $includeSignatures = $filters['include_signatures'] ?? false;
         $signatureWidth = 100;
         $signatureHeight = 50;
-        
+
         $row = 1;
 
         // Encabezados completos con todos los campos desglosados
@@ -885,12 +884,12 @@ class SocioDemographicSurveyExcelExportService
             'Talla Calzado',
             'Talla Vestimenta',
             'País Nacimiento',
-            
+
             // Contacto de Emergencia
             'Nombre Contacto Emergencia',
             'Relación Contacto Emergencia',
             'Teléfono Contacto Emergencia',
-            
+
             // Datos Sociodemográficos
             'Tiene Personas a Cargo',
             'Estado Civil',
@@ -919,13 +918,13 @@ class SocioDemographicSurveyExcelExportService
             'Manejo Tiempo Libre - Artísticas',
             'Manejo Tiempo Libre - Religiosas',
             'Manejo Tiempo Libre - Otras',
-            
+
             // Datos de Consumo
             'Consumo Licor',
             'Frecuencia Licor',
             'Consumo Cigarrillo',
             'Frecuencia Cigarrillo',
-            
+
             // Condiciones de Salud
             'Sobrepeso/Obesidad',
             'Hipertensión Arterial',
@@ -964,13 +963,13 @@ class SocioDemographicSurveyExcelExportService
             'Tipo Accidente Tránsito',
             'Tiempo Accidente Tránsito',
             'Vacunado COVID',
-            
+
             // Limitaciones Físicas
             'Limitación - Esfuerzos Intensos',
             'Limitación - Esfuerzos Moderados',
             'Limitación - Subir Pisos',
             'Limitación - Agacharse/Arrodillarse',
-            
+
             // Recomendaciones Laborales
             'Recomendación Restricción Laboral',
             'Detalle Recomendación Laboral',
@@ -1005,7 +1004,7 @@ class SocioDemographicSurveyExcelExportService
         // Datos
         foreach ($surveys as $survey) {
             $col = 'A';
-            
+
             $datosSociodemograficos = $survey->datos_sociodemograficos ?? [];
             $datosConsumo = $survey->datos_consumo ?? [];
             $condicionesSalud = $survey->condiciones_salud ?? [];
@@ -1022,8 +1021,8 @@ class SocioDemographicSurveyExcelExportService
                 $survey->correo,
                 $this->getTipoDocumentoDisplayName($survey->tipo_documento),
                 $survey->numero_documento,
-                $survey->nombres,
-                $survey->apellidos,
+                StringHelper::normalizeForApi($survey->nombres),
+                StringHelper::normalizeForApi($survey->apellidos),
                 $survey->hospital,
                 $survey->profesion,
                 $survey->rh,
@@ -1036,12 +1035,12 @@ class SocioDemographicSurveyExcelExportService
                 $survey->talla_calzado,
                 $this->getTallaVestimentaDisplayName($survey->talla_vestimenta),
                 $this->getPaisDisplayName($survey->pais_nacimiento),
-                
+
                 // Contacto de Emergencia
                 $survey->nombre_contacto_emergencia,
                 $this->getRelacionContactoEmergenciaDisplayName($survey->relacion_contacto_emergencia),
                 $survey->telefono_contacto_emergencia,
-                
+
                 // Datos Sociodemográficos
                 $this->formatSiNo($datosSociodemograficos['tienePersonasACargo'] ?? null),
                 $this->getEstadoCivilDisplayName($datosSociodemograficos['estadoCivil'] ?? null),
@@ -1070,13 +1069,13 @@ class SocioDemographicSurveyExcelExportService
                 $this->formatSiNo($manejoTiempoLibre['artisticas'] ?? null),
                 $this->formatSiNo($manejoTiempoLibre['religiosas'] ?? null),
                 $this->formatSiNo($manejoTiempoLibre['otras'] ?? null),
-                
+
                 // Datos de Consumo
                 $this->formatSiNo($datosConsumo['consumoLicor'] ?? null),
                 $this->getFrecuenciaDisplayName($datosConsumo['frecuenciaLicor'] ?? null),
                 $this->formatSiNo($datosConsumo['consumoCigarrillo'] ?? null),
                 $this->getFrecuenciaDisplayName($datosConsumo['frecuenciaCigarrillo'] ?? null),
-                
+
                 // Condiciones de Salud
                 $this->formatSiNo($condicionesSalud['sobrepesoObesidad'] ?? null),
                 $this->formatSiNo($condicionesSalud['hipertensionArterial'] ?? null),
@@ -1115,13 +1114,13 @@ class SocioDemographicSurveyExcelExportService
                 $condicionesSalud['tipoAccidenteTransito'] ?? '',
                 $condicionesSalud['tiempoAccidenteTransito'] ?? '',
                 $this->formatSiNo($condicionesSalud['vacunadoCovid'] ?? null),
-                
+
                 // Limitaciones Físicas
                 $this->formatLimitacion($limitacionesFisicas['esfuerzosIntensos'] ?? null),
                 $this->formatLimitacion($limitacionesFisicas['esfuerzosModerados'] ?? null),
                 $this->formatLimitacion($limitacionesFisicas['subirPisos'] ?? null),
                 $this->formatLimitacion($limitacionesFisicas['agacharseArrodillarse'] ?? null),
-                
+
                 // Recomendaciones Laborales
                 $this->formatSiNo($survey->recomendacion_restriccion_laboral),
                 $survey->detalle_recomendacion_laboral,
@@ -1143,15 +1142,15 @@ class SocioDemographicSurveyExcelExportService
             // Guardar la columna inicial para calcular la de firma después
             $initialCol = $col;
             $dataIndex = 0;
-            
+
             foreach ($data as $value) {
                 $sheet->setCellValue($col . $row, $value);
-                
+
                 // Si estamos en la última columna de datos (la de firma), guardar la columna
                 if ($includeSignatures && $dataIndex === count($data) - 1) {
                     $signatureCol = $col; // Esta es la columna donde está la celda vacía de la firma
                 }
-                
+
                 $col++;
                 $dataIndex++;
             }
@@ -1180,11 +1179,11 @@ class SocioDemographicSurveyExcelExportService
             if ($colIndex >= $headerCount) {
                 break;
             }
-            
+
             // Calcular ancho basado en la longitud del nombre del header
             $headerText = $headers[$colIndex] ?? '';
             $headerLength = mb_strlen($headerText);
-            
+
             // Ancho mínimo de 15, máximo de 50
             // Para nombres largos (más de 30 caracteres), usar más espacio
             if ($headerLength > 30) {
@@ -1194,12 +1193,12 @@ class SocioDemographicSurveyExcelExportService
             } else {
                 $width = max(15, $headerLength * 1.1);
             }
-            
+
             // Columna de firma más ancha
             if ($includeSignatures && $colIndex === $headerCount - 1) {
                 $width = 30;
             }
-            
+
             $sheet->getColumnDimension($col)->setWidth($width);
             $colIndex++;
         }
@@ -1301,10 +1300,10 @@ class SocioDemographicSurveyExcelExportService
         })->sortKeys();
 
         foreach ($byMonth as $month => $monthSurveys) {
-            $monthLabel = $month !== 'Sin fecha' 
+            $monthLabel = $month !== 'Sin fecha'
                 ? $this->formatMonthInSpanish($month)
                 : 'Sin fecha';
-            
+
             $total = $monthSurveys->count();
             $activeAffiliate = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
             $newEntry = $monthSurveys->where('survey_type', 'new_entry')->count();
@@ -1424,10 +1423,10 @@ class SocioDemographicSurveyExcelExportService
         })->sortKeys();
 
         foreach ($byMonth as $month => $monthSurveys) {
-            $monthLabel = $month !== 'Sin fecha' 
+            $monthLabel = $month !== 'Sin fecha'
                 ? $this->formatMonthInSpanish($month)
                 : 'Sin fecha';
-            
+
             $totalMonth = $monthSurveys->count();
             $activeAffiliateMonth = $monthSurveys->where('survey_type', 'active_affiliate')->count() + $monthSurveys->whereNull('survey_type')->count();
             $newEntryMonth = $monthSurveys->where('survey_type', 'new_entry')->count();
@@ -1532,16 +1531,16 @@ class SocioDemographicSurveyExcelExportService
 
                 // Nombre completo del hijo
                 $nombreCompleto = $hijo['nombre'] ?? '';
-                
+
                 // Intentar dividir nombre en nombres y apellidos
                 // Generalmente los apellidos son las últimas 1-2 palabras
                 $nombres = '';
                 $apellidos = '';
-                
+
                 if (!empty($nombreCompleto)) {
                     $partes = preg_split('/\s+/', trim($nombreCompleto));
                     $numPartes = count($partes);
-                    
+
                     if ($numPartes > 2) {
                         // Si hay más de 2 palabras, asumimos que las últimas 2 son apellidos
                         // y las anteriores son nombres
@@ -1597,8 +1596,8 @@ class SocioDemographicSurveyExcelExportService
                 $sheet->setCellValue('A' . $row, $documentoAfiliado);
                 $sheet->setCellValue('B' . $row, $tipoDocumentoNormalizado);
                 $sheet->setCellValue('C' . $row, $documento);
-                $sheet->setCellValue('D' . $row, $nombres);
-                $sheet->setCellValue('E' . $row, $apellidos);
+                $sheet->setCellValue('D' . $row, StringHelper::normalizeForApi($nombres));
+                $sheet->setCellValue('E' . $row, StringHelper::normalizeForApi($apellidos));
                 $sheet->setCellValue('F' . $row, $fechaNacimiento);
                 $sheet->setCellValue('G' . $row, $sexo);
                 $sheet->setCellValue('H' . $row, $notas);
@@ -1634,11 +1633,11 @@ class SocioDemographicSurveyExcelExportService
         }
 
         $normalized = strtolower(trim((string) $value));
-        
+
         if (in_array($normalized, ['si', 'sí', 'yes', 'true', '1', '1.0'])) {
             return 'Sí';
         }
-        
+
         if (in_array($normalized, ['no', 'false', '0', '0.0'])) {
             return 'No';
         }
@@ -2018,7 +2017,7 @@ class SocioDemographicSurveyExcelExportService
         try {
             $date = Carbon::parse($monthYear . '-01');
             $year = $date->year;
-            
+
             $months = [
                 1 => 'Enero',
                 2 => 'Febrero',
@@ -2033,10 +2032,10 @@ class SocioDemographicSurveyExcelExportService
                 11 => 'Noviembre',
                 12 => 'Diciembre',
             ];
-            
+
             $monthNumber = $date->month;
             $monthName = $months[$monthNumber] ?? $date->format('F');
-            
+
             return $monthName . ' ' . $year;
         } catch (\Exception $e) {
             return $monthYear;
