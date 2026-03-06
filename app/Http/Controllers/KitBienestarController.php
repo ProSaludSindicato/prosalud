@@ -73,6 +73,28 @@ class KitBienestarController extends Controller
             'beneficiarios' => [],
         ];
 
+        // Validar si ya existe una solicitud (pendiente o entregada) para este documento y el tipo de entrega activo
+        $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
+        $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
+        if ($tipoActivo) {
+            $solicitudExistente = WellnessDeliveryRequest::where('documento_afiliado', $documento)
+                ->where('wellness_delivery_type_id', $tipoActivo->id)
+                ->whereIn('estado', ['pendiente', 'entregado'])
+                ->first();
+            if ($solicitudExistente) {
+                $estadoText = $solicitudExistente->estado === 'entregado' ? 'entregada' : 'pendiente';
+                $data['solicitud_existente'] = true;
+                $data['solicitud_estado'] = $solicitudExistente->estado;
+                $data['solicitud_id'] = $solicitudExistente->id;
+                $data['tipo_entrega_nombre'] = $solicitudExistente->tipo_entrega_text ?? $tipoActivo->nombre;
+                $data['solicitud_existente_mensaje'] = "Ya existe una solicitud {$estadoText} para este documento y este tipo de entrega («{$data['tipo_entrega_nombre']}»). No se pueden crear solicitudes duplicadas.";
+            } else {
+                $data['solicitud_existente'] = false;
+            }
+        } else {
+            $data['solicitud_existente'] = false;
+        }
+
         return response()->json([
             'success' => true,
             'data' => $data,
