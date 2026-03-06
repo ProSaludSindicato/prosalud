@@ -479,6 +479,7 @@ class KitBienestarController extends Controller
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
                 'estado' => 'entregado',
+                'cantidad_entregada' => 1,
                 'entregado_por_user_id' => $request->user()->id,
             ];
 
@@ -737,14 +738,12 @@ class KitBienestarController extends Controller
                 $updateData['entregado_por_user_id'] = $user->id;
             }
 
-            // Si el estado es "entregado", guardar la firma de recibido y cantidad entregada
+            // Si el estado es "entregado", guardar la firma de recibido y cantidad entregada (por defecto 1)
             if ($estado === 'entregado') {
                 if ($firmaRecibido) {
                     $updateData['firma_recibido'] = trim($firmaRecibido);
                 }
-                if ($cantidadEntregada !== null) {
-                    $updateData['cantidad_entregada'] = (int) $cantidadEntregada;
-                }
+                $updateData['cantidad_entregada'] = $cantidadEntregada !== null && $cantidadEntregada !== '' ? (int) $cantidadEntregada : 1;
             } else {
                 // Si el estado cambia a otro que no sea "entregado", limpiar cantidad_entregada
                 $updateData['cantidad_entregada'] = null;

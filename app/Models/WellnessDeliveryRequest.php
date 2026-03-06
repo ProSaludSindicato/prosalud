@@ -57,6 +57,10 @@ class WellnessDeliveryRequest extends Model
         'entregado_por_user_id',
     ];
 
+    protected $attributes = [
+        'cantidad_entregada' => 1,
+    ];
+
     protected $casts = [
         'beneficiarios' => 'array',
         'cantidad_entregada' => 'integer',

@@ -456,10 +456,12 @@ class WellnessDeliveryExcelExportService
             if ($request->estado === 'entregado' && $request->cantidad_entregada !== null) {
                 $stats['total_cantidad_entregada'] += $request->cantidad_entregada;
             }
-            // Acumular cantidad total "por entregar" basada en los beneficiarios
+            // Acumular cantidad total "por entregar": por defecto 1 por solicitud; si hay beneficiarios, su cantidad (mínimo 1)
+            $cantidadPorEntregar = 1;
             if (!empty($request->beneficiarios) && is_array($request->beneficiarios)) {
-                $stats['total_por_entregar'] += count($request->beneficiarios);
+                $cantidadPorEntregar = max(1, count($request->beneficiarios));
             }
+            $stats['total_por_entregar'] += $cantidadPorEntregar;
         }
 
         // Calcular cantidad pendiente por entregar
