@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\{ExportWellnessDeliveryExcelRequest, StoreKitBienestarRequest, UpdateWellnessDeliveryRequestStatusRequest, UploadKitBienestarFileRequest};
-use App\Models\{KitBienestarFileVersion, WellnessDeliveryRequest};
-use App\Services\{KitBienestarService, LogSanitizationService, WellnessDeliveryExcelExportService};
+use App\Models\{KitBienestarFileVersion, WellnessDeliveryRequest, WellnessDeliveryType};
+use App\Services\{AfiliadoService, KitBienestarService, LogSanitizationService, WellnessDeliveryExcelExportService};
 use Carbon\Carbon;
 use Illuminate\Http\{JsonResponse, Request};
 use Symfony\Component\HttpFoundation\{BinaryFileResponse as SymfonyBinaryFileResponse, StreamedResponse};
@@ -15,13 +15,68 @@ class KitBienestarController extends Controller
 {
     private KitBienestarService $kitBienestarService;
     private WellnessDeliveryExcelExportService $excelExportService;
+    private AfiliadoService $afiliadoService;
 
     public function __construct(
         KitBienestarService $kitBienestarService,
-        WellnessDeliveryExcelExportService $excelExportService
+        WellnessDeliveryExcelExportService $excelExportService,
+        AfiliadoService $afiliadoService
     ) {
         $this->kitBienestarService = $kitBienestarService;
         $this->excelExportService = $excelExportService;
+        $this->afiliadoService = $afiliadoService;
+    }
+
+    /**
+     * Consulta de afiliado por documento (solo autenticado).
+     * Devuelve la información necesaria para registrar una entrega de bienestar.
+     * GET /api/wellness-delivery-requests/affiliate-lookup?documento=XXX
+     */
+    public function affiliateLookup(Request $request): JsonResponse
+    {
+        $request->validate([
+            'documento' => 'required|string|max:50',
+        ]);
+
+        $documento = trim($request->query('documento'));
+
+        if (!$this->afiliadoService->isFileAvailable()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Servicio temporalmente no disponible. El archivo de afiliados no está disponible.',
+            ], 503);
+        }
+
+        $afiliado = $this->afiliadoService->getAfiliadoByDocumentoOnly($documento);
+
+        if (null === $afiliado) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se encontró un afiliado con el documento indicado.',
+            ], 404);
+        }
+
+        $estado = isset($afiliado['estado']) ? trim((string) $afiliado['estado']) : null;
+        if ($estado === null || strcasecmp($estado, 'Activo') !== 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El afiliado no tiene estado Activo. Solo los afiliados activos pueden recibir entregas de bienestar.',
+            ], 403);
+        }
+
+        $data = [
+            'documento_afiliado' => $afiliado['documento'] ?? $documento,
+            'tipo_documento' => $afiliado['tipo_documento'] ?? null,
+            'nombre_afiliado' => $afiliado['nombre_completo'] ?? trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? '')),
+            'estado' => $estado,
+            'hospital' => isset($afiliado['hospital']) && (string) $afiliado['hospital'] !== '' ? trim((string) $afiliado['hospital']) : null,
+            'beneficiarios' => [],
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+        ]);
     }
 
     /**
@@ -62,52 +117,74 @@ class KitBienestarController extends Controller
                 'hour' => now()->format('H:00:00'),
             ]);
 
-            // Check if the file is available
-            if (!$this->kitBienestarService->isFileAvailable()) {
-                Log::error('KIT_BIENESTAR_AUTH: Servicio no disponible', [
-                    'event_type' => 'service_unavailable',
-                    'status' => 'error',
-                    'documento' => $documento, // Documento completo sin sanitizar
-                    'ip_address' => $request->ip(),
-                    'timestamp' => now()->toISOString(),
-                    'date' => now()->format('Y-m-d'),
-                    'hour' => now()->format('H:00:00'),
-                ]);
-
+            $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
+            $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
+            if (!$tipoActivo) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Servicio temporalmente no disponible',
+                    'message' => 'No hay una campaña de entregas activa en este momento.',
                     'data' => null,
-                ], 503);
+                ], 422);
             }
 
-            // Authenticate and get kit bienestar information
-            // Note: tipo_documento is received but NOT validated
-            $kitBienestar = $this->kitBienestarService->authenticateAndGetKitBienestar(
-                $documento,
-                $fechaExpedicion
-            );
+            $requiereListado = ($tipoActivo->modo_acceso ?? 'listado') === 'listado';
 
-            if (null === $kitBienestar) {
-                // Log estructurado de autenticación fallida
-                Log::warning('KIT_BIENESTAR_AUTH: Autenticación fallida - persona no encontrada', [
-                    'event_type' => 'authentication_failed',
-                    'status' => 'failed',
-                    'reason' => 'persona_no_encontrada',
-                    'documento' => $documento, // Documento completo sin sanitizar
-                    'fecha_expedicion' => $fechaExpedicion,
-                    'ip_address' => $request->ip(),
-                    'user_agent' => $request->userAgent(),
-                    'timestamp' => now()->toISOString(),
-                    'date' => now()->format('Y-m-d'),
-                    'hour' => now()->format('H:00:00'),
-                ]);
+            if ($requiereListado) {
+                // Modo listado: obligatorio tener Excel y que la persona esté en el listado
+                if (!$this->kitBienestarService->isFileAvailable()) {
+                    Log::error('KIT_BIENESTAR_AUTH: Servicio no disponible (modo listado sin Excel)', [
+                        'event_type' => 'service_unavailable',
+                        'status' => 'error',
+                        'documento' => $documento,
+                        'ip_address' => $request->ip(),
+                        'timestamp' => now()->toISOString(),
+                    ]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Servicio temporalmente no disponible. Debe cargarse el listado de afiliados permitidos para esta campaña.',
+                        'data' => null,
+                    ], 503);
+                }
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No se encontró la información en el archivo. La persona no cumple con los requisitos para solicitar el beneficio de ProSalud.',
-                    'data' => null,
-                ], 404);
+                $kitBienestar = $this->kitBienestarService->authenticateAndGetKitBienestar(
+                    $documento,
+                    $fechaExpedicion
+                );
+
+                if (null === $kitBienestar) {
+                    Log::warning('KIT_BIENESTAR_AUTH: Autenticación fallida - persona no encontrada en listado', [
+                        'event_type' => 'authentication_failed',
+                        'status' => 'failed',
+                        'reason' => 'persona_no_encontrada',
+                        'documento' => $documento,
+                        'fecha_expedicion' => $fechaExpedicion,
+                        'ip_address' => $request->ip(),
+                        'timestamp' => now()->toISOString(),
+                    ]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No se encontró la información en el archivo. La persona no está en el listado de afiliados permitidos para esta campaña.',
+                        'data' => null,
+                    ], 404);
+                }
+            } else {
+                // Modo abierto: cualquier afiliado puede reclamar; intentar pre-llenar desde Excel si existe
+                $kitBienestar = null;
+                if ($this->kitBienestarService->isFileAvailable()) {
+                    $kitBienestar = $this->kitBienestarService->authenticateAndGetKitBienestar(
+                        $documento,
+                        $fechaExpedicion
+                    );
+                }
+                if (null === $kitBienestar) {
+                    // No está en Excel o no hay Excel: permitir igualmente con datos mínimos para que complete el formulario
+                    $kitBienestar = [
+                        'nombre' => '',
+                        'hospital' => null,
+                        'afiliado' => ['nombre' => '', 'hospital' => null],
+                        'beneficiarios' => [],
+                    ];
+                }
             }
 
             // Preparar información del usuario para el log
@@ -216,11 +293,20 @@ class KitBienestarController extends Controller
     {
         try {
             $documentoAfiliado = trim($request->input('documento_afiliado'));
-            $tipoEntrega = $request->input('tipo_entrega');
+            $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
+
+            // Obtener el tipo de entrega activo para la fecha actual
+            $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
+            if (!$tipoActivo) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No hay un tipo de entrega activo para la fecha actual. Contacte al administrador para que configure una campaña de entregas (tipo activo y rango de fechas).',
+                ], 422);
+            }
 
             // Validar que no exista una solicitud activa (pendiente o entregada) para el mismo documento y tipo de entrega
             $existingRequest = WellnessDeliveryRequest::where('documento_afiliado', $documentoAfiliado)
-                ->where('tipo_entrega', $tipoEntrega)
+                ->where('wellness_delivery_type_id', $tipoActivo->id)
                 ->whereIn('estado', ['pendiente', 'entregado'])
                 ->first();
 
@@ -229,7 +315,7 @@ class KitBienestarController extends Controller
 
                 Log::warning('Intento de crear solicitud duplicada de kit de bienestar', LogSanitizationService::sanitize([
                     'documento_afiliado' => $documentoAfiliado,
-                    'tipo_entrega' => $tipoEntrega,
+                    'wellness_delivery_type_id' => $tipoActivo->id,
                     'existing_request_id' => $existingRequest->id,
                     'existing_estado' => $existingRequest->estado,
                     'ip_address' => $request->ip(),
@@ -238,7 +324,7 @@ class KitBienestarController extends Controller
 
                 return response()->json([
                     'success' => false,
-                    'message' => "Ya existe una solicitud {$estadoText} para este documento y tipo de entrega. No se pueden crear solicitudes duplicadas.",
+                    'message' => "Ya existe una solicitud {$estadoText} para este documento y este tipo de entrega («{$tipoActivo->nombre}»). No se pueden crear solicitudes duplicadas.",
                     'data' => [
                         'existing_request_id' => $existingRequest->id,
                         'existing_estado' => $existingRequest->estado,
@@ -248,19 +334,25 @@ class KitBienestarController extends Controller
 
             DB::beginTransaction();
 
-            // Preparar datos para guardar
+            // En modo abierto, si un usuario interno registra la entrega (ruta autenticada), se crea directamente como "entregado" y se registra quién entregó
+            $esRegistroInternoAbierto = ($tipoActivo->modo_acceso ?? 'listado') === 'abierto' && $request->user();
+
             $deliveryRequestData = [
-                'tipo_entrega' => $tipoEntrega,
+                'wellness_delivery_type_id' => $tipoActivo->id,
                 'documento_afiliado' => $documentoAfiliado,
                 'nombre_afiliado' => trim($request->input('nombre_afiliado')),
                 'hospital' => $request->filled('hospital') ? trim($request->input('hospital')) : null,
-                'fecha_expedicion' => trim($request->input('fecha_expedicion')),
-                'beneficiarios' => $request->input('beneficiarios'),
+                'fecha_expedicion' => $request->filled('fecha_expedicion') ? trim($request->input('fecha_expedicion')) : null,
+                'beneficiarios' => is_array($request->input('beneficiarios')) ? $request->input('beneficiarios') : [],
                 'firma' => trim($request->input('firma')),
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'estado' => 'pendiente',
+                'estado' => $esRegistroInternoAbierto ? 'entregado' : 'pendiente',
             ];
+
+            if ($esRegistroInternoAbierto) {
+                $deliveryRequestData['entregado_por_user_id'] = $request->user()->id;
+            }
 
             // Crear la solicitud
             $deliveryRequest = WellnessDeliveryRequest::create($deliveryRequestData);
@@ -270,7 +362,7 @@ class KitBienestarController extends Controller
             // Log exitoso (sin incluir la firma completa)
             Log::info('Nueva solicitud de entrega de bienestar creada', LogSanitizationService::sanitize([
                 'delivery_request_id' => $deliveryRequest->id,
-                'tipo_entrega' => $deliveryRequest->tipo_entrega,
+                'wellness_delivery_type_id' => $deliveryRequest->wellness_delivery_type_id,
                 'documento_afiliado' => $deliveryRequest->documento_afiliado,
                 'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
                 'beneficiarios_count' => count($deliveryRequest->beneficiarios ?? []),
@@ -278,17 +370,25 @@ class KitBienestarController extends Controller
                 'timestamp' => now()->toISOString(),
             ]));
 
+            $data = [
+                'id' => $deliveryRequest->id,
+                'wellness_delivery_type_id' => $deliveryRequest->wellness_delivery_type_id,
+                'tipo_entrega_text' => $deliveryRequest->tipo_entrega_text,
+                'documento_afiliado' => $deliveryRequest->documento_afiliado,
+                'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
+                'estado' => $deliveryRequest->estado,
+                'created_at' => $deliveryRequest->created_at->toISOString(),
+            ];
+
+            // Pista para el frontend: en modo abierto, si no se detectó sesión, usar la ruta autenticada para que quede "entregado" con "entregado por"
+            if ($deliveryRequest->estado === 'pendiente' && ($tipoActivo->modo_acceso ?? '') === 'abierto') {
+                $data['_hint'] = 'Para que en modo abierto quede como entregado con "entregado por", usa POST /api/wellness-delivery-requests con la sesión del panel (misma cookie/token que el resto del panel).';
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Solicitud registrada exitosamente',
-                'data' => [
-                    'id' => $deliveryRequest->id,
-                    'tipo_entrega' => $deliveryRequest->tipo_entrega,
-                    'documento_afiliado' => $deliveryRequest->documento_afiliado,
-                    'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
-                    'estado' => $deliveryRequest->estado,
-                    'created_at' => $deliveryRequest->created_at->toISOString(),
-                ],
+                'data' => $data,
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -296,7 +396,6 @@ class KitBienestarController extends Controller
             Log::error('Error al crear solicitud de entrega de bienestar', LogSanitizationService::sanitize([
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'tipo_entrega' => $request->input('tipo_entrega'),
                 'documento_afiliado' => $request->input('documento_afiliado'),
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
@@ -310,13 +409,156 @@ class KitBienestarController extends Controller
     }
 
     /**
+     * Registrar una entrega de bienestar en modo abierto (solo cuando el tipo activo tiene modo_acceso = abierto).
+     * Requiere autenticación. Crea la solicitud directamente como "entregado" con el usuario actual como "entregado por".
+     * Si el tipo activo no es abierto o no hay tipo activo, devuelve 422.
+     */
+    public function storeOpenMode(StoreKitBienestarRequest $request): JsonResponse
+    {
+        try {
+            $documentoAfiliado = trim($request->input('documento_afiliado'));
+            $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
+
+            $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
+            if (!$tipoActivo) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No hay un tipo de entrega activo para la fecha actual. No se puede registrar con este endpoint.',
+                ], 422);
+            }
+
+            if (($tipoActivo->modo_acceso ?? 'listado') !== 'abierto') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este endpoint es solo para tipos de entrega en modo abierto. El tipo activo actual («' . $tipoActivo->nombre . '») está en modo listado. Use el flujo o endpoint correspondiente al modo listado.',
+                    'data' => [
+                        'tipo_activo_id' => $tipoActivo->id,
+                        'tipo_activo_nombre' => $tipoActivo->nombre,
+                        'modo_acceso' => $tipoActivo->modo_acceso,
+                    ],
+                ], 422);
+            }
+
+            $existingRequest = WellnessDeliveryRequest::where('documento_afiliado', $documentoAfiliado)
+                ->where('wellness_delivery_type_id', $tipoActivo->id)
+                ->whereIn('estado', ['pendiente', 'entregado'])
+                ->first();
+
+            if ($existingRequest) {
+                $estadoText = $existingRequest->estado === 'pendiente' ? 'pendiente' : 'entregada';
+                Log::warning('Intento de crear solicitud duplicada (modo abierto)', LogSanitizationService::sanitize([
+                    'documento_afiliado' => $documentoAfiliado,
+                    'wellness_delivery_type_id' => $tipoActivo->id,
+                    'existing_request_id' => $existingRequest->id,
+                ]));
+
+                return response()->json([
+                    'success' => false,
+                    'message' => "Ya existe una solicitud {$estadoText} para este documento y este tipo de entrega («{$tipoActivo->nombre}»). No se pueden crear solicitudes duplicadas.",
+                    'data' => [
+                        'existing_request_id' => $existingRequest->id,
+                        'existing_estado' => $existingRequest->estado,
+                    ],
+                ], 409);
+            }
+
+            DB::beginTransaction();
+
+            // En modo abierto la firma que envía el usuario es la de recibido (entrega en el acto), no la de solicitud
+            $firmaRecibido = trim($request->input('firma'));
+
+            $deliveryRequestData = [
+                'wellness_delivery_type_id' => $tipoActivo->id,
+                'documento_afiliado' => $documentoAfiliado,
+                'nombre_afiliado' => trim($request->input('nombre_afiliado')),
+                'hospital' => $request->filled('hospital') ? trim($request->input('hospital')) : null,
+                'fecha_expedicion' => $request->filled('fecha_expedicion') ? trim($request->input('fecha_expedicion')) : null,
+                'beneficiarios' => is_array($request->input('beneficiarios')) ? $request->input('beneficiarios') : [],
+                'firma' => '', // En modo abierto no hay firma de solicitud; la firma va en firma_recibido
+                'firma_recibido' => $firmaRecibido !== '' ? $firmaRecibido : null,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'estado' => 'entregado',
+                'entregado_por_user_id' => $request->user()->id,
+            ];
+
+            $deliveryRequest = WellnessDeliveryRequest::create($deliveryRequestData);
+
+            DB::commit();
+
+            Log::info('Nueva solicitud de entrega de bienestar creada (modo abierto)', LogSanitizationService::sanitize([
+                'delivery_request_id' => $deliveryRequest->id,
+                'wellness_delivery_type_id' => $deliveryRequest->wellness_delivery_type_id,
+                'documento_afiliado' => $deliveryRequest->documento_afiliado,
+                'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
+                'timestamp' => now()->toISOString(),
+            ]));
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Solicitud registrada y marcada como entregada.',
+                'data' => [
+                    'id' => $deliveryRequest->id,
+                    'wellness_delivery_type_id' => $deliveryRequest->wellness_delivery_type_id,
+                    'tipo_entrega_text' => $deliveryRequest->tipo_entrega_text,
+                    'documento_afiliado' => $deliveryRequest->documento_afiliado,
+                    'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
+                    'estado' => $deliveryRequest->estado,
+                    'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
+                    'created_at' => $deliveryRequest->created_at->toISOString(),
+                ],
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error al crear solicitud de entrega (modo abierto)', LogSanitizationService::sanitize([
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'documento_afiliado' => $request->input('documento_afiliado'),
+                'ip_address' => $request->ip(),
+            ]));
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al registrar la solicitud. Por favor, intenta nuevamente.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener el tipo de entrega activo para la fecha actual (público, para el formulario).
+     * Si no hay tipo activo, devuelve success: false para que el front no muestre el formulario de solicitud.
+     */
+    public function currentType(Request $request): JsonResponse
+    {
+        $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
+        $tipo = WellnessDeliveryType::getActivoParaFecha($hoy);
+        if (!$tipo) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No hay una campaña de entregas activa en este momento.',
+                'data' => null,
+            ], 200);
+        }
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $tipo->id,
+                'nombre' => $tipo->nombre,
+                'modo_acceso' => $tipo->modo_acceso,
+                'fecha_desde' => $tipo->fecha_desde->format('Y-m-d'),
+                'fecha_hasta' => $tipo->fecha_hasta->format('Y-m-d'),
+            ],
+        ]);
+    }
+
+    /**
      * List wellness delivery requests (with filters)
      * Requires authentication and permission
      */
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = WellnessDeliveryRequest::with('entregadoPor');
+            $query = WellnessDeliveryRequest::with(['entregadoPor', 'tipoEntrega']);
 
             // Filtros
             if ($request->has('tipo_entrega')) {
@@ -365,7 +607,8 @@ class KitBienestarController extends Controller
 
                 return [
                     'id' => $deliveryRequest->id,
-                    'tipo_entrega' => $deliveryRequest->tipo_entrega,
+                    'wellness_delivery_type_id' => $deliveryRequest->wellness_delivery_type_id,
+                    'tipo_entrega_text' => $deliveryRequest->tipo_entrega_text,
                     'documento_afiliado' => $deliveryRequest->documento_afiliado,
                     'nombre_afiliado' => $deliveryRequest->nombre_afiliado,
                     'hospital' => $deliveryRequest->hospital,
@@ -412,13 +655,13 @@ class KitBienestarController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $deliveryRequest = WellnessDeliveryRequest::with('entregadoPor')->findOrFail($id);
+            $deliveryRequest = WellnessDeliveryRequest::with(['entregadoPor', 'tipoEntrega'])->findOrFail($id);
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'id' => $deliveryRequest->id,
-                    'tipo_entrega' => $deliveryRequest->tipo_entrega,
+                    'wellness_delivery_type_id' => $deliveryRequest->wellness_delivery_type_id,
                     'tipo_entrega_text' => $deliveryRequest->tipo_entrega_text,
                     'documento_afiliado' => $deliveryRequest->documento_afiliado,
                     'nombre_afiliado' => $deliveryRequest->nombre_afiliado,

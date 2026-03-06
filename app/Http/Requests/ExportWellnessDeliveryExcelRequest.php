@@ -24,12 +24,7 @@ class ExportWellnessDeliveryExcelRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'tipo_entrega' => [
-                'sometimes',
-                'nullable',
-                'string',
-                Rule::in(array_keys(WellnessDeliveryRequest::TIPOS_ENTREGA)),
-            ],
+            'tipo_entrega' => ['sometimes', 'nullable'],
             'estado' => [
                 'sometimes',
                 'nullable',
@@ -62,7 +57,6 @@ class ExportWellnessDeliveryExcelRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'tipo_entrega.in' => 'El tipo de entrega seleccionado no es válido',
             'estado.in' => 'El estado seleccionado no es válido',
             'fecha_desde.date' => 'La fecha de inicio debe ser una fecha válida',
             'fecha_desde.date_format' => 'La fecha de inicio debe estar en formato YYYY-MM-DD',

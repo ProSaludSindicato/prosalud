@@ -641,12 +641,13 @@ class GenerateSystemMetricsCommand extends Command
 
         $total = $query->count();
 
-        // Por tipo de entrega
-        $byType = $query->clone()
-            ->select('tipo_entrega', DB::raw('count(*) as count'))
-            ->groupBy('tipo_entrega')
-            ->pluck('count', 'tipo_entrega')
-            ->toArray();
+        // Por tipo de entrega (nombre del tipo; agrupa por tipo_entrega_text)
+        $deliveriesForType = $query->clone()->with('tipoEntrega')->get();
+        $byType = [];
+        foreach ($deliveriesForType as $d) {
+            $label = $d->tipo_entrega_text ?: ('Legacy#' . ($d->tipo_entrega ?? 'sin tipo'));
+            $byType[$label] = ($byType[$label] ?? 0) + 1;
+        }
 
         // Por estado
         $byStatus = $query->clone()

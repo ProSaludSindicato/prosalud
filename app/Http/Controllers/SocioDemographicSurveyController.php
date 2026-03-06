@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\StringHelper;
-use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, ExportSocioDemographicSurveysPdfRequest, StoreSocioDemographicSurveyRequest};
+use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, ExportSocioDemographicSurveysPdfRequest, StoreSocioDemographicSurveyRequest, UpdateSocioDemographicSurveyHospitalRequest};
 use App\Jobs\GenerateBulkSurveyPdfJob;
 use App\Models\SocioDemographicSurvey;
 use App\Services\{AuditLogService, SocioDemographicSurveyExcelExportService};
@@ -466,6 +466,38 @@ class SocioDemographicSurveyController extends Controller
                 'firma_download_url' => !empty($survey->firma_path) ? url('/api/socio-demographic-surveys/' . $survey->id . '/signature') : null,
                 'numero_documento_firma' => $survey->numero_documento_firma,
                 'created_at' => $survey->formatted_created_at,
+                'updated_at' => $survey->updated_at?->format('d/m/Y H:i:s'),
+            ],
+        ]);
+    }
+
+    /**
+     * Update the hospital of a specific survey (requires authentication and permission).
+     */
+    public function updateHospital(UpdateSocioDemographicSurveyHospitalRequest $request, SocioDemographicSurvey $survey): JsonResponse
+    {
+        $previousHospital = $survey->hospital;
+        $survey->hospital = trim($request->validated('hospital'));
+        $survey->save();
+
+        Log::info('Hospital de encuesta sociodemográfica actualizado', [
+            'survey_id' => $survey->id,
+            'previous_hospital' => $previousHospital,
+            'new_hospital' => $survey->hospital,
+        ]);
+
+        $this->auditLogService->logBusinessProcess('socio_demographic_survey', 'hospital_updated', $this->auditLogService->addRequestContext($request, [
+            'survey_id' => $survey->id,
+            'previous_hospital' => $previousHospital,
+            'new_hospital' => $survey->hospital,
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Hospital actualizado correctamente',
+            'data' => [
+                'id' => $survey->id,
+                'hospital' => $survey->hospital,
                 'updated_at' => $survey->updated_at?->format('d/m/Y H:i:s'),
             ],
         ]);

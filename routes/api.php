@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, KitBienestarController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController, VaccinationSurveyController};
+use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, KitBienestarController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessDeliveryTypeController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController, VaccinationSurveyController};
 use App\Http\Controllers\Api\{PermissionController, RoleController};
 use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
 use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
@@ -58,11 +58,16 @@ Route::middleware('throttle:public-endpoints')->group(function () {
 // Kit Bienestar authentication routes - Rate limiting aplicado
 Route::middleware('throttle:public-endpoints')->group(function () {
     Route::post('/kit-bienestar/authenticate', [KitBienestarController::class, 'authenticate']);
-    Route::post('/kit-bienestar/request', [KitBienestarController::class, 'store']);
+    Route::get('/kit-bienestar/current-type', [KitBienestarController::class, 'currentType']);
+    // auth.token.optional: si el panel envía la cookie de sesión, se detecta el usuario y en modo abierto se crea como "entregado" con entregado_por
+    Route::post('/kit-bienestar/request', [KitBienestarController::class, 'store'])->middleware('auth.token.optional');
 });
 
 // Kit Bienestar management routes (requieren autenticación)
 Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-requests')->group(function () {
+    Route::get('/affiliate-lookup', [KitBienestarController::class, 'affiliateLookup'])->middleware('permission:wellness_delivery.view');
+    Route::post('/', [KitBienestarController::class, 'store'])->middleware('permission:wellness_delivery.manage');
+    Route::post('/open', [KitBienestarController::class, 'storeOpenMode'])->middleware('permission:wellness_delivery.manage');
     Route::get('/', [KitBienestarController::class, 'index'])->middleware('permission:wellness_delivery.view');
     Route::get('/{id}', [KitBienestarController::class, 'show'])->middleware('permission:wellness_delivery.view');
     Route::patch('/{id}/status', [KitBienestarController::class, 'updateStatus'])->middleware('permission:wellness_delivery.manage');
@@ -76,6 +81,15 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-
     // File management routes
     Route::post('/file/upload', [KitBienestarController::class, 'uploadFile'])->middleware('permission:wellness_delivery.manage');
     Route::get('/file/versions', [KitBienestarController::class, 'getFileVersions'])->middleware('permission:wellness_delivery.view');
+});
+
+// Tipos de entrega de bienestar (CRUD) - requieren permiso wellness_delivery.manage para crear/editar
+Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-types')->group(function () {
+    Route::get('/', [WellnessDeliveryTypeController::class, 'index'])->middleware('permission:wellness_delivery.view');
+    Route::get('/{wellness_delivery_type}', [WellnessDeliveryTypeController::class, 'show'])->middleware('permission:wellness_delivery.view');
+    Route::post('/', [WellnessDeliveryTypeController::class, 'store'])->middleware('permission:wellness_delivery.manage');
+    Route::put('/{wellness_delivery_type}', [WellnessDeliveryTypeController::class, 'update'])->middleware('permission:wellness_delivery.manage');
+    Route::patch('/{wellness_delivery_type}', [WellnessDeliveryTypeController::class, 'update'])->middleware('permission:wellness_delivery.manage');
 });
 
 // OTP requests - Rate limiting híbrido (doble capa) + reCAPTCHA
@@ -371,6 +385,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     // Socio-Demographic Surveys management routes (admin)
     Route::get('/socio-demographic-surveys', [SocioDemographicSurveyController::class, 'index'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}', [SocioDemographicSurveyController::class, 'show'])->middleware('permission:socio_demographic_surveys.view');
+    Route::patch('/socio-demographic-surveys/{survey}/hospital', [SocioDemographicSurveyController::class, 'updateHospital'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}/signature', [SocioDemographicSurveyController::class, 'downloadSignature'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}/pdf', [SocioDemographicSurveyController::class, 'downloadPdf'])->middleware('permission:socio_demographic_surveys.view');
     Route::post('/socio-demographic-surveys/export/pdf', [SocioDemographicSurveyController::class, 'downloadBulkPdf'])->middleware('permission:socio_demographic_surveys.view');

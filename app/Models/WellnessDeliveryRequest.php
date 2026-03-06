@@ -11,7 +11,9 @@ use Illuminate\Support\Carbon;
  * Modelo para solicitudes de entregas de bienestar (kits escolares, desayunos, loncheras, etc.)
  * 
  * @property int $id
+ * @property int|null $wellness_delivery_type_id
  * @property string $tipo_entrega
+ * @property string|null $tipo_entrega_descripcion
  * @property string $documento_afiliado
  * @property string $nombre_afiliado
  * @property string|null $hospital
@@ -28,6 +30,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property-read User|null $entregadoPor
+ * @property-read WellnessDeliveryType|null $tipoEntrega
  */
 class WellnessDeliveryRequest extends Model
 {
@@ -36,7 +39,9 @@ class WellnessDeliveryRequest extends Model
     protected $table = 'wellness_delivery_requests';
 
     protected $fillable = [
+        'wellness_delivery_type_id',
         'tipo_entrega',
+        'tipo_entrega_descripcion',
         'documento_afiliado',
         'nombre_afiliado',
         'hospital',
@@ -60,16 +65,6 @@ class WellnessDeliveryRequest extends Model
     ];
 
     /**
-     * Tipos de entrega disponibles
-     */
-    public const TIPOS_ENTREGA = [
-        'kit_escolar' => 'Kit Escolar',
-        'desayuno' => 'Desayuno',
-        'lonchera' => 'Lonchera',
-        'otro' => 'Otro',
-    ];
-
-    /**
      * Estados disponibles
      */
     public const ESTADOS = [
@@ -79,11 +74,24 @@ class WellnessDeliveryRequest extends Model
     ];
 
     /**
-     * Obtener el texto del tipo de entrega
+     * Obtener el texto del tipo de entrega (nombre tal como se muestra al usuario).
+     * Prioridad: tipo asociado (wellnessDeliveryType) > tipo_entrega_descripcion (legacy) > tipo_entrega (legacy).
      */
     public function getTipoEntregaTextAttribute(): string
     {
-        return self::TIPOS_ENTREGA[$this->tipo_entrega] ?? $this->tipo_entrega;
+        if ($this->relationLoaded('tipoEntrega') && $this->tipoEntrega) {
+            return $this->tipoEntrega->nombre;
+        }
+        if ($this->wellness_delivery_type_id) {
+            $type = $this->tipoEntrega;
+            if ($type) {
+                return $type->nombre;
+            }
+        }
+        if (!empty($this->tipo_entrega_descripcion)) {
+            return $this->tipo_entrega_descripcion;
+        }
+        return $this->tipo_entrega ?? '';
     }
 
     /**
@@ -111,11 +119,22 @@ class WellnessDeliveryRequest extends Model
     }
 
     /**
-     * Scope para filtrar por tipo de entrega
+     * Scope para filtrar por tipo de entrega (id del tipo administrable)
      */
-    public function scopePorTipoEntrega($query, string $tipo)
+    public function scopePorTipoEntrega($query, $tipo)
     {
+        if (is_numeric($tipo)) {
+            return $query->where('wellness_delivery_type_id', (int) $tipo);
+        }
         return $query->where('tipo_entrega', $tipo);
+    }
+
+    /**
+     * Tipo de entrega asociado (cuando la solicitud usa tipos administrables).
+     */
+    public function tipoEntrega(): BelongsTo
+    {
+        return $this->belongsTo(WellnessDeliveryType::class, 'wellness_delivery_type_id');
     }
 
     /**

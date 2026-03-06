@@ -87,7 +87,8 @@ class AfiliadoService
         'documento' => ['documento'],
         'nombres' => ['nombres'],
         'apellidos' => ['apellidos'],
-        'estado' => ['estado'],
+        'estado' => ['estado', 'status', 'estado del afiliado', 'estado afiliado'],
+        'hospital' => ['hospital', 'sede', 'centro de trabajo', 'centro trabajo', 'lugar de trabajo'],
         'fecha_expedicion' => ['fecha exped', 'fecha expedicion'],
         'fecha_nacimiento' => ['fecha nacim', 'fecha nacimiento'],
         'lugar_nacimiento' => ['lugar nacim', 'lugar nacimiento'],
@@ -809,7 +810,8 @@ class AfiliadoService
     public function getAfiliadoByDocumentoOnly(string $documento): ?array
     {
         $normalizedDocumento = $this->normalizeValue($documento);
-        $cacheKey = sprintf('afiliado:doc_only:%s', md5($normalizedDocumento));
+        // v3: hospital = convenio activo/reciente (cliente); v2 tenía estado pero hospital desde columna
+        $cacheKey = sprintf('afiliado:doc_only:v3:%s', md5($normalizedDocumento));
 
         // Check cache first
         $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
@@ -825,7 +827,10 @@ class AfiliadoService
                 }
 
                 if (method_exists($reader, 'setLoadSheetsOnly')) {
-                    $reader->setLoadSheetsOnly([self::SHEET_INFORMACION_GENERAL]);
+                    $reader->setLoadSheetsOnly([
+                        self::SHEET_INFORMACION_GENERAL,
+                        self::SHEET_CONVENIOS,
+                    ]);
                 }
 
                 $spreadsheet = $reader->load($excelPath);
@@ -848,11 +853,23 @@ class AfiliadoService
 
                 $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
 
+                // Hospital = convenio activo o más reciente (cliente del convenio), igual que en otros servicios
+                $hospital = null;
+                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                if ($conveniosSheet) {
+                    $convenios = $this->getConveniosByDocumentoOptimized($conveniosSheet, $normalizedDocumento);
+                    $selected = $this->selectMostRecentConvenio($convenios);
+                    if (!empty($selected)) {
+                        $cliente = $selected[0]['cliente'] ?? '';
+                        $hospital = trim((string) $cliente) !== '' ? trim($cliente) : 'SIN ASIGNAR';
+                    }
+                }
+
                 // Liberar memoria
                 $spreadsheet->disconnectWorksheets();
                 unset($spreadsheet);
 
-                // Return only essential fields for email sending
+                // Return fields for email sending and wellness lookup (estado, hospital = convenio activo/reciente)
                 return [
                     'documento' => $afiliadoFull['documento'] ?? null,
                     'tipo_documento' => $afiliadoFull['tipo_documento'] ?? null,
@@ -860,6 +877,8 @@ class AfiliadoService
                     'apellidos' => $afiliadoFull['apellidos'] ?? '',
                     'correo_personal' => $afiliadoFull['correo_personal'] ?? null,
                     'nombre_completo' => trim(($afiliadoFull['nombres'] ?? '') . ' ' . ($afiliadoFull['apellidos'] ?? '')),
+                    'estado' => $afiliadoFull['estado'] ?? null,
+                    'hospital' => $hospital,
                 ];
             } catch (\Throwable $e) {
                 Log::error('Error al buscar afiliado por documento', [
@@ -1815,6 +1834,7 @@ class AfiliadoService
             'nombres' => $this->normalizeValue($getValue('nombres')),
             'apellidos' => $this->normalizeValue($getValue('apellidos')),
             'estado' => $this->normalizeValue($getValue('estado')),
+            'hospital' => $this->normalizeValue($getValue('hospital')),
             'fecha_expedicion' => $this->normalizeDate($getValue('fecha_expedicion')),
             'fecha_nacimiento' => $this->normalizeDate($getValue('fecha_nacimiento')),
             'lugar_nacimiento' => $this->normalizeValue($getValue('lugar_nacimiento')),

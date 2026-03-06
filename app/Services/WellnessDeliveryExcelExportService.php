@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\WellnessDeliveryRequest;
+use App\Models\{WellnessDeliveryRequest, WellnessDeliveryType};
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -91,10 +91,10 @@ class WellnessDeliveryExcelExportService
      */
     private function getRequests(array $filters): Collection
     {
-        $query = WellnessDeliveryRequest::query();
+        $query = WellnessDeliveryRequest::query()->with(['entregadoPor', 'tipoEntrega']);
 
-        // Filtro por tipo de entrega
-        if (!empty($filters['tipo_entrega'])) {
+        // Filtro por tipo de entrega (id del tipo administrable o legacy tipo_entrega)
+        if (isset($filters['tipo_entrega']) && $filters['tipo_entrega'] !== '' && $filters['tipo_entrega'] !== null) {
             $query->porTipoEntrega($filters['tipo_entrega']);
         }
 
@@ -158,9 +158,12 @@ class WellnessDeliveryExcelExportService
         $sheet->getStyle("A{$row}")->getFont()->setBold(true);
         $row++;
 
-        if (!empty($filters['tipo_entrega'])) {
+        if (isset($filters['tipo_entrega']) && $filters['tipo_entrega'] !== '' && $filters['tipo_entrega'] !== null) {
             $sheet->setCellValue("A{$row}", 'Tipo de Entrega:');
-            $sheet->setCellValue("B{$row}", WellnessDeliveryRequest::TIPOS_ENTREGA[$filters['tipo_entrega']] ?? $filters['tipo_entrega']);
+            $label = is_numeric($filters['tipo_entrega'])
+                ? (WellnessDeliveryType::find($filters['tipo_entrega'])?->nombre ?? 'ID ' . $filters['tipo_entrega'])
+                : $filters['tipo_entrega'];
+            $sheet->setCellValue("B{$row}", $label);
             $row++;
         }
 

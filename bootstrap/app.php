@@ -39,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'permission' => \App\Http\Middleware\CheckPermission::class,
             'auth.token' => \App\Http\Middleware\AuthenticateWithApiToken::class,
+            'auth.token.optional' => \App\Http\Middleware\OptionalAuthenticateWithApiToken::class,
             'ensure.api.user' => \App\Http\Middleware\EnsureApiTokenIsValid::class,
             'recaptcha' => \App\Http\Middleware\VerifyRecaptcha::class,
             'dual-rate-limit' => \App\Http\Middleware\DualRateLimit::class,
