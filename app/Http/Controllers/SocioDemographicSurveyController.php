@@ -267,9 +267,28 @@ class SocioDemographicSurveyController extends Controller
     {
         $query = SocioDemographicSurvey::query();
 
-        // Filtros opcionales
-        if ($request->has('hospital')) {
-            $query->byHospital($request->input('hospital'));
+        // Filtro por año (created_at) - acepta year o ano
+        $yearInput = $request->input('year') ?? $request->input('ano');
+        if ($yearInput !== null && $yearInput !== '') {
+            $year = (int) $yearInput;
+            if ($year >= 2000 && $year <= 2100) {
+                $query->byYear($year);
+            }
+        }
+
+        // Filtro por mes (1-12) - acepta month o mes
+        $monthInput = $request->input('month') ?? $request->input('mes');
+        if ($monthInput !== null && $monthInput !== '') {
+            $month = (int) $monthInput;
+            if ($month >= 1 && $month <= 12) {
+                $query->byMonth($month);
+            }
+        }
+
+        // Filtro por hospitales (selección múltiple)
+        $hospitals = $this->parseHospitalsInput($request);
+        if (! empty($hospitals)) {
+            $query->byHospitals($hospitals);
         }
 
         // Filtro por documento:
@@ -330,10 +349,24 @@ class SocioDemographicSurveyController extends Controller
 
         // Calcular métricas de trazabilidad
         $baseQuery = SocioDemographicSurvey::query();
-        
+
         // Aplicar los mismos filtros para las métricas
-        if ($request->has('hospital')) {
-            $baseQuery->byHospital($request->input('hospital'));
+        if ($yearInput !== null && $yearInput !== '') {
+            $year = (int) $yearInput;
+            if ($year >= 2000 && $year <= 2100) {
+                $baseQuery->byYear($year);
+            }
+        }
+
+        if ($monthInput !== null && $monthInput !== '') {
+            $month = (int) $monthInput;
+            if ($month >= 1 && $month <= 12) {
+                $baseQuery->byMonth($month);
+            }
+        }
+
+        if (! empty($hospitals)) {
+            $baseQuery->byHospitals($hospitals);
         }
 
         if ($request->has('numero_documento')) {
@@ -406,6 +439,26 @@ class SocioDemographicSurveyController extends Controller
             'bulk_entry' => $surveysCurrentMonthByType['bulk_entry'] ?? 0, // Compatibilidad con encuestas antiguas
         ];
 
+        // Opciones de filtrado para el frontend (hospitales y años disponibles)
+        $filterOptions = [
+            'hospitals' => SocioDemographicSurvey::query()
+                ->whereNotNull('hospital')
+                ->where('hospital', '!=', '')
+                ->distinct()
+                ->orderBy('hospital')
+                ->pluck('hospital')
+                ->values()
+                ->toArray(),
+            'years' => SocioDemographicSurvey::query()
+                ->selectRaw('YEAR(created_at) as year')
+                ->distinct()
+                ->orderBy('year', 'desc')
+                ->pluck('year')
+                ->filter()
+                ->values()
+                ->toArray(),
+        ];
+
         return response()->json([
             'success' => true,
             'data' => $surveysData,
@@ -423,7 +476,83 @@ class SocioDemographicSurveyController extends Controller
                 ],
                 'by_type' => $surveysByType,
             ],
+            'filter_options' => $filterOptions,
         ]);
+    }
+
+    /**
+     * Get filter options for the frontend (hospitals, years).
+     */
+    public function filterOptions(Request $request): JsonResponse
+    {
+        $filterOptions = [
+            'hospitals' => SocioDemographicSurvey::query()
+                ->whereNotNull('hospital')
+                ->where('hospital', '!=', '')
+                ->distinct()
+                ->orderBy('hospital')
+                ->pluck('hospital')
+                ->values()
+                ->toArray(),
+            'years' => SocioDemographicSurvey::query()
+                ->selectRaw('YEAR(created_at) as year')
+                ->distinct()
+                ->orderBy('year', 'desc')
+                ->pluck('year')
+                ->filter()
+                ->values()
+                ->toArray(),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $filterOptions,
+        ]);
+    }
+
+    /**
+     * Parse hospitals input from request (array or comma-separated string).
+     */
+    private function parseHospitalsInput(Request $request): array
+    {
+        $input = $request->input('hospitals') ?? $request->input('hospital');
+
+        if (empty($input)) {
+            return [];
+        }
+
+        if (is_array($input)) {
+            return array_values(array_filter(array_map('trim', $input)));
+        }
+
+        return array_values(array_filter(array_map('trim', explode(',', (string) $input))));
+    }
+
+    /**
+     * Build filters array for export (Excel/PDF). Same options as list API plus profesion.
+     */
+    private function buildExportFilters(Request $request): array
+    {
+        $dateRange = $request->input('date_range', []);
+        $yearInput = $request->input('year') ?? $request->input('ano');
+        $monthInput = $request->input('month') ?? $request->input('mes');
+
+        return [
+            'survey_type' => $request->input('survey_type', 'all'),
+            'date_range' => [
+                'include_all' => $dateRange['include_all'] ?? true,
+                'start_date' => $dateRange['start_date'] ?? null,
+                'end_date' => $dateRange['end_date'] ?? null,
+            ],
+            'year' => $yearInput !== null && $yearInput !== '' ? (int) $yearInput : null,
+            'month' => $monthInput !== null && $monthInput !== '' ? (int) $monthInput : null,
+            'hospitals' => $this->parseHospitalsInput($request),
+            'hospital' => $request->input('hospital'),
+            'numero_documento' => $request->input('numero_documento'),
+            'tipo_documento' => $request->input('tipo_documento'),
+            'nombre' => $request->input('nombre'),
+            'profesion' => $request->input('profesion'),
+        ];
     }
 
     /**
@@ -631,27 +760,13 @@ class SocioDemographicSurveyController extends Controller
         try {
             $user = $request->user();
 
-            // Preparar filtros
-            $dateRange = $request->input('date_range', []);
-            $surveyType = $request->input('survey_type', 'all');
-            $hospital = $request->input('hospital');
-            $profesion = $request->input('profesion');
-            $includeSignatures = $request->input('include_signatures', false);
-
-            $filters = [
-                'survey_type' => $surveyType,
-                'date_range' => [
-                    'include_all' => $dateRange['include_all'] ?? true,
-                    'start_date' => $dateRange['start_date'] ?? null,
-                    'end_date' => $dateRange['end_date'] ?? null,
-                ],
-                'hospital' => $hospital,
-                'profesion' => $profesion,
-                'include_signatures' => $includeSignatures,
-            ];
+            // Preparar filtros (mismos que API de consulta + include_signatures y profesion)
+            $filters = $this->buildExportFilters($request);
+            $filters['include_signatures'] = $request->input('include_signatures', false);
+            $filters['profesion'] = $request->input('profesion');
 
             // If signatures are included, generate report asynchronously
-            if ($includeSignatures) {
+            if ($filters['include_signatures']) {
                 $jobId = Str::uuid()->toString();
 
                 // Store initial status in cache
@@ -1019,7 +1134,7 @@ class SocioDemographicSurveyController extends Controller
     {
         try {
             $user = $request->user();
-            $filters = $request->validated();
+            $filters = $this->buildExportFilters($request);
             
             // Generate unique job ID
             $jobId = Str::uuid()->toString();

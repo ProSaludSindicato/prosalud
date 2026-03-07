@@ -383,6 +383,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     });
 
     // Socio-Demographic Surveys management routes (admin)
+    Route::get('/socio-demographic-surveys/filter-options', [SocioDemographicSurveyController::class, 'filterOptions'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys', [SocioDemographicSurveyController::class, 'index'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/{survey}', [SocioDemographicSurveyController::class, 'show'])->middleware('permission:socio_demographic_surveys.view');
     Route::patch('/socio-demographic-surveys/{survey}/hospital', [SocioDemographicSurveyController::class, 'updateHospital'])->middleware('permission:socio_demographic_surveys.view');
@@ -395,8 +396,10 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/socio-demographic-surveys/export/status/{jobId}', [SocioDemographicSurveyController::class, 'checkStatus'])->middleware('permission:socio_demographic_surveys.view');
     Route::get('/socio-demographic-surveys/export/download/{jobId}', [SocioDemographicSurveyController::class, 'downloadReport'])->middleware('permission:socio_demographic_surveys.view');
 
-    // Vaccination Surveys (encuesta vacunación) - export Excel
+    // Vaccination Surveys (encuesta vacunación) - export Excel (async)
     Route::post('/encuesta-vacunacion/export/excel', [VaccinationSurveyController::class, 'exportExcel'])->middleware('permission:vaccination_surveys.view');
+    Route::get('/encuesta-vacunacion/export/status/{jobId}', [VaccinationSurveyController::class, 'checkStatus'])->middleware('permission:vaccination_surveys.view');
+    Route::get('/encuesta-vacunacion/export/download/{jobId}', [VaccinationSurveyController::class, 'downloadReport'])->middleware('permission:vaccination_surveys.view');
 
     // Survey Configuration management routes (admin)
     Route::get('/survey-config', [SurveyConfigController::class, 'show'])->middleware('permission:socio_demographic_surveys.config.manage');

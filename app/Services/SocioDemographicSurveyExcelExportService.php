@@ -100,11 +100,43 @@ class SocioDemographicSurveyExcelExportService
     }
 
     /**
-     * Obtener encuestas con filtros aplicados.
+     * Obtener encuestas con filtros aplicados (mismos que API de consulta + date_range y profesion).
      */
     private function getSurveys(array $filters): Collection
     {
         $query = SocioDemographicSurvey::query();
+
+        // Filtro por año
+        if (! empty($filters['year']) && $filters['year'] >= 2000 && $filters['year'] <= 2100) {
+            $query->byYear((int) $filters['year']);
+        }
+
+        // Filtro por mes
+        if (! empty($filters['month']) && $filters['month'] >= 1 && $filters['month'] <= 12) {
+            $query->byMonth((int) $filters['month']);
+        }
+
+        // Filtro por hospitales (selección múltiple) o hospital (singular, compatibilidad)
+        $hospitals = $filters['hospitals'] ?? [];
+        if (! empty($hospitals)) {
+            $query->byHospitals($hospitals);
+        } elseif (! empty($filters['hospital'])) {
+            $query->byHospital($filters['hospital']);
+        }
+
+        // Filtro por documento
+        if (! empty($filters['numero_documento'])) {
+            if (! empty($filters['tipo_documento'])) {
+                $query->byDocument($filters['tipo_documento'], $filters['numero_documento']);
+            } else {
+                $query->byDocumentNumber($filters['numero_documento']);
+            }
+        }
+
+        // Filtro por nombre
+        if (! empty($filters['nombre'])) {
+            $query->byName($filters['nombre']);
+        }
 
         // Filtro por tipo de encuesta
         $surveyType = $filters['survey_type'] ?? 'all';
@@ -116,12 +148,14 @@ class SocioDemographicSurveyExcelExportService
                 });
             } elseif ($surveyType === 'new_entry') {
                 $query->where('survey_type', 'new_entry');
+            } elseif ($surveyType === 'bulk_entry') {
+                $query->where('survey_type', 'bulk_entry');
             }
         }
 
         // Filtro por rango de fechas
         $dateRange = $filters['date_range'] ?? [];
-        if (!($dateRange['include_all'] ?? true)) {
+        if (! ($dateRange['include_all'] ?? true)) {
             if (isset($dateRange['start_date'])) {
                 $startDate = Carbon::parse($dateRange['start_date'])->startOfDay();
                 $query->where('created_at', '>=', $startDate);
@@ -133,13 +167,8 @@ class SocioDemographicSurveyExcelExportService
             }
         }
 
-        // Filtro por hospital (opcional, coincidencia al inicio)
-        if (isset($filters['hospital']) && !empty($filters['hospital'])) {
-            $query->byHospital($filters['hospital']);
-        }
-
-        // Filtro por proceso/profesión (opcional)
-        if (isset($filters['profesion']) && !empty($filters['profesion'])) {
+        // Filtro por proceso/profesión
+        if (! empty($filters['profesion'])) {
             $query->where('profesion', $filters['profesion']);
         }
 

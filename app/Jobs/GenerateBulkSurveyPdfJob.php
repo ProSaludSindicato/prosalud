@@ -67,8 +67,40 @@ class GenerateBulkSurveyPdfJob implements ShouldQueue
                 'filters' => $this->filters,
             ]);
 
-            // Build query with filters
+            // Build query with filters (same as list API + date_range and profesion)
             $query = SocioDemographicSurvey::query();
+
+            // Filter by year
+            if (! empty($this->filters['year']) && $this->filters['year'] >= 2000 && $this->filters['year'] <= 2100) {
+                $query->byYear((int) $this->filters['year']);
+            }
+
+            // Filter by month
+            if (! empty($this->filters['month']) && $this->filters['month'] >= 1 && $this->filters['month'] <= 12) {
+                $query->byMonth((int) $this->filters['month']);
+            }
+
+            // Filter by hospitals (multiple) or hospital (single, backward compat)
+            $hospitals = $this->filters['hospitals'] ?? [];
+            if (! empty($hospitals)) {
+                $query->byHospitals($hospitals);
+            } elseif (! empty($this->filters['hospital'])) {
+                $query->byHospital($this->filters['hospital']);
+            }
+
+            // Filter by document
+            if (! empty($this->filters['numero_documento'])) {
+                if (! empty($this->filters['tipo_documento'])) {
+                    $query->byDocument($this->filters['tipo_documento'], $this->filters['numero_documento']);
+                } else {
+                    $query->byDocumentNumber($this->filters['numero_documento']);
+                }
+            }
+
+            // Filter by name
+            if (! empty($this->filters['nombre'])) {
+                $query->byName($this->filters['nombre']);
+            }
 
             // Filter by survey type
             $surveyType = $this->filters['survey_type'] ?? 'all';
@@ -80,12 +112,14 @@ class GenerateBulkSurveyPdfJob implements ShouldQueue
                     });
                 } elseif ($surveyType === 'new_entry') {
                     $query->where('survey_type', 'new_entry');
+                } elseif ($surveyType === 'bulk_entry') {
+                    $query->where('survey_type', 'bulk_entry');
                 }
             }
 
             // Filter by date range
             $dateRange = $this->filters['date_range'] ?? [];
-            if (!($dateRange['include_all'] ?? true)) {
+            if (! ($dateRange['include_all'] ?? true)) {
                 if (isset($dateRange['start_date'])) {
                     $startDate = \Carbon\Carbon::parse($dateRange['start_date'])->startOfDay();
                     $query->where('created_at', '>=', $startDate);
@@ -97,13 +131,8 @@ class GenerateBulkSurveyPdfJob implements ShouldQueue
                 }
             }
 
-            // Filter by hospital (coincidencia al inicio)
-            if (isset($this->filters['hospital']) && !empty($this->filters['hospital'])) {
-                $query->byHospital($this->filters['hospital']);
-            }
-
-            // Filter by profesion (process)
-            if (isset($this->filters['profesion']) && !empty($this->filters['profesion'])) {
+            // Filter by profesion
+            if (! empty($this->filters['profesion'])) {
                 $query->where('profesion', $this->filters['profesion']);
             }
 

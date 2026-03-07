@@ -179,6 +179,34 @@ class SocioDemographicSurvey extends Model
     }
 
     /**
+     * Scope for surveys by multiple hospitals (selección múltiple, coincidencia exacta).
+     */
+    public function scopeByHospitals(Builder $query, array $hospitals): Builder
+    {
+        $hospitals = array_values(array_filter(array_map('trim', $hospitals)));
+        if (empty($hospitals)) {
+            return $query;
+        }
+        return $query->whereIn('hospital', $hospitals);
+    }
+
+    /**
+     * Scope for surveys by year (created_at).
+     */
+    public function scopeByYear(Builder $query, int $year): Builder
+    {
+        return $query->whereYear('created_at', $year);
+    }
+
+    /**
+     * Scope for surveys by month (created_at).
+     */
+    public function scopeByMonth(Builder $query, int $month): Builder
+    {
+        return $query->whereMonth('created_at', $month);
+    }
+
+    /**
      * Scope for surveys by name (searches in nombres, apellidos, or both).
      */
     public function scopeByName(Builder $query, string $name): Builder
