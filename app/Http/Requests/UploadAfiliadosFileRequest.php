@@ -58,7 +58,8 @@ class UploadAfiliadosFileRequest extends FormRequest
                         $fail('El archivo debe ser un Excel (.xlsx o .xls).');
                     }
                 },
-                'max:20480', // 20MB
+                'min:10240',  // 10 MB — archivos más pequeños se consideran probablemente incompletos
+                'max:20480',  // 20 MB
             ],
         ];
     }
@@ -72,7 +73,8 @@ class UploadAfiliadosFileRequest extends FormRequest
             'file.required' => 'El archivo es obligatorio.',
             'file.file' => 'Debe ser un archivo válido.',
             'file.mimes' => 'El archivo debe ser un Excel (.xlsx o .xls).',
-            'file.max' => 'El archivo no puede ser mayor a 20MB.',
+            'file.min' => 'El archivo debe tener al menos 10 MB. Un archivo más pequeño probablemente está incompleto.',
+            'file.max' => 'El archivo no puede ser mayor a 20 MB.',
         ];
     }
 
