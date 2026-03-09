@@ -5,15 +5,21 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UploadAfiliadosFileRequest;
 use App\Services\AfiliadoService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\{Auth, Log, Storage};
-use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AfiliadosFileController extends Controller
 {
     private const FILE_NAME = 'PROSANET_INFORMACION_AFILIADOS.xlsx';
-    private const FILE_PATH = 'data/' . self::FILE_NAME;
+
+    private const FILE_PATH = 'data/'.self::FILE_NAME;
+
     private const PRIMARY_DISK = 'prosalud-private';
+
     private const FALLBACK_DISK = 'local';
 
     /**
@@ -27,6 +33,31 @@ class AfiliadosFileController extends Controller
             // Validar archivo antes de guardar
             try {
                 $spreadsheet = IOFactory::load($file->getRealPath());
+
+                // Validar que existan las pestañas requeridas
+                $requiredSheets = [
+                    'INFORMACIÓN GENERAL',
+                    'BENEFICIARIOS',
+                    'CONVENIOS',
+                    'CURSOS',
+                ];
+
+                $missingSheets = [];
+                foreach ($requiredSheets as $sheetName) {
+                    if (! $spreadsheet->getSheetByName($sheetName)) {
+                        $missingSheets[] = $sheetName;
+                    }
+                }
+
+                if (! empty($missingSheets)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'El archivo Excel no tiene las pestañas requeridas: '.implode(', ', $missingSheets),
+                        'error_code' => 'MISSING_SHEETS',
+                    ], 422);
+                }
+
+                // Validación básica de que el archivo no esté vacío
                 $worksheet = $spreadsheet->getSheet(0);
                 $data = $worksheet ? $worksheet->toArray() : [];
 
@@ -57,7 +88,7 @@ class AfiliadosFileController extends Controller
             try {
                 $storedPath = Storage::disk($disk)->putFileAs('data', $file, self::FILE_NAME);
 
-                if (false === $storedPath) {
+                if ($storedPath === false) {
                     throw new \Exception('Error al subir archivo al bucket privado');
                 }
 
@@ -81,7 +112,7 @@ class AfiliadosFileController extends Controller
                     $disk = self::FALLBACK_DISK;
                     $storedPath = Storage::disk($disk)->putFileAs('data', $file, self::FILE_NAME);
 
-                    if (false === $storedPath) {
+                    if ($storedPath === false) {
                         throw new \Exception('Error al subir archivo al disco de fallback');
                     }
 
@@ -145,10 +176,10 @@ class AfiliadosFileController extends Controller
             $disk = self::PRIMARY_DISK;
 
             // Intentar leer desde bucket privado primero
-            if (!Storage::disk($disk)->exists($filePath)) {
+            if (! Storage::disk($disk)->exists($filePath)) {
                 // Si no existe en bucket privado, intentar disco local (desarrollo)
                 $disk = self::FALLBACK_DISK;
-                if (!Storage::disk($disk)->exists($filePath)) {
+                if (! Storage::disk($disk)->exists($filePath)) {
                     return response()->json([
                         'success' => false,
                         'message' => 'El archivo de afiliados no existe',
@@ -173,7 +204,7 @@ class AfiliadosFileController extends Controller
                     echo $fileContent;
                 }, self::FILE_NAME, [
                     'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    'Content-Disposition' => 'attachment; filename="' . self::FILE_NAME . '"',
+                    'Content-Disposition' => 'attachment; filename="'.self::FILE_NAME.'"',
                 ]);
             } catch (\Exception $e) {
                 Log::error('Error al descargar archivo de afiliados', [
@@ -213,10 +244,10 @@ class AfiliadosFileController extends Controller
             $disk = self::PRIMARY_DISK;
 
             // Intentar leer desde bucket privado primero
-            if (!Storage::disk($disk)->exists($filePath)) {
+            if (! Storage::disk($disk)->exists($filePath)) {
                 // Si no existe en bucket privado, intentar disco local (desarrollo)
                 $disk = self::FALLBACK_DISK;
-                if (!Storage::disk($disk)->exists($filePath)) {
+                if (! Storage::disk($disk)->exists($filePath)) {
                     return response()->json([
                         'success' => true,
                         'exists' => false,
