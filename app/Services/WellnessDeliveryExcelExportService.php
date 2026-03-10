@@ -2,15 +2,24 @@
 
 namespace App\Services;
 
-use App\Models\{WellnessDeliveryRequest, WellnessDeliveryType};
+use App\Models\WellnessDeliveryRequest;
+use App\Models\WellnessDeliveryType;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\Chart\Chart;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
+use PhpOffice\PhpSpreadsheet\Chart\Legend;
+use PhpOffice\PhpSpreadsheet\Chart\PlotArea;
+use PhpOffice\PhpSpreadsheet\Chart\Title;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
-use PhpOffice\PhpSpreadsheet\Worksheet\{Drawing, Worksheet};
-use PhpOffice\PhpSpreadsheet\Chart\{Chart, DataSeries, DataSeriesValues, Legend, PlotArea, Title};
 
 class WellnessDeliveryExcelExportService
 {
@@ -32,7 +41,7 @@ class WellnessDeliveryExcelExportService
             $requests = $this->getRequests($filters);
 
             // Crear spreadsheet
-            $spreadsheet = new Spreadsheet();
+            $spreadsheet = new Spreadsheet;
             $spreadsheet->removeSheetByIndex(0);
 
             // Crear hoja "Resumen"
@@ -49,7 +58,7 @@ class WellnessDeliveryExcelExportService
             $spreadsheet->setActiveSheetIndex(0);
 
             // Guardar en archivo temporal
-            $tempFile = tempnam(sys_get_temp_dir(), 'wellness_delivery_report_') . '.xlsx';
+            $tempFile = tempnam(sys_get_temp_dir(), 'wellness_delivery_report_').'.xlsx';
             $writer = new Xlsx($spreadsheet);
             $writer->setIncludeCharts(true);
             $writer->save($tempFile);
@@ -61,7 +70,7 @@ class WellnessDeliveryExcelExportService
         } catch (\Exception $e) {
             // Limpiar archivos temporales en caso de error
             $this->cleanupTempFiles();
-            
+
             Log::error('Error generando reporte Excel de entregas de bienestar', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
@@ -99,17 +108,17 @@ class WellnessDeliveryExcelExportService
         }
 
         // Filtro por estado
-        if (!empty($filters['estado'])) {
+        if (! empty($filters['estado'])) {
             $query->porEstado($filters['estado']);
         }
 
         // Filtro por rango de fechas (fecha de creación)
-        if (!empty($filters['fecha_desde'])) {
+        if (! empty($filters['fecha_desde'])) {
             $startDate = Carbon::parse($filters['fecha_desde'])->startOfDay();
             $query->where('created_at', '>=', $startDate);
         }
 
-        if (!empty($filters['fecha_hasta'])) {
+        if (! empty($filters['fecha_hasta'])) {
             $endDate = Carbon::parse($filters['fecha_hasta'])->endOfDay();
             $query->where('created_at', '<=', $endDate);
         }
@@ -130,7 +139,7 @@ class WellnessDeliveryExcelExportService
 
         // Encabezado
         $sheet->setCellValue("A{$row}", 'REPORTE DE ENTREGAS DE BIENESTAR PROSALUD');
-        $sheet->mergeCells("A{$row}:B{$row}");
+        $sheet->mergeCells("A{$row}:D{$row}");
         $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(16);
         $row += 2;
 
@@ -140,7 +149,7 @@ class WellnessDeliveryExcelExportService
         $row++;
 
         // Período
-        if (!empty($filters['fecha_desde']) && !empty($filters['fecha_hasta'])) {
+        if (! empty($filters['fecha_desde']) && ! empty($filters['fecha_hasta'])) {
             $startDate = Carbon::parse($filters['fecha_desde'])->format('d/m/Y');
             $endDate = Carbon::parse($filters['fecha_hasta'])->format('d/m/Y');
             $sheet->setCellValue("A{$row}", 'Período:');
@@ -161,13 +170,13 @@ class WellnessDeliveryExcelExportService
         if (isset($filters['tipo_entrega']) && $filters['tipo_entrega'] !== '' && $filters['tipo_entrega'] !== null) {
             $sheet->setCellValue("A{$row}", 'Tipo de Entrega:');
             $label = is_numeric($filters['tipo_entrega'])
-                ? (WellnessDeliveryType::find($filters['tipo_entrega'])?->nombre ?? 'ID ' . $filters['tipo_entrega'])
+                ? (WellnessDeliveryType::find($filters['tipo_entrega'])?->nombre ?? 'ID '.$filters['tipo_entrega'])
                 : $filters['tipo_entrega'];
             $sheet->setCellValue("B{$row}", $label);
             $row++;
         }
 
-        if (!empty($filters['estado'])) {
+        if (! empty($filters['estado'])) {
             $sheet->setCellValue("A{$row}", 'Estado:');
             $sheet->setCellValue("B{$row}", WellnessDeliveryRequest::ESTADOS[$filters['estado']] ?? $filters['estado']);
             $row++;
@@ -181,6 +190,7 @@ class WellnessDeliveryExcelExportService
         $row++;
 
         $stats = $this->calculateSummaryStats($requests);
+        $tipoEntregaLabel = $this->getTipoEntregaLabelForTitle($filters);
 
         $summaryData = [
             ['Métrica', 'Valor'],
@@ -210,7 +220,7 @@ class WellnessDeliveryExcelExportService
         ]);
 
         // Aplicar bordes a todas las celdas de datos
-        $dataRange = "A{$row}:B" . ($row + count($summaryData) - 1);
+        $dataRange = "A{$row}:B".($row + count($summaryData) - 1);
         $sheet->getStyle($dataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -219,10 +229,17 @@ class WellnessDeliveryExcelExportService
 
         // Ajustar anchos de columna
         $sheet->getColumnDimension('A')->setWidth(40);
-        $sheet->getColumnDimension('B')->setWidth(15);
+        $sheet->getColumnDimension('B')->setWidth(25);
 
-        // Agregar gráficas estratégicas usando los datos calculados
-        $this->addChartsToSummarySheet($sheet, $requests, $stats);
+        $summaryEndRow = $summaryStartRow + count($summaryData) - 1;
+
+        // Agregar sección de métricas por hospital (tabla + gráfica) justo
+        // debajo del resumen general.
+        $hospitalSectionStartRow = $summaryEndRow + 3;
+        $this->addHospitalSummarySection($sheet, $requests, $hospitalSectionStartRow, $tipoEntregaLabel);
+
+        // Agregar gráficas estratégicas usando los datos calculados (progreso general y top usuarios)
+        $this->addChartsToSummarySheet($sheet, $requests, $stats, $tipoEntregaLabel);
     }
 
     /**
@@ -314,7 +331,7 @@ class WellnessDeliveryExcelExportService
         foreach ($requests as $request) {
             // Formatear beneficiarios
             $beneficiariosText = '';
-            if (!empty($request->beneficiarios) && is_array($request->beneficiarios)) {
+            if (! empty($request->beneficiarios) && is_array($request->beneficiarios)) {
                 $beneficiariosList = [];
                 foreach ($request->beneficiarios as $beneficiario) {
                     $nombre = $beneficiario['beneficiario'] ?? $beneficiario['nombre'] ?? '';
@@ -327,7 +344,7 @@ class WellnessDeliveryExcelExportService
 
             // Calcular "Por entregar" como la cantidad de beneficiarios asociados al registro
             $porEntregar = '';
-            if (!empty($request->beneficiarios) && is_array($request->beneficiarios)) {
+            if (! empty($request->beneficiarios) && is_array($request->beneficiarios)) {
                 $porEntregar = count($request->beneficiarios);
             }
 
@@ -354,7 +371,7 @@ class WellnessDeliveryExcelExportService
             if ($includeFirmas) {
                 // Firma de solicitud
                 $firmaSolicitud = $request->firma ?? '';
-                if (!empty($firmaSolicitud)) {
+                if (! empty($firmaSolicitud)) {
                     // Si es base64, intentar embeber como imagen
                     if (strpos($firmaSolicitud, 'data:image') === 0 || preg_match('/^[A-Za-z0-9+\/]+=*$/', $firmaSolicitud)) {
                         $rowData[] = 'Ver firma en celda'; // Se embebrá después
@@ -367,7 +384,7 @@ class WellnessDeliveryExcelExportService
 
                 // Firma de recibido
                 $firmaRecibido = $request->firma_recibido ?? '';
-                if (!empty($firmaRecibido)) {
+                if (! empty($firmaRecibido)) {
                     // Si es base64, intentar embeber como imagen
                     if (strpos($firmaRecibido, 'data:image') === 0 || preg_match('/^[A-Za-z0-9+\/]+=*$/', $firmaRecibido)) {
                         $rowData[] = 'Ver firma en celda'; // Se embebrá después
@@ -387,12 +404,12 @@ class WellnessDeliveryExcelExportService
                 $firmaRecibidoCol = $this->getColumnLetter(18); // Columna R
 
                 // Embeber firma de solicitud
-                if (!empty($request->firma)) {
+                if (! empty($request->firma)) {
                     $this->embedSignatureImage($sheet, $request->firma, "{$firmaSolicitudCol}{$row}", $row);
                 }
 
                 // Embeber firma de recibido
-                if (!empty($request->firma_recibido)) {
+                if (! empty($request->firma_recibido)) {
                     $this->embedSignatureImage($sheet, $request->firma_recibido, "{$firmaRecibidoCol}{$row}", $row);
                 }
             }
@@ -418,7 +435,7 @@ class WellnessDeliveryExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:{$lastColumn}" . ($row - 1);
+            $dataRange = "A1:{$lastColumn}".($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -429,7 +446,7 @@ class WellnessDeliveryExcelExportService
 
         // Agregar autofiltro (filtros en columnas)
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:{$lastColumn}" . ($row - 1));
+            $sheet->setAutoFilter("A1:{$lastColumn}".($row - 1));
         }
 
         // Congelar primera fila
@@ -458,7 +475,7 @@ class WellnessDeliveryExcelExportService
             }
             // Acumular cantidad total "por entregar": por defecto 1 por solicitud; si hay beneficiarios, su cantidad (mínimo 1)
             $cantidadPorEntregar = 1;
-            if (!empty($request->beneficiarios) && is_array($request->beneficiarios)) {
+            if (! empty($request->beneficiarios) && is_array($request->beneficiarios)) {
                 $cantidadPorEntregar = max(1, count($request->beneficiarios));
             }
             $stats['total_por_entregar'] += $cantidadPorEntregar;
@@ -479,7 +496,7 @@ class WellnessDeliveryExcelExportService
      * - Progreso de entregas: cantidad entregada vs cantidad pendiente por entregar.
      * - Top usuarios que más han entregado (por cantidad entregada).
      */
-    private function addChartsToSummarySheet(Worksheet $sheet, Collection $requests, array $stats): void
+    private function addChartsToSummarySheet(Worksheet $sheet, Collection $requests, array $stats, ?string $tipoEntregaLabel = null): void
     {
         if ($requests->isEmpty()) {
             return;
@@ -492,7 +509,7 @@ class WellnessDeliveryExcelExportService
                 (float) $stats['total_cantidad_entregada'],
                 (float) $stats['total_pendiente_por_entregar'],
             ];
-            $this->addDeliveryProgressChart($sheet, $labels, $values, 'D2', 'I18');
+            $this->addDeliveryProgressChart($sheet, $labels, $values, 'D2', 'I18', $tipoEntregaLabel);
         }
 
         // Gráfica 2: Top usuarios que más han entregado (por cantidad entregada)
@@ -501,23 +518,25 @@ class WellnessDeliveryExcelExportService
         foreach ($requests as $request) {
             if ($request->estado === 'entregado' && $request->cantidad_entregada !== null && $request->entregadoPor) {
                 $responder = $request->entregadoPor;
-                $key = $responder->name . ' (' . $responder->email . ')';
+                $key = $responder->name.' ('.$responder->email.')';
                 $delivererTotals[$key] = ($delivererTotals[$key] ?? 0) + (int) $request->cantidad_entregada;
             }
         }
 
-        if (!empty($delivererTotals)) {
+        if (! empty($delivererTotals)) {
             // Ordenar y tomar los top 10
             arsort($delivererTotals);
             $topDeliverers = array_slice($delivererTotals, 0, 10, true);
-            $this->addTopDeliverersChart($sheet, $topDeliverers, 'D20', 'K36');
+            // Ubicar esta gráfica debajo de la gráfica por hospital para no
+            // interferir con la tabla de resumen por hospital.
+            $this->addTopDeliverersChart($sheet, $topDeliverers, 'M20', 'T36', $tipoEntregaLabel);
         }
     }
 
     /**
      * Gráfica de progreso de entregas (pastel) usando cantidades entregadas vs pendientes.
      */
-    private function addDeliveryProgressChart(Worksheet $sheet, array $labels, array $values, string $topLeft, string $bottomRight): void
+    private function addDeliveryProgressChart(Worksheet $sheet, array $labels, array $values, string $topLeft, string $bottomRight, ?string $tipoEntregaLabel = null): void
     {
         // Evitar gráficas sin datos útiles
         if (array_sum($values) <= 0) {
@@ -548,6 +567,12 @@ class WellnessDeliveryExcelExportService
             ),
         ];
 
+        // Verde para "Entregado" y amarillo para "Pendiente por entregar"
+        $dataSeriesValues[0]->setFillColor([
+            '70ad47', // verde
+            'ffc000', // amarillo
+        ]);
+
         $series = new DataSeries(
             DataSeries::TYPE_PIECHART,
             DataSeries::GROUPING_STANDARD,
@@ -559,7 +584,11 @@ class WellnessDeliveryExcelExportService
 
         $plotArea = new PlotArea(null, [$series]);
         $legend = new Legend(Legend::POSITION_RIGHT, null, false);
-        $title = new Title('Cantidad entregada vs pendiente por entregar');
+        $chartTitle = 'Cantidad entregada vs pendiente por entregar';
+        if ($tipoEntregaLabel) {
+            $chartTitle .= " ({$tipoEntregaLabel})";
+        }
+        $title = new Title($chartTitle);
 
         $chart = new Chart(
             'chart_delivery_progress',
@@ -579,7 +608,7 @@ class WellnessDeliveryExcelExportService
     /**
      * Gráfica de barras con los usuarios que más han entregado.
      */
-    private function addTopDeliverersChart(Worksheet $sheet, array $delivererTotals, string $topLeft, string $bottomRight): void
+    private function addTopDeliverersChart(Worksheet $sheet, array $delivererTotals, string $topLeft, string $bottomRight, ?string $tipoEntregaLabel = null): void
     {
         if (empty($delivererTotals)) {
             return;
@@ -588,7 +617,7 @@ class WellnessDeliveryExcelExportService
         $names = array_keys($delivererTotals);
         // Truncar nombres largos para mejor visualización
         $names = array_map(function ($name) {
-            return mb_strlen($name) > 30 ? mb_substr($name, 0, 27) . '...' : $name;
+            return mb_strlen($name) > 30 ? mb_substr($name, 0, 27).'...' : $name;
         }, $names);
 
         $values = array_values($delivererTotals);
@@ -630,7 +659,11 @@ class WellnessDeliveryExcelExportService
 
         $plotArea = new PlotArea(null, [$series]);
         $legend = new Legend(Legend::POSITION_RIGHT, null, false);
-        $title = new Title('Top usuarios que más han entregado (cantidad de kits)');
+        $chartTitle = 'Top usuarios que más han entregado (cantidad de entregas)';
+        if ($tipoEntregaLabel) {
+            $chartTitle .= " ({$tipoEntregaLabel})";
+        }
+        $title = new Title($chartTitle);
 
         $chart = new Chart(
             'chart_top_deliverers',
@@ -647,6 +680,267 @@ class WellnessDeliveryExcelExportService
         $chart->setBottomRightPosition($bottomRight);
 
         $sheet->addChart($chart);
+    }
+
+    /**
+     * Sección de resumen por hospital: tabla + gráfica.
+     */
+    private function addHospitalSummarySection(Worksheet $sheet, Collection $requests, int $startRow, ?string $tipoEntregaLabel = null): void
+    {
+        if ($requests->isEmpty()) {
+            return;
+        }
+
+        $hospitalStats = $this->calculateHospitalStats($requests);
+
+        if (empty($hospitalStats)) {
+            return;
+        }
+
+        // Ordenar hospitales por total de solicitudes (descendente)
+        uasort($hospitalStats, static function (array $a, array $b): int {
+            return $b['total'] <=> $a['total'];
+        });
+
+        $row = $startRow;
+
+        // Título de sección
+        $sheet->setCellValue("A{$row}", 'RESUMEN POR HOSPITAL');
+        $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
+        $row++;
+
+        // Encabezados
+        $headers = [
+            'Hospital',
+            'Total solicitudes',
+            'Pendientes',
+            'Entregadas',
+            'Cantidad entregada',
+            'Total por entregar',
+        ];
+
+        $sheet->fromArray([$headers], null, "A{$row}");
+
+        $lastColumn = $this->getColumnLetter(count($headers));
+        $headerRange = "A{$row}:{$lastColumn}{$row}";
+
+        $sheet->getStyle($headerRange)->applyFromArray([
+            'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => '4472C4'],
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical' => Alignment::VERTICAL_CENTER,
+            ],
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+            ],
+        ]);
+
+        // Ajustar anchos de columna
+        $columnWidths = [
+            'A' => 30,
+            'B' => 18,
+            'C' => 15,
+            'D' => 18,
+            'E' => 20,
+            'F' => 20,
+        ];
+
+        foreach ($columnWidths as $col => $width) {
+            $sheet->getColumnDimension($col)->setWidth($width);
+        }
+
+        $row++;
+
+        $chartHospitals = [];
+        $chartValues = [];
+
+        foreach ($hospitalStats as $hospital => $stats) {
+            $sheet->fromArray([[
+                $hospital,
+                $stats['total'],
+                $stats['pendiente'],
+                $stats['entregado'],
+                $stats['total_cantidad_entregada'],
+                $stats['total_por_entregar'],
+            ]], null, "A{$row}");
+
+            $chartHospitals[] = $hospital;
+            $chartValues[] = (float) $stats['total_cantidad_entregada'];
+
+            $row++;
+        }
+
+        // Aplicar bordes a la tabla
+        $dataRange = 'A'.($startRow + 1).":{$lastColumn}".($row - 1);
+        $sheet->getStyle($dataRange)->applyFromArray([
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+            ],
+            'alignment' => ['vertical' => Alignment::VERTICAL_TOP],
+        ]);
+
+        // Gráfica de barras por hospital (usar top 10 para mejor lectura)
+        if (! empty($chartHospitals) && array_sum($chartValues) > 0) {
+            $topHospitals = [];
+            foreach ($chartHospitals as $index => $name) {
+                $topHospitals[$name] = $chartValues[$index];
+            }
+
+            arsort($topHospitals);
+            $topHospitals = array_slice($topHospitals, 0, 10, true);
+
+            // Ubicar la gráfica de hospitales a la derecha de las demás gráficas
+            $this->addHospitalDeliveriesChart(
+                $sheet,
+                array_keys($topHospitals),
+                array_values($topHospitals),
+                'M2',
+                'T18',
+                $tipoEntregaLabel
+            );
+        }
+    }
+
+    /**
+     * Calcular estadísticas por hospital.
+     *
+     * @return array<string, array<string, int>>
+     */
+    private function calculateHospitalStats(Collection $requests): array
+    {
+        $stats = [];
+
+        foreach ($requests as $request) {
+            $hospital = trim((string) ($request->hospital ?? ''));
+            if ($hospital === '') {
+                $hospital = 'Sin hospital';
+            }
+
+            if (! isset($stats[$hospital])) {
+                $stats[$hospital] = [
+                    'total' => 0,
+                    'pendiente' => 0,
+                    'entregado' => 0,
+                    'total_cantidad_entregada' => 0,
+                    'total_por_entregar' => 0,
+                ];
+            }
+
+            $stats[$hospital]['total']++;
+            if (isset($stats[$hospital][$request->estado])) {
+                $stats[$hospital][$request->estado]++;
+            }
+
+            if ($request->estado === 'entregado' && $request->cantidad_entregada !== null) {
+                $stats[$hospital]['total_cantidad_entregada'] += (int) $request->cantidad_entregada;
+            }
+
+            $cantidadPorEntregar = 1;
+            if (! empty($request->beneficiarios) && is_array($request->beneficiarios)) {
+                $cantidadPorEntregar = max(1, count($request->beneficiarios));
+            }
+            $stats[$hospital]['total_por_entregar'] += $cantidadPorEntregar;
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Gráfica de barras de entregas por hospital.
+     */
+    private function addHospitalDeliveriesChart(Worksheet $sheet, array $hospitalNames, array $values, string $topLeft, string $bottomRight, ?string $tipoEntregaLabel = null): void
+    {
+        if (empty($hospitalNames) || empty($values) || array_sum($values) <= 0) {
+            return;
+        }
+
+        // Truncar nombres largos para mejor visualización
+        $names = array_map(static function (string $name): string {
+            return mb_strlen($name) > 30 ? mb_substr($name, 0, 27).'...' : $name;
+        }, $hospitalNames);
+
+        $dataSeriesLabels = [
+            new DataSeriesValues(DataSeriesValues::DATASERIES_TYPE_STRING, null, null, 1),
+        ];
+
+        $xAxisTickValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_STRING,
+                null,
+                null,
+                count($names),
+                $names
+            ),
+        ];
+
+        $dataSeriesValues = [
+            new DataSeriesValues(
+                DataSeriesValues::DATASERIES_TYPE_NUMBER,
+                null,
+                null,
+                count($values),
+                $values
+            ),
+        ];
+
+        $series = new DataSeries(
+            DataSeries::TYPE_BARCHART,
+            DataSeries::GROUPING_STANDARD,
+            range(0, count($dataSeriesValues) - 1),
+            $dataSeriesLabels,
+            $xAxisTickValues,
+            $dataSeriesValues
+        );
+
+        $series->setPlotDirection(DataSeries::DIRECTION_VERTICAL);
+
+        $plotArea = new PlotArea(null, [$series]);
+        $legend = new Legend(Legend::POSITION_RIGHT, null, false);
+
+        $chartTitle = 'Entregas por hospital (cantidad entregada)';
+        if ($tipoEntregaLabel) {
+            $chartTitle .= " ({$tipoEntregaLabel})";
+        }
+
+        $title = new Title($chartTitle);
+
+        $chart = new Chart(
+            'chart_hospital_deliveries',
+            $title,
+            $legend,
+            $plotArea,
+            true,
+            0,
+            new Title('Hospital'),
+            new Title('Cantidad entregada')
+        );
+
+        $chart->setTopLeftPosition($topLeft);
+        $chart->setBottomRightPosition($bottomRight);
+
+        $sheet->addChart($chart);
+    }
+
+    /**
+     * Obtener etiqueta legible para el tipo de entrega en títulos de gráficas.
+     */
+    private function getTipoEntregaLabelForTitle(array $filters): ?string
+    {
+        if (! isset($filters['tipo_entrega']) || $filters['tipo_entrega'] === '' || $filters['tipo_entrega'] === null) {
+            return null;
+        }
+
+        if (is_numeric($filters['tipo_entrega'])) {
+            $tipo = WellnessDeliveryType::find($filters['tipo_entrega']);
+
+            return $tipo?->nombre;
+        }
+
+        return (string) $filters['tipo_entrega'];
     }
 
     /**
@@ -676,19 +970,22 @@ class WellnessDeliveryExcelExportService
             if ($imageContent === false) {
                 // Si no es base64 válido, tratar como texto
                 $sheet->setCellValue($cell, substr($firma, 0, 100));
+
                 return;
             }
 
             // Verificar tamaño (máximo 1MB por firma)
             if (strlen($imageContent) > 1024 * 1024) {
                 $sheet->setCellValue($cell, 'Firma demasiado grande');
+
                 return;
             }
 
             // Detectar tipo de imagen
             $imageInfo = @getimagesizefromstring($imageContent);
-            if (!$imageInfo) {
+            if (! $imageInfo) {
                 $sheet->setCellValue($cell, substr($firma, 0, 100));
+
                 return;
             }
 
@@ -702,12 +999,12 @@ class WellnessDeliveryExcelExportService
             };
 
             // Crear archivo temporal
-            $tempImageFile = tempnam(sys_get_temp_dir(), 'wellness_delivery_signature_') . '.' . $extension;
+            $tempImageFile = tempnam(sys_get_temp_dir(), 'wellness_delivery_signature_').'.'.$extension;
             file_put_contents($tempImageFile, $imageContent);
             $this->tempImageFiles[] = $tempImageFile;
 
             // Crear objeto Drawing
-            $drawing = new Drawing();
+            $drawing = new Drawing;
             $drawing->setPath($tempImageFile);
             $drawing->setCoordinates($cell);
             $drawing->setWidth(150);
@@ -747,7 +1044,7 @@ class WellnessDeliveryExcelExportService
      */
     private function formatDate($date): string
     {
-        if (!$date) {
+        if (! $date) {
             return '';
         }
 
@@ -775,4 +1072,3 @@ class WellnessDeliveryExcelExportService
         $this->tempImageFiles = [];
     }
 }
-
