@@ -2,13 +2,22 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{ExportWellnessExcelRequest, StoreWellnessRequestRequest, UpdateWellnessRequestRequest};
-use App\Mail\{WellnessRequestReceived, WellnessRequestUpdated};
-use App\Models\{User, WellnessRequest};
-use App\Services\{AuditLogService, WellnessExcelExportService};
+use App\Http\Requests\ExportWellnessExcelRequest;
+use App\Http\Requests\StoreWellnessRequestRequest;
+use App\Http\Requests\UpdateWellnessRequestRequest;
+use App\Mail\WellnessRequestReceived;
+use App\Mail\WellnessRequestUpdated;
+use App\Models\User;
+use App\Models\WellnessRequest;
+use App\Services\AuditLogService;
+use App\Services\WellnessExcelExportService;
 use Carbon\Carbon;
-use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class WellnessRequestController extends Controller
@@ -16,8 +25,7 @@ class WellnessRequestController extends Controller
     public function __construct(
         private WellnessExcelExportService $excelExportService,
         private AuditLogService $auditLogService,
-    ) {
-    }
+    ) {}
 
     /**
      * Display a listing of wellness requests.
@@ -31,9 +39,9 @@ class WellnessRequestController extends Controller
         if ($user) {
             // Check if user has permission to update status (can see all requests)
             $canUpdateStatus = $user->can('wellness_requests.update_status');
-            
+
             // If user cannot update status, only show their own requests
-            if (!$canUpdateStatus) {
+            if (! $canUpdateStatus) {
                 $query->where('requester_id', $user->id);
             }
         }
@@ -48,9 +56,20 @@ class WellnessRequestController extends Controller
             $query->where('cost_center', $request->input('centroCostos'));
         }
 
-        // Filter by requester
+        // Filter by requester (by ID)
         if ($request->has('solicitanteId')) {
             $query->where('requester_id', $request->input('solicitanteId'));
+        }
+
+        // Filter by requester name (partial match)
+        if ($request->has('solicitante')) {
+            $search = trim((string) $request->input('solicitante'));
+
+            if ($search !== '') {
+                $query->whereHas('requester', function ($q) use ($search) {
+                    $q->where('name', 'like', '%'.$search.'%');
+                });
+            }
         }
 
         // Filter by date range
@@ -77,7 +96,7 @@ class WellnessRequestController extends Controller
             $search = $request->input('busqueda');
             $query->where(function ($q) use ($search) {
                 $q->where('activity_name', 'like', "%{$search}%")
-                  ->orWhere('activity_description', 'like', "%{$search}%");
+                    ->orWhere('activity_description', 'like', "%{$search}%");
             });
         }
 
@@ -133,7 +152,7 @@ class WellnessRequestController extends Controller
 
             // Create details if requires_details is true
             $transformedDetails = $request->getTransformedDetails();
-            if (!empty($transformedDetails)) {
+            if (! empty($transformedDetails)) {
                 $details = [];
                 foreach ($transformedDetails as $detail) {
                     $details[] = [
@@ -224,9 +243,9 @@ class WellnessRequestController extends Controller
         if ($user) {
             // Check if user has permission to update status (can see all requests)
             $canUpdateStatus = $user->can('wellness_requests.update_status');
-            
+
             // If user cannot update status, only show their own requests
-            if (!$canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
+            if (! $canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No tienes permiso para ver esta solicitud',
@@ -253,9 +272,9 @@ class WellnessRequestController extends Controller
         if ($user) {
             // Check if user has permission to update status (can edit all requests)
             $canUpdateStatus = $user->can('wellness_requests.update_status');
-            
+
             // If user cannot update status, only edit their own requests
-            if (!$canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
+            if (! $canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No tienes permiso para editar esta solicitud',
@@ -266,7 +285,7 @@ class WellnessRequestController extends Controller
         // Check if request is in a final state and user doesn't have update_status permission
         if (in_array($wellnessRequest->status, ['resolved', 'rejected'])) {
             // Allow editing if user has update_status permission
-            if (!$user || !$user->can('wellness_requests.update_status')) {
+            if (! $user || ! $user->can('wellness_requests.update_status')) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No se puede editar una solicitud que ya tiene un estado final',
@@ -318,7 +337,7 @@ class WellnessRequestController extends Controller
                 $wellnessRequest->details()->delete();
 
                 // Add new details only if requires_details is true
-                if ($newRequiresDetails && !empty($transformedDetails)) {
+                if ($newRequiresDetails && ! empty($transformedDetails)) {
                     $details = [];
                     foreach ($transformedDetails as $detail) {
                         $details[] = [
@@ -375,15 +394,15 @@ class WellnessRequestController extends Controller
             DB::commit();
 
             // Send email notification if there are changes
-            if (!empty($changes) || null !== $oldDetailsForEmail) {
+            if (! empty($changes) || $oldDetailsForEmail !== null) {
                 try {
                     $requester = User::find($wellnessRequest->requester_id);
                     $requesterEmail = $requester ? $requester->email : null;
 
                     // Check if only status changed (no other fields and no details changed)
-                    $statusOnly = 1 === count($changes)
+                    $statusOnly = count($changes) === 1
                         && isset($changes['status'])
-                        && null === $oldDetailsForEmail;
+                        && $oldDetailsForEmail === null;
 
                     // Send email to requester
                     if ($requesterEmail) {
@@ -400,7 +419,7 @@ class WellnessRequestController extends Controller
                             'wellness_request_id' => $wellnessRequest->id,
                             'email_requester' => $requesterEmail,
                             'changes_count' => count($changes),
-                            'details_changed' => null !== $oldDetailsForEmail,
+                            'details_changed' => $oldDetailsForEmail !== null,
                             'status_only' => $statusOnly,
                         ]);
                     }
@@ -448,7 +467,7 @@ class WellnessRequestController extends Controller
      */
     private function normalizeValueForComparison($value, string $field): string
     {
-        if (null === $value) {
+        if ($value === null) {
             return '';
         }
 
@@ -648,7 +667,7 @@ class WellnessRequestController extends Controller
                 $canExportAll = $user->can('wellness_requests.export_all');
 
                 // If user cannot export all, only export their own requests
-                if (!$canExportAll) {
+                if (! $canExportAll) {
                     $request->merge(['requester_id' => $user->id]);
                 }
             }
@@ -670,7 +689,7 @@ class WellnessRequestController extends Controller
             // Generar reporte
             $filePath = $this->excelExportService->generateReport($filters, $options);
 
-            if (!file_exists($filePath)) {
+            if (! file_exists($filePath)) {
                 Log::error('Error generando reporte Excel de bienestar: archivo no creado', [
                     'user_id' => $user->id,
                     'filters' => $filters,
@@ -683,7 +702,7 @@ class WellnessRequestController extends Controller
             }
 
             // Nombre del archivo con fecha y hora de generación
-            $fileName = 'Reporte_Bienestar_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+            $fileName = 'Reporte_Bienestar_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
 
             Log::info('Reporte Excel de bienestar generado', [
                 'user_id' => $user->id,
@@ -742,9 +761,9 @@ class WellnessRequestController extends Controller
             if ($user) {
                 // Check if user has permission to update status (can see all requests)
                 $canUpdateStatus = $user->can('wellness_requests.update_status');
-                
+
                 // If user cannot update status, only show their own requests
-                if (!$canUpdateStatus) {
+                if (! $canUpdateStatus) {
                     $query->where('requester_id', $user->id);
                 }
             }
@@ -783,7 +802,7 @@ class WellnessRequestController extends Controller
                 $search = $request->input('busqueda');
                 $query->where(function ($q) use ($search) {
                     $q->where('activity_name', 'like', "%{$search}%")
-                      ->orWhere('activity_description', 'like', "%{$search}%");
+                        ->orWhere('activity_description', 'like', "%{$search}%");
                 });
             }
 

@@ -2,19 +2,34 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{ExportWellnessDeliveryExcelRequest, StoreKitBienestarRequest, UpdateWellnessDeliveryRequestStatusRequest, UploadKitBienestarFileRequest};
-use App\Models\{KitBienestarFileVersion, WellnessDeliveryRequest, WellnessDeliveryType};
-use App\Services\{AfiliadoService, KitBienestarService, LogSanitizationService, WellnessDeliveryExcelExportService};
+use App\Http\Requests\ExportWellnessDeliveryExcelRequest;
+use App\Http\Requests\StoreKitBienestarRequest;
+use App\Http\Requests\UpdateWellnessDeliveryRequestStatusRequest;
+use App\Http\Requests\UploadKitBienestarFileRequest;
+use App\Models\KitBienestarFileVersion;
+use App\Models\WellnessDeliveryRequest;
+use App\Models\WellnessDeliveryType;
+use App\Services\AfiliadoService;
+use App\Services\KitBienestarService;
+use App\Services\LogSanitizationService;
+use App\Services\WellnessDeliveryExcelExportService;
 use Carbon\Carbon;
-use Illuminate\Http\{JsonResponse, Request};
-use Symfony\Component\HttpFoundation\{BinaryFileResponse as SymfonyBinaryFileResponse, StreamedResponse};
-use Illuminate\Support\Facades\{Cache, DB, Log, Storage};
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse as SymfonyBinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class KitBienestarController extends Controller
 {
     private KitBienestarService $kitBienestarService;
+
     private WellnessDeliveryExcelExportService $excelExportService;
+
     private AfiliadoService $afiliadoService;
 
     public function __construct(
@@ -40,7 +55,7 @@ class KitBienestarController extends Controller
 
         $documento = trim($request->query('documento'));
 
-        if (!$this->afiliadoService->isFileAvailable()) {
+        if (! $this->afiliadoService->isFileAvailable()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Servicio temporalmente no disponible. El archivo de afiliados no está disponible.',
@@ -49,7 +64,7 @@ class KitBienestarController extends Controller
 
         $afiliado = $this->afiliadoService->getAfiliadoByDocumentoOnly($documento);
 
-        if (null === $afiliado) {
+        if ($afiliado === null) {
             return response()->json([
                 'success' => false,
                 'message' => 'No se encontró un afiliado con el documento indicado.',
@@ -67,7 +82,7 @@ class KitBienestarController extends Controller
         $data = [
             'documento_afiliado' => $afiliado['documento'] ?? $documento,
             'tipo_documento' => $afiliado['tipo_documento'] ?? null,
-            'nombre_afiliado' => $afiliado['nombre_completo'] ?? trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? '')),
+            'nombre_afiliado' => $afiliado['nombre_completo'] ?? trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? '')),
             'estado' => $estado,
             'hospital' => isset($afiliado['hospital']) && (string) $afiliado['hospital'] !== '' ? trim((string) $afiliado['hospital']) : null,
             'beneficiarios' => [],
@@ -141,7 +156,7 @@ class KitBienestarController extends Controller
 
             $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
             $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
-            if (!$tipoActivo) {
+            if (! $tipoActivo) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay una campaña de entregas activa en este momento.',
@@ -153,7 +168,7 @@ class KitBienestarController extends Controller
 
             if ($requiereListado) {
                 // Modo listado: obligatorio tener Excel y que la persona esté en el listado
-                if (!$this->kitBienestarService->isFileAvailable()) {
+                if (! $this->kitBienestarService->isFileAvailable()) {
                     Log::error('KIT_BIENESTAR_AUTH: Servicio no disponible (modo listado sin Excel)', [
                         'event_type' => 'service_unavailable',
                         'status' => 'error',
@@ -161,6 +176,7 @@ class KitBienestarController extends Controller
                         'ip_address' => $request->ip(),
                         'timestamp' => now()->toISOString(),
                     ]);
+
                     return response()->json([
                         'success' => false,
                         'message' => 'Servicio temporalmente no disponible. Debe cargarse el listado de afiliados permitidos para esta campaña.',
@@ -173,7 +189,7 @@ class KitBienestarController extends Controller
                     $fechaExpedicion
                 );
 
-                if (null === $kitBienestar) {
+                if ($kitBienestar === null) {
                     Log::warning('KIT_BIENESTAR_AUTH: Autenticación fallida - persona no encontrada en listado', [
                         'event_type' => 'authentication_failed',
                         'status' => 'failed',
@@ -183,6 +199,7 @@ class KitBienestarController extends Controller
                         'ip_address' => $request->ip(),
                         'timestamp' => now()->toISOString(),
                     ]);
+
                     return response()->json([
                         'success' => false,
                         'message' => 'No se encontró la información en el archivo. La persona no está en el listado de afiliados permitidos para esta campaña.',
@@ -198,7 +215,7 @@ class KitBienestarController extends Controller
                         $fechaExpedicion
                     );
                 }
-                if (null === $kitBienestar) {
+                if ($kitBienestar === null) {
                     // No está en Excel o no hay Excel: permitir igualmente con datos mínimos para que complete el formulario
                     $kitBienestar = [
                         'nombre' => '',
@@ -319,7 +336,7 @@ class KitBienestarController extends Controller
 
             // Obtener el tipo de entrega activo para la fecha actual
             $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
-            if (!$tipoActivo) {
+            if (! $tipoActivo) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay un tipo de entrega activo para la fecha actual. Contacte al administrador para que configure una campaña de entregas (tipo activo y rango de fechas).',
@@ -442,7 +459,7 @@ class KitBienestarController extends Controller
             $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
 
             $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
-            if (!$tipoActivo) {
+            if (! $tipoActivo) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay un tipo de entrega activo para la fecha actual. No se puede registrar con este endpoint.',
@@ -452,7 +469,7 @@ class KitBienestarController extends Controller
             if (($tipoActivo->modo_acceso ?? 'listado') !== 'abierto') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Este endpoint es solo para tipos de entrega en modo abierto. El tipo activo actual («' . $tipoActivo->nombre . '») está en modo listado. Use el flujo o endpoint correspondiente al modo listado.',
+                    'message' => 'Este endpoint es solo para tipos de entrega en modo abierto. El tipo activo actual («'.$tipoActivo->nombre.'») está en modo listado. Use el flujo o endpoint correspondiente al modo listado.',
                     'data' => [
                         'tipo_activo_id' => $tipoActivo->id,
                         'tipo_activo_nombre' => $tipoActivo->nombre,
@@ -555,13 +572,14 @@ class KitBienestarController extends Controller
     {
         $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
         $tipo = WellnessDeliveryType::getActivoParaFecha($hoy);
-        if (!$tipo) {
+        if (! $tipo) {
             return response()->json([
                 'success' => false,
                 'message' => 'No hay una campaña de entregas activa en este momento.',
                 'data' => null,
             ], 200);
         }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -594,6 +612,10 @@ class KitBienestarController extends Controller
 
             if ($request->has('documento')) {
                 $query->porDocumento($request->input('documento'));
+            }
+
+            if ($request->has('solicitante')) {
+                $query->porSolicitante($request->input('solicitante'));
             }
 
             // Filtro por rango de fechas (fecha de creación)
@@ -783,7 +805,7 @@ class KitBienestarController extends Controller
                 'delivery_request_id' => $deliveryRequest->id,
                 'estado_anterior' => $deliveryRequest->getOriginal('estado'),
                 'estado_nuevo' => $estado,
-                'tiene_firma_recibido' => !empty($firmaRecibido),
+                'tiene_firma_recibido' => ! empty($firmaRecibido),
                 'cantidad_entregada' => $deliveryRequest->cantidad_entregada,
                 'updated_by' => $user?->id ?? 'system',
                 'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
@@ -801,7 +823,7 @@ class KitBienestarController extends Controller
                     'estado_text' => $deliveryRequest->estado_text,
                     'cantidad_entregada' => $deliveryRequest->cantidad_entregada,
                     'observaciones' => $deliveryRequest->observaciones,
-                    'tiene_firma_recibido' => !empty($deliveryRequest->firma_recibido),
+                    'tiene_firma_recibido' => ! empty($deliveryRequest->firma_recibido),
                     'entregado_por_user_id' => $deliveryRequest->entregado_por_user_id,
                     'entregado_por' => $deliveryRequest->entregadoPor ? [
                         'id' => $deliveryRequest->entregadoPor->id,
@@ -882,15 +904,15 @@ class KitBienestarController extends Controller
                         // Generate report
                         $filePath = $excelExportService->generateReport($filters, $options);
 
-                        if (!file_exists($filePath)) {
+                        if (! file_exists($filePath)) {
                             throw new \Exception('El archivo del reporte no fue creado');
                         }
 
                         // Generate file name
-                        $fileName = 'Reporte_Entregas_Bienestar_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+                        $fileName = 'Reporte_Entregas_Bienestar_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
 
                         // Store file in storage for later download
-                        $storagePath = 'reports/wellness-delivery/' . $jobId . '/' . $fileName;
+                        $storagePath = 'reports/wellness-delivery/'.$jobId.'/'.$fileName;
                         $disk = Storage::disk('local');
                         $disk->put($storagePath, file_get_contents($filePath));
 
@@ -954,7 +976,7 @@ class KitBienestarController extends Controller
             // Generate report synchronously (without signatures)
             $filePath = $this->excelExportService->generateReport($filters, $options);
 
-            if (!file_exists($filePath)) {
+            if (! file_exists($filePath)) {
                 Log::error('Error generando reporte Excel de entregas de bienestar: archivo no creado', [
                     'user_id' => $user?->id,
                     'filters' => $filters,
@@ -967,7 +989,7 @@ class KitBienestarController extends Controller
             }
 
             // Nombre del archivo
-            $fileName = 'Reporte_Entregas_Bienestar_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+            $fileName = 'Reporte_Entregas_Bienestar_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
 
             Log::info('Reporte Excel de entregas de bienestar generado', [
                 'user_id' => $user?->id,
@@ -1011,7 +1033,7 @@ class KitBienestarController extends Controller
         $cacheKey = "wellness_delivery_report:{$jobId}";
         $status = cache()->get($cacheKey);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
@@ -1043,7 +1065,7 @@ class KitBienestarController extends Controller
         $cacheKey = "wellness_delivery_report:{$jobId}";
         $status = cache()->get($cacheKey);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
@@ -1053,7 +1075,7 @@ class KitBienestarController extends Controller
         if ($status['status'] !== 'completed') {
             return response()->json([
                 'success' => false,
-                'message' => 'El reporte aún no está listo. Estado: ' . ($status['status'] ?? 'unknown'),
+                'message' => 'El reporte aún no está listo. Estado: '.($status['status'] ?? 'unknown'),
                 'status' => $status['status'],
             ], 400);
         }
@@ -1061,7 +1083,7 @@ class KitBienestarController extends Controller
         $filePath = $status['file_path'] ?? null;
         $fileName = $status['file_name'] ?? 'Reporte_Entregas_Bienestar_ProSalud.xlsx';
 
-        if (!$filePath) {
+        if (! $filePath) {
             return response()->json([
                 'success' => false,
                 'message' => 'Ruta del archivo no encontrada',
@@ -1070,7 +1092,7 @@ class KitBienestarController extends Controller
 
         $disk = Storage::disk('local');
 
-        if (!$disk->exists($filePath)) {
+        if (! $disk->exists($filePath)) {
             return response()->json([
                 'success' => false,
                 'message' => 'El archivo no existe en el almacenamiento',
@@ -1113,7 +1135,7 @@ class KitBienestarController extends Controller
             $user = $request->user();
             $file = $request->file('file');
 
-            if (!$file || !$file->isValid()) {
+            if (! $file || ! $file->isValid()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'El archivo no es válido',
@@ -1129,8 +1151,8 @@ class KitBienestarController extends Controller
             // Generar nombre único para el archivo con timestamp
             $originalName = $file->getClientOriginalName();
             $extension = $file->getClientOriginalExtension();
-            $fileName = 'INFORMACION_PARA_KIT_ESCOLARES_' . now()->format('Y-m-d_His') . '.' . $extension;
-            $s3Path = 'kit-bienestar/' . $fileName;
+            $fileName = 'INFORMACION_PARA_KIT_ESCOLARES_'.now()->format('Y-m-d_His').'.'.$extension;
+            $s3Path = 'kit-bienestar/'.$fileName;
 
             // Intentar subir a S3
             $storedPath = Storage::disk($disk)->putFileAs(
@@ -1140,7 +1162,7 @@ class KitBienestarController extends Controller
             );
 
             // Si S3 falla, usar disco local como fallback
-            if (false === $storedPath) {
+            if ($storedPath === false) {
                 Log::warning('S3 upload failed, trying local disk', [
                     's3_disk' => $disk,
                     'fallback_disk' => $fallbackDisk,
@@ -1154,7 +1176,7 @@ class KitBienestarController extends Controller
                 $disk = $fallbackDisk;
             }
 
-            if (false === $storedPath) {
+            if ($storedPath === false) {
                 DB::rollBack();
                 Log::error('Error al subir archivo de kit bienestar', [
                     'user_id' => $user->id,
@@ -1268,4 +1290,3 @@ class KitBienestarController extends Controller
         }
     }
 }
-

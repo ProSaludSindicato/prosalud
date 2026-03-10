@@ -9,7 +9,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * Modelo para solicitudes de entregas de bienestar (kits escolares, desayunos, loncheras, etc.)
- * 
+ *
  * @property int $id
  * @property int|null $wellness_delivery_type_id
  * @property string $tipo_entrega
@@ -92,9 +92,10 @@ class WellnessDeliveryRequest extends Model
                 return $type->nombre;
             }
         }
-        if (!empty($this->tipo_entrega_descripcion)) {
+        if (! empty($this->tipo_entrega_descripcion)) {
             return $this->tipo_entrega_descripcion;
         }
+
         return $this->tipo_entrega ?? '';
     }
 
@@ -111,7 +112,7 @@ class WellnessDeliveryRequest extends Model
      */
     public function getBeneficiariosNombresAttribute(): string
     {
-        if (empty($this->beneficiarios) || !is_array($this->beneficiarios)) {
+        if (empty($this->beneficiarios) || ! is_array($this->beneficiarios)) {
             return '';
         }
 
@@ -130,6 +131,7 @@ class WellnessDeliveryRequest extends Model
         if (is_numeric($tipo)) {
             return $query->where('wellness_delivery_type_id', (int) $tipo);
         }
+
         return $query->where('tipo_entrega', $tipo);
     }
 
@@ -158,6 +160,21 @@ class WellnessDeliveryRequest extends Model
     }
 
     /**
+     * Scope para filtrar por solicitante (nombre del afiliado).
+     * Permite búsquedas parciales por nombre.
+     */
+    public function scopePorSolicitante($query, string $solicitante)
+    {
+        $search = trim($solicitante);
+
+        if ($search === '') {
+            return $query;
+        }
+
+        return $query->where('nombre_afiliado', 'like', '%'.$search.'%');
+    }
+
+    /**
      * Obtener el usuario que realizó la entrega o cancelación
      */
     public function entregadoPor(): BelongsTo
@@ -165,4 +182,3 @@ class WellnessDeliveryRequest extends Model
         return $this->belongsTo(User::class, 'entregado_por_user_id');
     }
 }
-
