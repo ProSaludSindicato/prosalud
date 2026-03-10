@@ -91,6 +91,17 @@ class WellnessRequestController extends Controller
             }
         }
 
+        // Filter by activity realized status: realizadas | no_realizadas | todas (default)
+        if ($request->has('actividadesRealizadas')) {
+            $realizedFilter = $request->input('actividadesRealizadas');
+
+            if ($realizedFilter === 'realizadas') {
+                $query->whereHas('activityRealized');
+            } elseif ($realizedFilter === 'no_realizadas') {
+                $query->doesntHave('activityRealized');
+            }
+        }
+
         // Search by activity name
         if ($request->has('busqueda')) {
             $search = $request->input('busqueda');
