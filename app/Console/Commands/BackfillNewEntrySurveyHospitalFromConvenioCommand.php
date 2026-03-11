@@ -99,6 +99,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
         $skippedInactive = 0;
         $skippedNoConvenio = 0;
         $skippedSameHospital = 0;
+        $updatedSurveys = [];
 
         $query = clone $baseQuery;
         $query->orderBy('id');
@@ -111,6 +112,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
             &$skippedInactive,
             &$skippedNoConvenio,
             &$skippedSameHospital,
+            &$updatedSurveys,
             $limit,
         ) {
             foreach ($surveys as $survey) {
@@ -154,6 +156,16 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
                 }
 
                 $updated++;
+
+                $updatedSurveys[] = [
+                    'id' => $survey->id,
+                    'documento' => $survey->numero_documento,
+                    'tipo_documento' => $survey->tipo_documento,
+                    'nombre_completo' => trim(($survey->nombres ?? '').' '.($survey->apellidos ?? '')),
+                    'hospital_anterior' => $survey->getOriginal('hospital'),
+                    'hospital_nuevo' => $nuevoHospital,
+                    'created_at' => $survey->created_at?->format('Y-m-d H:i:s') ?? null,
+                ];
             }
 
             if ($limit > 0 && $processed >= $limit) {
@@ -172,6 +184,41 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
         $this->line("  • Omitidas (sin convenio asignado/SIN ASIGNAR): {$skippedNoConvenio}");
         $this->line("  • Omitidas (hospital ya coincidía con convenio): {$skippedSameHospital}");
         $this->line('');
+
+        if ($updated > 0) {
+            $this->info('📋 Detalle de encuestas actualizadas (máximo 50 filas):');
+            $this->line('');
+
+            $maxRows = 50;
+            $shown = 0;
+
+            foreach ($updatedSurveys as $item) {
+                if ($shown >= $maxRows) {
+                    break;
+                }
+
+                $this->line(sprintf(
+                    '  • ID: %s | %s | Doc: %s %s | Hospital: "%s" → "%s" | Fecha: %s',
+                    $item['id'],
+                    $item['nombre_completo'] !== '' ? $item['nombre_completo'] : '-',
+                    $item['tipo_documento'],
+                    $item['documento'],
+                    $item['hospital_anterior'] ?? '-',
+                    $item['hospital_nuevo'],
+                    $item['created_at'] ?? 'N/A',
+                ));
+
+                $shown++;
+            }
+
+            if ($updated > $shown) {
+                $remaining = $updated - $shown;
+                $this->line('');
+                $this->line("  ... y {$remaining} encuestas más actualizadas");
+            }
+
+            $this->line('');
+        }
 
         Log::info('Backfill de hospital en encuestas de nuevo ingreso desde convenios ejecutado', [
             'command' => 'surveys:backfill-new-entry-hospital-from-convenio',
