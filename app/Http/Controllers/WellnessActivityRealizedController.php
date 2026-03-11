@@ -2,10 +2,18 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{PublishToGalleryRequest, StoreWellnessActivityRealizedRequest, UpdateWellnessActivityRealizedRequest};
-use App\Models\{WellnessActivityEvidence, WellnessActivityRealized, WellnessEvent, WellnessEventImage, WellnessRequest};
+use App\Http\Requests\PublishToGalleryRequest;
+use App\Http\Requests\StoreWellnessActivityRealizedRequest;
+use App\Http\Requests\UpdateWellnessActivityRealizedRequest;
+use App\Models\WellnessActivityEvidence;
+use App\Models\WellnessActivityRealized;
+use App\Models\WellnessEvent;
+use App\Models\WellnessEventImage;
+use App\Models\WellnessRequest;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\{DB, Log, Storage};
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class WellnessActivityRealizedController extends Controller
@@ -19,7 +27,7 @@ class WellnessActivityRealizedController extends Controller
             // Verify wellness request exists and is resolved
             $wellnessRequest = WellnessRequest::findOrFail($wellness_request_id);
 
-            if ('resolved' !== $wellnessRequest->status) {
+            if ($wellnessRequest->status !== 'resolved') {
                 return response()->json([
                     'success' => false,
                     'message' => 'Solo se puede registrar actividad realizada para solicitudes aprobadas',
@@ -57,7 +65,7 @@ class WellnessActivityRealizedController extends Controller
 
             // Handle evidence images (public bucket)
             $evidencias = $request->file('evidencias', []);
-            if (!empty($evidencias)) {
+            if (! empty($evidencias)) {
                 $this->storeEvidencias($activityRealized, $evidencias);
             }
 
@@ -101,7 +109,7 @@ class WellnessActivityRealizedController extends Controller
                 ->with('evidences')
                 ->first();
 
-            if (!$activityRealized) {
+            if (! $activityRealized) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No se encontró información de actividad realizada para esta solicitud',
@@ -159,7 +167,7 @@ class WellnessActivityRealizedController extends Controller
             if ($request->has('publicado_en_galeria')) {
                 $updateData['published_to_gallery'] = $request->boolean('publicado_en_galeria');
                 // If setting to false, also clear gallery_event_id
-                if (false === $updateData['published_to_gallery']) {
+                if ($updateData['published_to_gallery'] === false) {
                     $updateData['gallery_event_id'] = null;
                 }
             }
@@ -183,7 +191,7 @@ class WellnessActivityRealizedController extends Controller
             }
 
             // Handle delete listado_asistencia
-            if ('true' === $request->input('eliminar_listado_asistencia')) {
+            if ($request->input('eliminar_listado_asistencia') === 'true') {
                 if ($activityRealized->listado_asistencia_path) {
                     try {
                         Storage::disk('prosalud-private')->delete($activityRealized->listado_asistencia_path);
@@ -197,20 +205,20 @@ class WellnessActivityRealizedController extends Controller
             }
 
             // Update activity
-            if (!empty($updateData)) {
+            if (! empty($updateData)) {
                 $activityRealized->update($updateData);
             }
 
             // Handle new evidencias
             $evidencias = $request->file('evidencias', []);
-            if (!empty($evidencias)) {
+            if (! empty($evidencias)) {
                 $this->storeEvidencias($activityRealized, $evidencias);
             }
 
             // Handle evidencias_seleccionadas (mark for gallery)
             if ($request->has('evidencias_seleccionadas')) {
                 $selectedIds = $this->parseJsonArray($request->input('evidencias_seleccionadas'));
-                if (!empty($selectedIds)) {
+                if (! empty($selectedIds)) {
                     WellnessActivityEvidence::where('activity_realized_id', $activityRealized->id)
                         ->whereIn('id', $selectedIds)
                         ->update(['is_selected_for_gallery' => true]);
@@ -228,7 +236,7 @@ class WellnessActivityRealizedController extends Controller
                     foreach ($evidenciasOrden as $item) {
                         $evidenceId = $item['evidence_id'] ?? $item['id'] ?? null;
                         $order = $item['order'] ?? null;
-                        if ($evidenceId && null !== $order) {
+                        if ($evidenceId && $order !== null) {
                             $orderMap[$evidenceId] = $order;
                         }
                     }
@@ -271,7 +279,7 @@ class WellnessActivityRealizedController extends Controller
             // Handle evidencias_eliminadas
             if ($request->has('evidencias_eliminadas')) {
                 $deletedIds = $this->parseJsonArray($request->input('evidencias_eliminadas'));
-                if (!empty($deletedIds)) {
+                if (! empty($deletedIds)) {
                     $evidencesToDelete = WellnessActivityEvidence::where('activity_realized_id', $activityRealized->id)
                         ->whereIn('id', $deletedIds)
                         ->get();
@@ -320,6 +328,8 @@ class WellnessActivityRealizedController extends Controller
     public function publishToGallery(PublishToGalleryRequest $request, int $wellness_request_id): JsonResponse
     {
         try {
+            $user = $request->user();
+
             // Verify wellness request from URL matches the one in body (if provided)
             if ($request->has('wellness_request_id') && $request->input('wellness_request_id') != $wellness_request_id) {
                 return response()->json([
@@ -351,7 +361,7 @@ class WellnessActivityRealizedController extends Controller
             $imagenPrincipalId = $request->input('imagen_principal_id');
 
             // Validate imagen_principal_id is in selected evidences
-            if ($imagenPrincipalId && !in_array($imagenPrincipalId, $selectedIds)) {
+            if ($imagenPrincipalId && ! in_array($imagenPrincipalId, $selectedIds)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'La imagen principal debe estar entre las evidencias seleccionadas',
@@ -359,7 +369,7 @@ class WellnessActivityRealizedController extends Controller
             }
 
             // If no imagen_principal_id provided, use first evidence
-            if (!$imagenPrincipalId && !empty($selectedIds)) {
+            if (! $imagenPrincipalId && ! empty($selectedIds)) {
                 $imagenPrincipalId = $selectedIds[0];
             }
 
@@ -377,14 +387,16 @@ class WellnessActivityRealizedController extends Controller
                 'gift' => $activityRealized->gift_delivered,
                 'is_visible' => $request->input('is_visible', true),
                 'wellness_request_id' => $wellnessRequest->id,
-                'review_status' => 'pending', // Events from requests also need review
+                'review_status' => 'approved',
+                'reviewed_at' => now(),
+                'reviewed_by' => $user?->id,
             ];
 
             $galleryEvent = WellnessEvent::create($eventData);
 
             // Sort evidences by order if provided, otherwise use array order
             $sortedEvidences = [];
-            if (!empty($evidenciasOrden)) {
+            if (! empty($evidenciasOrden)) {
                 // Normalize evidencias_orden format (support both object and array of objects)
                 $orderMap = [];
                 if (isset($evidenciasOrden[0]) && is_array($evidenciasOrden[0])) {
@@ -392,7 +404,7 @@ class WellnessActivityRealizedController extends Controller
                     foreach ($evidenciasOrden as $item) {
                         $evidenceId = $item['evidence_id'] ?? $item['id'] ?? null;
                         $order = $item['order'] ?? null;
-                        if ($evidenceId && null !== $order) {
+                        if ($evidenceId && $order !== null) {
                             $orderMap[$evidenceId] = $order;
                         }
                     }
@@ -502,22 +514,22 @@ class WellnessActivityRealizedController extends Controller
             try {
                 $extension = $image->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($image->getMimeType());
                 $filename = $this->generateDescriptiveFilenameForEvidence($image, $activityRealized->id, $index, $extension);
-                $storagePath = 'wellness-activities/' . $activityRealized->id . '/' . $filename;
+                $storagePath = 'wellness-activities/'.$activityRealized->id.'/'.$filename;
 
                 // Store file
                 $storedPath = Storage::disk($disk)->putFileAs(
-                    'wellness-activities/' . $activityRealized->id,
+                    'wellness-activities/'.$activityRealized->id,
                     $image,
                     $filename
                 );
 
                 $finalDisk = $disk;
-                if (false === $storedPath) {
+                if ($storedPath === false) {
                     Log::warning('Failed to store evidence in public bucket, trying fallback', [
                         'activity_realized_id' => $activityRealized->id,
                     ]);
                     $storedPath = Storage::disk($fallbackDisk)->putFileAs(
-                        'wellness-activities/' . $activityRealized->id,
+                        'wellness-activities/'.$activityRealized->id,
                         $image,
                         $filename
                     );
@@ -529,12 +541,12 @@ class WellnessActivityRealizedController extends Controller
                 }
 
                 // Generate URL
-                if ('prosalud-public' === $finalDisk) {
+                if ($finalDisk === 'prosalud-public') {
                     $baseUrl = config('filesystems.disks.prosalud-public.url');
-                    $imageUrl = rtrim($baseUrl, '/') . '/' . ltrim($storedPath, '/');
+                    $imageUrl = rtrim($baseUrl, '/').'/'.ltrim($storedPath, '/');
                 } else {
                     $baseUrl = config('filesystems.disks.public.url');
-                    $imageUrl = rtrim($baseUrl, '/') . '/' . ltrim($storedPath, '/');
+                    $imageUrl = rtrim($baseUrl, '/').'/'.ltrim($storedPath, '/');
                 }
 
                 // Create evidence record
@@ -568,21 +580,21 @@ class WellnessActivityRealizedController extends Controller
 
         // Store file
         $storedPath = Storage::disk($disk)->putFileAs(
-            'wellness-activities/listados/' . date('Y/m'),
+            'wellness-activities/listados/'.date('Y/m'),
             $file,
             $filename
         );
 
-        if (false === $storedPath) {
+        if ($storedPath === false) {
             Log::warning('Failed to store listado in private bucket, trying fallback', [
                 'wellness_request_id' => $wellness_request_id,
             ]);
             $storedPath = Storage::disk($fallbackDisk)->putFileAs(
-                'wellness-activities/listados/' . date('Y/m'),
+                'wellness-activities/listados/'.date('Y/m'),
                 $file,
                 $filename
             );
-            if (!$storedPath) {
+            if (! $storedPath) {
                 throw new \Exception('No se pudo guardar el listado de asistencia en ningún disco disponible');
             }
         }
@@ -603,13 +615,13 @@ class WellnessActivityRealizedController extends Controller
             // Try to extract path from prosalud-public URL
             $publicBaseUrl = config('filesystems.disks.prosalud-public.url');
             if ($publicBaseUrl && str_starts_with($url, $publicBaseUrl)) {
-                $path = str_replace($publicBaseUrl . '/', '', $url);
+                $path = str_replace($publicBaseUrl.'/', '', $url);
                 $disk = 'prosalud-public';
             } else {
                 // Try public disk
                 $baseUrl = config('filesystems.disks.public.url');
                 if ($baseUrl && str_starts_with($url, $baseUrl)) {
-                    $path = str_replace($baseUrl . '/', '', $url);
+                    $path = str_replace($baseUrl.'/', '', $url);
                     $disk = 'public';
                 }
             }
@@ -636,7 +648,7 @@ class WellnessActivityRealizedController extends Controller
 
         // Try to decode as JSON
         $decoded = json_decode($jsonString, true);
-        if (JSON_ERROR_NONE === json_last_error() && is_array($decoded)) {
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
             return $decoded;
         }
 
