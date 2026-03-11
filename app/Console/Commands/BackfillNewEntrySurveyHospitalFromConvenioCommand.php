@@ -27,6 +27,18 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
     protected $description = 'Actualizar el hospital de encuestas de nuevo ingreso usando el convenio activo/más reciente del afiliado';
 
     /**
+     * Hospitales "legacy" que se consideran para actualizar. Solo encuestas con uno de estos
+     * hospitales serán procesadas (evita reprocesar las ya sobreescritas con nombre de convenio).
+     */
+    private const HOSPITALES_LEGACY_PERMITIDOS = [
+        'E.S.E. HOSPITAL CARISMA',
+        'E.S.E. HOSPITAL LA MARÍA',
+        'E.S.E. HOSPITAL MARCO FIDEL SUAREZ DE BELLO',
+        'E.S.E. HOSPITAL SAN JUAN DE DIOS - RIONEGRO',
+        'SEDE ADMINISTRATIVA CALDAS',
+    ];
+
+    /**
      * Execute the console command.
      */
     public function handle(AfiliadoService $afiliadoService): int
@@ -43,17 +55,20 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
         }
 
         $baseQuery = SocioDemographicSurvey::query()
-            ->where('survey_type', 'new_entry');
+            ->where('survey_type', 'new_entry')
+            ->whereIn('hospital', self::HOSPITALES_LEGACY_PERMITIDOS);
 
-        $totalNewEntry = $baseQuery->count();
+        $totalCandidatas = $baseQuery->count();
+        $totalNewEntry = SocioDemographicSurvey::where('survey_type', 'new_entry')->count();
 
-        if ($totalNewEntry === 0) {
-            $this->info('✅ No se encontraron encuestas con tipo "new_entry". Nada por hacer.');
+        if ($totalCandidatas === 0) {
+            $this->info('✅ No se encontraron encuestas de nuevo ingreso con hospital legacy a actualizar. Nada por hacer.');
+            $this->line("  (Total encuestas 'new_entry': {$totalNewEntry}; solo se consideran hospitales: ".implode(', ', self::HOSPITALES_LEGACY_PERMITIDOS).')');
 
             return 0;
         }
 
-        $this->info("Se encontraron {$totalNewEntry} encuestas con tipo 'new_entry'.");
+        $this->info("Se encontraron {$totalCandidatas} encuestas de nuevo ingreso con hospital a considerar (de {$totalNewEntry} total 'new_entry').");
         $this->line('');
 
         $sample = (clone $baseQuery)
@@ -61,7 +76,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
             ->limit(10)
             ->get();
 
-        $this->info('Muestra de encuestas de nuevo ingreso (máximo 10):');
+        $this->info('Muestra de encuestas candidatas (hospital legacy, máximo 10):');
         foreach ($sample as $survey) {
             $this->line(sprintf(
                 '  • ID: %s | %s %s | Doc: %s %s | Hospital encuesta: %s | Fecha: %s',
@@ -177,7 +192,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
 
         $this->line('');
         $this->info('📊 Resumen de ejecución:');
-        $this->line("  • Encuestas de nuevo ingreso procesadas: {$processed}".($limit > 0 ? " (límite: {$limit})" : ''));
+        $this->line("  • Encuestas candidatas procesadas: {$processed}".($limit > 0 ? " (límite: {$limit})" : ''));
         $this->line("  • Encuestas con hospital actualizado desde convenio: {$updated}");
         $this->line("  • Omitidas (sin afiliado en archivo): {$skippedNoAfiliado}");
         $this->line("  • Omitidas (afiliado con estado diferente a ACTIVO): {$skippedInactive}");
@@ -223,6 +238,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommand extends Command
         Log::info('Backfill de hospital en encuestas de nuevo ingreso desde convenios ejecutado', [
             'command' => 'surveys:backfill-new-entry-hospital-from-convenio',
             'total_new_entry' => $totalNewEntry,
+            'total_candidatas' => $totalCandidatas,
             'processed' => $processed,
             'updated' => $updated,
             'skipped_no_afiliado' => $skippedNoAfiliado,

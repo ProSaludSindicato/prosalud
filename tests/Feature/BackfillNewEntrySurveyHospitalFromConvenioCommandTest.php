@@ -22,7 +22,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommandTest extends TestCase
             'numero_documento' => '123456789',
             'nombres' => 'Juan',
             'apellidos' => 'Pérez',
-            'hospital' => 'E.S.E HOSPITAL LA MARÍA',
+            'hospital' => 'E.S.E. HOSPITAL LA MARÍA',
             'profesion' => 'AUXILIAR',
             'datos_sociodemograficos' => [],
             'datos_consumo' => [],
@@ -73,7 +73,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommandTest extends TestCase
             'numero_documento' => '987654321',
             'nombres' => 'Ana',
             'apellidos' => 'López',
-            'hospital' => 'E.S.E HOSPITAL LA MARÍA',
+            'hospital' => 'E.S.E. HOSPITAL LA MARÍA',
             'profesion' => 'AUXILIAR',
             'datos_sociodemograficos' => [],
             'datos_consumo' => [],
@@ -111,6 +111,44 @@ class BackfillNewEntrySurveyHospitalFromConvenioCommandTest extends TestCase
 
         $survey->refresh();
 
-        $this->assertSame('E.S.E HOSPITAL LA MARÍA', $survey->hospital);
+        $this->assertSame('E.S.E. HOSPITAL LA MARÍA', $survey->hospital);
+    }
+
+    public function test_it_skips_surveys_when_hospital_is_not_in_allowed_legacy_list(): void
+    {
+        $survey = SocioDemographicSurvey::create([
+            'id' => '1000000003',
+            'survey_type' => 'new_entry',
+            'correo' => 'other@example.com',
+            'tipo_documento' => 'CC',
+            'numero_documento' => '111222333',
+            'nombres' => 'Pedro',
+            'apellidos' => 'García',
+            'hospital' => 'HLM - GRUPO 1',
+            'profesion' => 'AUXILIAR',
+            'datos_sociodemograficos' => [],
+            'datos_consumo' => [],
+            'condiciones_salud' => [],
+            'limitaciones_fisicas' => [],
+            'recomendacion_restriccion_laboral' => '',
+            'numero_documento_firma' => '111222333',
+            'pais_nacimiento' => 'CO',
+            'created_at' => now(),
+        ]);
+
+        $afiliadoServiceMock = Mockery::mock(AfiliadoService::class);
+        $afiliadoServiceMock->shouldReceive('getAfiliadoByDocumentoOnly')->never();
+
+        $this->app->instance(AfiliadoService::class, $afiliadoServiceMock);
+
+        $this->artisan('surveys:backfill-new-entry-hospital-from-convenio', [
+            '--force' => true,
+            '--limit' => 10,
+        ])
+            ->assertExitCode(0);
+
+        $survey->refresh();
+
+        $this->assertSame('HLM - GRUPO 1', $survey->hospital);
     }
 }
