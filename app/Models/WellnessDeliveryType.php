@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,9 +17,9 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $nombre
  * @property bool $activo
- * @property string $modo_acceso  'listado' | 'abierto'
- * @property Carbon $fecha_desde
- * @property Carbon $fecha_hasta
+ * @property string $modo_acceso 'listado' | 'abierto'
+ * @property Carbon|null $fecha_desde
+ * @property Carbon|null $fecha_hasta
  * @property int|null $created_by
  * @property Carbon $created_at
  * @property Carbon $updated_at
@@ -58,8 +59,9 @@ class WellnessDeliveryType extends Model
     ];
 
     /**
-     * Scope: tipo activo para una fecha (la fecha cae dentro del rango y activo = true).
-     * Usa comparación directa con la columna DATE para evitar problemas con whereDate en distintos drivers.
+     * Scope: tipos activos para una fecha.
+     * - Siempre activos: activo=true y fecha_desde/fecha_hasta son null (ej. detalles de cumpleaños).
+     * - Con rango: fecha_desde y fecha_hasta no null y la fecha cae dentro del rango (no se usa activo).
      */
     public function scopeActivoParaFecha($query, $date): void
     {
@@ -67,20 +69,46 @@ class WellnessDeliveryType extends Model
             ? Carbon::parse($date)->toDateString()
             : Carbon::parse($date)->toDateString();
 
-        $query->where('activo', true)
-            ->where('fecha_desde', '<=', $d)
-            ->where('fecha_hasta', '>=', $d);
+        $query->where(function ($q) use ($d) {
+            $q->where(function ($q2) {
+                $q2->where('activo', true)
+                    ->whereNull('fecha_desde')
+                    ->whereNull('fecha_hasta');
+            })->orWhere(function ($q2) use ($d) {
+                $q2->whereNotNull('fecha_desde')
+                    ->whereNotNull('fecha_hasta')
+                    ->where('fecha_desde', '<=', $d)
+                    ->where('fecha_hasta', '>=', $d);
+            });
+        });
     }
 
     /**
-     * Obtener el tipo de entrega activo para una fecha.
-     * Si hay varios (rangos solapados), se devuelve el más reciente por fecha_desde.
+     * Obtener todos los tipos de entrega activos para una fecha (pueden ser varios).
+     * Orden: siempre activos primero (por nombre), luego por fecha_desde desc.
+     */
+    public static function getActivosParaFecha($date): Collection
+    {
+        return self::activoParaFecha($date)
+            ->orderByRaw('CASE WHEN fecha_desde IS NULL THEN 0 ELSE 1 END')
+            ->orderByDesc('fecha_desde')
+            ->orderBy('nombre')
+            ->get();
+    }
+
+    /**
+     * Obtener un tipo de entrega activo para una fecha (compatibilidad).
+     * Devuelve el primero de la lista cuando hay varios.
      */
     public static function getActivoParaFecha($date): ?self
     {
-        return self::activoParaFecha($date)
-            ->orderByDesc('fecha_desde')
-            ->first();
+        return self::getActivosParaFecha($date)->first();
+    }
+
+    /** True si este tipo es siempre activo (sin rango de fechas). */
+    public function isSiempreActivo(): bool
+    {
+        return $this->fecha_desde === null && $this->fecha_hasta === null;
     }
 
     /** True si este tipo requiere cargar Excel y validar que el afiliado esté en el listado. */

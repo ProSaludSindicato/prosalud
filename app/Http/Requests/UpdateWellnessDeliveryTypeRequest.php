@@ -17,8 +17,8 @@ class UpdateWellnessDeliveryTypeRequest extends FormRequest
             'nombre' => 'sometimes|string|max:200',
             'activo' => 'sometimes|boolean',
             'modo_acceso' => 'sometimes|string|in:listado,abierto',
-            'fecha_desde' => 'sometimes|date|date_format:Y-m-d',
-            'fecha_hasta' => 'sometimes|date|date_format:Y-m-d|after_or_equal:fecha_desde',
+            'fecha_desde' => 'nullable|sometimes|date|date_format:Y-m-d|required_with:fecha_hasta',
+            'fecha_hasta' => 'nullable|sometimes|date|date_format:Y-m-d|required_with:fecha_desde|after_or_equal:fecha_desde',
         ];
     }
 

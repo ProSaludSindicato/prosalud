@@ -79,6 +79,35 @@ class KitBienestarController extends Controller
             ], 403);
         }
 
+        $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
+        $anoActual = (int) Carbon::parse($hoy, config('app.timezone', 'America/Bogota'))->format('Y');
+        $tiposActivos = WellnessDeliveryType::getActivosParaFecha($hoy);
+
+        $activeTypesPayload = $tiposActivos->map(function (WellnessDeliveryType $tipo) use ($documento, $anoActual) {
+            $solicitudExistente = WellnessDeliveryRequest::where('documento_afiliado', $documento)
+                ->where('wellness_delivery_type_id', $tipo->id)
+                ->whereIn('estado', ['pendiente', 'entregado'])
+                ->whereYear('created_at', $anoActual)
+                ->first();
+
+            return [
+                'id' => $tipo->id,
+                'nombre' => $tipo->nombre,
+                'modo_acceso' => $tipo->modo_acceso,
+                'fecha_desde' => $tipo->fecha_desde?->format('Y-m-d'),
+                'fecha_hasta' => $tipo->fecha_hasta?->format('Y-m-d'),
+                'siempre_activo' => $tipo->isSiempreActivo(),
+                'tiene_solicitud' => $solicitudExistente !== null,
+                'solicitud_estado' => $solicitudExistente?->estado,
+                'solicitud_id' => $solicitudExistente?->id,
+            ];
+        })->values()->all();
+
+        $algunaSolicitudExistente = $tiposActivos->isNotEmpty() && collect($activeTypesPayload)->contains('tiene_solicitud', true);
+        $tiposSinSolicitud = collect($activeTypesPayload)->where('tiene_solicitud', false);
+        $puedeRegistrarOtroTipo = $tiposSinSolicitud->isNotEmpty();
+        $primeraConSolicitud = collect($activeTypesPayload)->firstWhere('tiene_solicitud', true);
+
         $data = [
             'documento_afiliado' => $afiliado['documento'] ?? $documento,
             'tipo_documento' => $afiliado['tipo_documento'] ?? null,
@@ -86,28 +115,21 @@ class KitBienestarController extends Controller
             'estado' => $estado,
             'hospital' => isset($afiliado['hospital']) && (string) $afiliado['hospital'] !== '' ? trim((string) $afiliado['hospital']) : null,
             'beneficiarios' => [],
+            'tipos_activos' => $activeTypesPayload,
+            'solicitud_existente' => $algunaSolicitudExistente,
+            'puede_registrar_otro_tipo' => $puedeRegistrarOtroTipo,
         ];
 
-        // Validar si ya existe una solicitud (pendiente o entregada) para este documento y el tipo de entrega activo
-        $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
-        $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
-        if ($tipoActivo) {
-            $solicitudExistente = WellnessDeliveryRequest::where('documento_afiliado', $documento)
-                ->where('wellness_delivery_type_id', $tipoActivo->id)
-                ->whereIn('estado', ['pendiente', 'entregado'])
-                ->first();
-            if ($solicitudExistente) {
-                $estadoText = $solicitudExistente->estado === 'entregado' ? 'entregada' : 'pendiente';
-                $data['solicitud_existente'] = true;
-                $data['solicitud_estado'] = $solicitudExistente->estado;
-                $data['solicitud_id'] = $solicitudExistente->id;
-                $data['tipo_entrega_nombre'] = $solicitudExistente->tipo_entrega_text ?? $tipoActivo->nombre;
-                $data['solicitud_existente_mensaje'] = "Ya existe una solicitud {$estadoText} para este documento y este tipo de entrega («{$data['tipo_entrega_nombre']}»). No se pueden crear solicitudes duplicadas.";
+        if ($algunaSolicitudExistente && $primeraConSolicitud) {
+            $estadoText = ($primeraConSolicitud['solicitud_estado'] ?? '') === 'entregado' ? 'entregada' : 'pendiente';
+            $data['solicitud_estado'] = $primeraConSolicitud['solicitud_estado'];
+            $data['solicitud_id'] = $primeraConSolicitud['solicitud_id'];
+            $data['tipo_entrega_nombre'] = $primeraConSolicitud['nombre'];
+            if ($puedeRegistrarOtroTipo) {
+                $data['solicitud_existente_mensaje'] = "Para el tipo «{$data['tipo_entrega_nombre']}» ya existe una solicitud {$estadoText}. Puede registrar otra entrega seleccionando un tipo distinto de la lista.";
             } else {
-                $data['solicitud_existente'] = false;
+                $data['solicitud_existente_mensaje'] = "Ya existe una solicitud {$estadoText} para este documento y este tipo de entrega («{$data['tipo_entrega_nombre']}»). No se pueden crear solicitudes duplicadas.";
             }
-        } else {
-            $data['solicitud_existente'] = false;
         }
 
         return response()->json([
@@ -129,11 +151,12 @@ class KitBienestarController extends Controller
         $documentoHash = null;
 
         try {
-            // Validate input
+            // Validate input (wellness_delivery_type_id opcional; obligatorio cuando hay varias campañas activas)
             $request->validate([
                 'tipo_documento' => 'required|string|max:50', // Recibido pero no validado
                 'documento' => 'required|string|max:50',
                 'fecha_expedicion' => 'required|string|max:50',
+                'wellness_delivery_type_id' => 'nullable|integer|exists:wellness_delivery_types,id',
             ]);
 
             $tipoDocumento = trim($request->input('tipo_documento'));
@@ -155,11 +178,22 @@ class KitBienestarController extends Controller
             ]);
 
             $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
-            $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
-            if (! $tipoActivo) {
+            $tiposActivos = WellnessDeliveryType::getActivosParaFecha($hoy);
+            if ($tiposActivos->isEmpty()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay una campaña de entregas activa en este momento.',
+                    'data' => null,
+                ], 422);
+            }
+
+            $tipoActivo = $this->resolveTipoEntregaFromRequest($request, $tiposActivos);
+            if (! $tipoActivo) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $tiposActivos->count() > 1
+                        ? 'Hay varias campañas activas. Indique el tipo de entrega (wellness_delivery_type_id).'
+                        : 'Tipo de entrega no válido o no activo para la fecha actual.',
                     'data' => null,
                 ], 422);
             }
@@ -263,6 +297,9 @@ class KitBienestarController extends Controller
                 'hour' => now()->format('H:00:00'),
             ]));
 
+            $kitBienestar['wellness_delivery_type_id'] = $tipoActivo->id;
+            $kitBienestar['tipo_entrega_nombre'] = $tipoActivo->nombre;
+
             return response()->json([
                 'success' => true,
                 'message' => 'Autenticación exitosa',
@@ -327,6 +364,7 @@ class KitBienestarController extends Controller
 
     /**
      * Store a new wellness delivery request (kit escolar, desayuno, lonchera, etc.)
+     * El frontend puede enviar wellness_delivery_type_id cuando hay varias campañas activas.
      */
     public function store(StoreKitBienestarRequest $request): JsonResponse
     {
@@ -334,19 +372,30 @@ class KitBienestarController extends Controller
             $documentoAfiliado = trim($request->input('documento_afiliado'));
             $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
 
-            // Obtener el tipo de entrega activo para la fecha actual
-            $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
-            if (! $tipoActivo) {
+            $activos = WellnessDeliveryType::getActivosParaFecha($hoy);
+            if ($activos->isEmpty()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'No hay un tipo de entrega activo para la fecha actual. Contacte al administrador para que configure una campaña de entregas (tipo activo y rango de fechas).',
+                    'message' => 'No hay un tipo de entrega activo para la fecha actual. Contacte al administrador para que configure una campaña de entregas.',
                 ], 422);
             }
 
-            // Validar que no exista una solicitud activa (pendiente o entregada) para el mismo documento y tipo de entrega
+            $tipoActivo = $this->resolveTipoEntregaFromRequest($request, $activos);
+            if (! $tipoActivo) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $activos->count() > 1
+                        ? 'Debe seleccionar un tipo de entrega. Hay varias campañas activas.'
+                        : 'Tipo de entrega no válido o no activo para la fecha actual.',
+                ], 422);
+            }
+
+            // Validar que no exista una solicitud activa (pendiente o entregada) para el mismo documento, tipo y año en curso (campañas anuales permiten una entrega por tipo por año)
+            $anoActual = (int) Carbon::parse($hoy, config('app.timezone', 'America/Bogota'))->format('Y');
             $existingRequest = WellnessDeliveryRequest::where('documento_afiliado', $documentoAfiliado)
                 ->where('wellness_delivery_type_id', $tipoActivo->id)
                 ->whereIn('estado', ['pendiente', 'entregado'])
+                ->whereYear('created_at', $anoActual)
                 ->first();
 
             if ($existingRequest) {
@@ -458,18 +507,28 @@ class KitBienestarController extends Controller
             $documentoAfiliado = trim($request->input('documento_afiliado'));
             $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
 
-            $tipoActivo = WellnessDeliveryType::getActivoParaFecha($hoy);
-            if (! $tipoActivo) {
+            $activos = WellnessDeliveryType::getActivosParaFecha($hoy);
+            if ($activos->isEmpty()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay un tipo de entrega activo para la fecha actual. No se puede registrar con este endpoint.',
                 ], 422);
             }
 
+            $tipoActivo = $this->resolveTipoEntregaFromRequest($request, $activos);
+            if (! $tipoActivo) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $activos->count() > 1
+                        ? 'Debe seleccionar un tipo de entrega. Hay varias campañas activas.'
+                        : 'Tipo de entrega no válido o no activo para la fecha actual.',
+                ], 422);
+            }
+
             if (($tipoActivo->modo_acceso ?? 'listado') !== 'abierto') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Este endpoint es solo para tipos de entrega en modo abierto. El tipo activo actual («'.$tipoActivo->nombre.'») está en modo listado. Use el flujo o endpoint correspondiente al modo listado.',
+                    'message' => 'Este endpoint es solo para tipos de entrega en modo abierto. El tipo seleccionado («'.$tipoActivo->nombre.'») está en modo listado. Use el flujo o endpoint correspondiente al modo listado.',
                     'data' => [
                         'tipo_activo_id' => $tipoActivo->id,
                         'tipo_activo_nombre' => $tipoActivo->nombre,
@@ -478,9 +537,11 @@ class KitBienestarController extends Controller
                 ], 422);
             }
 
+            $anoActual = (int) Carbon::parse($hoy, config('app.timezone', 'America/Bogota'))->format('Y');
             $existingRequest = WellnessDeliveryRequest::where('documento_afiliado', $documentoAfiliado)
                 ->where('wellness_delivery_type_id', $tipoActivo->id)
                 ->whereIn('estado', ['pendiente', 'entregado'])
+                ->whereYear('created_at', $anoActual)
                 ->first();
 
             if ($existingRequest) {
@@ -565,14 +626,15 @@ class KitBienestarController extends Controller
     }
 
     /**
-     * Obtener el tipo de entrega activo para la fecha actual (público, para el formulario).
-     * Si no hay tipo activo, devuelve success: false para que el front no muestre el formulario de solicitud.
+     * Obtener los tipos de entrega activos para la fecha actual (público/panel).
+     * Puede haber varios; el frontend debe permitir elegir uno al registrar la entrega.
+     * Si no hay ninguno activo, devuelve success: false.
      */
     public function currentType(Request $request): JsonResponse
     {
         $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
-        $tipo = WellnessDeliveryType::getActivoParaFecha($hoy);
-        if (! $tipo) {
+        $tipos = WellnessDeliveryType::getActivosParaFecha($hoy);
+        if ($tipos->isEmpty()) {
             return response()->json([
                 'success' => false,
                 'message' => 'No hay una campaña de entregas activa en este momento.',
@@ -580,15 +642,18 @@ class KitBienestarController extends Controller
             ], 200);
         }
 
+        $data = $tipos->map(fn (WellnessDeliveryType $t) => [
+            'id' => $t->id,
+            'nombre' => $t->nombre,
+            'modo_acceso' => $t->modo_acceso,
+            'fecha_desde' => $t->fecha_desde?->format('Y-m-d'),
+            'fecha_hasta' => $t->fecha_hasta?->format('Y-m-d'),
+            'siempre_activo' => $t->isSiempreActivo(),
+        ])->values()->all();
+
         return response()->json([
             'success' => true,
-            'data' => [
-                'id' => $tipo->id,
-                'nombre' => $tipo->nombre,
-                'modo_acceso' => $tipo->modo_acceso,
-                'fecha_desde' => $tipo->fecha_desde->format('Y-m-d'),
-                'fecha_hasta' => $tipo->fecha_hasta->format('Y-m-d'),
-            ],
+            'data' => $data,
         ]);
     }
 
@@ -1288,5 +1353,24 @@ class KitBienestarController extends Controller
                 'message' => 'Error al obtener las versiones del archivo',
             ], 500);
         }
+    }
+
+    /**
+     * Resuelve el tipo de entrega desde el request cuando hay uno o varios activos.
+     * Si se envía wellness_delivery_type_id debe estar en la lista de activos; si no se envía, solo es válido cuando hay un solo activo.
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, WellnessDeliveryType>  $activos
+     */
+    private function resolveTipoEntregaFromRequest(Request $request, $activos): ?WellnessDeliveryType
+    {
+        $tipoId = $request->input('wellness_delivery_type_id');
+        if ($tipoId !== null && $tipoId !== '') {
+            return $activos->firstWhere('id', (int) $tipoId) ?: null;
+        }
+        if ($activos->count() === 1) {
+            return $activos->first();
+        }
+
+        return null;
     }
 }

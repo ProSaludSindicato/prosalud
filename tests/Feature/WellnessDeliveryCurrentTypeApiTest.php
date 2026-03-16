@@ -52,7 +52,7 @@ class WellnessDeliveryCurrentTypeApiTest extends TestCase
         ]);
     }
 
-    /** Cuando "hoy" es 7-mar-2026 (dentro del rango), la API devuelve el tipo activo */
+    /** Cuando "hoy" es 7-mar-2026 (dentro del rango), la API devuelve lista con el tipo activo */
     public function test_current_type_returns_campaign_when_today_is_in_range(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-03-07 10:00:00', 'America/Bogota'));
@@ -60,18 +60,18 @@ class WellnessDeliveryCurrentTypeApiTest extends TestCase
         $response = $this->getJson('/api/kit-bienestar/current-type');
 
         $response->assertStatus(200);
-        $response->assertJson([
-            'success' => true,
-            'data' => [
-                'nombre' => 'Detalle día de la mujer',
-                'fecha_desde' => '2026-03-06',
-                'fecha_hasta' => '2026-03-10',
-            ],
-        ]);
-        $this->assertIsInt($response->json('data.id'));
+        $response->assertJson(['success' => true]);
+        $data = $response->json('data');
+        $this->assertIsArray($data);
+        $this->assertCount(1, $data);
+        $this->assertSame('Detalle día de la mujer', $data[0]['nombre']);
+        $this->assertSame('2026-03-06', $data[0]['fecha_desde']);
+        $this->assertSame('2026-03-10', $data[0]['fecha_hasta']);
+        $this->assertFalse($data[0]['siempre_activo']);
+        $this->assertIsInt($data[0]['id']);
     }
 
-    /** Cuando "hoy" es el último día del rango (10-mar), la API devuelve el tipo */
+    /** Cuando "hoy" es el último día del rango (10-mar), la API devuelve el tipo en la lista */
     public function test_current_type_returns_campaign_on_last_day_of_range(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-03-10 23:30:00', 'America/Bogota'));
@@ -79,7 +79,11 @@ class WellnessDeliveryCurrentTypeApiTest extends TestCase
         $response = $this->getJson('/api/kit-bienestar/current-type');
 
         $response->assertStatus(200);
-        $response->assertJson(['success' => true, 'data' => ['nombre' => 'Detalle día de la mujer']]);
+        $response->assertJson(['success' => true]);
+        $data = $response->json('data');
+        $this->assertIsArray($data);
+        $this->assertCount(1, $data);
+        $this->assertSame('Detalle día de la mujer', $data[0]['nombre']);
     }
 
     /** Cuando "hoy" es 11-mar (fuera del rango), la API responde que no hay campaña */

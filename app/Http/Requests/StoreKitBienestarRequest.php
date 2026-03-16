@@ -2,7 +2,8 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Contracts\Validation\{ValidationRule, Validator};
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
@@ -25,7 +26,8 @@ class StoreKitBienestarRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // El tipo de entrega lo asigna el backend según el tipo activo para la fecha actual (no se envía en el body).
+            // Tipo de entrega: opcional si hay un solo tipo activo; obligatorio si hay varios (el usuario encargado selecciona).
+            'wellness_delivery_type_id' => 'nullable|integer|exists:wellness_delivery_types,id',
 
             // Información del afiliado (debe coincidir con la autenticación)
             'documento_afiliado' => 'required|string|max:50',
@@ -119,4 +121,3 @@ class StoreKitBienestarRequest extends FormRequest
         );
     }
 }
-

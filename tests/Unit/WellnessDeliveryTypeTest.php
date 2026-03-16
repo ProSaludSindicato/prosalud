@@ -3,7 +3,6 @@
 namespace Tests\Unit;
 
 use App\Models\WellnessDeliveryType;
-use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -62,17 +61,52 @@ class WellnessDeliveryTypeTest extends TestCase
         $this->assertNull($tipo);
     }
 
-    /** Tipo inactivo (activo=false) no se devuelve aunque la fecha esté en el rango */
-    public function test_inactive_type_not_returned(): void
+    /** Tipo "siempre activo" (sin rango) con activo=false no se devuelve */
+    public function test_siempre_activo_inactive_not_returned(): void
     {
         WellnessDeliveryType::create([
-            'nombre' => 'Otra campaña',
+            'nombre' => 'Detalle cumpleaños',
             'activo' => false,
-            'fecha_desde' => '2026-03-01',
-            'fecha_hasta' => '2026-03-31',
+            'modo_acceso' => 'abierto',
+            'fecha_desde' => null,
+            'fecha_hasta' => null,
             'created_by' => null,
         ]);
         $tipo = WellnessDeliveryType::getActivoParaFecha('2026-03-15');
         $this->assertNull($tipo);
+    }
+
+    /** Tipo con rango de fechas se devuelve por fecha dentro del rango (activo ya no se exige para rangos) */
+    public function test_type_with_date_range_returned_by_date_regardless_of_activo_flag(): void
+    {
+        WellnessDeliveryType::create([
+            'nombre' => 'Campaña por rango',
+            'activo' => false,
+            'modo_acceso' => 'listado',
+            'fecha_desde' => '2026-03-01',
+            'fecha_hasta' => '2026-03-31',
+            'created_by' => null,
+        ]);
+        $tipos = WellnessDeliveryType::getActivosParaFecha('2026-03-15');
+        $this->assertCount(1, $tipos);
+        $this->assertSame('Campaña por rango', $tipos->first()->nombre);
+    }
+
+    /** Tipo siempre activo (activo=true, sin fechas) se devuelve cualquier fecha */
+    public function test_siempre_activo_returned_any_date(): void
+    {
+        WellnessDeliveryType::create([
+            'nombre' => 'Detalle cumpleaños',
+            'activo' => true,
+            'modo_acceso' => 'abierto',
+            'fecha_desde' => null,
+            'fecha_hasta' => null,
+            'created_by' => null,
+        ]);
+        // El 15-mar el tipo "Detalle día de la mujer" (rango 6-10) ya no aplica; solo aplica el siempre activo
+        $tipos = WellnessDeliveryType::getActivosParaFecha('2026-03-15');
+        $this->assertCount(1, $tipos);
+        $this->assertSame('Detalle cumpleaños', $tipos->first()->nombre);
+        $this->assertTrue($tipos->first()->isSiempreActivo());
     }
 }

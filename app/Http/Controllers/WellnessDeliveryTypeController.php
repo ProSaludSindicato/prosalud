@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{StoreWellnessDeliveryTypeRequest, UpdateWellnessDeliveryTypeRequest};
+use App\Http\Requests\StoreWellnessDeliveryTypeRequest;
+use App\Http\Requests\UpdateWellnessDeliveryTypeRequest;
 use App\Models\WellnessDeliveryType;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,8 +33,9 @@ class WellnessDeliveryTypeController extends Controller
             'nombre' => $t->nombre,
             'activo' => $t->activo,
             'modo_acceso' => $t->modo_acceso,
-            'fecha_desde' => $t->fecha_desde->format('Y-m-d'),
-            'fecha_hasta' => $t->fecha_hasta->format('Y-m-d'),
+            'fecha_desde' => $t->fecha_desde?->format('Y-m-d'),
+            'fecha_hasta' => $t->fecha_hasta?->format('Y-m-d'),
+            'siempre_activo' => $t->isSiempreActivo(),
             'created_by' => $t->createdBy ? [
                 'id' => $t->createdBy->id,
                 'name' => $t->createdBy->name,
@@ -57,6 +59,12 @@ class WellnessDeliveryTypeController extends Controller
         $data['activo'] = $request->boolean('activo', true);
         $data['modo_acceso'] = $data['modo_acceso'] ?? 'listado';
         $data['created_by'] = $user?->id;
+        if ($request->has('fecha_desde') && $request->input('fecha_desde') === '') {
+            $data['fecha_desde'] = null;
+        }
+        if ($request->has('fecha_hasta') && $request->input('fecha_hasta') === '') {
+            $data['fecha_hasta'] = null;
+        }
 
         $type = WellnessDeliveryType::create($data);
 
@@ -74,8 +82,9 @@ class WellnessDeliveryTypeController extends Controller
                 'nombre' => $type->nombre,
                 'activo' => $type->activo,
                 'modo_acceso' => $type->modo_acceso,
-                'fecha_desde' => $type->fecha_desde->format('Y-m-d'),
-                'fecha_hasta' => $type->fecha_hasta->format('Y-m-d'),
+                'fecha_desde' => $type->fecha_desde?->format('Y-m-d'),
+                'fecha_hasta' => $type->fecha_hasta?->format('Y-m-d'),
+                'siempre_activo' => $type->isSiempreActivo(),
                 'created_at' => $type->created_at->toISOString(),
             ],
         ], 201);
@@ -86,7 +95,14 @@ class WellnessDeliveryTypeController extends Controller
      */
     public function update(UpdateWellnessDeliveryTypeRequest $request, WellnessDeliveryType $wellnessDeliveryType): JsonResponse
     {
-        $wellnessDeliveryType->update($request->only(['nombre', 'activo', 'modo_acceso', 'fecha_desde', 'fecha_hasta']));
+        $update = $request->only(['nombre', 'activo', 'modo_acceso', 'fecha_desde', 'fecha_hasta']);
+        if (array_key_exists('fecha_desde', $update) && $update['fecha_desde'] === '') {
+            $update['fecha_desde'] = null;
+        }
+        if (array_key_exists('fecha_hasta', $update) && $update['fecha_hasta'] === '') {
+            $update['fecha_hasta'] = null;
+        }
+        $wellnessDeliveryType->update($update);
 
         Log::info('Tipo de entrega de bienestar actualizado', [
             'wellness_delivery_type_id' => $wellnessDeliveryType->id,
@@ -101,8 +117,9 @@ class WellnessDeliveryTypeController extends Controller
                 'nombre' => $wellnessDeliveryType->nombre,
                 'activo' => $wellnessDeliveryType->activo,
                 'modo_acceso' => $wellnessDeliveryType->modo_acceso,
-                'fecha_desde' => $wellnessDeliveryType->fecha_desde->format('Y-m-d'),
-                'fecha_hasta' => $wellnessDeliveryType->fecha_hasta->format('Y-m-d'),
+                'fecha_desde' => $wellnessDeliveryType->fecha_desde?->format('Y-m-d'),
+                'fecha_hasta' => $wellnessDeliveryType->fecha_hasta?->format('Y-m-d'),
+                'siempre_activo' => $wellnessDeliveryType->isSiempreActivo(),
                 'updated_at' => $wellnessDeliveryType->updated_at->toISOString(),
             ],
         ]);
@@ -122,8 +139,9 @@ class WellnessDeliveryTypeController extends Controller
                 'nombre' => $wellnessDeliveryType->nombre,
                 'activo' => $wellnessDeliveryType->activo,
                 'modo_acceso' => $wellnessDeliveryType->modo_acceso,
-                'fecha_desde' => $wellnessDeliveryType->fecha_desde->format('Y-m-d'),
-                'fecha_hasta' => $wellnessDeliveryType->fecha_hasta->format('Y-m-d'),
+                'fecha_desde' => $wellnessDeliveryType->fecha_desde?->format('Y-m-d'),
+                'fecha_hasta' => $wellnessDeliveryType->fecha_hasta?->format('Y-m-d'),
+                'siempre_activo' => $wellnessDeliveryType->isSiempreActivo(),
                 'created_by' => $wellnessDeliveryType->createdBy ? [
                     'id' => $wellnessDeliveryType->createdBy->id,
                     'name' => $wellnessDeliveryType->createdBy->name,
