@@ -2,34 +2,38 @@
 
 namespace App\Models;
 
-use App\Constants\{RequestStatuses, RequestTypes};
-use Illuminate\Database\Eloquent\{Builder, Model};
+use App\Constants\RequestStatuses;
+use App\Constants\RequestTypes;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\{BelongsTo, HasMany};
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * @property string      $id
- * @property string      $request_type
- * @property string      $document_type
- * @property string      $document_number
- * @property string      $name
- * @property string      $last_name
- * @property string      $email
- * @property string      $phone_number
- * @property array|null  $payload
- * @property array|null  $files
- * @property string      $status
- * @property string      $created_at
+ * @property string $id
+ * @property string $request_type
+ * @property string $document_type
+ * @property string $document_number
+ * @property string $name
+ * @property string $last_name
+ * @property string $email
+ * @property string $phone_number
+ * @property array|null $payload
+ * @property array|null $files
+ * @property string $status
+ * @property string $created_at
  * @property string|null $processed_at
- * @property string      $full_name
- * @property string      $formatted_created_at
- * @property string      $formatted_processed_at
+ * @property string $full_name
+ * @property string $formatted_created_at
+ * @property string $formatted_processed_at
  */
 class RequestForm extends Model
 {
     use HasFactory;
 
     public $timestamps = false;
+
     public $incrementing = false;
 
     protected $fillable = [
@@ -58,6 +62,7 @@ class RequestForm extends Model
         'processed_at' => 'datetime',
         'validated_at' => 'datetime',
     ];
+
     protected $keyType = 'string';
 
     /**
@@ -74,7 +79,7 @@ class RequestForm extends Model
      */
     public function getFullNameAttribute(): string
     {
-        return trim($this->name . ' ' . $this->last_name);
+        return trim($this->name.' '.$this->last_name);
     }
 
     /**
@@ -82,7 +87,7 @@ class RequestForm extends Model
      */
     public function getFormattedCreatedAtAttribute(): string
     {
-        if (!$this->created_at) {
+        if (! $this->created_at) {
             return '';
         }
 
@@ -98,7 +103,7 @@ class RequestForm extends Model
      */
     public function getFormattedProcessedAtAttribute(): string
     {
-        if (!$this->processed_at) {
+        if (! $this->processed_at) {
             return '';
         }
 
@@ -165,7 +170,7 @@ class RequestForm extends Model
      */
     public function isPending(): bool
     {
-        return 'pending' === $this->status;
+        return $this->status === 'pending';
     }
 
     /**
@@ -173,7 +178,7 @@ class RequestForm extends Model
      */
     public function isProcessed(): bool
     {
-        return 'processed' === $this->status;
+        return $this->status === 'processed';
     }
 
     /**
@@ -200,7 +205,7 @@ class RequestForm extends Model
     public function getRequestSubtypeAttribute(): ?string
     {
         // Solo ciertos tipos de solicitud manejan subtipos
-        if (!RequestTypes::hasSubtypes($this->request_type)) {
+        if (! RequestTypes::hasSubtypes($this->request_type)) {
             return null;
         }
 
@@ -272,6 +277,7 @@ class RequestForm extends Model
         ];
 
         $docType = strtoupper(trim($this->document_type ?? ''));
+
         return $documentTypeLabels[$docType] ?? $this->document_type;
     }
 
@@ -281,12 +287,12 @@ class RequestForm extends Model
     public function formatPayloadValue(string $key, $value): string
     {
         // Special handling for montoSolicitado - format as COP currency
-        if ('montoSolicitado' === $key && is_numeric($value)) {
+        if ($key === 'montoSolicitado' && is_numeric($value)) {
             return $this->formatCurrencyCOP($value);
         }
 
         // Special handling for certificado info
-        if ('infoCertificado' === $key) {
+        if ($key === 'infoCertificado') {
             // Parse JSON string if needed
             if (is_string($value)) {
                 $decoded = json_decode($value, true);
@@ -301,12 +307,12 @@ class RequestForm extends Model
         }
 
         // Special handling for beneficiarios nuevos
-        if ('beneficiariosNuevos' === $key && is_array($value)) {
+        if ($key === 'beneficiariosNuevos' && is_array($value)) {
             return $this->formatBeneficiariosNuevos($value);
         }
 
         // Special handling for beneficiarios eliminados
-        if ('beneficiariosEliminados' === $key && is_array($value)) {
+        if ($key === 'beneficiariosEliminados' && is_array($value)) {
             return $this->formatBeneficiariosEliminados($value);
         }
 
@@ -350,11 +356,11 @@ class RequestForm extends Model
         }
 
         if (is_numeric($value)) {
-            return 0 !== (int) $value;
+            return (int) $value !== 0;
         }
 
         if (is_array($value)) {
-            return !empty($value);
+            return ! empty($value);
         }
 
         return false;
@@ -430,7 +436,7 @@ class RequestForm extends Model
     public function responses(): HasMany
     {
         return $this->hasMany(RequestResponse::class, 'request_form_id', 'id')
-                    ->orderBy('created_at', 'desc');
+            ->orderBy('created_at', 'desc');
     }
 
     /**
@@ -439,7 +445,7 @@ class RequestForm extends Model
     public function latestResponse()
     {
         return $this->hasOne(RequestResponse::class, 'request_form_id', 'id')
-                    ->latest('created_at');
+            ->latest('created_at');
     }
 
     /**
@@ -449,6 +455,7 @@ class RequestForm extends Model
     public function getLastResponderAttribute()
     {
         $latestResponse = $this->latestResponse;
+
         return $latestResponse ? $latestResponse->responder : null;
     }
 
@@ -487,7 +494,7 @@ class RequestForm extends Model
             $timestamp = time();
             $random = mt_rand(1000, 9999);
             // Combine: 1 digit (1-9) + 5 digits from timestamp + 4 digits from random = 10 digits
-            $idString = $firstDigit . substr($timestamp, -5) . str_pad((string)$random, 4, '0', STR_PAD_LEFT);
+            $idString = $firstDigit.substr($timestamp, -5).str_pad((string) $random, 4, '0', STR_PAD_LEFT);
         } while (static::where('id', $idString)->exists());
 
         return $idString;
@@ -570,6 +577,7 @@ class RequestForm extends Model
             'proteccion' => 'Protección',
             'porvenir' => 'Porvenir',
             'colfondos' => 'Colfondos',
+            'colpensiones' => 'Colpensiones',
             'old_mutual' => 'Old Mutual',
             'skandia' => 'Skandia',
             'otros' => 'Otros',
@@ -610,20 +618,20 @@ class RequestForm extends Model
             $info = [];
 
             $info[] = "<strong>Beneficiario {$numero}:</strong>";
-            $info[] = '• Nombre completo: ' . ($beneficiario['nombres'] ?? '') . ' ' . ($beneficiario['apellidos'] ?? '');
-            $info[] = '• Tipo documento: ' . ($beneficiario['tipo_documento'] ?? '');
-            $info[] = '• Documento: ' . ($beneficiario['documento'] ?? '');
+            $info[] = '• Nombre completo: '.($beneficiario['nombres'] ?? '').' '.($beneficiario['apellidos'] ?? '');
+            $info[] = '• Tipo documento: '.($beneficiario['tipo_documento'] ?? '');
+            $info[] = '• Documento: '.($beneficiario['documento'] ?? '');
 
-            if (!empty($beneficiario['fecha_nacimiento'])) {
-                $info[] = '• Fecha de nacimiento: ' . $beneficiario['fecha_nacimiento'];
+            if (! empty($beneficiario['fecha_nacimiento'])) {
+                $info[] = '• Fecha de nacimiento: '.$beneficiario['fecha_nacimiento'];
             }
 
-            if (!empty($beneficiario['parentesco'])) {
-                $info[] = '• Parentesco: ' . $beneficiario['parentesco'];
+            if (! empty($beneficiario['parentesco'])) {
+                $info[] = '• Parentesco: '.$beneficiario['parentesco'];
             }
 
-            if (!empty($beneficiario['sexo'])) {
-                $info[] = '• Sexo: ' . $beneficiario['sexo'];
+            if (! empty($beneficiario['sexo'])) {
+                $info[] = '• Sexo: '.$beneficiario['sexo'];
             }
 
             $formatted[] = implode('<br>', $info);
@@ -647,16 +655,16 @@ class RequestForm extends Model
             $info = [];
 
             $info[] = "<strong>Beneficiario eliminado {$numero}:</strong>";
-            $info[] = '• Nombre completo: ' . ($beneficiario['nombres'] ?? '') . ' ' . ($beneficiario['apellidos'] ?? '');
-            $info[] = '• Tipo documento: ' . ($beneficiario['tipo_documento'] ?? '');
-            $info[] = '• Documento: ' . ($beneficiario['documento'] ?? '');
+            $info[] = '• Nombre completo: '.($beneficiario['nombres'] ?? '').' '.($beneficiario['apellidos'] ?? '');
+            $info[] = '• Tipo documento: '.($beneficiario['tipo_documento'] ?? '');
+            $info[] = '• Documento: '.($beneficiario['documento'] ?? '');
 
-            if (!empty($beneficiario['parentesco'])) {
-                $info[] = '• Parentesco: ' . $beneficiario['parentesco'];
+            if (! empty($beneficiario['parentesco'])) {
+                $info[] = '• Parentesco: '.$beneficiario['parentesco'];
             }
 
-            if (!empty($beneficiario['sexo'])) {
-                $info[] = '• Sexo: ' . $beneficiario['sexo'];
+            if (! empty($beneficiario['sexo'])) {
+                $info[] = '• Sexo: '.$beneficiario['sexo'];
             }
 
             $formatted[] = implode('<br>', $info);
@@ -688,7 +696,7 @@ class RequestForm extends Model
 
         // Solo mostrar campos que están activos (true)
         foreach ($certificadoData as $field => $value) {
-            if (!$this->parseBooleanValue($value)) {
+            if (! $this->parseBooleanValue($value)) {
                 continue; // Saltar campos en false
             }
 
@@ -702,8 +710,8 @@ class RequestForm extends Model
         }
 
         // Retornar como lista vertical compacta con mejor formato
-        return '<div style="line-height:1.6; word-wrap:break-word; max-width:100%;">' .
-               implode('<br>', $formatted) .
+        return '<div style="line-height:1.6; word-wrap:break-word; max-width:100%;">'.
+               implode('<br>', $formatted).
                '</div>';
     }
 
@@ -712,7 +720,7 @@ class RequestForm extends Model
      */
     private function formatArrayValue($value): string
     {
-        if (is_array($value) && !empty($value)) {
+        if (is_array($value) && ! empty($value)) {
             // For simple arrays, join with commas
             if (array_keys($value) === range(0, count($value) - 1)) {
                 return implode(', ', array_map(function ($item) {
@@ -723,7 +731,7 @@ class RequestForm extends Model
             // For associative arrays, format as key: value pairs
             $pairs = [];
             foreach ($value as $k => $v) {
-                $pairs[] = ucwords(str_replace('_', ' ', $k)) . ': ' . (string) $v;
+                $pairs[] = ucwords(str_replace('_', ' ', $k)).': '.(string) $v;
             }
 
             return implode('<br>', $pairs);
@@ -737,19 +745,17 @@ class RequestForm extends Model
      */
     private function formatCurrencyCOP($amount): string
     {
-        if (!is_numeric($amount)) {
+        if (! is_numeric($amount)) {
             return (string) $amount;
         }
 
         // Format as COP currency without decimals: $1.234.567
-        return '$' . number_format((float)$amount, 0, ',', '.');
+        return '$'.number_format((float) $amount, 0, ',', '.');
     }
 
     /**
      * Verifica si este RequestForm es un certificado de convenio simple
      * que será procesado automáticamente (solo fecha ingreso/retiro y/o dirigido a entidad)
-     *
-     * @return bool
      */
     public function esCertificadoConvenioSimple(): bool
     {
@@ -761,7 +767,7 @@ class RequestForm extends Model
         $payload = $this->payload ?? [];
 
         // Verificar si tiene infoCertificado en el payload
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             return false;
         }
 
@@ -771,7 +777,7 @@ class RequestForm extends Model
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             return false;
         }
 
@@ -792,7 +798,7 @@ class RequestForm extends Model
 
         // Verificar que ningún campo no permitido esté activo
         foreach ($camposNoPermitidos as $campo) {
-            if (!empty($infoCertificado[$campo] ?? false)) {
+            if (! empty($infoCertificado[$campo] ?? false)) {
                 return false;
             }
         }
@@ -808,22 +814,22 @@ class RequestForm extends Model
     public function hasBankInfoUpdate(): bool
     {
         // Only check for actualizar-datos-personales requests
-        if ($this->request_type !== RequestTypes::ACTUALIZAR_DATOS_PERSONALES && 
+        if ($this->request_type !== RequestTypes::ACTUALIZAR_DATOS_PERSONALES &&
             $this->request_type !== 'actualizar-datos-personales') {
             return false;
         }
 
         $payload = $this->payload ?? [];
-        
+
         // Check if any bank-related fields are present and not empty
         $bankFields = ['tipoCuenta', 'numeroCuenta', 'banco'];
-        
+
         foreach ($bankFields as $field) {
             if (isset($payload[$field]) && $payload[$field] !== '' && $payload[$field] !== null) {
                 return true;
             }
         }
-        
+
         return false;
     }
 }

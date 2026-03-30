@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Request;
 
-use App\Constants\{RequestSubtypes, RequestTypes, RequestStatuses};
+use App\Constants\RequestStatuses;
+use App\Constants\RequestSubtypes;
+use App\Constants\RequestTypes;
 use App\Models\RequestForm;
 use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
@@ -42,11 +44,11 @@ class StoreRequestFormRequest extends FormRequest
             'payload' => 'nullable|array',
             'files' => 'nullable|array',
             'files.*' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',
-            'recaptcha_token' => ['required', new RecaptchaRule()],
+            'recaptcha_token' => ['required', new RecaptchaRule],
         ];
 
         // Validaciones específicas para actualizar-datos-personales
-        if ('actualizar-datos-personales' === $requestType) {
+        if ($requestType === 'actualizar-datos-personales') {
             $payload = $this->input('payload', []);
 
             $rules = array_merge($rules, [
@@ -55,13 +57,13 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.dondeRealizaProceso' => 'required|string|max:255',
 
                 // Campos opcionales del payload
-                'payload.estadoCivil' => 'nullable|string|in:soltero,casado,union_libre,divorciado,viudo',
+                'payload.estadoCivil' => 'nullable|string|max:50',
                 'payload.direccion' => 'nullable|string|max:500',
                 'payload.municipio' => 'nullable|string|max:255',
                 'payload.telefonoFijo' => 'nullable|string|max:20',
                 'payload.celular' => 'nullable|string|max:20',
                 'payload.correo' => 'nullable|email|max:255',
-                'payload.tallaUniforme' => 'nullable|string|in:xs,s,m,l,xl,xxl,xxxl,4xl,5xl',
+                'payload.tallaUniforme' => 'nullable|string|max:10',
                 'payload.tallaCalzado' => 'nullable|string|max:10',
 
                 // Campos de contacto de emergencia
@@ -70,17 +72,17 @@ class StoreRequestFormRequest extends FormRequest
                 'payload.telefonoContactoEmergencia' => 'nullable|string|max:20',
 
                 // Campos condicionales - Nivel educativo
-                'payload.nivelEducativo' => 'nullable|string|in:primaria,bachiller,tecnico,tecnologo,profesional,especialista,maestria,doctorado',
+                'payload.nivelEducativo' => 'nullable|string|max:50',
 
                 // Campos condicionales - Cuenta bancaria
                 // tipoCuenta es opcional porque si no cambia, el frontend no lo envía
                 'payload.numeroCuenta' => 'nullable|string|max:255',
-                'payload.tipoCuenta' => 'nullable|string|in:ahorros,corriente',
-                'payload.banco' => 'nullable|string|in:bancolombia,davivienda,bbva,bogota,occidente,popular,av_villas,caja_social,colpatria,agrario,cooperativo,otros',
+                'payload.tipoCuenta' => 'nullable|string|max:20',
+                'payload.banco' => 'nullable|string|max:50',
 
                 // Campos condicionales - EPS y AFP
-                'payload.eps' => 'nullable|string|in:sura,nueva_eps,sanitas,coomeva,compensar,famisanar,savia,aliansalud,otros',
-                'payload.afp' => 'nullable|string|in:proteccion,porvenir,colfondos,old_mutual,skandia,otros',
+                'payload.eps' => 'nullable|string|max:50',
+                'payload.afp' => 'nullable|string|max:50',
 
                 // Beneficiarios nuevos
                 'payload.beneficiariosNuevos' => 'nullable|array',
@@ -113,7 +115,7 @@ class StoreRequestFormRequest extends FormRequest
         }
 
         // Validaciones específicas para certificado-convenio
-        if ('certificado-convenio' === $requestType) {
+        if ($requestType === 'certificado-convenio') {
             $rules = array_merge($rules, [
                 'payload.proceso' => 'nullable|string|max:255',
                 'payload.dondeRealizaProceso' => 'nullable|string|max:255',
@@ -135,7 +137,7 @@ class StoreRequestFormRequest extends FormRequest
         }
 
         // Validaciones específicas para verificacion-pagos
-        if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
+        if ($requestType === RequestTypes::VERIFICACION_PAGOS) {
             $validSubtypes = RequestSubtypes::forRequestType(RequestTypes::VERIFICACION_PAGOS);
             $rules = array_merge($rules, [
                 'payload.solicitudRelacionadaCon' => [
@@ -144,10 +146,11 @@ class StoreRequestFormRequest extends FormRequest
                     function ($attribute, $value, $fail) use ($validSubtypes) {
                         if (empty($value)) {
                             $fail('El campo "Su solicitud está relacionada con" es obligatorio para verificaciones de pago.');
+
                             return;
                         }
-                        if (!in_array($value, $validSubtypes, true)) {
-                            $fail('El subtipo de solicitud seleccionado no es válido. Los valores válidos son: ' . implode(', ', $validSubtypes));
+                        if (! in_array($value, $validSubtypes, true)) {
+                            $fail('El subtipo de solicitud seleccionado no es válido. Los valores válidos son: '.implode(', ', $validSubtypes));
                         }
                     },
                 ],
@@ -186,14 +189,14 @@ class StoreRequestFormRequest extends FormRequest
                     if ($existingRequest) {
                         $validator->errors()->add(
                             'request_type',
-                            'Actualmente ya cuenta con una solicitud en proceso con ID ' . $existingRequest->id . ' para este mismo tipo de trámite. Debe esperar a recibir una respuesta antes de realizar una nueva solicitud del mismo tipo.'
+                            'Actualmente ya cuenta con una solicitud en proceso con ID '.$existingRequest->id.' para este mismo tipo de trámite. Debe esperar a recibir una respuesta antes de realizar una nueva solicitud del mismo tipo.'
                         );
                     }
                 }
             }
 
             // Validación adicional para verificacion-pagos
-            if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
+            if ($requestType === RequestTypes::VERIFICACION_PAGOS) {
                 $payload = $this->input('payload', []);
                 $solicitudRelacionadaCon = $payload['solicitudRelacionadaCon'] ?? null;
 
@@ -204,10 +207,10 @@ class StoreRequestFormRequest extends FormRequest
                     );
                 } else {
                     $validSubtypes = RequestSubtypes::forRequestType(RequestTypes::VERIFICACION_PAGOS);
-                    if (!in_array($solicitudRelacionadaCon, $validSubtypes, true)) {
+                    if (! in_array($solicitudRelacionadaCon, $validSubtypes, true)) {
                         $validator->errors()->add(
                             'payload.solicitudRelacionadaCon',
-                            'El subtipo de solicitud seleccionado no es válido. Los valores válidos son: ' . implode(', ', $validSubtypes)
+                            'El subtipo de solicitud seleccionado no es válido. Los valores válidos son: '.implode(', ', $validSubtypes)
                         );
                     }
                 }
@@ -273,7 +276,7 @@ class StoreRequestFormRequest extends FormRequest
 
                             if ($estadoAfiliado === 'retirado') {
                                 // request_type is already normalized, so we only need to handle canonical types
-                                $requestTypeLabel = match($requestType) {
+                                $requestTypeLabel = match ($requestType) {
                                     RequestTypes::COMPENSACION_DESCANSO => 'Compensación por descanso',
                                     RequestTypes::COMPENSACION_ANUAL => 'Compensación anual diferida',
                                     RequestTypes::INCAPACIDADES_LICENCIAS => 'Incapacidades y licencias',
@@ -300,7 +303,7 @@ class StoreRequestFormRequest extends FormRequest
                 }
             }
 
-            if ('actualizar-datos-personales' === $requestType) {
+            if ($requestType === 'actualizar-datos-personales') {
                 $payload = $this->input('payload', []);
 
                 // Helper para verificar si existe un archivo
@@ -328,42 +331,42 @@ class StoreRequestFormRequest extends FormRequest
 
                 // Validación condicional: Si se envía numeroCuenta, banco y certificacionBancaria son requeridos
                 // tipoCuenta es opcional porque si no cambia, el frontend no lo envía
-                if (!empty($payload['numeroCuenta'])) {
+                if (! empty($payload['numeroCuenta'])) {
                     if (empty($payload['banco'])) {
                         $validator->errors()->add('payload.banco', 'El banco es obligatorio cuando se actualiza el número de cuenta.');
                     }
-                    if (!$hasFile('files.certificacionBancaria') && !$hasFile('certificacionBancaria')) {
+                    if (! $hasFile('files.certificacionBancaria') && ! $hasFile('certificacionBancaria')) {
                         $validator->errors()->add('files.certificacionBancaria', 'La certificación bancaria es obligatoria cuando se actualiza el número de cuenta.');
                     }
                 }
 
                 // Validación condicional: Si se actualiza nivelEducativo, diploma y acta son requeridos
-                if (!empty($payload['nivelEducativo'])) {
-                    if (!$hasFile('files.diplomaEducativo') && !$hasFile('diplomaEducativo')) {
+                if (! empty($payload['nivelEducativo'])) {
+                    if (! $hasFile('files.diplomaEducativo') && ! $hasFile('diplomaEducativo')) {
                         $validator->errors()->add('files.diplomaEducativo', 'El diploma educativo es obligatorio cuando se actualiza el nivel educativo.');
                     }
-                    if (!$hasFile('files.actaGrado') && !$hasFile('actaGrado')) {
+                    if (! $hasFile('files.actaGrado') && ! $hasFile('actaGrado')) {
                         $validator->errors()->add('files.actaGrado', 'El acta de grado es obligatoria cuando se actualiza el nivel educativo.');
                     }
                 }
 
                 // Validación condicional: Si se cambia EPS, certificadoEps es requerido
-                if (!empty($payload['eps'])) {
-                    if (!$hasFile('files.certificadoEps') && !$hasFile('certificadoEps')) {
+                if (! empty($payload['eps'])) {
+                    if (! $hasFile('files.certificadoEps') && ! $hasFile('certificadoEps')) {
                         $validator->errors()->add('files.certificadoEps', 'El certificado de EPS es obligatorio cuando se actualiza la EPS.');
                     }
                 }
 
                 // Validación condicional: Si se cambia AFP, certificadoAfp es requerido
-                if (!empty($payload['afp'])) {
-                    if (!$hasFile('files.certificadoAfp') && !$hasFile('certificadoAfp')) {
+                if (! empty($payload['afp'])) {
+                    if (! $hasFile('files.certificadoAfp') && ! $hasFile('certificadoAfp')) {
                         $validator->errors()->add('files.certificadoAfp', 'El certificado de AFP es obligatorio cuando se actualiza la AFP.');
                     }
                 }
             }
 
             // Validaciones específicas para certificado-convenio
-            if ('certificado-convenio' === $requestType) {
+            if ($requestType === 'certificado-convenio') {
                 $payload = $this->input('payload', []);
                 $documento = $this->input('id_number');
 
@@ -453,7 +456,7 @@ class StoreRequestFormRequest extends FormRequest
                         $allowedMimes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png', 'image/webp'];
                         $allowedExtensions = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp'];
 
-                        if (!in_array($mimeType, $allowedMimes) && !in_array($extension, $allowedExtensions)) {
+                        if (! in_array($mimeType, $allowedMimes) && ! in_array($extension, $allowedExtensions)) {
                             $validator->errors()->add('files.adjuntarArchivoAdicional', 'El archivo adicional debe ser PDF, Word o imagen (JPG, PNG, WEBP)');
                         }
                         // Validar tamaño
@@ -486,19 +489,18 @@ class StoreRequestFormRequest extends FormRequest
         ];
 
         // Mensajes específicos para actualizar-datos-personales
-        if ('actualizar-datos-personales' === $this->input('request_type')) {
+        if ($this->input('request_type') === 'actualizar-datos-personales') {
             $messages = array_merge($messages, [
                 'payload.proceso.required' => 'El proceso es obligatorio.',
                 'payload.dondeRealizaProceso.required' => 'El campo donde realiza el proceso es obligatorio.',
-                'payload.nivelEducativo.in' => 'El nivel educativo seleccionado no es válido.',
-                'payload.tipoCuenta.in' => 'El tipo de cuenta seleccionado no es válido.',
+                'payload.nivelEducativo.string' => 'El nivel educativo debe ser un texto válido.',
+                'payload.tipoCuenta.string' => 'El tipo de cuenta debe ser un texto válido.',
                 'payload.banco.required_with' => 'El banco es obligatorio cuando se actualiza el número de cuenta.',
-                'payload.banco.in' => 'El banco seleccionado no es válido.',
-                'payload.eps.in' => 'La EPS seleccionada no es válida.',
-                'payload.afp.in' => 'La AFP seleccionada no es válida.',
-                'payload.estadoCivil.in' => 'El estado civil seleccionado no es válido.',
+                'payload.banco.string' => 'El banco debe ser un texto válido.',
+                'payload.eps.string' => 'La EPS debe ser un texto válido.',
+                'payload.afp.string' => 'La AFP debe ser un texto válido.',
+                'payload.estadoCivil.string' => 'El estado civil debe ser un texto válido.',
                 'payload.correo.email' => 'El correo electrónico debe tener un formato válido.',
-                'payload.tallaUniforme.in' => 'La talla de uniforme seleccionada no es válida.',
                 'files.certificacionBancaria.required_with' => 'La certificación bancaria es obligatoria cuando se actualiza el número de cuenta.',
                 'files.certificacionBancaria.max' => 'La certificación bancaria no puede exceder 4MB.',
                 'files.certificacionBancaria.mimes' => 'La certificación bancaria debe ser PDF, Word o imagen.',
@@ -518,7 +520,7 @@ class StoreRequestFormRequest extends FormRequest
         }
 
         // Mensajes específicos para verificacion-pagos
-        if (RequestTypes::VERIFICACION_PAGOS === $this->input('request_type')) {
+        if ($this->input('request_type') === RequestTypes::VERIFICACION_PAGOS) {
             $messages = array_merge($messages, [
                 'payload.solicitudRelacionadaCon.required' => 'El campo "Su solicitud está relacionada con" es obligatorio para verificaciones de pago.',
                 'payload.solicitudRelacionadaCon.string' => 'El campo "Su solicitud está relacionada con" debe ser un texto válido.',
@@ -545,7 +547,7 @@ class StoreRequestFormRequest extends FormRequest
             'files' => 'archivos',
         ];
 
-        if ('actualizar-datos-personales' === $this->input('request_type')) {
+        if ($this->input('request_type') === 'actualizar-datos-personales') {
             $attributes = array_merge($attributes, [
                 'payload.proceso' => 'proceso',
                 'payload.dondeRealizaProceso' => 'donde realiza el proceso',
@@ -573,7 +575,7 @@ class StoreRequestFormRequest extends FormRequest
             ]);
         }
 
-        if (RequestTypes::VERIFICACION_PAGOS === $this->input('request_type')) {
+        if ($this->input('request_type') === RequestTypes::VERIFICACION_PAGOS) {
             $attributes = array_merge($attributes, [
                 'payload.solicitudRelacionadaCon' => 'su solicitud está relacionada con',
             ]);
@@ -610,7 +612,7 @@ class StoreRequestFormRequest extends FormRequest
         $payloadFromKeys = [];
         foreach ($allInput as $key => $value) {
             // Laravel converts payload[campo] to 'payload.campo' in the input
-            if (0 === strpos($key, 'payload.')) {
+            if (strpos($key, 'payload.') === 0) {
                 $payloadKey = substr($key, 8); // Remove 'payload.' prefix
                 $payloadFromKeys[$payloadKey] = $value;
             }
@@ -618,7 +620,7 @@ class StoreRequestFormRequest extends FormRequest
 
         // Get existing payload if it exists
         $existingPayload = $this->input('payload', []);
-        if (!is_array($existingPayload)) {
+        if (! is_array($existingPayload)) {
             $existingPayload = [];
         }
 
@@ -641,7 +643,7 @@ class StoreRequestFormRequest extends FormRequest
         }
 
         // Log payload for verificacion-pagos to help debug
-        if (RequestTypes::VERIFICACION_PAGOS === $this->input('request_type')) {
+        if ($this->input('request_type') === RequestTypes::VERIFICACION_PAGOS) {
             Log::debug('Payload procesado para verificacion-pagos', [
                 'payload' => $payload,
                 'solicitudRelacionadaCon' => $payload['solicitudRelacionadaCon'] ?? 'NO ENCONTRADO',
