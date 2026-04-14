@@ -54,12 +54,9 @@ use App\Http\Controllers\WellnessRequestController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
-    // Endpoints de autenticación con rate limiting (+ reCAPTCHA en forgot/reset; login ver abajo).
-    // TEMPORAL: reCAPTCHA en login admin deshabilitado (p. ej. acceso al panel de votación de asamblea sin token).
-    // Rehabilitar: añadir de nuevo 'recaptcha:login' al array de middleware.
+    // Endpoints de autenticación con rate limiting + reCAPTCHA
     Route::post('/login', [ApiAuthController::class, 'login'])
-        ->middleware(['throttle:5,1']);
-    // ->middleware(['throttle:5,1', 'recaptcha:login']);
+        ->middleware(['throttle:5,1', 'recaptcha:login']);
     Route::post('/set-password', [ApiAuthController::class, 'setPasswordFromInvitation']);
     Route::post('/forgot-password', [ApiAuthController::class, 'forgotPassword'])
         ->middleware(['throttle:5,1', 'recaptcha:forgot_password']);
