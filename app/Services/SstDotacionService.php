@@ -2,30 +2,49 @@
 
 namespace App\Services;
 
-use App\Models\{InventoryCategory, SstDeliveryItem, SstDeliveryRecord, SstReturnItem, SstReturnRecord, User};
+use App\Models\InventoryCategory;
+use App\Models\SstDeliveryItem;
+use App\Models\SstDeliveryRecord;
+use App\Models\SstReturnItem;
+use App\Models\SstReturnRecord;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\{Collection, Str};
-use Illuminate\Support\Facades\{Auth, DB, Log, Storage};
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class SstDotacionService
 {
     private const SIGNATURE_DISK = 'prosalud-private';
+
     private const SIGNATURE_TEMP_URL_MINUTES = 10;
 
-    private static ?array $inventoryCache = null;
-
-    public function __construct(private readonly AfiliadoService $afiliadoService)
-    {
-    }
+    /**
+     * Shared cache key for dotación/EPP inventory payload (must invalidate across all PHP workers).
+     *
+     * @internal Exposed for tests and operational tooling (e.g. cache:clear scope).
+     */
+    public const INVENTORY_ITEMS_CACHE_KEY = 'sst_dotacion.inventory_items';
 
     /**
-     * Clear the static inventory cache.
-     * This should be called when products are created, updated, or deleted.
+     * TTL as a safety net if a code path forgets to call {@see clearInventoryCache()}.
+     */
+    private const INVENTORY_ITEMS_CACHE_TTL_MINUTES = 10;
+
+    public function __construct(private readonly AfiliadoService $afiliadoService) {}
+
+    /**
+     * Invalidate cached dotación/EPP inventory for all application workers (Redis/array/etc.).
+     * Call when inventory products or categories used in entregas change.
      */
     public static function clearInventoryCache(): void
     {
-        self::$inventoryCache = null;
+        Cache::forget(self::INVENTORY_ITEMS_CACHE_KEY);
     }
 
     /**
@@ -45,7 +64,7 @@ class SstDotacionService
                 'defaultColor' => $item['defaultColor'] ?? null,
                 'description' => $item['description'] ?? null,
                 'unit' => $item['unit'] ?? 'unidad',
-            ], fn ($value) => null !== $value);
+            ], fn ($value) => $value !== null);
         }, self::inventoryItems());
     }
 
@@ -65,7 +84,7 @@ class SstDotacionService
         $affiliates = $this->buildAffiliatesCollection()
             ->filter(fn (array $affiliate) => $affiliate['active'] ?? false)
             ->sortBy(function (array $affiliate) {
-                $fullName = trim(($affiliate['firstName'] ?? '') . ' ' . ($affiliate['lastName'] ?? ''));
+                $fullName = trim(($affiliate['firstName'] ?? '').' '.($affiliate['lastName'] ?? ''));
 
                 return mb_strtolower($fullName, 'UTF-8');
             })
@@ -78,11 +97,11 @@ class SstDotacionService
             $hospitalFilter,
             $searchTerm
         ) {
-            if ('active' === $statusFilter && !$affiliate['active']) {
+            if ($statusFilter === 'active' && ! $affiliate['active']) {
                 return false;
             }
 
-            if ('inactive' === $statusFilter && $affiliate['active']) {
+            if ($statusFilter === 'inactive' && $affiliate['active']) {
                 return false;
             }
 
@@ -107,7 +126,7 @@ class SstDotacionService
                     $affiliate['hospital'] ?? '',
                 ]));
 
-                if (false === mb_strpos($haystack, $needle)) {
+                if (mb_strpos($haystack, $needle) === false) {
                     return false;
                 }
             }
@@ -148,7 +167,7 @@ class SstDotacionService
     {
         $affiliate = $this->findAffiliate($data['affiliateDocumentType'], $data['affiliateDocumentNumber']);
 
-        if (!$affiliate) {
+        if (! $affiliate) {
             throw new \RuntimeException('No se encontró el afiliado solicitado.');
         }
 
@@ -156,11 +175,11 @@ class SstDotacionService
 
         $userId = Auth::id();
 
-        if (!$userId && !empty($data['deliveredBy'])) {
+        if (! $userId && ! empty($data['deliveredBy'])) {
             $userId = is_numeric($data['deliveredBy']) ? (int) $data['deliveredBy'] : null;
         }
 
-        if (!$userId) {
+        if (! $userId) {
             $userId = 1; // fallback while auth is not enabled
         }
 
@@ -215,8 +234,8 @@ class SstDotacionService
             } else {
                 // Validar y crear registro para ítems de inventario normales
                 $inventoryItem = $this->findInventoryItem($itemId);
-                if (!$inventoryItem) {
-                    throw new \RuntimeException('Ítem de inventario no reconocido: ' . $itemId);
+                if (! $inventoryItem) {
+                    throw new \RuntimeException('Ítem de inventario no reconocido: '.$itemId);
                 }
 
                 SstDeliveryItem::create([
@@ -259,7 +278,7 @@ class SstDotacionService
         if ($deliveredBy) {
             $query->where(function (Builder $builder) use ($deliveredBy) {
                 $builder->where('delivered_by_user_id', $deliveredBy)
-                    ->orWhere('delivered_by_name', 'like', '%' . $deliveredBy . '%');
+                    ->orWhere('delivered_by_name', 'like', '%'.$deliveredBy.'%');
             });
         }
 
@@ -285,7 +304,7 @@ class SstDotacionService
     {
         $affiliate = $this->findAffiliate($data['affiliateDocumentType'], $data['affiliateDocumentNumber']);
 
-        if (!$affiliate) {
+        if (! $affiliate) {
             throw new \RuntimeException('No se encontró el afiliado solicitado.');
         }
 
@@ -293,11 +312,11 @@ class SstDotacionService
 
         $userId = Auth::id();
 
-        if (!$userId && !empty($data['receivedBy'])) {
+        if (! $userId && ! empty($data['receivedBy'])) {
             $userId = is_numeric($data['receivedBy']) ? (int) $data['receivedBy'] : null;
         }
 
-        if (!$userId) {
+        if (! $userId) {
             $userId = 1; // fallback while auth is not enabled
         }
 
@@ -351,8 +370,8 @@ class SstDotacionService
             } else {
                 // Validar y crear registro para ítems de inventario normales
                 $inventoryItem = $this->findInventoryItem($itemId);
-                if (!$inventoryItem) {
-                    throw new \RuntimeException('Ítem de inventario no reconocido: ' . $itemId);
+                if (! $inventoryItem) {
+                    throw new \RuntimeException('Ítem de inventario no reconocido: '.$itemId);
                 }
 
                 SstReturnItem::create([
@@ -400,12 +419,12 @@ class SstDotacionService
         if ($receivedBy) {
             $query->where(function (Builder $builder) use ($receivedBy) {
                 $builder->where('received_by_user_id', $receivedBy)
-                    ->orWhere('received_by_name', 'like', '%' . $receivedBy . '%');
+                    ->orWhere('received_by_name', 'like', '%'.$receivedBy.'%');
             });
         }
 
         if ($hospital) {
-            $query->where('affiliate_hospital', 'like', '%' . $hospital . '%');
+            $query->where('affiliate_hospital', 'like', '%'.$hospital.'%');
         }
 
         if ($startDate) {
@@ -427,17 +446,17 @@ class SstDotacionService
         }
 
         if ($documentNumber) {
-            $query->where('affiliate_document_number', 'like', '%' . $documentNumber . '%');
+            $query->where('affiliate_document_number', 'like', '%'.$documentNumber.'%');
         }
 
         if ($searchTerm) {
             $search = trim($searchTerm);
             $query->where(function (Builder $builder) use ($search) {
-                $builder->where('affiliate_first_name', 'like', '%' . $search . '%')
-                    ->orWhere('affiliate_last_name', 'like', '%' . $search . '%')
-                    ->orWhere('affiliate_document_number', 'like', '%' . $search . '%')
-                    ->orWhere('affiliate_hospital', 'like', '%' . $search . '%')
-                    ->orWhere('received_by_name', 'like', '%' . $search . '%');
+                $builder->where('affiliate_first_name', 'like', '%'.$search.'%')
+                    ->orWhere('affiliate_last_name', 'like', '%'.$search.'%')
+                    ->orWhere('affiliate_document_number', 'like', '%'.$search.'%')
+                    ->orWhere('affiliate_hospital', 'like', '%'.$search.'%')
+                    ->orWhere('received_by_name', 'like', '%'.$search.'%');
             });
         }
 
@@ -472,11 +491,11 @@ class SstDotacionService
             $documentType = strtoupper($afiliado['tipo_documento'] ?? '');
             $documentNumber = $afiliado['documento'] ?? '';
             $id = sprintf('%s-%s', $documentType, $documentNumber);
-            
+
             // Seleccionar el convenio más reciente o activo usando la misma lógica que otros servicios
             $convenios = $afiliado['convenios'] ?? [];
             $convenio = $this->selectMostRecentConvenio($convenios);
-            
+
             $hospital = $convenio['cliente'] ?? 'SIN ASIGNAR';
             $role = $convenio['proceso'] ?? null;
             $status = strtoupper($afiliado['estado'] ?? '');
@@ -494,7 +513,7 @@ class SstDotacionService
                 'documentNumber' => $documentNumber,
                 'hospital' => $hospital,
                 'role' => $role,
-                'active' => 'ACTIVO' === $status,
+                'active' => $status === 'ACTIVO',
                 'status' => $status,
                 'convenioStatus' => $convenio['estado'] ?? null,
                 'lastDeliveryAt' => $lastDeliveryIso,
@@ -508,7 +527,7 @@ class SstDotacionService
      * Priority: Active convenios first, then by fecha_fin (most recent), then by fecha_ingreso.
      * Uses the same logic as AfiliadoService::selectMostRecentConvenio().
      *
-     * @param array $convenios Array of convenio arrays
+     * @param  array  $convenios  Array of convenio arrays
      * @return array|null The most recent convenio or null if no convenios
      */
     private function selectMostRecentConvenio(array $convenios): ?array
@@ -525,34 +544,35 @@ class SstDotacionService
         // Filtrar convenios activos
         $conveniosActivos = array_filter($convenios, function ($conv) {
             $estado = is_string($conv['estado'] ?? null) ? trim($conv['estado']) : '';
+
             return strcasecmp($estado, 'Activo') === 0;
         });
 
         $selectedConvenio = null;
 
-        if (!empty($conveniosActivos)) {
+        if (! empty($conveniosActivos)) {
             // Si hay convenios activos, seleccionar el más reciente/actual
             // Prioridad: fecha_fin vacía/null > fecha_fin más reciente > fecha_ingreso más reciente
             usort($conveniosActivos, function ($a, $b) {
                 // Normalizar valores de fecha_fin (pueden ser null, '', o string con fecha)
                 $aFechaFin = $a['fecha_fin'] ?? null;
                 $bFechaFin = $b['fecha_fin'] ?? null;
-                
+
                 // Considerar vacío tanto null como string vacío
                 $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
                 $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
 
                 // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad (más reciente)
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return -1; // $a tiene prioridad (viene primero)
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return 1; // $b tiene prioridad (viene primero)
                 }
 
                 // Si ambos tienen fecha_fin, comparar por fecha_fin (más reciente primero)
-                if (!$aFechaFinVacia && !$bFechaFinVacia) {
-                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                if (! $aFechaFinVacia && ! $bFechaFinVacia) {
+                    $comparison = strcmp((string) $bFechaFin, (string) $aFechaFin);
                     if ($comparison !== 0) {
                         return $comparison; // Más reciente primero
                     }
@@ -561,7 +581,8 @@ class SstDotacionService
                 // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
                 $aFechaIngreso = $a['fecha_ingreso'] ?? '';
                 $bFechaIngreso = $b['fecha_ingreso'] ?? '';
-                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso); // Más reciente primero
+
+                return strcmp((string) $bFechaIngreso, (string) $aFechaIngreso); // Más reciente primero
             });
 
             $selectedConvenio = reset($conveniosActivos);
@@ -571,21 +592,21 @@ class SstDotacionService
                 // Normalizar valores de fecha_fin
                 $aFechaFin = $a['fecha_fin'] ?? null;
                 $bFechaFin = $b['fecha_fin'] ?? null;
-                
+
                 $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
                 $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
 
                 // Fecha_fin vacía tiene menor prioridad cuando no hay activos
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
 
                 // Comparar por fecha_fin (más reciente primero)
-                if (!$aFechaFinVacia && !$bFechaFinVacia) {
-                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                if (! $aFechaFinVacia && ! $bFechaFinVacia) {
+                    $comparison = strcmp((string) $bFechaFin, (string) $aFechaFin);
                     if ($comparison !== 0) {
                         return $comparison;
                     }
@@ -594,7 +615,8 @@ class SstDotacionService
                 // Si las fechas_fin son iguales, usar fecha_ingreso
                 $aFechaIngreso = $a['fecha_ingreso'] ?? '';
                 $bFechaIngreso = $b['fecha_ingreso'] ?? '';
-                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso);
+
+                return strcmp((string) $bFechaIngreso, (string) $aFechaIngreso);
             });
 
             $selectedConvenio = $convenios[0];
@@ -658,7 +680,7 @@ class SstDotacionService
                     'variant' => array_filter([
                         'color' => $item->variant_color,
                         'size' => $item->variant_size,
-                    ], fn ($value) => null !== $value),
+                    ], fn ($value) => $value !== null),
                     'quantity' => $item->quantity,
                 ];
             })->all(),
@@ -682,52 +704,52 @@ class SstDotacionService
 
     private static function inventoryItems(): array
     {
-        if (null !== self::$inventoryCache) {
-            return self::$inventoryCache;
-        }
+        return Cache::remember(
+            self::INVENTORY_ITEMS_CACHE_KEY,
+            now()->addMinutes(self::INVENTORY_ITEMS_CACHE_TTL_MINUTES),
+            function (): array {
+                $categories = InventoryCategory::query()
+                    ->with(['products.variants.color'])
+                    ->get()
+                    ->filter(function (InventoryCategory $category) {
+                        $normalized = Str::slug($category->name);
 
-        $categories = InventoryCategory::query()
-            ->with(['products.variants.color'])
-            ->get()
-            ->filter(function (InventoryCategory $category) {
-                $normalized = Str::slug($category->name);
+                        return in_array($normalized, ['dotacion', 'dotación', 'epp'], true);
+                    });
 
-                return in_array($normalized, ['dotacion', 'dotación', 'epp'], true);
-            });
+                $items = [];
 
-        $items = [];
+                foreach ($categories as $category) {
+                    $categoryLabel = $category->name;
 
-        foreach ($categories as $category) {
-            $categoryLabel = $category->name;
+                    foreach ($category->products as $product) {
+                        $variants = $product->variants->map(function ($variant) {
+                            $payload = array_filter([
+                                'color' => $variant->color_id,
+                                'size' => $variant->size,
+                            ], fn ($value) => $value !== null && $value !== '');
 
-            foreach ($category->products as $product) {
-                $variants = $product->variants->map(function ($variant) {
-                    $payload = array_filter([
-                        'color' => $variant->color_id,
-                        'size' => $variant->size,
-                    ], fn ($value) => null !== $value && '' !== $value);
+                            return $payload ?: null;
+                        })->filter()->values()->all();
 
-                    return $payload ?: null;
-                })->filter()->values()->all();
+                        $defaultColor = $product->variants->firstWhere('color_id')?->color_id;
 
-                $defaultColor = $product->variants->firstWhere('color_id')?->color_id;
+                        $items[] = array_filter([
+                            'id' => $product->id,
+                            'name' => $product->name,
+                            'category' => $categoryLabel,
+                            'gender' => $product->gender,
+                            'variants' => ! empty($variants) ? $variants : null,
+                            'defaultColor' => $defaultColor,
+                            'description' => $product->description,
+                            'unit' => 'unidad',
+                        ], fn ($value) => $value !== null);
+                    }
+                }
 
-                $items[] = array_filter([
-                    'id' => $product->id,
-                    'name' => $product->name,
-                    'category' => $categoryLabel,
-                    'gender' => $product->gender,
-                    'variants' => !empty($variants) ? $variants : null,
-                    'defaultColor' => $defaultColor,
-                    'description' => $product->description,
-                    'unit' => 'unidad',
-                ], fn ($value) => null !== $value);
+                return $items;
             }
-        }
-
-        self::$inventoryCache = $items;
-
-        return self::$inventoryCache;
+        );
     }
 
     private function transformReturnRecord(SstReturnRecord $record): array
@@ -788,7 +810,7 @@ class SstDotacionService
                     'variant' => array_filter([
                         'color' => $item->variant_color,
                         'size' => $item->variant_size,
-                    ], fn ($value) => null !== $value) ?: null,
+                    ], fn ($value) => $value !== null) ?: null,
                     'quantity' => $item->quantity,
                 ];
             })->all(),
@@ -802,16 +824,16 @@ class SstDotacionService
 
     private function storeSignature(string $dataUrl): array
     {
-        if (!preg_match('/^data:(image\/(png|jpe?g));base64,/', $dataUrl, $matches)) {
+        if (! preg_match('/^data:(image\/(png|jpe?g));base64,/', $dataUrl, $matches)) {
             throw new \InvalidArgumentException('Formato de firma inválido.');
         }
 
         $mimeType = $matches[1];
-        $extension = 'jpeg' === $matches[2] ? 'jpg' : $matches[2];
+        $extension = $matches[2] === 'jpeg' ? 'jpg' : $matches[2];
         $base64 = substr($dataUrl, strpos($dataUrl, ',') + 1);
         $binary = base64_decode($base64, true);
 
-        if (false === $binary) {
+        if ($binary === false) {
             throw new \InvalidArgumentException('La firma no se pudo decodificar correctamente.');
         }
 
@@ -821,7 +843,7 @@ class SstDotacionService
         }
 
         $disk = self::SIGNATURE_DISK;
-        $path = 'dotacion-signatures/' . Str::uuid() . '.' . $extension;
+        $path = 'dotacion-signatures/'.Str::uuid().'.'.$extension;
 
         Storage::disk($disk)->put($path, $binary, ['visibility' => 'private']);
 
