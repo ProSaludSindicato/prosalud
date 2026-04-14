@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Models\SstDeliveryItem;
+use App\Models\SstDeliveryRecord;
 use App\Models\SstReturnItem;
+use App\Models\SstReturnRecord;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
@@ -59,19 +61,29 @@ class UpdateSstDeliveryItemColorCommand extends Command
         }
 
         $this->table(
-            ['Tipo', 'Ítem ID', 'Entrega/Devolución', 'Artículo', 'Color actual', 'Color nuevo'],
+            [
+                'Tipo',
+                'Fecha',
+                'Documento',
+                'Talla',
+                'Artículo',
+                'Color actual',
+                'Color nuevo',
+            ],
             $deliveryItems->map(fn (SstDeliveryItem $item) => [
                 'entrega',
-                substr($item->id, 0, 8).'…',
-                substr($item->delivery_id, 0, 8).'…',
+                $this->formatDeliveryDate($item->delivery),
+                $this->formatAffiliateDocument($item->delivery),
+                $item->variant_size ?? '—',
                 $item->item_name,
                 $item->variant_color,
                 $to,
             ])->merge(
                 $returnItems->map(fn (SstReturnItem $item) => [
                     'devolución',
-                    substr($item->id, 0, 8).'…',
-                    substr($item->return_id, 0, 8).'…',
+                    $this->formatReturnDate($item->returnRecord),
+                    $this->formatAffiliateDocument($item->returnRecord),
+                    $item->variant_size ?? '—',
                     $item->item_name,
                     $item->variant_color,
                     $to,
@@ -209,5 +221,39 @@ class UpdateSstDeliveryItemColorCommand extends Command
             $item->variant_payload = $payload;
         }
         $item->save();
+    }
+
+    private function formatDeliveryDate(?SstDeliveryRecord $record): string
+    {
+        if ($record === null || $record->delivered_at === null) {
+            return '—';
+        }
+
+        return $record->delivered_at->copy()->timezone('America/Bogota')->format('Y-m-d H:i');
+    }
+
+    private function formatReturnDate(?SstReturnRecord $record): string
+    {
+        if ($record === null || $record->returned_at === null) {
+            return '—';
+        }
+
+        return $record->returned_at->copy()->timezone('America/Bogota')->format('Y-m-d H:i');
+    }
+
+    private function formatAffiliateDocument(SstDeliveryRecord|SstReturnRecord|null $record): string
+    {
+        if ($record === null) {
+            return '—';
+        }
+
+        $type = trim((string) ($record->affiliate_document_type ?? ''));
+        $number = trim((string) ($record->affiliate_document_number ?? ''));
+
+        if ($type === '' && $number === '') {
+            return '—';
+        }
+
+        return trim($type.' '.$number);
     }
 }
