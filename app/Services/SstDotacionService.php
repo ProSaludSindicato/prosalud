@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\InventoryCategory;
+use App\Models\InventoryColor;
 use App\Models\SstDeliveryItem;
 use App\Models\SstDeliveryRecord;
 use App\Models\SstReturnItem;
@@ -20,6 +21,11 @@ use Illuminate\Support\Str;
 
 class SstDotacionService
 {
+    /**
+     * @var array<string, string>|null
+     */
+    private ?array $inventoryColorLabelsById = null;
+
     private const SIGNATURE_DISK = 'prosalud-private';
 
     private const SIGNATURE_TEMP_URL_MINUTES = 10;
@@ -673,14 +679,20 @@ class SstDotacionService
                 $inventoryItem = $this->findInventoryItem($item->item_id);
                 $inventoryGender = is_array($inventoryItem) ? ($inventoryItem['gender'] ?? null) : null;
 
+                $variant = array_filter([
+                    'color' => $item->variant_color,
+                    'size' => $item->variant_size,
+                ], fn ($value) => $value !== null);
+                $colorLabel = $this->labelForInventoryColorId($item->variant_color);
+                if ($colorLabel !== null && $colorLabel !== '') {
+                    $variant['colorLabel'] = $colorLabel;
+                }
+
                 return [
                     'itemId' => $item->item_id,
                     'name' => $item->item_name,
                     'gender' => $item->item_gender ?? $inventoryGender,
-                    'variant' => array_filter([
-                        'color' => $item->variant_color,
-                        'size' => $item->variant_size,
-                    ], fn ($value) => $value !== null),
+                    'variant' => $variant,
                     'quantity' => $item->quantity,
                 ];
             })->all(),
@@ -689,6 +701,19 @@ class SstDotacionService
             'signedDocumentNumber' => $record->signed_document_number,
             'notes' => $record->notes,
         ];
+    }
+
+    private function labelForInventoryColorId(?string $colorId): ?string
+    {
+        if ($colorId === null || $colorId === '') {
+            return null;
+        }
+
+        if ($this->inventoryColorLabelsById === null) {
+            $this->inventoryColorLabelsById = InventoryColor::query()->pluck('label', 'id')->all();
+        }
+
+        return $this->inventoryColorLabelsById[$colorId] ?? null;
     }
 
     private function findInventoryItem(string $itemId): ?array
@@ -805,12 +830,18 @@ class SstDotacionService
                 $inventoryItem = $this->findInventoryItem($item->item_id);
                 $inventoryGender = is_array($inventoryItem) ? ($inventoryItem['gender'] ?? null) : null;
 
+                $variant = array_filter([
+                    'color' => $item->variant_color,
+                    'size' => $item->variant_size,
+                ], fn ($value) => $value !== null);
+                $colorLabel = $this->labelForInventoryColorId($item->variant_color);
+                if ($colorLabel !== null && $colorLabel !== '') {
+                    $variant['colorLabel'] = $colorLabel;
+                }
+
                 return [
                     'itemId' => $item->item_id,
-                    'variant' => array_filter([
-                        'color' => $item->variant_color,
-                        'size' => $item->variant_size,
-                    ], fn ($value) => $value !== null) ?: null,
+                    'variant' => $variant === [] ? null : $variant,
                     'quantity' => $item->quantity,
                 ];
             })->all(),
