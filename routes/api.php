@@ -1,17 +1,65 @@
 <?php
 
-use App\Http\Controllers\{ActivosController, ActivosFileController, AfiliadoController, AfiliadosFileController, AuthController as ApiAuthController, CertificadoConvenioController, ChatbotConversationController, ComfenalcoEventController, CompensacionesFileController, ConvenioManualController, DelegadosController, DelegadosFileController, DocuSignController, DocuSignWebhookController, DocumentSigningAdminController, DotacionEppController, IncapacidadesController, IncapacidadesFileController, KitBienestarController, LiquidacionesController, LiquidacionesFileController, SstDeliveryReportController, SurveyConfigController, VoteController, WellnessActivityRealizedController, WellnessDeliveryTypeController, WellnessEventController, WellnessRequestController, SocioDemographicSurveyController, VaccinationSurveyController};
-use App\Http\Controllers\Api\{PermissionController, RoleController};
-use App\Http\Controllers\Assembly\{AssemblyAttendanceController, AssemblyController, AssemblyQuestionController, AssemblyReportController, AssemblyVoteController, QuorumController};
-use App\Http\Controllers\Inventory\{HospitalRequestController, InventoryCategoryController, InventoryColorController, InventoryDashboardController, InventoryEntryController, InventoryLocationController, InventoryProductController, InventoryReportController, InventoryStockMovementController};
-use App\Http\Controllers\Request\{RequestAssignmentController, RequestController};
+use App\Http\Controllers\ActivosController;
+use App\Http\Controllers\ActivosFileController;
+use App\Http\Controllers\AfiliadoController;
+use App\Http\Controllers\AfiliadosFileController;
+use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Assembly\AssemblyAttendanceController;
+use App\Http\Controllers\Assembly\AssemblyController;
+use App\Http\Controllers\Assembly\AssemblyDelegatesFileController;
+use App\Http\Controllers\Assembly\AssemblyQuestionController;
+use App\Http\Controllers\Assembly\AssemblyReportController;
+use App\Http\Controllers\Assembly\AssemblyVoteController;
+use App\Http\Controllers\Assembly\QuorumController;
+use App\Http\Controllers\AuthController as ApiAuthController;
+use App\Http\Controllers\CertificadoConvenioController;
+use App\Http\Controllers\ChatbotConversationController;
+use App\Http\Controllers\ComfenalcoEventController;
+use App\Http\Controllers\CompensacionesFileController;
+use App\Http\Controllers\ConvenioManualController;
+use App\Http\Controllers\DelegadosController;
+use App\Http\Controllers\DelegadosFileController;
+use App\Http\Controllers\DocumentSigningAdminController;
+use App\Http\Controllers\DocuSignController;
+use App\Http\Controllers\DocuSignWebhookController;
+use App\Http\Controllers\DotacionEppController;
+use App\Http\Controllers\IncapacidadesController;
+use App\Http\Controllers\IncapacidadesFileController;
+use App\Http\Controllers\Inventory\HospitalRequestController;
+use App\Http\Controllers\Inventory\InventoryCategoryController;
+use App\Http\Controllers\Inventory\InventoryColorController;
+use App\Http\Controllers\Inventory\InventoryDashboardController;
+use App\Http\Controllers\Inventory\InventoryEntryController;
+use App\Http\Controllers\Inventory\InventoryLocationController;
+use App\Http\Controllers\Inventory\InventoryProductController;
+use App\Http\Controllers\Inventory\InventoryReportController;
+use App\Http\Controllers\Inventory\InventoryStockMovementController;
+use App\Http\Controllers\KitBienestarController;
+use App\Http\Controllers\LiquidacionesController;
+use App\Http\Controllers\LiquidacionesFileController;
+use App\Http\Controllers\Request\RequestAssignmentController;
+use App\Http\Controllers\Request\RequestController;
+use App\Http\Controllers\SocioDemographicSurveyController;
+use App\Http\Controllers\SstDeliveryReportController;
+use App\Http\Controllers\SurveyConfigController;
 use App\Http\Controllers\User\UserController;
+use App\Http\Controllers\VaccinationSurveyController;
+use App\Http\Controllers\VoteController;
+use App\Http\Controllers\WellnessActivityRealizedController;
+use App\Http\Controllers\WellnessDeliveryTypeController;
+use App\Http\Controllers\WellnessEventController;
+use App\Http\Controllers\WellnessRequestController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
-    // Endpoints de autenticación con rate limiting + reCAPTCHA
+    // Endpoints de autenticación con rate limiting (+ reCAPTCHA en forgot/reset; login ver abajo).
+    // TEMPORAL: reCAPTCHA en login admin deshabilitado (p. ej. acceso al panel de votación de asamblea sin token).
+    // Rehabilitar: añadir de nuevo 'recaptcha:login' al array de middleware.
     Route::post('/login', [ApiAuthController::class, 'login'])
-        ->middleware(['throttle:5,1', 'recaptcha:login']);
+        ->middleware(['throttle:5,1']);
+    // ->middleware(['throttle:5,1', 'recaptcha:login']);
     Route::post('/set-password', [ApiAuthController::class, 'setPasswordFromInvitation']);
     Route::post('/forgot-password', [ApiAuthController::class, 'forgotPassword'])
         ->middleware(['throttle:5,1', 'recaptcha:forgot_password']);
@@ -72,12 +120,12 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-
     Route::get('/{id}', [KitBienestarController::class, 'show'])->middleware('permission:wellness_delivery.view');
     Route::patch('/{id}/status', [KitBienestarController::class, 'updateStatus'])->middleware('permission:wellness_delivery.manage');
     Route::put('/{id}/status', [KitBienestarController::class, 'updateStatus'])->middleware('permission:wellness_delivery.manage');
-    
+
     // Export routes
     Route::post('/export', [KitBienestarController::class, 'exportExcel'])->middleware('permission:wellness_delivery.view');
     Route::get('/export/status/{jobId}', [KitBienestarController::class, 'checkStatus'])->middleware('permission:wellness_delivery.view');
     Route::get('/export/download/{jobId}', [KitBienestarController::class, 'downloadReport'])->middleware('permission:wellness_delivery.view');
-    
+
     // File management routes
     Route::post('/file/upload', [KitBienestarController::class, 'uploadFile'])->middleware('permission:wellness_delivery.manage');
     Route::get('/file/versions', [KitBienestarController::class, 'getFileVersions'])->middleware('permission:wellness_delivery.view');
@@ -153,15 +201,15 @@ Route::prefix('certificados')->group(function () {
 //     // Bulk email sending
 //     Route::post('/send-bulk-emails', [DocumentSigningAdminController::class, 'sendBulkEmails'])
 //         ->middleware('permission:document_signing.manage');
-//     
+//
 //     // Email history and tracking
 //     Route::get('/email-history', [DocumentSigningAdminController::class, 'listEmailHistory'])
 //         ->middleware('permission:document_signing.view');
-//     
+//
 //     // Resend emails
 //     Route::post('/resend-emails', [DocumentSigningAdminController::class, 'resendEmails'])
 //         ->middleware('permission:document_signing.manage');
-//     
+//
 //     // Statistics
 //     Route::get('/statistics', [DocumentSigningAdminController::class, 'getStatistics'])
 //         ->middleware('permission:document_signing.view');
@@ -176,31 +224,31 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     // Generate and send convenio from frontend data
     Route::post('/generate-and-send', [ConvenioManualController::class, 'generateAndSendConvenio'])
         ->middleware('permission:document_signing.manage');
-    
+
     // Download previously generated convenio (async flow)
     Route::get('/download-generated', [ConvenioManualController::class, 'downloadGeneratedConvenio'])
         ->middleware('permission:document_signing.manage');
-    
+
     // Export template Excel for bulk import
     Route::get('/export-template', [ConvenioManualController::class, 'exportTemplate'])
         ->middleware('permission:document_signing.manage');
-    
+
     // Import and generate convenios from Excel (bulk)
     Route::post('/import-bulk', [ConvenioManualController::class, 'importAndGenerateBulk'])
         ->middleware('permission:document_signing.manage');
-    
+
     // Bulk email sending
     Route::post('/send-bulk-emails', [ConvenioManualController::class, 'sendBulkEmails'])
         ->middleware('permission:document_signing.manage');
-    
+
     // Email history and tracking
     Route::get('/email-history', [ConvenioManualController::class, 'listEmailHistory'])
         ->middleware('permission:document_signing.view');
-    
+
     // Resend emails
     Route::post('/resend-emails', [ConvenioManualController::class, 'resendEmails'])
         ->middleware('permission:document_signing.manage');
-    
+
     // Statistics
     Route::get('/statistics', [ConvenioManualController::class, 'getStatistics'])
         ->middleware('permission:document_signing.view');
@@ -234,6 +282,11 @@ Route::prefix('assembly')->group(function () {
         Route::post('/assemblies/{id}/activate', [AssemblyController::class, 'activate'])->middleware('permission:assembly.questions.manage');
         Route::post('/assemblies/{id}/deactivate', [AssemblyController::class, 'deactivate'])->middleware('permission:assembly.questions.manage');
 
+        Route::get('/assemblies/{id}/delegates-file', [AssemblyDelegatesFileController::class, 'show'])->middleware('permission:assembly.questions.manage');
+        Route::post('/assemblies/{id}/delegates-file', [AssemblyDelegatesFileController::class, 'upload'])->middleware('permission:assembly.questions.manage');
+        Route::get('/assemblies/{id}/delegates-file/download', [AssemblyDelegatesFileController::class, 'download'])->middleware('permission:assembly.questions.manage');
+        Route::get('/assemblies/{id}/delegates-file/versions', [AssemblyDelegatesFileController::class, 'versions'])->middleware('permission:assembly.questions.manage');
+
         // Admin routes - Questions management
         // Admin routes - Questions management
         Route::post('/questions', [AssemblyQuestionController::class, 'store'])->middleware('permission:assembly.questions.manage');
@@ -262,13 +315,13 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     // Request management routes
     Route::get('/requests', [RequestController::class, 'index'])->middleware('permission:requests.view');
     Route::get('/requests/pending-personal-data-updates', [RequestController::class, 'pendingPersonalDataUpdates'])->middleware('permission:requests.view');
-    
+
     // Rutas específicas (sin parámetros dinámicos) - DEBEN IR ANTES de las rutas con {request}
     Route::get('/requests/bulk-response-template', [RequestController::class, 'exportBulkResponseTemplate'])->middleware('permission:requests.respond');
     Route::post('/requests/bulk-response', [RequestController::class, 'processBulkResponse'])->middleware('permission:requests.respond');
     Route::post('/requests/export/excel', [RequestController::class, 'exportExcel'])->middleware('permission:requests.view');
     Route::get('/requests/responses/{response}/attachments/{attachment}', [RequestController::class, 'downloadResponseAttachment'])->middleware('permission:requests.view');
-    
+
     // Rutas con parámetros dinámicos - DESPUÉS de las específicas
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
     Route::get('/requests/{request}/status-history', [RequestController::class, 'statusHistory'])->middleware('permission:requests.view');

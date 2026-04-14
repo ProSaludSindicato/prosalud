@@ -29,16 +29,59 @@ class AssemblyAttendanceService
         }
 
         $normalizedIssueDate = $this->normalizeDate($issueDate);
-        $signaturePath = $this->storeSignature($documentNumber, $signatureData);
 
-        // Get the active assembly (required)
         $assembly = Assembly::getCurrent();
-        if (!$assembly) {
+        if (! $assembly) {
             throw new \RuntimeException(
-                'No se puede registrar asistencia sin asamblea activa. ' .
+                'No se puede registrar asistencia sin asamblea activa. '.
                 'Por favor, active una asamblea primero.'
             );
         }
+
+        $existing = AssemblyAttendance::query()
+            ->where('assembly_id', $assembly->id)
+            ->where('document_number', $documentNumber)
+            ->first();
+
+        if ($existing !== null) {
+            if (filled($existing->signature_path)) {
+                $existing->update([
+                    'authenticated_at' => now(),
+                    'ip_address' => $request->ip(),
+                    'user_agent' => Str::limit($request->userAgent() ?? '', 512, ''),
+                ]);
+
+                Log::info('Re-autenticación de delegado: asistencia ya registrada con firma, no se crea registro duplicado', [
+                    'attendance_id' => $existing->id,
+                    'assembly_id' => $assembly->id,
+                    'document_number' => $existing->document_number,
+                    'source' => $request->path(),
+                ]);
+
+                return $existing->fresh();
+            }
+
+            $signaturePath = $this->storeSignature($documentNumber, $signatureData);
+
+            $existing->update([
+                'full_name' => $this->normalizeName($fullName) ?? $existing->full_name,
+                'issue_date_normalized' => $normalizedIssueDate ?? $existing->issue_date_normalized,
+                'signature_path' => $signaturePath,
+                'ip_address' => $request->ip(),
+                'user_agent' => Str::limit($request->userAgent() ?? '', 512, ''),
+                'authenticated_at' => now(),
+            ]);
+
+            Log::info('Asistencia completada con firma (registro previo incompleto)', [
+                'attendance_id' => $existing->id,
+                'document_number' => $existing->document_number,
+                'source' => $request->path(),
+            ]);
+
+            return $existing->fresh();
+        }
+
+        $signaturePath = $this->storeSignature($documentNumber, $signatureData);
 
         $attendance = AssemblyAttendance::create([
             'assembly_id' => $assembly->id,
@@ -69,16 +112,16 @@ class AssemblyAttendanceService
             return null;
         }
 
-        if (!preg_match('/^data:(image\/(png|jpe?g));base64,/', $signatureData, $matches)) {
+        if (! preg_match('/^data:(image\/(png|jpe?g));base64,/', $signatureData, $matches)) {
             throw new \InvalidArgumentException('Formato de firma inválido.');
         }
 
         $mimeType = $matches[1];
-        $extension = 'jpeg' === $matches[2] ? 'jpg' : $matches[2];
+        $extension = $matches[2] === 'jpeg' ? 'jpg' : $matches[2];
         $base64 = substr($signatureData, strpos($signatureData, ',') + 1);
         $binary = base64_decode($base64, true);
 
-        if (false === $binary) {
+        if ($binary === false) {
             throw new \InvalidArgumentException('La firma no se pudo decodificar correctamente.');
         }
 
@@ -96,7 +139,7 @@ class AssemblyAttendanceService
 
     private function normalizeDocument(?string $document): ?string
     {
-        if (null === $document) {
+        if ($document === null) {
             return null;
         }
 
@@ -107,7 +150,7 @@ class AssemblyAttendanceService
 
     private function normalizeName(?string $name): ?string
     {
-        if (null === $name) {
+        if ($name === null) {
             return null;
         }
 
@@ -118,7 +161,7 @@ class AssemblyAttendanceService
 
     private function normalizeDate(?string $date): ?string
     {
-        if (null === $date) {
+        if ($date === null) {
             return null;
         }
 
@@ -158,4 +201,3 @@ class AssemblyAttendanceService
         return null;
     }
 }
-

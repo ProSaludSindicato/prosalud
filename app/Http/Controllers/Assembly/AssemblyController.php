@@ -50,7 +50,7 @@ class AssemblyController extends Controller
         try {
             $assembly = Assembly::getCurrent();
 
-            if (!$assembly) {
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay asamblea activa',
@@ -81,7 +81,7 @@ class AssemblyController extends Controller
         try {
             $assembly = Assembly::with(['questions', 'attendances', 'quorumConfigs'])->find($id);
 
-            if (!$assembly) {
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Asamblea no encontrada',
@@ -129,7 +129,7 @@ class AssemblyController extends Controller
             if ($startDate && $endDate) {
                 $startTimestamp = is_string($startDate) ? strtotime($startDate) : $startDate;
                 $endTimestamp = is_string($endDate) ? strtotime($endDate) : $endDate;
-                
+
                 if ($endTimestamp < $startTimestamp) {
                     return response()->json([
                         'success' => false,
@@ -150,20 +150,20 @@ class AssemblyController extends Controller
             // Normalizar fechas al formato correcto
             $startDateNormalized = null;
             $endDateNormalized = null;
-            
+
             if ($startDate) {
-                $startDateNormalized = is_string($startDate) 
-                    ? date('Y-m-d', strtotime($startDate)) 
-                    : (is_object($startDate) && method_exists($startDate, 'format') 
-                        ? $startDate->format('Y-m-d') 
+                $startDateNormalized = is_string($startDate)
+                    ? date('Y-m-d', strtotime($startDate))
+                    : (is_object($startDate) && method_exists($startDate, 'format')
+                        ? $startDate->format('Y-m-d')
                         : $startDate);
             }
-            
+
             if ($endDate) {
-                $endDateNormalized = is_string($endDate) 
-                    ? date('Y-m-d', strtotime($endDate)) 
-                    : (is_object($endDate) && method_exists($endDate, 'format') 
-                        ? $endDate->format('Y-m-d') 
+                $endDateNormalized = is_string($endDate)
+                    ? date('Y-m-d', strtotime($endDate))
+                    : (is_object($endDate) && method_exists($endDate, 'format')
+                        ? $endDate->format('Y-m-d')
                         : $endDate);
             }
 
@@ -173,6 +173,7 @@ class AssemblyController extends Controller
                 'start_date' => $startDateNormalized,
                 'end_date' => $endDateNormalized,
                 'is_active' => $willActivate,
+                'allows_reactivation' => true,
             ]);
 
             Log::info('Assembly created', ['assembly_id' => $assembly->id]);
@@ -208,7 +209,7 @@ class AssemblyController extends Controller
         try {
             $assembly = Assembly::find($id);
 
-            if (!$assembly) {
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Asamblea no encontrada',
@@ -232,30 +233,30 @@ class AssemblyController extends Controller
             if (isset($validated['description'])) {
                 $updateData['description'] = $validated['description'];
             }
-            
+
             $startDate = $validated['startDate'] ?? $validated['start_date'] ?? null;
             $endDate = $validated['endDate'] ?? $validated['end_date'] ?? null;
-            
+
             // Normalizar fechas al formato correcto
             if ($startDate !== null) {
-                $updateData['start_date'] = is_string($startDate) 
-                    ? date('Y-m-d', strtotime($startDate)) 
-                    : (is_object($startDate) && method_exists($startDate, 'format') 
-                        ? $startDate->format('Y-m-d') 
+                $updateData['start_date'] = is_string($startDate)
+                    ? date('Y-m-d', strtotime($startDate))
+                    : (is_object($startDate) && method_exists($startDate, 'format')
+                        ? $startDate->format('Y-m-d')
                         : $startDate);
             }
             if ($endDate !== null) {
-                $updateData['end_date'] = is_string($endDate) 
-                    ? date('Y-m-d', strtotime($endDate)) 
-                    : (is_object($endDate) && method_exists($endDate, 'format') 
-                        ? $endDate->format('Y-m-d') 
+                $updateData['end_date'] = is_string($endDate)
+                    ? date('Y-m-d', strtotime($endDate))
+                    : (is_object($endDate) && method_exists($endDate, 'format')
+                        ? $endDate->format('Y-m-d')
                         : $endDate);
             }
 
             // Validar que end_date sea después o igual a start_date si ambos existen
             $finalStartDate = $updateData['start_date'] ?? $assembly->start_date?->format('Y-m-d');
             $finalEndDate = $updateData['end_date'] ?? $assembly->end_date?->format('Y-m-d');
-            
+
             if ($finalStartDate && $finalEndDate && strtotime($finalEndDate) < strtotime($finalStartDate)) {
                 return response()->json([
                     'success' => false,
@@ -301,11 +302,26 @@ class AssemblyController extends Controller
         try {
             $assembly = Assembly::find($id);
 
-            if (!$assembly) {
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Asamblea no encontrada',
                 ], 404);
+            }
+
+            if ($assembly->is_active) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'La asamblea ya está activa',
+                    'data' => $this->formatAssembly($assembly),
+                ]);
+            }
+
+            if (! $assembly->allows_reactivation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Una asamblea desactivada no puede volver a activarse. Cree una nueva asamblea para continuar.',
+                ], 422);
             }
 
             $assembly->activate();
@@ -338,21 +354,24 @@ class AssemblyController extends Controller
         try {
             $assembly = Assembly::find($id);
 
-            if (!$assembly) {
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Asamblea no encontrada',
                 ], 404);
             }
 
-            if (!$assembly->is_active) {
+            if (! $assembly->is_active) {
                 return response()->json([
                     'success' => false,
                     'message' => 'La asamblea ya está desactivada',
                 ], 422);
             }
 
-            $assembly->update(['is_active' => false]);
+            $assembly->update([
+                'is_active' => false,
+                'allows_reactivation' => false,
+            ]);
             $assembly->refresh();
 
             Log::info('Assembly deactivated', ['assembly_id' => $assembly->id]);
@@ -387,8 +406,13 @@ class AssemblyController extends Controller
             'startDate' => $assembly->start_date?->toDateString(),
             'endDate' => $assembly->end_date?->toDateString(),
             'isActive' => $assembly->is_active,
+            'allowsReactivation' => $assembly->allows_reactivation,
             'createdAt' => $assembly->created_at->toISOString(),
             'updatedAt' => $assembly->updated_at->toISOString(),
+            'delegatesFile' => [
+                'hasFile' => filled($assembly->delegates_file_path),
+                'disk' => $assembly->delegates_file_disk,
+            ],
         ];
 
         if ($includeRelations) {

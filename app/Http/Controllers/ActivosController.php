@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Assembly;
 use App\Services\AssemblyAttendanceService;
 use App\Services\ExcelReaderService;
-use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class ActivosController extends Controller
@@ -12,8 +14,7 @@ class ActivosController extends Controller
     public function __construct(
         private ExcelReaderService $excelReaderService,
         private AssemblyAttendanceService $attendanceService,
-    ) {
-    }
+    ) {}
 
     /**
      * Search for an affiliate by document number and expedition date in the asamblea delegados file.
@@ -40,13 +41,20 @@ class ActivosController extends Controller
                 'timestamp' => now()->toISOString(),
             ]);
 
-            // Check if the asamblea delegados file is available
-            if (!$this->excelReaderService->isAsambleaDelegadosFileAvailable()) {
-                Log::error('Archivo de asamblea delegados no disponible para búsqueda');
+            if (! Assembly::getCurrent()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No hay una asamblea activa. El administrador debe activar una asamblea.',
+                    'data' => null,
+                ], 503);
+            }
+
+            if (! $this->excelReaderService->isAsambleaDelegadosFileAvailable()) {
+                Log::error('Archivo de delegados no configurado para la asamblea activa');
 
                 return response()->json([
                     'success' => false,
-                    'message' => 'Servicio temporalmente no disponible',
+                    'message' => 'Aún no se ha cargado la lista de delegados para la asamblea activa. Contacte al administrador.',
                     'data' => null,
                 ], 503);
             }
@@ -60,7 +68,7 @@ class ActivosController extends Controller
             $response = [
                 'success' => true,
                 'data' => $afiliado,
-                'found' => null !== $afiliado,
+                'found' => $afiliado !== null,
             ];
 
             if ($afiliado) {
@@ -77,7 +85,7 @@ class ActivosController extends Controller
             Log::info('Resultado de búsqueda de afiliado', [
                 'documento' => $documento,
                 'fecha_expedicion' => $fechaExpedicion,
-                'encontrado' => null !== $afiliado,
+                'encontrado' => $afiliado !== null,
                 'afiliado' => $afiliado,
                 'timestamp' => now()->toISOString(),
             ]);
@@ -112,5 +120,4 @@ class ActivosController extends Controller
             ], 500);
         }
     }
-
 }

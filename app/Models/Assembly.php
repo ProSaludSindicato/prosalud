@@ -13,12 +13,16 @@ class Assembly extends Model
         'start_date',
         'end_date',
         'is_active',
+        'allows_reactivation',
+        'delegates_file_path',
+        'delegates_file_disk',
     ];
 
     protected $casts = [
         'start_date' => 'date',
         'end_date' => 'date',
         'is_active' => 'boolean',
+        'allows_reactivation' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -52,6 +56,11 @@ class Assembly extends Model
         return $this->hasMany(QuorumConfig::class, 'assembly_id');
     }
 
+    public function delegateFileVersions(): HasMany
+    {
+        return $this->hasMany(AssemblyDelegateFileVersion::class, 'assembly_id')->orderByDesc('created_at');
+    }
+
     /**
      * Get the current active assembly
      */
@@ -62,18 +71,18 @@ class Assembly extends Model
 
     /**
      * Get or create a default assembly for backward compatibility.
-     * 
+     *
      * WARNING: This method creates a new assembly automatically if none exists.
      * Use only when explicitly needed for backward compatibility.
      * Most code should use getCurrent() and handle the null case explicitly.
-     * 
+     *
      * @deprecated Prefer using getCurrent() and handling null cases explicitly
      */
     public static function getOrCreateDefault(): self
     {
         $current = static::getCurrent();
-        
-        if (!$current) {
+
+        if (! $current) {
             $current = static::create([
                 'name' => 'Asamblea Principal',
                 'description' => 'Asamblea principal del sistema',

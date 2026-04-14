@@ -2,20 +2,29 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\{Cache, Log, Storage};
-use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
+use App\Models\Assembly;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class ExcelReaderService
 {
     private const INCAPACIDADES_FILE_PATH = 'data/RELACION_INCAPACIDADES.xlsx';
+
     private const LIQUIDACIONES_FILE_PATH = 'data/LIQUIDACIONES_PENDIENTES.xlsx';
+
     private const ACTIVOS_FILE_PATH = 'data/ACTIVOS.xlsx';
+
     private const DELEGADOS_FILE_PATH = 'data/DELEGADOS.xlsx';
-    private const ASAMBLEA_DELEGADOS_FILE_PATH = 'data/ASAMBLEA_DELEGADOS_PROSALUD.xlsx';
+
     private const COMPENSACIONES_FILE_PATH = 'data/COMPENSACIONES_AFILIADOS_ACTIVOS.xlsx';
 
     private const PRIMARY_STORAGE_DISK = 'prosalud-private';
+
     private const FALLBACK_STORAGE_DISK = 'local';
+
     private const COMPENSACIONES_SHEET_NAME = 'DINAMICA';
 
     /**
@@ -119,7 +128,7 @@ class ExcelReaderService
     {
         foreach ([self::PRIMARY_STORAGE_DISK, self::FALLBACK_STORAGE_DISK] as $disk) {
             try {
-                if (!Storage::disk($disk)->exists(self::INCAPACIDADES_FILE_PATH)) {
+                if (! Storage::disk($disk)->exists(self::INCAPACIDADES_FILE_PATH)) {
                     continue;
                 }
 
@@ -152,7 +161,7 @@ class ExcelReaderService
     public function readActivosFile(): array
     {
         $cacheKey = 'excel:activos:processed';
-        
+
         // Verificar si existe en caché
         $cachedData = Cache::get($cacheKey);
         if ($cachedData !== null) {
@@ -160,53 +169,54 @@ class ExcelReaderService
                 'cache_key' => $cacheKey,
                 'rows_count' => count($cachedData),
             ]);
+
             return $cachedData;
         }
 
         Log::info('[CACHE MISS] Leyendo archivo ACTIVOS desde disco', [
             'cache_key' => $cacheKey,
         ]);
-        
+
         $data = Cache::remember($cacheKey, now()->addHours(6), function () {
             return $this->withStoredExcel(self::ACTIVOS_FILE_PATH, function (string $localPath, string $disk) {
-            try {
-                $spreadsheet = IOFactory::load($localPath);
-                $worksheet = $spreadsheet->getActiveSheet();
-                $data = $worksheet->toArray();
+                try {
+                    $spreadsheet = IOFactory::load($localPath);
+                    $worksheet = $spreadsheet->getActiveSheet();
+                    $data = $worksheet->toArray();
 
-                Log::info('Archivo de activos leído exitosamente', [
-                    'rows_count' => count($data),
-                    'file_path' => self::ACTIVOS_FILE_PATH,
-                    'disk' => $disk,
-                ]);
+                    Log::info('Archivo de activos leído exitosamente', [
+                        'rows_count' => count($data),
+                        'file_path' => self::ACTIVOS_FILE_PATH,
+                        'disk' => $disk,
+                    ]);
 
-                return $data;
-            } catch (SpreadsheetException $e) {
-                Log::error('Error al procesar archivo Excel de activos', [
-                    'error' => $e->getMessage(),
-                    'file_path' => self::ACTIVOS_FILE_PATH,
-                    'disk' => $disk,
-                ]);
+                    return $data;
+                } catch (SpreadsheetException $e) {
+                    Log::error('Error al procesar archivo Excel de activos', [
+                        'error' => $e->getMessage(),
+                        'file_path' => self::ACTIVOS_FILE_PATH,
+                        'disk' => $disk,
+                    ]);
 
-                return [];
-            } catch (\Throwable $e) {
-                Log::error('Error inesperado al leer archivo de activos', [
-                    'error' => $e->getMessage(),
-                    'file_path' => self::ACTIVOS_FILE_PATH,
-                    'disk' => $disk,
-                    'trace' => $e->getTraceAsString(),
-                ]);
+                    return [];
+                } catch (\Throwable $e) {
+                    Log::error('Error inesperado al leer archivo de activos', [
+                        'error' => $e->getMessage(),
+                        'file_path' => self::ACTIVOS_FILE_PATH,
+                        'disk' => $disk,
+                        'trace' => $e->getTraceAsString(),
+                    ]);
 
-                return [];
-            }
-        }, []);
+                    return [];
+                }
+            }, []);
         });
-        
+
         Log::info('[CACHE STORED] Archivo ACTIVOS guardado en caché', [
             'cache_key' => $cacheKey,
             'rows_count' => count($data),
         ]);
-        
+
         return $data;
     }
 
@@ -314,16 +324,16 @@ class ExcelReaderService
                     $apellidos = trim($row[3] ?? '');
 
                     // If both columns exist, concatenate them
-                    if (!empty($nombres) && !empty($apellidos)) {
-                        return trim($nombres . ' ' . $apellidos);
+                    if (! empty($nombres) && ! empty($apellidos)) {
+                        return trim($nombres.' '.$apellidos);
                     }
 
                     // If only one column has data, return it
-                    if (!empty($nombres)) {
+                    if (! empty($nombres)) {
                         return $nombres;
                     }
 
-                    if (!empty($apellidos)) {
+                    if (! empty($apellidos)) {
                         return $apellidos;
                     }
 
@@ -421,15 +431,15 @@ class ExcelReaderService
                 $cedula = trim($row[1] ?? '');
 
                 // Skip if this looks like a header row (contains column names)
-                if ('NOMBRE Y APELLIDOS' === $nombreApellidos
-                    || 'CEDULA' === $cedula
-                    || 'SEDE' === $nombreApellidos
-                    || 'SEDE' === $cedula) {
+                if ($nombreApellidos === 'NOMBRE Y APELLIDOS'
+                    || $cedula === 'CEDULA'
+                    || $nombreApellidos === 'SEDE'
+                    || $cedula === 'SEDE') {
                     continue;
                 }
 
                 // Only add if has essential data and looks like real data
-                if (!empty($nombreApellidos) && !empty($cedula) && is_numeric($cedula)) {
+                if (! empty($nombreApellidos) && ! empty($cedula) && is_numeric($cedula)) {
                     $delegado = [
                         'id' => count($delegados) + 1, // Generate ID based on actual data count
                         'nombre_apellidos' => $nombreApellidos,
@@ -513,7 +523,7 @@ class ExcelReaderService
 
             foreach ($allDelegados as $delegado) {
                 $sede = $delegado['sede'];
-                if (!isset($grouped[$sede])) {
+                if (! isset($grouped[$sede])) {
                     $grouped[$sede] = [];
                 }
                 $grouped[$sede][] = $delegado;
@@ -530,65 +540,64 @@ class ExcelReaderService
     }
 
     /**
-     * Read the asamblea delegados Excel file from public directory.
+     * Read delegates Excel from private storage path (per assembly).
+     *
+     * @return array<int, array<int, mixed>>
      */
-    public function readAsambleaDelegadosFile(): array
+    public function readAssemblyDelegatesFromStoredPath(string $relativePath, string $preferredDisk): array
     {
-        try {
-            $filePath = public_path(self::ASAMBLEA_DELEGADOS_FILE_PATH);
-            
-            if (!file_exists($filePath)) {
-                Log::error('Archivo de asamblea delegados no encontrado', [
-                    'file_path' => $filePath,
+        return $this->withStoredExcelPreferDisk($relativePath, $preferredDisk, function (string $localPath) {
+            try {
+                $spreadsheet = IOFactory::load($localPath);
+                $worksheet = $spreadsheet->getActiveSheet();
+
+                return $worksheet->toArray();
+            } catch (SpreadsheetException $e) {
+                Log::error('Error al procesar Excel de delegados de asamblea', [
+                    'error' => $e->getMessage(),
                 ]);
+
+                return [];
+            } catch (\Throwable $e) {
+                Log::error('Error inesperado al leer Excel de delegados de asamblea', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
                 return [];
             }
-
-            $spreadsheet = IOFactory::load($filePath);
-            $worksheet = $spreadsheet->getActiveSheet();
-            $data = $worksheet->toArray();
-
-            Log::info('Archivo de asamblea delegados leído exitosamente', [
-                'rows_count' => count($data),
-                'file_path' => $filePath,
-            ]);
-
-            return $data;
-        } catch (SpreadsheetException $e) {
-            Log::error('Error al procesar archivo Excel de asamblea delegados', [
-                'error' => $e->getMessage(),
-                'file_path' => self::ASAMBLEA_DELEGADOS_FILE_PATH,
-            ]);
-
-            return [];
-        } catch (\Throwable $e) {
-            Log::error('Error inesperado al leer archivo de asamblea delegados', [
-                'error' => $e->getMessage(),
-                'file_path' => self::ASAMBLEA_DELEGADOS_FILE_PATH,
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return [];
-        }
+        }, []);
     }
 
     /**
-     * Check if the asamblea delegados Excel file exists and is readable.
+     * Whether the active assembly has a delegates file configured and present on storage.
      */
-    public function isAsambleaDelegadosFileAvailable(): bool
+    public function isAsambleaDelegadosFileAvailable(?Assembly $assembly = null): bool
     {
-        $filePath = public_path(self::ASAMBLEA_DELEGADOS_FILE_PATH);
-        return file_exists($filePath) && is_readable($filePath);
+        $assembly = $assembly ?? Assembly::getCurrent();
+        if (! $assembly || ! $assembly->delegates_file_path) {
+            return false;
+        }
+
+        $preferredDisk = $assembly->delegates_file_disk ?: self::PRIMARY_STORAGE_DISK;
+
+        return $this->storedExcelExistsOnPreferredDisk($assembly->delegates_file_path, $preferredDisk);
     }
 
     /**
-     * Search for an affiliate in the asamblea delegados file by cedula and expedition date.
+     * Search for an affiliate in the current assembly's delegates file by cédula and expedition date.
      * Returns the affiliate's information if found and dates match.
      */
-    public function searchAfiliadoInAsamblea(string $cedula, string $fechaExpedicion): ?array
+    public function searchAfiliadoInAsamblea(string $cedula, string $fechaExpedicion, ?Assembly $assembly = null): ?array
     {
         try {
-            $data = $this->readAsambleaDelegadosFile();
+            $assembly = $assembly ?? Assembly::getCurrent();
+            if (! $assembly || ! $assembly->delegates_file_path) {
+                return null;
+            }
+
+            $preferredDisk = $assembly->delegates_file_disk ?: self::PRIMARY_STORAGE_DISK;
+            $data = $this->readAssemblyDelegatesFromStoredPath($assembly->delegates_file_path, $preferredDisk);
 
             if (empty($data)) {
                 return null;
@@ -691,22 +700,33 @@ class ExcelReaderService
      *
      * @template T
      *
-     * @param callable(string, string):T $callback
-     * @param T|null                     $default
-     *
+     * @param  callable(string, string):T  $callback
+     * @param  T|null  $default
      * @return T|null
      */
     private function withStoredExcel(string $filePath, callable $callback, $default = null)
     {
-        $localCopy = $this->getStoredExcelLocalCopy($filePath);
-        if (null === $localCopy) {
+        return $this->withStoredExcelPreferDisk($filePath, self::PRIMARY_STORAGE_DISK, $callback, $default);
+    }
+
+    /**
+     * @template T
+     *
+     * @param  callable(string, string):T  $callback
+     * @param  T|null  $default
+     * @return T|null
+     */
+    private function withStoredExcelPreferDisk(string $filePath, string $preferredDisk, callable $callback, $default = null)
+    {
+        $localCopy = $this->getStoredExcelLocalCopyPreferDisk($filePath, $preferredDisk);
+        if ($localCopy === null) {
             return $default;
         }
 
         try {
             return $callback($localCopy['path'], $localCopy['disk']);
         } finally {
-            if (!empty($localCopy['path']) && file_exists($localCopy['path'])) {
+            if (! empty($localCopy['path']) && file_exists($localCopy['path'])) {
                 @unlink($localCopy['path']);
             }
         }
@@ -719,69 +739,102 @@ class ExcelReaderService
      */
     private function getStoredExcelLocalCopy(string $filePath): ?array
     {
-        $disks = [self::PRIMARY_STORAGE_DISK, self::FALLBACK_STORAGE_DISK];
+        return $this->getStoredExcelLocalCopyPreferDisk($filePath, self::PRIMARY_STORAGE_DISK);
+    }
 
-        foreach ($disks as $disk) {
-            try {
-                if (!Storage::disk($disk)->exists($filePath)) {
-                    continue;
-                }
+    /**
+     * Try preferred disk first, then the other configured disk.
+     *
+     * @return array{path: string, disk: string}|null
+     */
+    private function getStoredExcelLocalCopyPreferDisk(string $filePath, string $preferredDisk): ?array
+    {
+        $copy = $this->getStoredExcelLocalCopyForSingleDisk($filePath, $preferredDisk);
+        if ($copy !== null) {
+            return $copy;
+        }
 
-                $stream = Storage::disk($disk)->readStream($filePath);
-                if (false === $stream) {
-                    Log::warning('No se pudo abrir stream del archivo Excel', [
-                        'disk' => $disk,
-                        'file_path' => $filePath,
-                    ]);
-                    continue;
-                }
+        $otherDisk = $preferredDisk === self::PRIMARY_STORAGE_DISK
+            ? self::FALLBACK_STORAGE_DISK
+            : self::PRIMARY_STORAGE_DISK;
 
-                $tempBasePath = tempnam(sys_get_temp_dir(), 'prosalud_excel_');
-                if (false === $tempBasePath) {
-                    fclose($stream);
-                    Log::error('No se pudo crear archivo temporal para Excel');
+        return $this->getStoredExcelLocalCopyForSingleDisk($filePath, $otherDisk);
+    }
 
-                    return null;
-                }
+    /**
+     * @return array{path: string, disk: string}|null
+     */
+    private function getStoredExcelLocalCopyForSingleDisk(string $filePath, string $disk): ?array
+    {
+        try {
+            if (! Storage::disk($disk)->exists($filePath)) {
+                return null;
+            }
 
-                $tempPath = $tempBasePath . '.xlsx';
-                if (false === @rename($tempBasePath, $tempPath)) {
-                    $tempPath = $tempBasePath;
-                }
-
-                $destination = fopen($tempPath, 'w+b');
-                if (false === $destination) {
-                    fclose($stream);
-                    @unlink($tempPath);
-                    Log::error('No se pudo abrir archivo temporal para escribir Excel', [
-                        'file_path' => $tempPath,
-                    ]);
-                    continue;
-                }
-
-                stream_copy_to_stream($stream, $destination);
-                fclose($stream);
-                fclose($destination);
-
-                return [
-                    'path' => $tempPath,
-                    'disk' => $disk,
-                ];
-            } catch (\Throwable $e) {
-                Log::error('Error al crear copia local del archivo Excel', [
-                    'error' => $e->getMessage(),
+            $stream = Storage::disk($disk)->readStream($filePath);
+            if ($stream === false) {
+                Log::warning('No se pudo abrir stream del archivo Excel', [
                     'disk' => $disk,
                     'file_path' => $filePath,
                 ]);
+
+                return null;
             }
+
+            $tempBasePath = tempnam(sys_get_temp_dir(), 'prosalud_excel_');
+            if ($tempBasePath === false) {
+                fclose($stream);
+                Log::error('No se pudo crear archivo temporal para Excel');
+
+                return null;
+            }
+
+            $tempPath = $tempBasePath.'.xlsx';
+            if (@rename($tempBasePath, $tempPath) === false) {
+                $tempPath = $tempBasePath;
+            }
+
+            $destination = fopen($tempPath, 'w+b');
+            if ($destination === false) {
+                fclose($stream);
+                @unlink($tempPath);
+                Log::error('No se pudo abrir archivo temporal para escribir Excel', [
+                    'file_path' => $tempPath,
+                ]);
+
+                return null;
+            }
+
+            stream_copy_to_stream($stream, $destination);
+            fclose($stream);
+            fclose($destination);
+
+            return [
+                'path' => $tempPath,
+                'disk' => $disk,
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Error al crear copia local del archivo Excel', [
+                'error' => $e->getMessage(),
+                'disk' => $disk,
+                'file_path' => $filePath,
+            ]);
+
+            return null;
+        }
+    }
+
+    private function storedExcelExistsOnPreferredDisk(string $filePath, string $preferredDisk): bool
+    {
+        if (Storage::disk($preferredDisk)->exists($filePath)) {
+            return true;
         }
 
-        Log::error('Archivo Excel no encontrado en los discos configurados', [
-            'file_path' => $filePath,
-            'disks' => $disks,
-        ]);
+        $otherDisk = $preferredDisk === self::PRIMARY_STORAGE_DISK
+            ? self::FALLBACK_STORAGE_DISK
+            : self::PRIMARY_STORAGE_DISK;
 
-        return null;
+        return Storage::disk($otherDisk)->exists($filePath);
     }
 
     private function storedExcelExists(string $filePath): bool
@@ -813,10 +866,11 @@ class ExcelReaderService
             return $this->storedExcelExists(self::COMPENSACIONES_FILE_PATH);
         });
 
-        if (!$isAvailable) {
+        if (! $isAvailable) {
             Log::warning('Archivo de compensaciones no disponible', [
                 'file_path' => self::COMPENSACIONES_FILE_PATH,
             ]);
+
             return [];
         }
 
@@ -825,19 +879,20 @@ class ExcelReaderService
         return $this->withStoredExcel(self::COMPENSACIONES_FILE_PATH, function (string $localPath, string $disk) {
             try {
                 $spreadsheet = IOFactory::load($localPath);
-                
+
                 // Obtener la hoja específica por nombre
                 $worksheet = $spreadsheet->getSheetByName(self::COMPENSACIONES_SHEET_NAME);
-                
+
                 if ($worksheet === null) {
                     Log::error('Hoja "DINAMICA" no encontrada en archivo de compensaciones', [
                         'file_path' => $localPath,
                         'disk' => $disk,
                         'hojas_disponibles' => $spreadsheet->getSheetNames(),
                     ]);
+
                     return [];
                 }
-                
+
                 $data = $worksheet->toArray();
 
                 Log::info('Archivo de compensaciones leído exitosamente (sin caché)', [
@@ -894,7 +949,7 @@ class ExcelReaderService
             for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
                 $data = $this->readCompensacionesFile();
 
-                if (!empty($data)) {
+                if (! empty($data)) {
                     break;
                 }
 
@@ -912,6 +967,7 @@ class ExcelReaderService
                     'documento' => $documento,
                     'max_attempts' => $maxAttempts,
                 ]);
+
                 return null;
             }
 
@@ -1007,7 +1063,7 @@ class ExcelReaderService
      */
     private function normalizeDocumento($value): string
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return '';
         }
 
@@ -1022,27 +1078,28 @@ class ExcelReaderService
      */
     private function normalizeNumericValue($value): int
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return 0;
         }
 
         // Si es numérico directo (puede ser float de Excel), retornar
         if (is_numeric($value)) {
             $resultado = (int) round($value);
+
             return $resultado;
         }
 
         // Si es string con formato de número (puede tener puntos o comas como separadores de miles)
         $valueString = (string) $value;
-        
+
         // Remover todos los separadores de miles: puntos, comas y espacios
         // Tanto el formato colombiano (puntos) como estadounidense (comas) como formato estándar
         // Usar str_replace para asegurar que se remuevan todos los caracteres
         $normalized = str_replace([',', '.', ' '], '', $valueString);
-        
+
         // También intentar con trim por si acaso
         $normalized = trim($normalized);
-        
+
         if (is_numeric($normalized) && $normalized !== '') {
             $resultado = (int) round((float) $normalized);
             Log::info('Valor numérico normalizado exitosamente', [
@@ -1051,6 +1108,7 @@ class ExcelReaderService
                 'value_normalized' => $normalized,
                 'resultado' => $resultado,
             ]);
+
             return $resultado;
         }
 
