@@ -30,7 +30,7 @@ class InventorySeeder extends Seeder
             ['id' => 'MORADO', 'label' => 'Morado', 'hex' => '#A855F7'],
             ['id' => 'AMARILLO', 'label' => 'Amarillo', 'hex' => '#FACC15'],
             ['id' => 'NARANJA', 'label' => 'Naranja', 'hex' => '#FB923C'],
-            ['id' => 'GRIS', 'label' => 'Gris', 'hex' => '#6B7280'],
+            ['id' => 'GRIS', 'label' => 'Gris Claro', 'hex' => '#6B7280'],
             ['id' => 'GRIS_OSCURO', 'label' => 'Gris Oscuro', 'hex' => '#374151'],
             ['id' => 'GRIS_RATON', 'label' => 'Gris Ratón', 'hex' => '#4B5563'],
             ['id' => 'GRIS_REFLECTIVO', 'label' => 'Gris Reflectivo', 'hex' => '#9CA3AF'],

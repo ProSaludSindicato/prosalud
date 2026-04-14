@@ -46,7 +46,7 @@ class InventoryProductSeeder extends Seeder
             'NEGRA' => ['id' => 'NEGRO', 'label' => 'Negro'],
             'GRIS RATON' => ['id' => 'GRIS_RATON', 'label' => 'Gris Ratón'],
             'GRIS REFLECTIVO' => ['id' => 'GRIS_REFLECTIVO', 'label' => 'Gris Reflectivo'],
-            'GRIS' => ['id' => 'GRIS', 'label' => 'Gris'],
+            'GRIS' => ['id' => 'GRIS', 'label' => 'Gris Claro'],
             'VERDE' => ['id' => 'VERDE', 'label' => 'Verde'],
             'PETROLEO' => ['id' => 'PETROLEO', 'label' => 'Petróleo'],
             'GRIS OSCURO' => ['id' => 'GRIS_OSCURO', 'label' => 'Gris Oscuro'],
