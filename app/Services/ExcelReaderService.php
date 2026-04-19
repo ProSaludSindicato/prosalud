@@ -21,11 +21,34 @@ class ExcelReaderService
 
     private const COMPENSACIONES_FILE_PATH = 'data/COMPENSACIONES_AFILIADOS_ACTIVOS.xlsx';
 
+    private const DELEGADOS_AVATARS_DIRECTORY = 'delegados/avatars';
+
+    private const DELEGADOS_AVATARS_PUBLIC_DISK = 'prosalud-public';
+
+    private const DELEGADOS_AVATARS_FALLBACK_DISK = 'public';
+
+    private const DELEGADOS_AVATARS_ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png'];
+
     private const PRIMARY_STORAGE_DISK = 'prosalud-private';
 
     private const FALLBACK_STORAGE_DISK = 'local';
 
     private const COMPENSACIONES_SHEET_NAME = 'DINAMICA';
+
+    /**
+     * Normalized header label => semantic field. Optional: estado_bd_1, estado_bd_2.
+     * Unknown headers (columnas extra) se ignoran.
+     *
+     * @var array<string, string>
+     */
+    private const DELEGADOS_HEADER_SEMANTICS = [
+        'NOMBRE Y APELLIDOS' => 'nombre_apellidos',
+        'CEDULA' => 'cedula',
+        'SEDE' => 'sede',
+        'PROCESO' => 'proceso',
+        'ESTADO BD 1' => 'estado_bd_1',
+        'ESTADO BD 2' => 'estado_bd_2',
+    ];
 
     /**
      * Read the incapacidades Excel file.
@@ -402,6 +425,135 @@ class ExcelReaderService
     }
 
     /**
+     * Validate a delegados upload (same columns and non-empty data as {@see getAllDelegados()}).
+     *
+     * @param  array<int, array<int, mixed>>  $data
+     */
+    public function validateDelegadosUploadSheetData(array $data): ?string
+    {
+        if ($data === []) {
+            return 'El archivo Excel está vacío.';
+        }
+
+        if (count($data) < 2) {
+            return 'El archivo debe incluir al menos una fila de encabezados y una fila de datos.';
+        }
+
+        $headerRow = $data[0];
+        $map = $this->mapDelegadosHeaderRowToIndices($headerRow);
+        if ($map === null) {
+            return 'La primera fila debe incluir los encabezados obligatorios (sin duplicados): Nombre y apellidos, Cédula, Sede y Proceso. Estado BD 1 y Estado BD 2 son opcionales. El orden y las columnas adicionales no importan.';
+        }
+
+        if ($this->countDelegadosDataRowsFromSheet($data, $map) === 0) {
+            return 'No existe ninguna fila de candidato válida: revise que haya nombre completo y cédula numérica en cada fila de datos.';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, array<int, mixed>>  $data
+     * @param  array<string, int>  $map
+     */
+    private function countDelegadosDataRowsFromSheet(array $data, array $map): int
+    {
+        $count = 0;
+        foreach (array_slice($data, 1) as $row) {
+            if ($this->parseDelegadoDataRow($row, $map) !== null) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param  array<int, mixed>  $headerRow
+     * @return array<string, int>|null
+     */
+    private function mapDelegadosHeaderRowToIndices(array $headerRow): ?array
+    {
+        $indices = [];
+        foreach ($headerRow as $colIndex => $cell) {
+            $normalized = $this->normalizeDelegadosHeaderCell($cell);
+            if ($normalized === '') {
+                continue;
+            }
+
+            $semantic = self::DELEGADOS_HEADER_SEMANTICS[$normalized] ?? null;
+            if ($semantic === null) {
+                continue;
+            }
+
+            if (isset($indices[$semantic])) {
+                return null;
+            }
+
+            $indices[$semantic] = (int) $colIndex;
+        }
+
+        foreach (['nombre_apellidos', 'cedula', 'sede', 'proceso'] as $required) {
+            if (! isset($indices[$required])) {
+                return null;
+            }
+        }
+
+        return $indices;
+    }
+
+    /**
+     * @param  array<int, mixed>  $row
+     * @param  array<string, int>  $map
+     * @return array{nombre_apellidos: string, cedula: string, sede: string, proceso: string, estado_bd_1: string, estado_bd_2: string}|null
+     */
+    private function parseDelegadoDataRow(array $row, array $map): ?array
+    {
+        if (empty(array_filter($row, static function ($v): bool {
+            return $v !== null && trim((string) $v) !== '';
+        }))) {
+            return null;
+        }
+
+        $nombreApellidos = trim((string) ($row[$map['nombre_apellidos']] ?? ''));
+        $cedula = trim((string) ($row[$map['cedula']] ?? ''));
+
+        if ($this->normalizeDelegadosHeaderCell($nombreApellidos) === 'NOMBRE Y APELLIDOS'
+            && $this->normalizeDelegadosHeaderCell($cedula) === 'CEDULA') {
+            return null;
+        }
+
+        if ($nombreApellidos === '' || $cedula === '' || ! is_numeric($cedula)) {
+            return null;
+        }
+
+        return [
+            'nombre_apellidos' => $nombreApellidos,
+            'cedula' => $cedula,
+            'sede' => trim((string) ($row[$map['sede']] ?? '')),
+            'proceso' => trim((string) ($row[$map['proceso']] ?? '')),
+            'estado_bd_1' => isset($map['estado_bd_1']) ? trim((string) ($row[$map['estado_bd_1']] ?? '')) : '',
+            'estado_bd_2' => isset($map['estado_bd_2']) ? trim((string) ($row[$map['estado_bd_2']] ?? '')) : '',
+        ];
+    }
+
+    private function normalizeDelegadosHeaderCell(mixed $value): string
+    {
+        $s = trim((string) $value);
+        if ($s === '') {
+            return '';
+        }
+
+        $s = mb_strtoupper($s, 'UTF-8');
+        $s = strtr($s, [
+            'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U', 'Ü' => 'U', 'Ñ' => 'N',
+        ]);
+        $collapsed = preg_replace('/\s+/', ' ', $s);
+
+        return trim(is_string($collapsed) ? $collapsed : '');
+    }
+
+    /**
      * Get all delegados candidates.
      */
     public function getAllDelegados(): array
@@ -413,46 +565,36 @@ class ExcelReaderService
                 return [];
             }
 
+            $avatarMapByCedula = $this->buildDelegadosAvatarMap();
             $delegados = [];
 
-            // Process each row, skip the first row if it contains headers
-            foreach ($data as $index => $row) {
-                // Skip empty rows
-                if (empty(array_filter($row))) {
+            $headerRow = $data[0] ?? [];
+            $map = $this->mapDelegadosHeaderRowToIndices($headerRow);
+            if ($map === null) {
+                Log::warning('Archivo de delegados: primera fila sin encabezados reconocibles', [
+                    'file_path' => self::DELEGADOS_FILE_PATH,
+                ]);
+
+                return [];
+            }
+
+            foreach (array_slice($data, 1) as $row) {
+                $parsed = $this->parseDelegadoDataRow($row, $map);
+                if ($parsed === null) {
                     continue;
                 }
 
-                // Check if row has enough columns
-                if (count($row) < 6) {
-                    continue;
-                }
-
-                $nombreApellidos = trim($row[0] ?? '');
-                $cedula = trim($row[1] ?? '');
-
-                // Skip if this looks like a header row (contains column names)
-                if ($nombreApellidos === 'NOMBRE Y APELLIDOS'
-                    || $cedula === 'CEDULA'
-                    || $nombreApellidos === 'SEDE'
-                    || $cedula === 'SEDE') {
-                    continue;
-                }
-
-                // Only add if has essential data and looks like real data
-                if (! empty($nombreApellidos) && ! empty($cedula) && is_numeric($cedula)) {
-                    $delegado = [
-                        'id' => count($delegados) + 1, // Generate ID based on actual data count
-                        'nombre_apellidos' => $nombreApellidos,
-                        'cedula' => $cedula,
-                        'sede' => trim($row[2] ?? ''),
-                        'estado_bd_1' => trim($row[3] ?? ''),
-                        'proceso' => trim($row[4] ?? ''),
-                        'estado_bd_2' => trim($row[5] ?? ''),
-                        'avatar_url' => "https://prosalud-vote-hub.lovable.app/avatars/{$cedula}.jpeg",
-                    ];
-
-                    $delegados[] = $delegado;
-                }
+                $cedula = $parsed['cedula'];
+                $delegados[] = [
+                    'id' => count($delegados) + 1,
+                    'nombre_apellidos' => $parsed['nombre_apellidos'],
+                    'cedula' => $cedula,
+                    'sede' => $parsed['sede'],
+                    'estado_bd_1' => $parsed['estado_bd_1'],
+                    'proceso' => $parsed['proceso'],
+                    'estado_bd_2' => $parsed['estado_bd_2'],
+                    'avatar_url' => $avatarMapByCedula[$cedula] ?? null,
+                ];
             }
 
             return $delegados;
@@ -466,6 +608,48 @@ class ExcelReaderService
         }
     }
 
+    private function buildDelegadosAvatarMap(): array
+    {
+        $avatarMap = [];
+        foreach ([self::DELEGADOS_AVATARS_PUBLIC_DISK, self::DELEGADOS_AVATARS_FALLBACK_DISK] as $disk) {
+            try {
+                if (! Storage::disk($disk)->exists(self::DELEGADOS_AVATARS_DIRECTORY)) {
+                    continue;
+                }
+
+                $files = Storage::disk($disk)->files(self::DELEGADOS_AVATARS_DIRECTORY);
+                foreach ($files as $filePath) {
+                    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+                    if (! in_array($extension, self::DELEGADOS_AVATARS_ALLOWED_EXTENSIONS, true)) {
+                        continue;
+                    }
+
+                    $cedula = pathinfo($filePath, PATHINFO_FILENAME);
+                    if (! ctype_digit($cedula)) {
+                        continue;
+                    }
+
+                    if (array_key_exists($cedula, $avatarMap)) {
+                        continue;
+                    }
+
+                    $avatarMap[$cedula] = Storage::disk($disk)->url($filePath);
+                }
+
+                if (! empty($avatarMap)) {
+                    return $avatarMap;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo construir mapa de avatares de delegados', [
+                    'disk' => $disk,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $avatarMap;
+    }
+
     /**
      * Search delegados by sede (hospital).
      */
@@ -474,9 +658,9 @@ class ExcelReaderService
         try {
             $allDelegados = $this->getAllDelegados();
 
-            return array_filter($allDelegados, function ($delegado) use ($sede) {
+            return array_values(array_filter($allDelegados, function ($delegado) use ($sede) {
                 return strtoupper(trim($delegado['sede'])) === strtoupper(trim($sede));
-            });
+            }));
         } catch (\Exception $e) {
             Log::error('Error al buscar delegados por sede', [
                 'error' => $e->getMessage(),

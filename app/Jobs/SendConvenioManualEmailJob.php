@@ -5,6 +5,8 @@ namespace App\Jobs;
 use App\Mail\ConvenioManualNotification;
 use App\Models\ConvenioEmailTracking;
 use App\Services\AfiliadoService;
+use App\Services\ConvenioDigitalSigningService;
+use App\Services\ConvenioPdfStorageService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -41,14 +43,17 @@ class SendConvenioManualEmailJob implements ShouldQueue
         public string $nombreConvenio,
         public ?int $parentTrackingId = null,
         public ?string $optionalEmail = null,
-    ) {
-    }
+        public ?string $sede = null,
+    ) {}
 
     /**
      * Execute the job.
      */
-    public function handle(AfiliadoService $afiliadoService): void
-    {
+    public function handle(
+        AfiliadoService $afiliadoService,
+        ConvenioDigitalSigningService $convenioDigitalSigningService,
+        ConvenioPdfStorageService $convenioPdfStorageService,
+    ): void {
         $trackingId = null;
 
         try {
@@ -56,19 +61,19 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 'documento' => $this->documento,
                 'nombre_archivo' => $this->nombreArchivo,
                 'nombre_convenio' => $this->nombreConvenio,
-                'email_provided' => !empty($this->optionalEmail),
+                'email_provided' => ! empty($this->optionalEmail),
             ]);
 
             // First, extract name from filename if possible
             // Format: "HLM-ASIS - RESTREPO RAMIREZ MARIANA - 1000757150.pdf"
             $nombreCompletoFromFile = $this->extractNameFromFilename($this->nombreArchivo);
-            
+
             $afiliado = null;
             $emailFromAffiliate = null;
             $email = null;
 
             // Determine email to use: optional email provided, or from affiliate
-            if (!empty($this->optionalEmail)) {
+            if (! empty($this->optionalEmail)) {
                 // Use provided email - don't require affiliate to exist
                 $email = $this->optionalEmail;
                 Log::info('SendConvenioManualEmailJob: Usando correo electrónico proporcionado', [
@@ -94,9 +99,9 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 // No optional email provided - must get from affiliate
                 $afiliado = $afiliadoService->getAfiliadoByDocumentoOnly($this->documento);
 
-                if (null === $afiliado) {
-                    $errorMessage = 'Afiliado no encontrado para el documento: ' . $this->documento . ' y no se proporcionó email opcional.';
-                    Log::warning('SendConvenioManualEmailJob: ' . $errorMessage, [
+                if ($afiliado === null) {
+                    $errorMessage = 'Afiliado no encontrado para el documento: '.$this->documento.' y no se proporcionó email opcional.';
+                    Log::warning('SendConvenioManualEmailJob: '.$errorMessage, [
                         'documento' => $this->documento,
                         'nombre_archivo' => $this->nombreArchivo,
                     ]);
@@ -106,13 +111,14 @@ class SendConvenioManualEmailJob implements ShouldQueue
                     if ($tracking) {
                         $tracking->marcarComoFallido($errorMessage);
                     }
+
                     return;
                 }
 
                 $emailFromAffiliate = $afiliado['correo_personal'] ?? null;
                 if (empty($emailFromAffiliate)) {
-                    $errorMessage = 'No se encontró correo electrónico para el documento: ' . $this->documento . '. No se proporcionó email opcional y el afiliado no tiene correo registrado.';
-                    Log::warning('SendConvenioManualEmailJob: ' . $errorMessage, [
+                    $errorMessage = 'No se encontró correo electrónico para el documento: '.$this->documento.'. No se proporcionó email opcional y el afiliado no tiene correo registrado.';
+                    Log::warning('SendConvenioManualEmailJob: '.$errorMessage, [
                         'documento' => $this->documento,
                         'nombre_archivo' => $this->nombreArchivo,
                     ]);
@@ -122,6 +128,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
                     if ($tracking) {
                         $tracking->marcarComoFallido($errorMessage);
                     }
+
                     return;
                 }
 
@@ -138,7 +145,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             if ($afiliado) {
                 $nombreCompleto = $afiliado['nombre_completo'] ?? '';
                 if (empty($nombreCompleto)) {
-                    $nombreCompleto = trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''));
+                    $nombreCompleto = trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''));
                 }
             }
 
@@ -155,45 +162,67 @@ class SendConvenioManualEmailJob implements ShouldQueue
             // Create tracking record before sending
             $tracking = $this->createTrackingRecord($afiliado, null, $nombreCompletoFromFile);
             $trackingId = $tracking->id;
-            
+
             // Si es un reenvío, sincronizar el número de intentos con el padre y todos los registros relacionados
             if ($this->parentTrackingId) {
                 $this->sincronizarIntentos($tracking);
             }
 
             // Verify PDF file exists
-            if (!file_exists($this->rutaArchivoPdf)) {
-                $errorMessage = 'Archivo PDF no encontrado: ' . $this->rutaArchivoPdf;
+            if (! file_exists($this->rutaArchivoPdf)) {
+                $errorMessage = 'Archivo PDF no encontrado: '.$this->rutaArchivoPdf;
                 Log::error($errorMessage, [
                     'documento' => $this->documento,
                     'ruta_archivo' => $this->rutaArchivoPdf,
                 ]);
-                
+
                 $tracking->marcarComoFallido($errorMessage);
-                
+
                 // Si es un reenvío, asegurar que los intentos estén sincronizados
                 if ($this->parentTrackingId) {
                     $this->sincronizarIntentos($tracking);
                 }
-                
+
                 return;
             }
 
-            // Create mailable and attach PDF
+            $signingUrl = null;
+            if (config('convenio_signing.enabled', true)) {
+                try {
+                    $plainToken = ConvenioDigitalSigningService::generatePlainToken();
+                    $relativeStored = $convenioPdfStorageService->storeOriginalFromAbsolutePath($tracking, $this->rutaArchivoPdf);
+                    $tracking->update([
+                        'signing_token_hash' => ConvenioDigitalSigningService::hashPlainToken($plainToken),
+                        'token_expires_at' => $convenioDigitalSigningService->tokenExpiresAt(),
+                        'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA,
+                        'pdf_original_path' => $relativeStored,
+                    ]);
+                    $signingUrl = $convenioDigitalSigningService->buildSigningUrl($plainToken);
+                } catch (\Throwable $e) {
+                    Log::error('[CONVENIO DIGITAL] No se pudo preparar enlace de firma; se enviará PDF adjunto', [
+                        'tracking_id' => $tracking->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $signingUrl = null;
+                }
+            }
+
             $mailable = new ConvenioManualNotification(
                 $nombreCompleto,
                 $this->documento,
-                $this->nombreConvenio
+                $this->nombreConvenio,
+                $signingUrl,
             );
 
-            $mailable->attachPdfFromPath($this->rutaArchivoPdf);
+            if ($signingUrl === null) {
+                $mailable->attachPdfFromPath($this->rutaArchivoPdf);
+            }
 
-            // Send email
             Mail::to($email)->send($mailable);
 
             // Mark as sent successfully
             $tracking->marcarComoEnviado();
-            
+
             // Si es un reenvío, asegurar que los intentos estén sincronizados
             if ($this->parentTrackingId) {
                 $this->sincronizarIntentos($tracking);
@@ -203,13 +232,13 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 'tracking_id' => $trackingId,
                 'documento' => $this->documento,
                 'email' => $email,
-                'email_source' => !empty($this->optionalEmail) ? 'provided' : 'affiliate',
+                'email_source' => ! empty($this->optionalEmail) ? 'provided' : 'affiliate',
                 'affiliate_email' => $emailFromAffiliate,
                 'nombre_archivo' => $this->nombreArchivo,
                 'nombre_convenio' => $this->nombreConvenio,
             ]);
         } catch (\Throwable $e) {
-            $errorMessage = 'Error al enviar correo: ' . $e->getMessage();
+            $errorMessage = 'Error al enviar correo: '.$e->getMessage();
             Log::error('Error al enviar correo de convenio manual', [
                 'tracking_id' => $trackingId,
                 'documento' => $this->documento,
@@ -223,7 +252,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 $tracking = ConvenioEmailTracking::find($trackingId);
                 if ($tracking) {
                     $tracking->marcarComoFallido($errorMessage);
-                    
+
                     // Si es un reenvío, asegurar que los intentos estén sincronizados
                     if ($this->parentTrackingId) {
                         $this->sincronizarIntentos($tracking);
@@ -240,21 +269,21 @@ class SendConvenioManualEmailJob implements ShouldQueue
      */
     private function sincronizarIntentos(ConvenioEmailTracking $tracking): void
     {
-        if (!$this->parentTrackingId) {
+        if (! $this->parentTrackingId) {
             return;
         }
-        
+
         $parentTracking = ConvenioEmailTracking::find($this->parentTrackingId);
-        if (!$parentTracking) {
+        if (! $parentTracking) {
             return;
         }
-        
+
         // Obtener el número de intentos del padre (que ya fue incrementado)
         $numeroIntentos = $parentTracking->intentos;
-        
+
         // Actualizar este registro
         $tracking->update(['intentos' => $numeroIntentos]);
-        
+
         // Actualizar el padre y todos sus reenvíos para mantener consistencia
         $parentTracking->update(['intentos' => $numeroIntentos]);
         $parentTracking->resends()->update(['intentos' => $numeroIntentos]);
@@ -269,10 +298,10 @@ class SendConvenioManualEmailJob implements ShouldQueue
     {
         // Remove .pdf extension if present
         $filenameWithoutExt = preg_replace('/\.pdf$/i', '', $filename);
-        
+
         // Split by " - " to get parts
         $parts = explode(' - ', $filenameWithoutExt);
-        
+
         // Format should be: "CONVENIO - NOMBRE - DOCUMENTO"
         if (count($parts) >= 3) {
             // Return the middle part (index 1) which is the name
@@ -282,7 +311,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             // Try to detect which part is the name (longer text)
             return trim($parts[0]);
         }
-        
+
         return '';
     }
 
@@ -293,14 +322,14 @@ class SendConvenioManualEmailJob implements ShouldQueue
     {
         $emailAfiliado = $afiliado['correo_personal'] ?? null;
         // Use provided email if available, otherwise use affiliate email
-        $emailToStore = !empty($this->optionalEmail) ? $this->optionalEmail : $emailAfiliado;
-        
+        $emailToStore = ! empty($this->optionalEmail) ? $this->optionalEmail : $emailAfiliado;
+
         $nombreAfiliado = '';
-        
+
         if ($afiliado) {
             $nombreAfiliado = $afiliado['nombre_completo'] ?? '';
             if (empty($nombreAfiliado)) {
-                $nombreAfiliado = trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''));
+                $nombreAfiliado = trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''));
             }
         }
 
@@ -323,6 +352,12 @@ class SendConvenioManualEmailJob implements ShouldQueue
             }
         }
 
+        $sedeParaTracking = $this->sede !== null && $this->sede !== '' ? $this->sede : null;
+        if ($sedeParaTracking === null && $afiliado !== null) {
+            $hospital = $afiliado['hospital'] ?? null;
+            $sedeParaTracking = is_string($hospital) && trim($hospital) !== '' ? trim($hospital) : null;
+        }
+
         return ConvenioEmailTracking::create([
             'documento' => $this->documento,
             'nombre_afiliado' => $nombreAfiliado ?: 'No disponible',
@@ -334,6 +369,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             'error_message' => $errorMessage,
             'intentos' => $intentos,
             'parent_tracking_id' => $this->parentTrackingId,
+            'sede' => $sedeParaTracking,
         ]);
     }
 
@@ -358,8 +394,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             ->first();
 
         if ($tracking) {
-            $tracking->marcarComoFallido('Job falló después de ' . $this->tries . ' intentos: ' . $exception->getMessage());
+            $tracking->marcarComoFallido('Job falló después de '.$this->tries.' intentos: '.$exception->getMessage());
         }
     }
 }
-

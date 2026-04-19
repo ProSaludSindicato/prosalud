@@ -15,8 +15,8 @@ class ConvenioManualNotification extends Mailable
         public string $nombreAfiliado,
         public string $documento,
         public string $nombreConvenio,
-    ) {
-    }
+        public ?string $signingUrl = null,
+    ) {}
 
     /**
      * Build the message.
@@ -48,6 +48,7 @@ class ConvenioManualNotification extends Mailable
                 'documento' => $this->documento,
                 'nombreConvenio' => $this->nombreConvenio,
                 'logoCid' => $logoCid,
+                'signingUrl' => $this->signingUrl,
             ]);
     }
 
@@ -59,7 +60,7 @@ class ConvenioManualNotification extends Mailable
         if (file_exists($pdfPath)) {
             $pdfContent = file_get_contents($pdfPath);
             $filename = basename($pdfPath);
-            
+
             $this->attachData(
                 $pdfContent,
                 $filename,
@@ -72,4 +73,3 @@ class ConvenioManualNotification extends Mailable
         return $this;
     }
 }
-

@@ -2,82 +2,149 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\{Cache, Log, Storage};
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
-use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
+use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 
 class AfiliadoService
 {
     private const EXCEL_FILE_PATH = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
+
+    /**
+     * Bumped when the payload stored in auth cache changes (e.g. hospital enrichment) so stale entries are not reused.
+     */
+    private const AUTH_CACHE_KEY_FORMAT = 'afiliado:auth:v2:%s:%s:%s';
+
     private const STORAGE_PRIMARY_DISK = 'prosalud-private';
+
     private const STORAGE_FALLBACK_DISK = 'local';
+
     private const SHEET_INFORMACION_GENERAL = 'INFORMACIÓN GENERAL';
+
     private const SHEET_CONVENIOS = 'CONVENIOS';
+
     private const SHEET_BENEFICIARIOS = 'BENEFICIARIOS';
 
     // Column indexes for INFORMACIÓN GENERAL sheet
     private const COL_TIPO_DOCUMENTO = 0;
+
     private const COL_DOCUMENTO = 1;
+
     private const COL_NOMBRES = 2;
+
     private const COL_APELLIDOS = 3;
+
     private const COL_ESTADO = 4;
+
     private const COL_FECHA_EXPEDICION = 5;
+
     private const COL_FECHA_NACIMIENTO = 6;
+
     private const COL_LUGAR_NACIMIENTO = 7;
+
     private const COL_SEXO = 8;
+
     private const COL_RH = 9;
+
     private const COL_FECHA_INGRESO = 10;
+
     private const COL_ESTADO_CIVIL = 11;
+
     private const COL_CARNET = 12;
+
     private const COL_DIRECCION = 13;
+
     private const COL_DEPARTAMENTO = 14;
+
     private const COL_MUNICIPIO = 15;
+
     private const COL_TELEFONO = 16;
+
     private const COL_CELULAR = 17;
+
     private const COL_CORREO_PERSONAL = 18;
+
     private const COL_ARCHIVO_LIQUIDADO = 19;
+
     private const COL_FECHA_LIQUIDACION = 20;
+
     private const COL_TALLA_UNIFORME = 21;
+
     private const COL_TALLA_CALZADO = 22;
+
     private const COL_NIVEL_EDUCACION = 23;
+
     private const COL_OTROS_ESTUDIOS = 24;
+
     private const COL_NUMERO_CUENTA = 26;
+
     private const COL_TIPO_CUENTA = 27;
+
     private const COL_BANCO = 28;
+
     private const COL_FECHA_RETHUS = 29;
+
     private const COL_COMPENSACION_BASICA = 30;
+
     private const COL_TIPO_AFILIACION = 31;
+
     private const COL_EPS = 32;
+
     private const COL_AFP = 33;
+
     private const COL_ARL = 34;
+
     private const COL_CAJA_COMPENSACION = 35;
+
     private const COL_NIVEL_RIESGO = 36;
+
     private const COL_FECHA_VENCIMIENTO_POLIZA = 37;
+
     private const COL_EMISOR_POLIZA = 38;
+
     private const COL_DETALLES = 39;
 
     // Column indexes for CONVENIOS sheet
     private const COL_CONV_DOCUMENTO_AFILIADO = 0;
+
     private const COL_CONV_NOMBRE_AFILIADO = 1;
+
     private const COL_CONV_APELLIDOS_AFILIADO = 2;
+
     private const COL_CONV_CLIENTE = 3;
+
     private const COL_CONV_SUCURSAL = 4;
+
     private const COL_CONV_PROCESO = 5;
+
     private const COL_CONV_ESTADO = 6;
+
     private const COL_CONV_FECHA_INGRESO = 7;
+
     private const COL_CONV_FECHA_FIN = 8;
+
     private const COL_CONV_NOTAS = 9;
 
     // Column indexes for BENEFICIARIOS sheet
     // Order: Documento afiliado, Tipo documento, Documento, Nombres, Apellidos, Fecha nacimiento, Sexo, Notas (parentesco)
     private const COL_BEN_DOCUMENTO_AFILIADO = 0;
+
     private const COL_BEN_TIPO_DOCUMENTO = 1;
+
     private const COL_BEN_DOCUMENTO = 2;
+
     private const COL_BEN_NOMBRES = 3;
+
     private const COL_BEN_APELLIDOS = 4;
+
     private const COL_BEN_FECHA_NACIMIENTO = 5;
+
     private const COL_BEN_SEXO = 6;
+
     private const COL_BEN_NOTAS_PARENTESCO = 7;
 
     // Mapeo de nombres de columna esperados (normalizados)
@@ -144,14 +211,14 @@ class AfiliadoService
             'tipo_documento' => $tipoDocumento,
             'fecha_expedicion' => $fechaExpedicion,
         ]);
-        
+
         // Normalizar valores para la clave de caché
         $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
         $normalizedDocumento = $this->normalizeValue($documento);
         $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
-        
+
         $cacheKey = sprintf(
-            'afiliado:auth:%s:%s:%s',
+            self::AUTH_CACHE_KEY_FORMAT,
             md5($normalizedTipoDocumento ?? ''),
             md5($normalizedDocumento ?? ''),
             md5($normalizedFechaExpedicion ?? '')
@@ -170,6 +237,7 @@ class AfiliadoService
                 'documento' => $documento,
                 'tipo_documento' => $tipoDocumento,
             ]);
+
             return $cachedData;
         }
 
@@ -181,111 +249,111 @@ class AfiliadoService
 
         $result = Cache::tags(['afiliados'])->remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
             return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
-            $originalMemoryLimit = ini_get('memory_limit');
-            $originalMaxExecutionTime = ini_get('max_execution_time');
+                $originalMemoryLimit = ini_get('memory_limit');
+                $originalMaxExecutionTime = ini_get('max_execution_time');
 
-            try {
-                // Aumentar memoria temporalmente
-                ini_set('memory_limit', '512M');
-                set_time_limit(60);
+                try {
+                    // Aumentar memoria temporalmente
+                    ini_set('memory_limit', '512M');
+                    set_time_limit(60);
 
-                // Usar reader optimizado
-                $reader = IOFactory::createReader('Xlsx');
+                    // Usar reader optimizado
+                    $reader = IOFactory::createReader('Xlsx');
 
-                // Leer solo datos, no fórmulas ni formato (ahorra memoria)
-                if (method_exists($reader, 'setReadDataOnly')) {
-                    $reader->setReadDataOnly(true);
-                }
+                    // Leer solo datos, no fórmulas ni formato (ahorra memoria)
+                    if (method_exists($reader, 'setReadDataOnly')) {
+                        $reader->setReadDataOnly(true);
+                    }
 
-                // Cargar solo las hojas necesarias
-                if (method_exists($reader, 'setLoadSheetsOnly')) {
-                    $reader->setLoadSheetsOnly([
-                        self::SHEET_INFORMACION_GENERAL,
-                        self::SHEET_CONVENIOS,
-                    ]);
-                }
+                    // Cargar solo las hojas necesarias
+                    if (method_exists($reader, 'setLoadSheetsOnly')) {
+                        $reader->setLoadSheetsOnly([
+                            self::SHEET_INFORMACION_GENERAL,
+                            self::SHEET_CONVENIOS,
+                        ]);
+                    }
 
-                $spreadsheet = $reader->load($excelPath);
+                    $spreadsheet = $reader->load($excelPath);
 
-                $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-                if (!$informacionSheet) {
-                    Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
+                    $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
+                    if (! $informacionSheet) {
+                        Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
 
+                        $spreadsheet->disconnectWorksheets();
+                        unset($spreadsheet);
+
+                        return null;
+                    }
+
+                    $afiliadoRowResult = $this->findAfiliadoRowOptimized(
+                        $informacionSheet,
+                        $tipoDocumento,
+                        $documento,
+                        $fechaExpedicion
+                    );
+
+                    if ($afiliadoRowResult === null) {
+                        Log::info('Afiliado no encontrado', [
+                            'tipo_documento' => $tipoDocumento,
+                            'documento' => $documento,
+                            'fecha_expedicion' => $fechaExpedicion,
+                            'normalized' => [
+                                'tipo_documento' => $this->normalizeValue($tipoDocumento),
+                                'documento' => $this->normalizeValue($documento),
+                                'fecha_expedicion' => $this->normalizeDate($fechaExpedicion),
+                            ],
+                        ]);
+
+                        $spreadsheet->disconnectWorksheets();
+                        unset($spreadsheet);
+
+                        return null;
+                    }
+
+                    $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
+
+                    $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
+                    $conveniosFull = $conveniosSheet
+                        ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
+                        : [];
+
+                    // Liberar memoria explícitamente
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
-                    return null;
-                }
-
-                $afiliadoRowResult = $this->findAfiliadoRowOptimized(
-                    $informacionSheet,
-                    $tipoDocumento,
-                    $documento,
-                    $fechaExpedicion
-                );
-
-                if (null === $afiliadoRowResult) {
-                    Log::info('Afiliado no encontrado', [
-                        'tipo_documento' => $tipoDocumento,
-                        'documento' => $documento,
-                        'fecha_expedicion' => $fechaExpedicion,
-                        'normalized' => [
-                            'tipo_documento' => $this->normalizeValue($tipoDocumento),
-                            'documento' => $this->normalizeValue($documento),
-                            'fecha_expedicion' => $this->normalizeDate($fechaExpedicion),
-                        ],
+                    return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+                } catch (SpreadsheetException $e) {
+                    Log::error('Error al procesar archivo Excel de afiliados', [
+                        'error' => $e->getMessage(),
+                        'file_path' => self::EXCEL_FILE_PATH,
+                        'disk' => $disk,
+                        'trace' => $e->getTraceAsString(),
                     ]);
 
-                    $spreadsheet->disconnectWorksheets();
-                    unset($spreadsheet);
+                    return null;
+                } catch (\Throwable $e) {
+                    Log::error('Error inesperado al leer archivo Excel de afiliados', [
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                        'disk' => $disk,
+                        'file_path' => self::EXCEL_FILE_PATH,
+                        'trace' => $e->getTraceAsString(),
+                    ]);
 
                     return null;
+                } finally {
+                    // Restaurar límites originales
+                    if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
+                        ini_set('memory_limit', (string) $originalMemoryLimit);
+                    }
+                    if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
+                        set_time_limit((int) $originalMaxExecutionTime);
+                    }
                 }
-
-                $afiliadoFull = $this->extractAfiliadoInfo($afiliadoRowResult['data'], $afiliadoRowResult['mapping']);
-
-                $conveniosSheet = $spreadsheet->getSheetByName(self::SHEET_CONVENIOS);
-                $conveniosFull = $conveniosSheet
-                    ? $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento)
-                    : [];
-
-                // Liberar memoria explícitamente
-                $spreadsheet->disconnectWorksheets();
-                unset($spreadsheet);
-
-                return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
-            } catch (SpreadsheetException $e) {
-                Log::error('Error al procesar archivo Excel de afiliados', [
-                    'error' => $e->getMessage(),
-                    'file_path' => self::EXCEL_FILE_PATH,
-                    'disk' => $disk,
-                    'trace' => $e->getTraceAsString(),
-                ]);
-
-                return null;
-            } catch (\Throwable $e) {
-                Log::error('Error inesperado al leer archivo Excel de afiliados', [
-                    'error' => $e->getMessage(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                    'disk' => $disk,
-                    'file_path' => self::EXCEL_FILE_PATH,
-                    'trace' => $e->getTraceAsString(),
-                ]);
-
-                return null;
-            } finally {
-                // Restaurar límites originales
-                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
-                    ini_set('memory_limit', (string) $originalMemoryLimit);
-                }
-                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
-                    set_time_limit((int) $originalMaxExecutionTime);
-                }
-            }
-        }, null);
+            }, null);
         });
-        
+
         // Log cuando se guarda en caché (solo si se obtuvo resultado)
         if ($result !== null) {
             Log::info('[CACHE STORED] Afiliado guardado en caché', [
@@ -295,7 +363,7 @@ class AfiliadoService
                 'ttl_hours' => 24,
             ]);
         }
-        
+
         return $result;
     }
 
@@ -315,7 +383,7 @@ class AfiliadoService
         $normalizedDocumento = $this->normalizeValue($documento);
         $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
         $cacheKey = sprintf(
-            'afiliado:auth:%s:%s:%s',
+            self::AUTH_CACHE_KEY_FORMAT,
             md5($normalizedTipoDocumento ?? ''),
             md5($normalizedDocumento ?? ''),
             md5($normalizedFechaExpedicion ?? '')
@@ -344,10 +412,11 @@ class AfiliadoService
                 }
                 $spreadsheet = $reader->load($excelPath);
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-                if (!$informacionSheet) {
+                if (! $informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
+
                     return ['status' => 'affiliate_not_found', 'afiliado' => null];
                 }
 
@@ -361,11 +430,13 @@ class AfiliadoService
                 if ($matchResult['result'] === 'not_found') {
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
+
                     return ['status' => 'affiliate_not_found', 'afiliado' => null];
                 }
                 if ($matchResult['result'] === 'data_mismatch') {
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
+
                     return ['status' => 'affiliate_data_mismatch', 'afiliado' => null];
                 }
 
@@ -379,6 +450,7 @@ class AfiliadoService
                 unset($spreadsheet);
                 $afiliadoData = $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
                 Cache::tags(['afiliados'])->put($cacheKey, $afiliadoData, now()->addHours(24));
+
                 return ['status' => 'success', 'afiliado' => $afiliadoData];
             } catch (\Throwable $e) {
                 Log::error('Error en authenticateAndGetAfiliadoDetailed', [
@@ -386,12 +458,13 @@ class AfiliadoService
                     'documento' => $documento,
                     'trace' => $e->getTraceAsString(),
                 ]);
+
                 return ['status' => 'affiliate_not_found', 'afiliado' => null];
             } finally {
-                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
                     ini_set('memory_limit', (string) $originalMemoryLimit);
                 }
-                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
                     set_time_limit((int) $originalMaxExecutionTime);
                 }
             }
@@ -437,7 +510,7 @@ class AfiliadoService
                 $spreadsheet = $reader->load($excelPath);
 
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-                if (!$informacionSheet) {
+                if (! $informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
 
                     $spreadsheet->disconnectWorksheets();
@@ -455,7 +528,7 @@ class AfiliadoService
                     $fechaExpedicion
                 );
 
-                if (null === $afiliadoRowIndex) {
+                if ($afiliadoRowIndex === null) {
                     Log::info('Afiliado no encontrado', [
                         'tipo_documento' => $tipoDocumento,
                         'documento' => $documento,
@@ -506,10 +579,10 @@ class AfiliadoService
 
                 return null;
             } finally {
-                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
                     ini_set('memory_limit', (string) $originalMemoryLimit);
                 }
-                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
                     set_time_limit((int) $originalMaxExecutionTime);
                 }
             }
@@ -550,7 +623,7 @@ class AfiliadoService
                 $spreadsheet = $reader->load($excelPath);
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
 
-                if (!$informacionSheet) {
+                if (! $informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
 
                     $spreadsheet->disconnectWorksheets();
@@ -566,7 +639,7 @@ class AfiliadoService
                     $fechaExpedicion
                 );
 
-                if (null === $afiliadoRowResult) {
+                if ($afiliadoRowResult === null) {
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
 
@@ -603,7 +676,7 @@ class AfiliadoService
 
                 return [
                     'correo' => $correo,
-                    'nombre' => trim(($nombres ?? '') . ' ' . ($apellidos ?? '')),
+                    'nombre' => trim(($nombres ?? '').' '.($apellidos ?? '')),
                     'documento' => $this->normalizeValue($documento),
                 ];
             } catch (\Throwable $e) {
@@ -619,10 +692,10 @@ class AfiliadoService
                 return null;
             } finally {
                 // Restaurar límites originales
-                if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
                     ini_set('memory_limit', (string) $originalMemoryLimit);
                 }
-                if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
                     set_time_limit((int) $originalMaxExecutionTime);
                 }
             }
@@ -645,12 +718,12 @@ class AfiliadoService
             'tipo_documento' => $tipoDocumento,
             'fecha_expedicion' => $fechaExpedicion,
         ]);
-        
+
         // Normalizar valores para la clave de caché
         $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
         $normalizedDocumento = $this->normalizeValue($documento);
         $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
-        
+
         $cacheKey = sprintf(
             'afiliado:complete:%s:%s:%s',
             md5($normalizedTipoDocumento ?? ''),
@@ -671,6 +744,7 @@ class AfiliadoService
                 'documento' => $documento,
                 'tipo_documento' => $tipoDocumento,
             ]);
+
             return $cachedData;
         }
 
@@ -710,7 +784,7 @@ class AfiliadoService
                     $spreadsheet = $reader->load($excelPath);
                     $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
 
-                    if (!$informacionSheet) {
+                    if (! $informacionSheet) {
                         Log::error('Pestaña INFORMACIÓN GENERAL no encontrada');
 
                         $spreadsheet->disconnectWorksheets();
@@ -726,7 +800,7 @@ class AfiliadoService
                         $fechaExpedicion
                     );
 
-                    if (null === $afiliadoRowResult) {
+                    if ($afiliadoRowResult === null) {
                         $spreadsheet->disconnectWorksheets();
                         unset($spreadsheet);
 
@@ -777,16 +851,16 @@ class AfiliadoService
                     return null;
                 } finally {
                     // Restaurar límites originales
-                    if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                    if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
                         ini_set('memory_limit', (string) $originalMemoryLimit);
                     }
-                    if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                    if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
                         set_time_limit((int) $originalMaxExecutionTime);
                     }
                 }
             }, null);
         });
-        
+
         // Log cuando se guarda en caché (solo si se obtuvo resultado)
         if ($result !== null) {
             Log::info('[CACHE STORED] Información completa de afiliado guardada en caché', [
@@ -796,7 +870,7 @@ class AfiliadoService
                 'ttl_hours' => 24,
             ]);
         }
-        
+
         return $result;
     }
 
@@ -804,7 +878,7 @@ class AfiliadoService
      * Get affiliate information by document number only (without authentication).
      * Used for bulk operations where we only have the document number.
      *
-     * @param string $documento Document number
+     * @param  string  $documento  Document number
      * @return array|null Affiliate information with email, name, etc. or null if not found
      */
     public function getAfiliadoByDocumentoOnly(string $documento): ?array
@@ -836,18 +910,20 @@ class AfiliadoService
                 $spreadsheet = $reader->load($excelPath);
                 $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
 
-                if (!$informacionSheet) {
+                if (! $informacionSheet) {
                     Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para búsqueda por documento');
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
+
                     return null;
                 }
 
                 $afiliadoRowResult = $this->findAfiliadoRowByDocumentoOnly($informacionSheet, $normalizedDocumento);
 
-                if (null === $afiliadoRowResult) {
+                if ($afiliadoRowResult === null) {
                     $spreadsheet->disconnectWorksheets();
                     unset($spreadsheet);
+
                     return null;
                 }
 
@@ -859,7 +935,7 @@ class AfiliadoService
                 if ($conveniosSheet) {
                     $convenios = $this->getConveniosByDocumentoOptimized($conveniosSheet, $normalizedDocumento);
                     $selected = $this->selectMostRecentConvenio($convenios);
-                    if (!empty($selected)) {
+                    if (! empty($selected)) {
                         $cliente = $selected[0]['cliente'] ?? '';
                         $hospital = trim((string) $cliente) !== '' ? trim($cliente) : 'SIN ASIGNAR';
                     }
@@ -876,7 +952,7 @@ class AfiliadoService
                     'nombres' => $afiliadoFull['nombres'] ?? '',
                     'apellidos' => $afiliadoFull['apellidos'] ?? '',
                     'correo_personal' => $afiliadoFull['correo_personal'] ?? null,
-                    'nombre_completo' => trim(($afiliadoFull['nombres'] ?? '') . ' ' . ($afiliadoFull['apellidos'] ?? '')),
+                    'nombre_completo' => trim(($afiliadoFull['nombres'] ?? '').' '.($afiliadoFull['apellidos'] ?? '')),
                     'estado' => $afiliadoFull['estado'] ?? null,
                     'hospital' => $hospital,
                 ];
@@ -888,6 +964,7 @@ class AfiliadoService
                     'file_path' => self::EXCEL_FILE_PATH,
                     'trace' => $e->getTraceAsString(),
                 ]);
+
                 return null;
             }
         }, null);
@@ -937,7 +1014,8 @@ class AfiliadoService
                     }
 
                     if (method_exists($reader, 'setReadFilter')) {
-                        $reader->setReadFilter(new class implements IReadFilter {
+                        $reader->setReadFilter(new class implements IReadFilter
+                        {
                             private const ALLOWED_COLUMNS = [
                                 'A', 'B', 'C', 'D', 'E',
                                 'F', 'G', 'H', 'I', 'J',
@@ -945,7 +1023,7 @@ class AfiliadoService
 
                             public function readCell($column, $row, $worksheetName = ''): bool
                             {
-                                if (1 === $row) {
+                                if ($row === 1) {
                                     return true;
                                 }
 
@@ -957,7 +1035,7 @@ class AfiliadoService
                     $spreadsheet = $reader->load($excelPath);
 
                     $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
-                    if (!$informacionSheet) {
+                    if (! $informacionSheet) {
                         Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para listado general');
 
                         return [];
@@ -969,15 +1047,15 @@ class AfiliadoService
                     $highestRow = $informacionSheet->getHighestRow();
                     $affiliates = [];
 
-                    for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+                    for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
                         $tipoDocumento = $this->normalizeValue(
                             $this->getCellValue(
-                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1) . $rowIndex)
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_TIPO_DOCUMENTO + 1).$rowIndex)
                             )
                         );
                         $documento = $this->normalizeValue(
                             $this->getCellValue(
-                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1) . $rowIndex)
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_DOCUMENTO + 1).$rowIndex)
                             )
                         );
 
@@ -987,17 +1065,17 @@ class AfiliadoService
 
                         $nombres = $this->normalizeValue(
                             $this->getCellValue(
-                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_NOMBRES + 1) . $rowIndex)
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_NOMBRES + 1).$rowIndex)
                             )
                         );
                         $apellidos = $this->normalizeValue(
                             $this->getCellValue(
-                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_APELLIDOS + 1) . $rowIndex)
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_APELLIDOS + 1).$rowIndex)
                             )
                         );
                         $estado = $this->normalizeValue(
                             $this->getCellValue(
-                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_ESTADO + 1) . $rowIndex)
+                                $informacionSheet->getCell(Coordinate::stringFromColumnIndex(self::COL_ESTADO + 1).$rowIndex)
                             )
                         );
 
@@ -1072,10 +1150,10 @@ class AfiliadoService
         $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
         $normalizedDocumento = $this->normalizeValue($documento);
         $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
-        
+
         // Limpiar caché de autenticación básica
         $authCacheKey = sprintf(
-            'afiliado:auth:%s:%s:%s',
+            self::AUTH_CACHE_KEY_FORMAT,
             md5($normalizedTipoDocumento ?? ''),
             md5($normalizedDocumento ?? ''),
             md5($normalizedFechaExpedicion ?? '')
@@ -1141,22 +1219,21 @@ class AfiliadoService
      *
      * @template T
      *
-     * @param callable(string, string):T $callback
-     * @param T|null                     $default
-     *
+     * @param  callable(string, string):T  $callback
+     * @param  T|null  $default
      * @return T|null
      */
     private function withExcelFile(callable $callback, $default = null)
     {
         $localCopy = $this->getExcelLocalCopy();
-        if (null === $localCopy) {
+        if ($localCopy === null) {
             return $default;
         }
 
         try {
             return $callback($localCopy['path'], $localCopy['disk']);
         } finally {
-            if (!empty($localCopy['path']) && file_exists($localCopy['path'])) {
+            if (! empty($localCopy['path']) && file_exists($localCopy['path'])) {
                 @unlink($localCopy['path']);
             }
         }
@@ -1174,34 +1251,35 @@ class AfiliadoService
 
         foreach ($disks as $disk) {
             try {
-                if (!Storage::disk($disk)->exists($filePath)) {
+                if (! Storage::disk($disk)->exists($filePath)) {
                     continue;
                 }
 
                 $stream = Storage::disk($disk)->readStream($filePath);
-                if (false === $stream) {
+                if ($stream === false) {
                     Log::warning('No se pudo abrir stream del archivo de afiliados', [
                         'disk' => $disk,
                         'file_path' => $filePath,
                     ]);
+
                     continue;
                 }
 
                 $tempBasePath = tempnam(sys_get_temp_dir(), 'prosanet_afiliados_');
-                if (false === $tempBasePath) {
+                if ($tempBasePath === false) {
                     fclose($stream);
                     Log::error('No se pudo crear archivo temporal para afiliados');
 
                     return null;
                 }
 
-                $tempPath = $tempBasePath . '.xlsx';
-                if (false === @rename($tempBasePath, $tempPath)) {
+                $tempPath = $tempBasePath.'.xlsx';
+                if (@rename($tempBasePath, $tempPath) === false) {
                     $tempPath = $tempBasePath;
                 }
 
                 $destination = fopen($tempPath, 'w+b');
-                if (false === $destination) {
+                if ($destination === false) {
                     fclose($stream);
                     @unlink($tempPath);
                     Log::error('No se pudo abrir archivo temporal para escribir afiliados', [
@@ -1245,26 +1323,26 @@ class AfiliadoService
         $mapping = [];
         $highestColumn = $sheet->getHighestColumn();
         $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
-        
+
         // Read header row (row 1)
-        for ($colIndex = 1; $colIndex <= $highestColumnIndex; ++$colIndex) {
+        for ($colIndex = 1; $colIndex <= $highestColumnIndex; $colIndex++) {
             $colLetter = Coordinate::stringFromColumnIndex($colIndex);
-            $cell = $sheet->getCell($colLetter . '1');
+            $cell = $sheet->getCell($colLetter.'1');
             $headerValue = $this->getCellValue($cell);
-            
+
             if (empty($headerValue)) {
                 continue;
             }
-            
+
             $normalizedHeader = $this->normalizeColumnName((string) $headerValue);
-            
+
             // Build list of all potential matches with their specificity (longer = more specific)
             // First pass: collect exact matches only
             $exactMatches = [];
             foreach (self::COLUMN_NAME_MAPPINGS as $internalName => $possibleNames) {
                 foreach ($possibleNames as $possibleName) {
                     $normalizedPossible = $this->normalizeColumnName($possibleName);
-                    
+
                     // Check for exact match
                     if ($normalizedHeader === $normalizedPossible) {
                         $exactMatches[] = [
@@ -1274,26 +1352,27 @@ class AfiliadoService
                     }
                 }
             }
-            
+
             // If we have exact matches, use the longest one (most specific)
-            if (!empty($exactMatches)) {
+            if (! empty($exactMatches)) {
                 usort($exactMatches, function ($a, $b) {
                     return $b['length'] <=> $a['length']; // Longer first
                 });
                 $mapping[$exactMatches[0]['internalName']] = $colIndex - 1;
+
                 continue; // Move to next column
             }
-            
+
             // Second pass: if no exact matches, check for prefix matches
             $prefixMatches = [];
             foreach (self::COLUMN_NAME_MAPPINGS as $internalName => $possibleNames) {
                 foreach ($possibleNames as $possibleName) {
                     $normalizedPossible = $this->normalizeColumnName($possibleName);
-                    
+
                     // Check for prefix match: header must be longer and start with possible name followed by space
                     // This prevents "estado civil" from matching "estado" incorrectly
-                    if (strlen($normalizedHeader) > strlen($normalizedPossible) 
-                        && strpos($normalizedHeader, $normalizedPossible . ' ') === 0) {
+                    if (strlen($normalizedHeader) > strlen($normalizedPossible)
+                        && strpos($normalizedHeader, $normalizedPossible.' ') === 0) {
                         $prefixMatches[] = [
                             'internalName' => $internalName,
                             'length' => strlen($normalizedPossible),
@@ -1301,28 +1380,29 @@ class AfiliadoService
                     }
                 }
             }
-            
+
             // If we have prefix matches, use the longest one (most specific)
-            if (!empty($prefixMatches)) {
+            if (! empty($prefixMatches)) {
                 usort($prefixMatches, function ($a, $b) {
                     return $b['length'] <=> $a['length']; // Longer first
                 });
                 $mapping[$prefixMatches[0]['internalName']] = $colIndex - 1;
+
                 continue; // Move to next column
             }
-            
+
             // Third pass: if no exact or prefix matches, check for word-boundary matches
             // This handles cases where the header contains the possible name as a complete word
             $wordMatches = [];
             foreach (self::COLUMN_NAME_MAPPINGS as $internalName => $possibleNames) {
                 foreach ($possibleNames as $possibleName) {
                     $normalizedPossible = $this->normalizeColumnName($possibleName);
-                    
+
                     // Check if header contains the possible name as a complete word (word boundary)
                     // Only match if the possible name is at least 4 characters to avoid false positives
                     if (strlen($normalizedPossible) >= 4) {
                         // Use word boundary regex to match complete words only
-                        $pattern = '/\b' . preg_quote($normalizedPossible, '/') . '\b/';
+                        $pattern = '/\b'.preg_quote($normalizedPossible, '/').'\b/';
                         if (preg_match($pattern, $normalizedHeader)) {
                             $wordMatches[] = [
                                 'internalName' => $internalName,
@@ -1332,21 +1412,21 @@ class AfiliadoService
                     }
                 }
             }
-            
+
             // If we have word matches, use the longest one (most specific)
             // But only if we haven't already mapped this internal name
-            if (!empty($wordMatches)) {
+            if (! empty($wordMatches)) {
                 usort($wordMatches, function ($a, $b) {
                     return $b['length'] <=> $a['length']; // Longer first
                 });
                 $bestMatch = $wordMatches[0];
                 // Only add if this internal name hasn't been mapped yet
-                if (!isset($mapping[$bestMatch['internalName']])) {
+                if (! isset($mapping[$bestMatch['internalName']])) {
                     $mapping[$bestMatch['internalName']] = $colIndex - 1;
                 }
             }
         }
-        
+
         return $mapping;
     }
 
@@ -1365,6 +1445,7 @@ class AfiliadoService
         );
         // Normalize whitespace (multiple spaces/tabs to single space)
         $name = preg_replace('/\s+/', ' ', $name);
+
         // Remove any leading/trailing whitespace
         return trim($name);
     }
@@ -1375,9 +1456,9 @@ class AfiliadoService
     private function matchesColumnName(string $normalizedHeader, string $possibleName): bool
     {
         $normalizedPossible = $this->normalizeColumnName($possibleName);
-        
+
         // Exact match or starts with
-        return $normalizedHeader === $normalizedPossible 
+        return $normalizedHeader === $normalizedPossible
             || strpos($normalizedHeader, $normalizedPossible) === 0
             || strpos($normalizedPossible, $normalizedHeader) === 0;
     }
@@ -1387,11 +1468,12 @@ class AfiliadoService
      */
     private function getValueByColumnName(array $row, array $columnMapping, string $columnName, $default = null)
     {
-        if (!isset($columnMapping[$columnName])) {
+        if (! isset($columnMapping[$columnName])) {
             return $default;
         }
-        
+
         $columnIndex = $columnMapping[$columnName];
+
         return $row[$columnIndex] ?? $default;
     }
 
@@ -1410,7 +1492,7 @@ class AfiliadoService
         $normalizedFechaExpedicion = $this->normalizeDate($fechaExpedicion);
 
         // Search from row 1 onwards (skip header row at index 0)
-        for ($i = 1; $i < count($data); ++$i) {
+        for ($i = 1; $i < count($data); $i++) {
             $row = $data[$i];
 
             // Skip empty rows
@@ -1426,9 +1508,9 @@ class AfiliadoService
             // Check if this looks like a header row (contains header text)
             $firstCol = $this->normalizeValue($row[0] ?? '');
             if ($firstCol && (
-                false !== stripos($firstCol, 'tipo documento')
-                || 0 === stripos($firstCol, 'documento')
-                || false !== stripos($firstCol, 'nuip')
+                stripos($firstCol, 'tipo documento') !== false
+                || stripos($firstCol, 'documento') === 0
+                || stripos($firstCol, 'nuip') !== false
             )) {
                 continue;
             }
@@ -1464,11 +1546,12 @@ class AfiliadoService
         $columnMapping = $this->buildColumnMapping($sheet);
         $requiredColumns = ['tipo_documento', 'documento', 'fecha_expedicion'];
         foreach ($requiredColumns as $col) {
-            if (!isset($columnMapping[$col])) {
+            if (! isset($columnMapping[$col])) {
                 Log::error("Columna requerida no encontrada: {$col}", [
                     'available_columns' => array_keys($columnMapping),
                     'documento' => $documento,
                 ]);
+
                 return ['result' => 'not_found'];
             }
         }
@@ -1479,26 +1562,26 @@ class AfiliadoService
         $highestRow = $sheet->getHighestRow();
         $foundDocumentMismatch = false;
 
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             $colIndex = $columnMapping['tipo_documento'];
             $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-            $rowTipoDocumento = $this->normalizeValue($this->getCellValue($sheet->getCell($colLetter . $rowIndex)));
+            $rowTipoDocumento = $this->normalizeValue($this->getCellValue($sheet->getCell($colLetter.$rowIndex)));
 
             $colIndex = $columnMapping['documento'];
             $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-            $rowDocumento = $this->normalizeValue($this->getCellValue($sheet->getCell($colLetter . $rowIndex)));
+            $rowDocumento = $this->normalizeValue($this->getCellValue($sheet->getCell($colLetter.$rowIndex)));
 
             $colIndex = $columnMapping['fecha_expedicion'];
             $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-            $rowFechaExpedicion = $this->normalizeDate($this->getCellValue($sheet->getCell($colLetter . $rowIndex)));
+            $rowFechaExpedicion = $this->normalizeDate($this->getCellValue($sheet->getCell($colLetter.$rowIndex)));
 
             if (empty($rowTipoDocumento) && empty($rowDocumento) && empty($rowFechaExpedicion)) {
                 continue;
             }
             if ($rowTipoDocumento && (
-                false !== stripos($rowTipoDocumento, 'tipo documento')
-                || 0 === stripos($rowTipoDocumento, 'documento')
-                || false !== stripos($rowTipoDocumento, 'nuip')
+                stripos($rowTipoDocumento, 'tipo documento') !== false
+                || stripos($rowTipoDocumento, 'documento') === 0
+                || stripos($rowTipoDocumento, 'nuip') !== false
             )) {
                 continue;
             }
@@ -1512,10 +1595,11 @@ class AfiliadoService
                 $rowData = [];
                 $highestColumn = $sheet->getHighestColumn();
                 $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
-                for ($colIndex = 0; $colIndex < $highestColumnIndex; ++$colIndex) {
+                for ($colIndex = 0; $colIndex < $highestColumnIndex; $colIndex++) {
                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                    $rowData[] = $this->getCellValue($sheet->getCell($colLetter . $rowIndex));
+                    $rowData[] = $this->getCellValue($sheet->getCell($colLetter.$rowIndex));
                 }
+
                 return [
                     'result' => 'match',
                     'data' => $rowData,
@@ -1543,19 +1627,20 @@ class AfiliadoService
     ): ?array {
         // Build column mapping from headers
         $columnMapping = $this->buildColumnMapping($sheet);
-        
+
         // Check required columns exist
         $requiredColumns = ['tipo_documento', 'documento', 'fecha_expedicion'];
         foreach ($requiredColumns as $col) {
-            if (!isset($columnMapping[$col])) {
+            if (! isset($columnMapping[$col])) {
                 Log::error("Columna requerida no encontrada: {$col}", [
                     'available_columns' => array_keys($columnMapping),
                     'documento' => $documento,
                 ]);
+
                 return null;
             }
         }
-        
+
         // Normalize input values once
         $normalizedTipoDocumento = $this->normalizeValue($tipoDocumento);
         $normalizedDocumento = $this->normalizeValue($documento);
@@ -1565,21 +1650,21 @@ class AfiliadoService
         $highestRow = $sheet->getHighestRow();
 
         // Iterate through rows (skip header row at row 1)
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             // Read only necessary columns first for matching (optimization)
             $colIndex = $columnMapping['tipo_documento'];
             $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowTipoDocumentoRaw = $this->getCellValue($cell);
 
             $colIndex = $columnMapping['documento'];
             $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowDocumentoRaw = $this->getCellValue($cell);
 
             $colIndex = $columnMapping['fecha_expedicion'];
             $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowFechaExpedicionRaw = $this->getCellValue($cell);
 
             // Normalize values for comparison
@@ -1594,9 +1679,9 @@ class AfiliadoService
 
             // Check if this looks like a header row
             if ($rowTipoDocumento && (
-                false !== stripos($rowTipoDocumento, 'tipo documento')
-                || 0 === stripos($rowTipoDocumento, 'documento')
-                || false !== stripos($rowTipoDocumento, 'nuip')
+                stripos($rowTipoDocumento, 'tipo documento') !== false
+                || stripos($rowTipoDocumento, 'documento') === 0
+                || stripos($rowTipoDocumento, 'nuip') !== false
             )) {
                 continue;
             }
@@ -1609,10 +1694,10 @@ class AfiliadoService
                 $rowData = [];
                 $highestColumn = $sheet->getHighestColumn();
                 $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
-                
-                for ($colIndex = 0; $colIndex < $highestColumnIndex; ++$colIndex) {
+
+                for ($colIndex = 0; $colIndex < $highestColumnIndex; $colIndex++) {
                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $cell = $sheet->getCell($colLetter.$rowIndex);
                     $rowData[] = $this->getCellValue($cell);
                 }
 
@@ -1635,16 +1720,17 @@ class AfiliadoService
     {
         // Build column mapping from headers
         $columnMapping = $this->buildColumnMapping($sheet);
-        
+
         // Check required columns exist
-        if (!isset($columnMapping['documento'])) {
+        if (! isset($columnMapping['documento'])) {
             Log::error("Columna 'documento' no encontrada", [
                 'available_columns' => array_keys($columnMapping),
                 'documento' => $documento,
             ]);
+
             return null;
         }
-        
+
         // Normalize input value
         $normalizedDocumento = $this->normalizeValue($documento);
 
@@ -1652,11 +1738,11 @@ class AfiliadoService
         $highestRow = $sheet->getHighestRow();
 
         // Iterate through rows (skip header row at row 1)
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             // Read only documento column first for matching (optimization)
             $colIndex = $columnMapping['documento'];
             $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowDocumentoRaw = $this->getCellValue($cell);
             $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
 
@@ -1666,7 +1752,7 @@ class AfiliadoService
             }
 
             // Check if this looks like a header row
-            if (false !== stripos($rowDocumento, 'documento') || 0 === stripos($rowDocumento, 'nuip')) {
+            if (stripos($rowDocumento, 'documento') !== false || stripos($rowDocumento, 'nuip') === 0) {
                 continue;
             }
 
@@ -1676,10 +1762,10 @@ class AfiliadoService
                 $rowData = [];
                 $highestColumn = $sheet->getHighestColumn();
                 $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
-                
-                for ($colIndex = 0; $colIndex < $highestColumnIndex; ++$colIndex) {
+
+                for ($colIndex = 0; $colIndex < $highestColumnIndex; $colIndex++) {
                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $cell = $sheet->getCell($colLetter.$rowIndex);
                     $rowData[] = $this->getCellValue($cell);
                 }
 
@@ -1707,7 +1793,7 @@ class AfiliadoService
         }
 
         // Handle numeric values (convert to string to maintain consistency)
-        if (is_numeric($value) && !is_string($value)) {
+        if (is_numeric($value) && ! is_string($value)) {
             return (string) $value;
         }
 
@@ -1726,10 +1812,10 @@ class AfiliadoService
         $highestRow = $sheet->getHighestRow();
 
         // Iterate through rows (skip header row at row 1)
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             // Read only necessary columns for matching
             $colLetter = Coordinate::stringFromColumnIndex(self::COL_CONV_DOCUMENTO_AFILIADO + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowDocumentoRaw = $this->getCellValue($cell);
             $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
 
@@ -1737,9 +1823,9 @@ class AfiliadoService
             if ($rowDocumento === $normalizedDocumento) {
                 // Read all columns for this row
                 $row = [];
-                for ($colIndex = 0; $colIndex < 10; ++$colIndex) {
+                for ($colIndex = 0; $colIndex < 10; $colIndex++) {
                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $cell = $sheet->getCell($colLetter.$rowIndex);
                     $row[] = $this->getCellValue($cell);
                 }
 
@@ -1751,8 +1837,8 @@ class AfiliadoService
                 // Check if this looks like a header row
                 $firstCol = $this->normalizeValue($row[0] ?? '');
                 if ($firstCol && (
-                    false !== stripos($firstCol, 'documento afiliado')
-                    || 0 === stripos($firstCol, 'documento')
+                    stripos($firstCol, 'documento afiliado') !== false
+                    || stripos($firstCol, 'documento') === 0
                 )) {
                     continue;
                 }
@@ -1781,7 +1867,7 @@ class AfiliadoService
     private function extractAfiliadoInfo(array $rowData, array $columnMapping): array
     {
         // Helper function to get value by column name
-        $getValue = function($colName, $default = null) use ($rowData, $columnMapping) {
+        $getValue = function ($colName, $default = null) use ($rowData, $columnMapping) {
             return $this->getValueByColumnName($rowData, $columnMapping, $colName, $default);
         };
 
@@ -1793,7 +1879,7 @@ class AfiliadoService
 
         // Check if EPS contains concatenated values (when other columns are empty)
         // Pattern from images: "NUEVA E.P.S PORVENIR COLMENA COMFENALC 3" or "EPS SURA (A COLPENSION COLMENA COMFENALC 3"
-        if (!empty($epsRaw) && (empty($afpRaw) && empty($arlRaw) && empty($cajaCompensacionRaw))) {
+        if (! empty($epsRaw) && (empty($afpRaw) && empty($arlRaw) && empty($cajaCompensacionRaw))) {
             $parsed = $this->parseConcatenatedValues($epsRaw);
             if ($parsed) {
                 $eps = $parsed['eps'];
@@ -1819,7 +1905,7 @@ class AfiliadoService
         $fechaRethus = $this->normalizeValue($getValue('fecha_rethus'));
 
         // If fecha rethus is empty but banco contains a date, extract it
-        if (empty($fechaRethus) && !empty($banco)) {
+        if (empty($fechaRethus) && ! empty($banco)) {
             $extractedDate = $this->extractDateFromString($banco);
             if ($extractedDate) {
                 $fechaRethus = $extractedDate;
@@ -1882,7 +1968,7 @@ class AfiliadoService
         $normalizedDocumento = $this->normalizeValue($documento);
 
         // Skip header row(s)
-        for ($i = 1; $i < count($data); ++$i) {
+        for ($i = 1; $i < count($data); $i++) {
             $row = $data[$i];
 
             // Skip empty rows
@@ -1898,8 +1984,8 @@ class AfiliadoService
             // Check if this looks like a header row
             $firstCol = $this->normalizeValue($row[0] ?? '');
             if ($firstCol && (
-                false !== stripos($firstCol, 'documento afiliado')
-                || 0 === stripos($firstCol, 'documento')
+                stripos($firstCol, 'documento afiliado') !== false
+                || stripos($firstCol, 'documento') === 0
             )) {
                 continue;
             }
@@ -1937,6 +2023,7 @@ class AfiliadoService
             'nombres',
             'apellidos',
             'estado',
+            'hospital',
             'celular',
             'correo_personal',
         ];
@@ -1951,7 +2038,7 @@ class AfiliadoService
         $conveniosFiltered = [];
         foreach ($conveniosFull as $convenio) {
             $clienteValue = $convenio['cliente'] ?? null;
-            $clienteFinal = (null === $clienteValue || '' === $clienteValue) ? 'SIN ASIGNAR' : $clienteValue;
+            $clienteFinal = ($clienteValue === null || $clienteValue === '') ? 'SIN ASIGNAR' : $clienteValue;
 
             $convenioFiltered = [
                 'cliente' => $clienteFinal,
@@ -1966,6 +2053,7 @@ class AfiliadoService
 
         if (empty($conveniosFiltered)) {
             $afiliadoFiltered['convenios'] = [];
+
             return $afiliadoFiltered;
         }
 
@@ -1977,22 +2065,22 @@ class AfiliadoService
 
         $selectedConvenio = null;
 
-        if (!empty($conveniosActivos)) {
+        if (! empty($conveniosActivos)) {
             // Si hay convenios activos, seleccionar el más reciente/actual
             usort($conveniosActivos, function ($a, $b) {
                 // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
 
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
 
                 // Si ambos tienen fecha_fin o ambos están vacíos, comparar por fecha_fin
-                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                if (! $aFechaFinVacia && ! $bFechaFinVacia) {
                     $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
                     if ($comparison !== 0) {
                         return $comparison; // Más reciente primero
@@ -2011,10 +2099,10 @@ class AfiliadoService
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
 
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
 
@@ -2030,6 +2118,17 @@ class AfiliadoService
 
             $selectedConvenio = $conveniosFiltered[0];
         }
+
+        $hospitalResolved = $this->normalizeValue($afiliadoFiltered['hospital'] ?? null);
+        if (($hospitalResolved === null || $hospitalResolved === '') && $selectedConvenio !== null) {
+            $clienteRaw = $selectedConvenio['cliente'] ?? '';
+            $clienteTrimmed = is_string($clienteRaw) ? trim($clienteRaw) : '';
+            if ($clienteTrimmed !== '' && strcasecmp($clienteTrimmed, 'SIN ASIGNAR') !== 0) {
+                $mapped = $this->transformCliente($clienteTrimmed);
+                $hospitalResolved = $mapped !== 'SIN ASIGNAR' ? $mapped : $clienteTrimmed;
+            }
+        }
+        $afiliadoFiltered['hospital'] = $hospitalResolved;
 
         // Devolver arreglo con un solo convenio (o vacío si no hay)
         $afiliadoFiltered['convenios'] = $selectedConvenio ? [$selectedConvenio] : [];
@@ -2082,13 +2181,13 @@ class AfiliadoService
      */
     private function normalizeValue($value): ?string
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return null;
         }
 
         $normalized = trim((string) $value);
 
-        return '' === $normalized ? null : $normalized;
+        return $normalized === '' ? null : $normalized;
     }
 
     /**
@@ -2102,7 +2201,7 @@ class AfiliadoService
 
         $dateStr = trim((string) $date);
 
-        if ('' === $dateStr) {
+        if ($dateStr === '') {
             return null;
         }
 
@@ -2155,20 +2254,20 @@ class AfiliadoService
      */
     private function normalizeNumeric($value): ?string
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return null;
         }
 
         $normalized = trim((string) $value);
 
-        if ('' === $normalized) {
+        if ($normalized === '') {
             return null;
         }
 
         // Remove any non-numeric characters except decimal point
         $normalized = preg_replace('/[^0-9.]/', '', $normalized);
 
-        return '' === $normalized ? null : $normalized;
+        return $normalized === '' ? null : $normalized;
     }
 
     /**
@@ -2184,7 +2283,7 @@ class AfiliadoService
 
         $normalized = trim((string) $value);
 
-        if ('' === $normalized) {
+        if ($normalized === '') {
             return null;
         }
 
@@ -2205,14 +2304,14 @@ class AfiliadoService
 
         // Check for exact match (case-insensitive)
         foreach ($replacements as $old => $new) {
-            if (0 === strcasecmp($normalized, $old)) {
+            if (strcasecmp($normalized, $old) === 0) {
                 return $new;
             }
         }
 
         // If contains the word, try to replace
         foreach ($replacements as $old => $new) {
-            if (false !== stripos($normalized, $old)) {
+            if (stripos($normalized, $old) !== false) {
                 return str_ireplace($old, $new, $normalized);
             }
         }
@@ -2255,20 +2354,20 @@ class AfiliadoService
         // Find Caja de Compensacion (usually ends with "COMFENALC 3" or "COMFENALC 4")
         if (preg_match('/\b(COMFENALC\s+\d+)\b/i', $text, $matches)) {
             $cajaCompensacion = trim($matches[1]);
-            $text = preg_replace('/\b' . preg_quote($matches[1], '/') . '\b/i', '', $text);
+            $text = preg_replace('/\b'.preg_quote($matches[1], '/').'\b/i', '', $text);
         }
 
         // Find ARL (usually "COLMENA")
         if (preg_match('/\b(COLMENA)\b/i', $text, $matches)) {
             $arl = trim($matches[1]);
-            $text = preg_replace('/\b' . preg_quote($matches[1], '/') . '\b/i', '', $text);
+            $text = preg_replace('/\b'.preg_quote($matches[1], '/').'\b/i', '', $text);
         }
 
         // Find AFP (PORVENIR, COLPENSION, COLFONDOS, or NINGUNA)
         foreach ($afpPatterns as $pattern) {
-            if (preg_match('/\b(' . preg_quote($pattern, '/') . ')\b/i', $text, $matches)) {
+            if (preg_match('/\b('.preg_quote($pattern, '/').')\b/i', $text, $matches)) {
                 $afp = trim($matches[1]);
-                $text = preg_replace('/\b' . preg_quote($matches[1], '/') . '\b/i', '', $text);
+                $text = preg_replace('/\b'.preg_quote($matches[1], '/').'\b/i', '', $text);
                 break;
             }
         }
@@ -2277,7 +2376,7 @@ class AfiliadoService
         $eps = trim(preg_replace('/\s+/', ' ', $text));
 
         // If we successfully extracted at least ARL or AFP, return parsed values
-        if (!empty($arl) || !empty($afp) || !empty($cajaCompensacion)) {
+        if (! empty($arl) || ! empty($afp) || ! empty($cajaCompensacion)) {
             return [
                 'eps' => $eps ?: null,
                 'afp' => $afp ?: null,
@@ -2310,7 +2409,7 @@ class AfiliadoService
             // Check if BENEFICIARIOS sheet exists
             $beneficiariosSheet = $spreadsheet->getSheetByName(self::SHEET_BENEFICIARIOS);
 
-            if (!$beneficiariosSheet) {
+            if (! $beneficiariosSheet) {
                 Log::info('Pestaña BENEFICIARIOS no encontrada en el archivo Excel');
 
                 return [];
@@ -2341,10 +2440,10 @@ class AfiliadoService
         $highestRow = $sheet->getHighestRow();
 
         // Iterate through rows (skip header row at row 1)
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             // Read only necessary columns for matching
             $colLetter = Coordinate::stringFromColumnIndex(self::COL_BEN_DOCUMENTO_AFILIADO + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowDocumentoRaw = $this->getCellValue($cell);
             $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
 
@@ -2352,9 +2451,9 @@ class AfiliadoService
             if ($rowDocumento === $normalizedDocumento) {
                 // Read all columns for this row (8 columns: Documento afiliado, Tipo documento, Documento, Nombres, Apellidos, Fecha nacimiento, Sexo, Notas)
                 $row = [];
-                for ($colIndex = 0; $colIndex < 8; ++$colIndex) {
+                for ($colIndex = 0; $colIndex < 8; $colIndex++) {
                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $cell = $sheet->getCell($colLetter.$rowIndex);
                     $row[] = $this->getCellValue($cell);
                 }
 
@@ -2366,9 +2465,9 @@ class AfiliadoService
                 // Check if this looks like a header row
                 $firstCol = $this->normalizeValue($row[0] ?? '');
                 if ($firstCol && (
-                    false !== stripos($firstCol, 'documento afiliado')
-                    || 0 === stripos($firstCol, 'documento')
-                    || false !== stripos($firstCol, 'tipo documento')
+                    stripos($firstCol, 'documento afiliado') !== false
+                    || stripos($firstCol, 'documento') === 0
+                    || stripos($firstCol, 'tipo documento') !== false
                 )) {
                     continue;
                 }
@@ -2415,7 +2514,7 @@ class AfiliadoService
 
         $filtered = [];
         foreach ($afiliadoFull as $key => $value) {
-            if (!in_array($key, $excludedFields)) {
+            if (! in_array($key, $excludedFields)) {
                 $filtered[$key] = $value;
             }
         }
@@ -2427,7 +2526,7 @@ class AfiliadoService
      * Select the most recent convenio from an array of convenios.
      * Priority: Active convenios first, then by fecha_fin (most recent), then by fecha_ingreso.
      *
-     * @param array $convenios Array of convenio arrays
+     * @param  array  $convenios  Array of convenio arrays
      * @return array Array containing only the most recent convenio (or empty array if no convenios)
      */
     private function selectMostRecentConvenio(array $convenios): array
@@ -2444,34 +2543,35 @@ class AfiliadoService
         // Filtrar convenios activos
         $conveniosActivos = array_filter($convenios, function ($conv) {
             $estado = is_string($conv['estado'] ?? null) ? trim($conv['estado']) : '';
+
             return strcasecmp($estado, 'Activo') === 0;
         });
 
         $selectedConvenio = null;
 
-        if (!empty($conveniosActivos)) {
+        if (! empty($conveniosActivos)) {
             // Si hay convenios activos, seleccionar el más reciente/actual
             // Prioridad: fecha_fin vacía/null > fecha_fin más reciente > fecha_ingreso más reciente
             usort($conveniosActivos, function ($a, $b) {
                 // Normalizar valores de fecha_fin (pueden ser null, '', o string con fecha)
                 $aFechaFin = $a['fecha_fin'] ?? null;
                 $bFechaFin = $b['fecha_fin'] ?? null;
-                
+
                 // Considerar vacío tanto null como string vacío
                 $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
                 $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
 
                 // Si uno tiene fecha_fin vacía y el otro no, el vacío tiene prioridad (más reciente)
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return -1; // $a tiene prioridad (viene primero)
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return 1; // $b tiene prioridad (viene primero)
                 }
 
                 // Si ambos tienen fecha_fin, comparar por fecha_fin (más reciente primero)
-                if (!$aFechaFinVacia && !$bFechaFinVacia) {
-                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                if (! $aFechaFinVacia && ! $bFechaFinVacia) {
+                    $comparison = strcmp((string) $bFechaFin, (string) $aFechaFin);
                     if ($comparison !== 0) {
                         return $comparison; // Más reciente primero
                     }
@@ -2480,7 +2580,8 @@ class AfiliadoService
                 // Si las fechas_fin son iguales o ambas vacías, usar fecha_ingreso como criterio secundario
                 $aFechaIngreso = $a['fecha_ingreso'] ?? '';
                 $bFechaIngreso = $b['fecha_ingreso'] ?? '';
-                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso); // Más reciente primero
+
+                return strcmp((string) $bFechaIngreso, (string) $aFechaIngreso); // Más reciente primero
             });
 
             $selectedConvenio = reset($conveniosActivos);
@@ -2490,21 +2591,21 @@ class AfiliadoService
                 // Normalizar valores de fecha_fin
                 $aFechaFin = $a['fecha_fin'] ?? null;
                 $bFechaFin = $b['fecha_fin'] ?? null;
-                
+
                 $aFechaFinVacia = empty($aFechaFin) || $aFechaFin === null;
                 $bFechaFinVacia = empty($bFechaFin) || $bFechaFin === null;
 
                 // Fecha_fin vacía tiene menor prioridad cuando no hay activos
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
 
                 // Comparar por fecha_fin (más reciente primero)
-                if (!$aFechaFinVacia && !$bFechaFinVacia) {
-                    $comparison = strcmp((string)$bFechaFin, (string)$aFechaFin);
+                if (! $aFechaFinVacia && ! $bFechaFinVacia) {
+                    $comparison = strcmp((string) $bFechaFin, (string) $aFechaFin);
                     if ($comparison !== 0) {
                         return $comparison;
                     }
@@ -2513,7 +2614,8 @@ class AfiliadoService
                 // Si las fechas_fin son iguales, usar fecha_ingreso
                 $aFechaIngreso = $a['fecha_ingreso'] ?? '';
                 $bFechaIngreso = $b['fecha_ingreso'] ?? '';
-                return strcmp((string)$bFechaIngreso, (string)$aFechaIngreso);
+
+                return strcmp((string) $bFechaIngreso, (string) $aFechaIngreso);
             });
 
             $selectedConvenio = $convenios[0];
@@ -2539,10 +2641,10 @@ class AfiliadoService
         $summary = [];
         $highestRow = $sheet->getHighestRow();
 
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             $documento = $this->normalizeValue(
                 $this->getCellValue(
-                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_DOCUMENTO_AFILIADO + 1) . $rowIndex)
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_DOCUMENTO_AFILIADO + 1).$rowIndex)
                 )
             );
 
@@ -2552,27 +2654,27 @@ class AfiliadoService
 
             $cliente = $this->normalizeValue(
                 $this->getCellValue(
-                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_CLIENTE + 1) . $rowIndex)
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_CLIENTE + 1).$rowIndex)
                 )
             );
             $proceso = $this->normalizeValue(
                 $this->getCellValue(
-                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_PROCESO + 1) . $rowIndex)
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_PROCESO + 1).$rowIndex)
                 )
             );
             $estado = $this->normalizeValue(
                 $this->getCellValue(
-                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_ESTADO + 1) . $rowIndex)
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_ESTADO + 1).$rowIndex)
                 )
             );
             $fechaIngreso = $this->normalizeDate(
                 $this->getCellValue(
-                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_FECHA_INGRESO + 1) . $rowIndex)
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_FECHA_INGRESO + 1).$rowIndex)
                 )
             );
             $fechaFin = $this->normalizeDate(
                 $this->getCellValue(
-                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_FECHA_FIN + 1) . $rowIndex)
+                    $sheet->getCell(Coordinate::stringFromColumnIndex(self::COL_CONV_FECHA_FIN + 1).$rowIndex)
                 )
             );
 
@@ -2585,7 +2687,7 @@ class AfiliadoService
             ];
 
             // Agregar el convenio al array de convenios del documento
-            if (!isset($summary[$documento])) {
+            if (! isset($summary[$documento])) {
                 $summary[$documento] = [];
             }
             $summary[$documento][] = $convenio;
@@ -2593,5 +2695,4 @@ class AfiliadoService
 
         return $summary;
     }
-
 }

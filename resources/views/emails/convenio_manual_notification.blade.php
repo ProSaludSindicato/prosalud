@@ -47,6 +47,44 @@
                                 Hola <strong style="color:#00529B;">{{ $nombreAfiliado }}</strong>,
                             </p>
 
+                            @if(!empty($signingUrl))
+                            <p style="margin:0 0 24px; font-size:15px; color:#4b5563; line-height:1.75;">
+                                Tienes un convenio pendiente de <strong style="color:#1f2937;">firma digital</strong>: para revisarlo y firmarlo, haz clic en el siguiente botón. No necesitas instalar ningún programa y puedes hacerlo desde tu celular o computador en pocos minutos.
+                            </p>
+                            <div style="margin:0 0 20px; text-align:center;">
+                                <a href="{{ $signingUrl }}" style="display:inline-block; background:#00529B; color:#ffffff; text-decoration:none; font-weight:600; font-size:16px; padding:14px 28px; border-radius:8px;">
+                                    Firmar convenio ahora
+                                </a>
+                            </div>
+                            <p style="margin:0 0 20px; font-size:14px; color:#64748b; line-height:1.75;">
+                                Si el botón no funciona, copia y pega este enlace en tu navegador:
+                                <a href="{{ $signingUrl }}" style="word-break:break-all; color:#00529B; font-weight:600; text-decoration:underline;">{{ $signingUrl }}</a>
+                            </p>
+                            <p style="margin:0 0 28px; font-size:14px; color:#4b5563; line-height:1.75; padding:14px 16px; background:#f8fafc; border-radius:8px; border-left:3px solid #00529B;">
+                                <strong style="color:#1f2937;">Importante:</strong> al completar la firma y el envío (tanto si usas el botón como si entras por el enlace), el trámite queda concluido en nuestro sistema. <strong>No</strong> debes responder a este correo ni adjuntar el PDF de nuevo (no es necesario realizar el envío del convenio manualmente).
+                            </p>
+
+                            <hr style="margin:28px 0; border:0; border-top:1px solid #e5e7eb;" />
+
+                            <p style="margin:0 0 14px; font-size:16px; font-weight:700; color:#1f2937; line-height:1.4;">
+                                Antes de firmar, ten en cuenta:
+                            </p>
+                            <ul style="margin:0 0 28px; padding-left:20px; color:#4b5563; font-size:15px; line-height:1.8;">
+                                <li style="margin-bottom:10px;">Este enlace es personal. No lo compartas con otras personas.</li>
+                                <li style="margin-bottom:10px;">Verifica la información del convenio antes de confirmar tu firma.</li>
+                                <li style="margin-bottom:0;">La firma digital del convenio es obligatoria.</li>
+                            </ul>
+
+                            <hr style="margin:28px 0; border:0; border-top:1px solid #e5e7eb;" />
+
+                            <p style="margin:0 0 12px; font-size:16px; font-weight:700; color:#1f2937; line-height:1.4;">
+                                ¿Necesitas ayuda?
+                            </p>
+                            <p style="margin:0 0 28px; font-size:15px; color:#4b5563; line-height:1.75;">
+                                Si tienes alguna duda o inconveniente, puedes contactarnos a través de nuestros canales oficiales o visitar nuestro sitio web:
+                                <a href="https://www.prosalud.org.co/" style="color:#00529B; text-decoration:none; font-weight:600;">prosalud.org.co</a>
+                            </p>
+                            @else
                             <p style="margin:0 0 28px; font-size:15px; color:#4b5563; line-height:1.7;">
                                 Te informamos que tienes un convenio pendiente de firma. Se adjunta el documento PDF para que puedas proceder con el proceso de firma manual. Por favor, sigue las siguientes instrucciones:
                             </p>
@@ -78,16 +116,20 @@
                                 <li style="margin-bottom:8px;">Asegúrate de tener a mano tu documento de identidad y la información requerida</li>
                                 <li style="margin-bottom:0;">El envío digital del convenio sindical es de carácter obligatorio</li>
                             </ul>
+                            @endif
 
-                            <!-- Help Section -->
-                            <div style="background:#f9fafb; padding:20px; border-radius:12px; margin:0 0 0; border:1px solid #e5e7eb;">
+                            @empty($signingUrl)
+                            <!-- Ayuda (solo flujo firma manual / PDF adjunto) -->
+                            <div style="background:#f9fafb; padding:20px; border-radius:12px; margin:0; border:1px solid #e5e7eb;">
                                 <p style="margin:0 0 12px; font-size:15px; color:#1f2937; line-height:1.6;">
                                     <strong style="color:#00529B;">¿Necesitas ayuda?</strong>
                                 </p>
                                 <p style="margin:0; font-size:14px; color:#4b5563; line-height:1.7;">
-                                    Si tienes alguna pregunta o necesitas asistencia, no dudes en contactarnos a través de nuestros <strong>canales de atención oficiales</strong>. Visita nuestro sitio web en <a href="https://www.prosalud.org.co/" style="color:#00529B; text-decoration:none; font-weight:600;">prosalud.org.co/</a> para más información.
+                                    Si tienes alguna duda o inconveniente, puedes contactarnos a través de nuestros canales oficiales o visitar nuestro sitio web:
+                                    <a href="https://www.prosalud.org.co/" style="color:#00529B; text-decoration:none; font-weight:600;">prosalud.org.co</a>
                                 </p>
                             </div>
+                            @endempty
                         </td>
                     </tr>
 
@@ -96,18 +138,12 @@
                         <td style="padding:24px 32px; background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f5 100%); border-top:1px solid #e5e7eb;">
                             <table width="100%" cellspacing="0" cellpadding="0" border="0">
                                 <tr>
-                                    <td style="padding:0 0 16px; text-align:center;">
-                                        <div style="height:3px; width:60px; background: linear-gradient(90deg, #00529B 0%, #0ea5e9 100%); border-radius:3px; margin:0 auto;"></div>
+                                    <td style="padding:0 0 12px; text-align:center;">
+                                        <div style="height:3px; width:60px; background:#00529B; border-radius:3px; margin:0 auto;"></div>
                                     </td>
                                 </tr>
                                 <tr>
                                     <td style="text-align:center;">
-                                        <p style="margin:0 0 8px; font-size:13px; color:#64748b; line-height:1.6;">
-                                            Este es un mensaje automático generado por el sistema de ProSalud.
-                                        </p>
-                                        <p style="margin:0 0 12px; font-size:13px; color:#64748b; line-height:1.6;">
-                                            Si tienes alguna pregunta, comunícate con nuestro equipo de soporte a través de los canales oficiales o visita <a href="https://www.prosalud.org.co/" style="color:#00529B; text-decoration:none; font-weight:600;">nuestro sitio web</a>.
-                                        </p>
                                         <p style="margin:0; font-size:12px; color:#94a3b8;">
                                             © {{ date('Y') }} ProSalud. Todos los derechos reservados.
                                         </p>
