@@ -85,4 +85,45 @@ class ConvenioManualEmailHistoryTest extends TestCase
         $response->assertOk();
         $this->assertSame(1, $response->json('data.total'));
     }
+
+    public function test_sede_param_matches_sede_or_nombre_convenio_partially(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '1111111111',
+            'nombre_convenio' => 'CONVENIO ALFA',
+            'sede' => 'Hospital Sur',
+            'estado' => 'enviado',
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '2222222222',
+            'nombre_convenio' => 'Convenio Hospital Sur Especial',
+            'sede' => 'Norte',
+            'estado' => 'enviado',
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '3333333333',
+            'nombre_convenio' => 'Otro',
+            'sede' => 'Occidente',
+            'estado' => 'enviado',
+        ]);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/email-history',
+            [
+                'sede' => 'Sur',
+            ],
+            ['prosalud_auth_token' => $this->apiCookieForUser($user)],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertOk()->assertJsonPath('success', true);
+        $this->assertSame(2, $response->json('data.total'));
+    }
 }

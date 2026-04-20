@@ -20,6 +20,7 @@ use App\Http\Controllers\ChatbotConversationController;
 use App\Http\Controllers\ComfenalcoEventController;
 use App\Http\Controllers\CompensacionesFileController;
 use App\Http\Controllers\ConvenioManualController;
+use App\Http\Controllers\ConvenioPresidentSigningController;
 use App\Http\Controllers\ConvenioPublicSigningController;
 use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\DelegadosFileController;
@@ -277,6 +278,12 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
 
     Route::get('/tracking/{tracking}/download-original', [ConvenioManualController::class, 'downloadConvenioOriginal'])
         ->middleware('permission:document_signing.view');
+
+    // Firma presidencial (requiere feature flag auto_sign.enabled)
+    Route::middleware(['permission:document_signing.manage', 'auto.sign.enabled'])->group(function () {
+        Route::post('/tracking/{tracking}/president-sign', [ConvenioPresidentSigningController::class, 'signOne']);
+        Route::post('/tracking/president-sign-bulk', [ConvenioPresidentSigningController::class, 'signBulk']);
+    });
 });
 
 // Assembly Voting System Routes

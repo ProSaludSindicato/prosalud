@@ -190,13 +190,14 @@ class ConvenioManualController extends Controller
     public function listEmailHistory(Request $request): JsonResponse
     {
         $digitalSigningEnabled = (bool) config('convenio_signing.enabled', true);
+        $autoSignEnabled = $digitalSigningEnabled && (bool) config('convenio_auto_sign.enabled', false);
 
         $validator = Validator::make($request->all(), [
             'q' => 'nullable|string|max:200',
             'documento' => 'nullable|string|max:50',
             'estado' => 'nullable|string|in:pendiente,enviado,fallido',
-            'signing_estado' => 'nullable|string|in:pendiente_firma,firmado_afiliado,completado,rechazado',
-            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,firma_pendiente_firma,firma_firmado_afiliado,firma_completado',
+            'signing_estado' => 'nullable|string|in:pendiente_firma,firmado_afiliado,firmando_presidente,error_firma_presidente,completado,rechazado',
+            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,firma_pendiente_firma,firma_firmado_afiliado,firma_completado,firma_pendiente_presidente,firma_error_presidente',
             'sede' => 'nullable|string|max:255',
             'nombre_convenio' => 'nullable|string|max:255',
             'fecha_desde' => 'nullable|date',
@@ -235,7 +236,7 @@ class ConvenioManualController extends Controller
 
         $estadoFiltro = $request->input('estado_filtro');
         if (is_string($estadoFiltro) && $estadoFiltro !== '' && $estadoFiltro !== 'todos') {
-            $isSigningFilter = in_array($estadoFiltro, ['firma_pendiente_firma', 'firma_firmado_afiliado', 'firma_completado'], true);
+            $isSigningFilter = str_starts_with($estadoFiltro, 'firma_');
 
             if ($isSigningFilter && ! $digitalSigningEnabled) {
                 // Signing filters are ignored when the feature is disabled
@@ -245,6 +246,8 @@ class ConvenioManualController extends Controller
                     'firma_pendiente_firma' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA),
                     'firma_firmado_afiliado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO),
                     'firma_completado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_COMPLETADO),
+                    'firma_pendiente_presidente' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO),
+                    'firma_error_presidente' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_ERROR_PRESIDENTE),
                     default => null,
                 };
             }
@@ -286,6 +289,7 @@ class ConvenioManualController extends Controller
         return response()->json([
             'success' => true,
             'digital_signing_enabled' => $digitalSigningEnabled,
+            'auto_sign_enabled' => $autoSignEnabled,
             'data' => $trackings,
         ]);
     }
@@ -441,6 +445,7 @@ class ConvenioManualController extends Controller
         }
 
         $digitalSigningEnabled = (bool) config('convenio_signing.enabled', true);
+        $autoSignEnabled = $digitalSigningEnabled && (bool) config('convenio_auto_sign.enabled', false);
 
         $baseQuery = ConvenioEmailTracking::query();
 
@@ -459,12 +464,16 @@ class ConvenioManualController extends Controller
         if ($digitalSigningEnabled) {
             $signingPendienteFirma = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA)->count();
             $signingFirmadoAfiliado = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO)->count();
+            $signingFirmandoPresidente = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE)->count();
+            $signingErrorPresidente = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_ERROR_PRESIDENTE)->count();
             $signingCompletado = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_COMPLETADO)->count();
             $signingRechazado = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_RECHAZADO)->count();
 
             $signingStats = [
                 'pendiente_firma' => $signingPendienteFirma,
                 'firmado_afiliado' => $signingFirmadoAfiliado,
+                'firmando_presidente' => $signingFirmandoPresidente,
+                'error_firma_presidente' => $signingErrorPresidente,
                 'completado' => $signingCompletado,
                 'rechazado' => $signingRechazado,
             ];
@@ -472,6 +481,9 @@ class ConvenioManualController extends Controller
             $signingDerived = [
                 'pendientes_firma' => $signingPendienteFirma,
                 'firmados_afiliado_o_finalizados' => $signingFirmadoAfiliado + $signingCompletado,
+                'por_firmar_presidente' => $signingFirmadoAfiliado,
+                'firmando_presidente' => $signingFirmandoPresidente,
+                'error_firma_presidente' => $signingErrorPresidente,
             ];
         }
 
@@ -512,6 +524,7 @@ class ConvenioManualController extends Controller
 
         $stats = [
             'digital_signing_enabled' => $digitalSigningEnabled,
+            'auto_sign_enabled' => $autoSignEnabled,
             'total' => (clone $baseQuery)->count(),
             'by_status' => (clone $baseQuery)->selectRaw('estado, COUNT(*) as count')
                 ->groupBy('estado')

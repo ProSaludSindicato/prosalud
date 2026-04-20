@@ -14,6 +14,10 @@ class ConvenioEmailTracking extends Model
 
     public const SIGNING_FIRMADO_AFILIADO = 'firmado_afiliado';
 
+    public const SIGNING_FIRMANDO_PRESIDENTE = 'firmando_presidente';
+
+    public const SIGNING_ERROR_PRESIDENTE = 'error_firma_presidente';
+
     public const SIGNING_COMPLETADO = 'completado';
 
     public const SIGNING_RECHAZADO = 'rechazado';
@@ -44,6 +48,11 @@ class ConvenioEmailTracking extends Model
         'rechazado_at',
         'motivo_rechazo',
         'sede',
+        'president_sign_attempts',
+        'president_sign_last_error',
+        'president_sign_detection_method',
+        'president_sign_queued_at',
+        'president_sign_duration_ms',
     ];
 
     protected $casts = [
@@ -55,6 +64,9 @@ class ConvenioEmailTracking extends Model
         'firmado_afiliado_at' => 'datetime',
         'firmado_presidente_at' => 'datetime',
         'rechazado_at' => 'datetime',
+        'president_sign_queued_at' => 'datetime',
+        'president_sign_attempts' => 'integer',
+        'president_sign_duration_ms' => 'integer',
     ];
 
     /**
@@ -91,12 +103,24 @@ class ConvenioEmailTracking extends Model
     }
 
     /**
+     * Filtra por coincidencia parcial en sede o en nombre del convenio.
+     *
      * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
      * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
      */
     public function scopeBySede($query, string $sede)
     {
-        return $query->where('sede', $sede);
+        $term = trim($sede);
+        if ($term === '') {
+            return $query;
+        }
+
+        $pattern = '%'.$term.'%';
+
+        return $query->where(function ($q) use ($pattern): void {
+            $q->where('sede', 'like', $pattern)
+                ->orWhere('nombre_convenio', 'like', $pattern);
+        });
     }
 
     /**
@@ -186,5 +210,20 @@ class ConvenioEmailTracking extends Model
     public function resends()
     {
         return $this->hasMany(ConvenioEmailTracking::class, 'parent_tracking_id');
+    }
+
+    /**
+     * Scope para convenios pendientes de firma del presidente.
+     * Incluye los que fallaron (reintentables) y los que esperan ser firmados.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
+     */
+    public function scopePendingPresidentSign($query)
+    {
+        return $query->whereIn('signing_estado', [
+            self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_ERROR_PRESIDENTE,
+        ]);
     }
 }

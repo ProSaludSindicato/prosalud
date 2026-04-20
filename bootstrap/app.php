@@ -45,6 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'dual-rate-limit' => \App\Http\Middleware\DualRateLimit::class,
             'candidate.voting.enabled' => \App\Http\Middleware\EnsureCandidateVotingEnabled::class,
             'assembly.voting.enabled' => \App\Http\Middleware\EnsureAssemblyVotingEnabled::class,
+            'auto.sign.enabled' => \App\Http\Middleware\EnsureAutoSignEnabled::class,
         ]);
 
         // La configuración de rate limiters ahora está en AppServiceProvider::boot()

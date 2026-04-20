@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SignConvenioWithPresidentJob;
 use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioDigitalSigningService;
 use App\Services\ConvenioPdfStorageService;
@@ -203,6 +204,16 @@ class ConvenioPublicSigningController extends Controller
         Log::info('[CONVENIO DIGITAL] Firma del afiliado registrada', [
             'tracking_id' => $tracking->id,
         ]);
+
+        // Fase 2 (auto-dispatch): si está habilitado, despachar la firma presidencial automáticamente
+        if (config('convenio_auto_sign.enabled') && config('convenio_auto_sign.auto_dispatch_after_affiliate')) {
+            $tracking->update(['president_sign_queued_at' => now()]);
+            SignConvenioWithPresidentJob::dispatch($tracking->id);
+
+            Log::info('[CONVENIO DIGITAL] Job de firma presidencial auto-despachado', [
+                'tracking_id' => $tracking->id,
+            ]);
+        }
 
         return response()->json([
             'success' => true,
