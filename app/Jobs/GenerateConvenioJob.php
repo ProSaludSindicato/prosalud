@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\ConvenioGenerationService;
+use App\Services\DocxToPdfCloudConvertService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -33,7 +34,7 @@ class GenerateConvenioJob implements ShouldQueue
      *
      * @var int
      */
-    public $timeout = 300; // 5 minutos
+    public $timeout = 300;
 
     /**
      * Create a new job instance.
@@ -42,16 +43,16 @@ class GenerateConvenioJob implements ShouldQueue
         public array $convenioData,
         public ?string $email = null,
         public bool $sendEmail = false
-    ) {
-    }
+    ) {}
 
     /**
      * Execute the job.
      */
-    public function handle(ConvenioGenerationService $convenioGenerationService): void
-    {
+    public function handle(
+        ConvenioGenerationService $convenioGenerationService,
+        DocxToPdfCloudConvertService $docxToPdfCloudConvertService,
+    ): void {
         try {
-            // Aumentar tiempo de ejecución para el job
             set_time_limit($this->timeout);
             ini_set('max_execution_time', (string) $this->timeout);
 
@@ -61,7 +62,6 @@ class GenerateConvenioJob implements ShouldQueue
                 'email' => $this->email,
             ]);
 
-            // Generar convenio Word
             $resultado = $convenioGenerationService->generarConvenio($this->convenioData);
 
             Log::info('[CONVENIO JOB] Convenio generado exitosamente desde job', [
@@ -70,13 +70,39 @@ class GenerateConvenioJob implements ShouldQueue
                 'ruta' => $resultado['ruta'],
             ]);
 
-            // TODO: Cuando se habilite el envío de correo y conversión a PDF, agregar aquí
-            // Por ahora solo se genera el Word y se guarda localmente
             if ($this->sendEmail && $this->email) {
-                Log::warning('[CONVENIO JOB] El envío de correo está temporalmente deshabilitado durante la fase de desarrollo y pruebas', [
-                    'documento' => $this->convenioData['numero_documento'] ?? null,
-                    'email' => $this->email,
-                ]);
+                try {
+                    $pdfResult = $docxToPdfCloudConvertService->convert($resultado['ruta'], true);
+                    $pdfAbsolute = storage_path('app/'.$pdfResult['path']);
+                    $documento = preg_replace('/[^0-9]/', '', (string) ($this->convenioData['numero_documento'] ?? ''));
+                    $nombrePdf = preg_replace('/\.docx$/i', '.pdf', $resultado['nombre']);
+                    $nombreConvenio = (string) ($this->convenioData['proceso'] ?? 'CONVENIO');
+
+                    SendConvenioManualEmailJob::dispatch(
+                        $documento,
+                        $nombrePdf,
+                        $pdfAbsolute,
+                        $nombreConvenio,
+                        null,
+                        $this->email,
+                        isset($this->convenioData['sede']) ? (string) $this->convenioData['sede'] : null,
+                    );
+
+                    if (file_exists($resultado['ruta'])) {
+                        @unlink($resultado['ruta']);
+                    }
+
+                    Log::info('[CONVENIO JOB] PDF generado y correo encolado', [
+                        'documento' => $documento,
+                        'email' => $this->email,
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::error('[CONVENIO JOB] Error al convertir a PDF o encolar envío de correo', [
+                        'documento' => $this->convenioData['numero_documento'] ?? null,
+                        'error' => $e->getMessage(),
+                    ]);
+                    throw $e;
+                }
             }
         } catch (\Throwable $e) {
             Log::error('[CONVENIO JOB] Error generando convenio desde job', [
@@ -84,7 +110,7 @@ class GenerateConvenioJob implements ShouldQueue
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            throw $e; // Re-lanzar para que Laravel lo marque como fallido y pueda reintentar
+            throw $e;
         }
     }
 
@@ -100,4 +126,3 @@ class GenerateConvenioJob implements ShouldQueue
         ]);
     }
 }
-

@@ -10,7 +10,6 @@ namespace App\Jobs;
 // ============================================================================
 
 use App\Mail\ConvenioManualNotification;
-use App\Models\ConvenioEmailTracking;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -50,8 +49,7 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
         public string $nombreArchivo,
         public string $rutaArchivoPdf,
         public string $nombreConvenio,
-    ) {
-    }
+    ) {}
 
     /**
      * Execute the job.
@@ -67,20 +65,22 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
             ]);
 
             // Verify PDF file exists
-            if (!file_exists($this->rutaArchivoPdf)) {
-                $errorMessage = 'Archivo PDF no encontrado: ' . $this->rutaArchivoPdf;
+            if (! file_exists($this->rutaArchivoPdf)) {
+                $errorMessage = 'Archivo PDF no encontrado: '.$this->rutaArchivoPdf;
                 Log::error($errorMessage, [
                     'documento' => $this->documento,
                     'ruta_archivo' => $this->rutaArchivoPdf,
                 ]);
+
                 return;
             }
 
             // Create mailable and attach PDF
             $mailable = new ConvenioManualNotification(
-                'Afiliado de Prueba - ' . $this->documento, // Nombre de prueba
+                'Afiliado de Prueba - '.$this->documento, // Nombre de prueba
                 $this->documento,
-                $this->nombreConvenio
+                $this->nombreConvenio,
+                null,
             );
 
             $mailable->attachPdfFromPath($this->rutaArchivoPdf);
@@ -95,7 +95,7 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
                 'nombre_convenio' => $this->nombreConvenio,
             ]);
         } catch (\Throwable $e) {
-            $errorMessage = 'Error al enviar correo de prueba: ' . $e->getMessage();
+            $errorMessage = 'Error al enviar correo de prueba: '.$e->getMessage();
             Log::error('Error al enviar correo de PRUEBA de convenio manual', [
                 'documento' => $this->documento,
                 'nombre_archivo' => $this->nombreArchivo,
@@ -119,7 +119,7 @@ class TestSendConvenioManualEmailJob implements ShouldQueue
             'error' => $exception->getMessage(),
             'trace' => $exception->getTraceAsString(),
         ]);
-        
+
         // NO SE ACTUALIZA TRAZABILIDAD porque no se crean registros en modo de prueba
     }
 }

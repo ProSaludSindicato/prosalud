@@ -5,7 +5,8 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Cache;
-use Spatie\Permission\Models\{Permission, Role};
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class RolePermissionSeeder extends Seeder
 {
@@ -102,6 +103,9 @@ class RolePermissionSeeder extends Seeder
             // Document Signing
             'document_signing.view' => 'Ver historial de envíos de correos de firma y estadísticas',
             'document_signing.manage' => 'Enviar correos masivos de firma y reenviar correos a afiliados',
+
+            // Voting mode control
+            'voting.mode.manage' => 'Habilitar o deshabilitar los modos de votación (candidatos o asamblea en vivo)',
         ];
 
         $_permissions = [
@@ -224,7 +228,7 @@ class RolePermissionSeeder extends Seeder
             ['name' => 'admin', 'guard_name' => 'web'],
             ['description' => 'Administrador del sistema con acceso completo a todas las funcionalidades']
         );
-        
+
         // Asignar TODOS los permisos existentes al rol admin (incluidos los nuevos que puedan existir)
         $allPermissions = Permission::where('guard_name', 'web')->get();
         $adminRole->syncPermissions($allPermissions);
@@ -255,7 +259,7 @@ class RolePermissionSeeder extends Seeder
 
             $this->command->info("✓ Caché de permisos limpiado para {$clearedCount} usuarios");
         } catch (\Exception $e) {
-            $this->command->warn("⚠ No se pudo limpiar el caché de permisos de usuarios: " . $e->getMessage());
+            $this->command->warn('⚠ No se pudo limpiar el caché de permisos de usuarios: '.$e->getMessage());
         }
     }
 }

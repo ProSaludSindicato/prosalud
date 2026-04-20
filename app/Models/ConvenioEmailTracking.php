@@ -3,12 +3,20 @@
 namespace App\Models;
 
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 class ConvenioEmailTracking extends Model
 {
     use HasFactory;
+
+    public const SIGNING_PENDIENTE_FIRMA = 'pendiente_firma';
+
+    public const SIGNING_FIRMADO_AFILIADO = 'firmado_afiliado';
+
+    public const SIGNING_COMPLETADO = 'completado';
+
+    public const SIGNING_RECHAZADO = 'rechazado';
 
     protected $table = 'convenio_email_tracking';
 
@@ -17,6 +25,7 @@ class ConvenioEmailTracking extends Model
         'nombre_afiliado',
         'email_afiliado',
         'nombre_convenio',
+        'viewer_header_title',
         'nombre_archivo',
         'ruta_archivo_pdf',
         'enviado_at',
@@ -24,6 +33,17 @@ class ConvenioEmailTracking extends Model
         'error_message',
         'intentos',
         'parent_tracking_id',
+        'signing_token_hash',
+        'token_expires_at',
+        'signing_estado',
+        'pdf_original_path',
+        'pdf_firmado_afiliado_path',
+        'pdf_final_path',
+        'firmado_afiliado_at',
+        'firmado_presidente_at',
+        'rechazado_at',
+        'motivo_rechazo',
+        'sede',
     ];
 
     protected $casts = [
@@ -31,6 +51,10 @@ class ConvenioEmailTracking extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'intentos' => 'integer',
+        'token_expires_at' => 'datetime',
+        'firmado_afiliado_at' => 'datetime',
+        'firmado_presidente_at' => 'datetime',
+        'rechazado_at' => 'datetime',
     ];
 
     /**
@@ -55,6 +79,24 @@ class ConvenioEmailTracking extends Model
     public function scopeByEstado($query, string $estado)
     {
         return $query->where('estado', $estado);
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
+     */
+    public function scopeBySigningEstado($query, string $signingEstado)
+    {
+        return $query->where('signing_estado', $signingEstado);
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
+     */
+    public function scopeBySede($query, string $sede)
+    {
+        return $query->where('sede', $sede);
     }
 
     /**
@@ -113,12 +155,12 @@ class ConvenioEmailTracking extends Model
     public function incrementarIntentos(): void
     {
         $nuevoNumeroIntentos = $this->intentos + 1;
-        
+
         // Actualizar este registro
         $this->update(['intentos' => $nuevoNumeroIntentos]);
-        
+
         // Si este es un registro original (no tiene parent), actualizar todos sus reenvíos
-        if (!$this->parent_tracking_id) {
+        if (! $this->parent_tracking_id) {
             $this->resends()->update(['intentos' => $nuevoNumeroIntentos]);
         } else {
             // Si este es un reenvío, actualizar el padre y todos los hermanos (otros reenvíos del mismo padre)
@@ -146,4 +188,3 @@ class ConvenioEmailTracking extends Model
         return $this->hasMany(ConvenioEmailTracking::class, 'parent_tracking_id');
     }
 }
-
