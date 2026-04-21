@@ -88,4 +88,9 @@ return [
     'document_signing' => [
         'provider' => env('DOCUMENT_SIGNING_PROVIDER', 'docusign'),
     ],
+
+    'firma_digital' => [
+        'app_url' => env('FIRMA_DIGITAL_APP_URL', 'http://localhost:5173'),
+        'sign_path' => env('FIRMA_DIGITAL_SIGN_PATH', '/sign'),
+    ],
 ];

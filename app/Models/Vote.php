@@ -15,6 +15,7 @@ class Vote extends Model
         'voter_document_number',
         'voter_hospital',
         'voter_position',
+        'candidate_election_key',
         'candidate_id',
         'candidate_name',
         'candidate_position',
@@ -36,7 +37,7 @@ class Vote extends Model
     public function scopeByVoter($query, $documentType, $documentNumber)
     {
         return $query->where('voter_document_type', $documentType)
-                    ->where('voter_document_number', $documentNumber);
+            ->where('voter_document_number', $documentNumber);
     }
 
     /**
@@ -82,6 +83,18 @@ class Vote extends Model
     }
 
     /**
+     * Scope to filter votes by candidate election key.
+     */
+    public function scopeByElectionKey($query, ?string $electionKey)
+    {
+        if ($electionKey === null || trim($electionKey) === '') {
+            return $query->whereNull('candidate_election_key');
+        }
+
+        return $query->where('candidate_election_key', trim($electionKey));
+    }
+
+    /**
      * Get voter information as array.
      */
     public function getVoterAttribute()
@@ -113,8 +126,8 @@ class Vote extends Model
     public static function hasVoted($documentType, $documentNumber, $candidateId)
     {
         return self::byVoter($documentType, $documentNumber)
-                  ->byCandidate($candidateId)
-                  ->exists();
+            ->byCandidate($candidateId)
+            ->exists();
     }
 
     /**

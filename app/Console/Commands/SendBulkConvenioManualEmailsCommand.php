@@ -29,6 +29,7 @@ class SendBulkConvenioManualEmailsCommand extends Command
      * Rate limit: 6 emails per second = 1 email every 166.67 milliseconds
      */
     private const EMAILS_PER_SECOND = 6;
+
     private const DELAY_MS = 1000 / self::EMAILS_PER_SECOND; // ~166.67 ms
 
     /**
@@ -42,20 +43,22 @@ class SendBulkConvenioManualEmailsCommand extends Command
 
         $conveniosPath = resource_path('convenios');
 
-        if (!is_dir($conveniosPath)) {
+        if (! is_dir($conveniosPath)) {
             $this->error("❌ Directorio de convenios no encontrado: {$conveniosPath}");
+
             return 1;
         }
 
         // Get all PDF files
-        $pdfFiles = glob($conveniosPath . '/*.pdf');
+        $pdfFiles = glob($conveniosPath.'/*.pdf');
 
         if (empty($pdfFiles)) {
             $this->warn('⚠️  No se encontraron archivos PDF en el directorio de convenios.');
+
             return 0;
         }
 
-        $this->info("📁 Encontrados " . count($pdfFiles) . " archivos PDF");
+        $this->info('📁 Encontrados '.count($pdfFiles).' archivos PDF');
         $this->line('');
 
         // Parse files and extract document numbers and convenio names
@@ -63,7 +66,7 @@ class SendBulkConvenioManualEmailsCommand extends Command
         foreach ($pdfFiles as $file) {
             $filename = basename($file);
             $filenameWithoutExt = basename($file, '.pdf');
-            
+
             $documento = $this->extractDocumentNumber($filenameWithoutExt);
             $nombreConvenio = $this->extractNombreConvenio($filenameWithoutExt);
 
@@ -77,18 +80,23 @@ class SendBulkConvenioManualEmailsCommand extends Command
                 ];
             } else {
                 $missing = [];
-                if (!$documento) $missing[] = 'documento';
-                if (!$nombreConvenio) $missing[] = 'nombre_convenio';
-                $this->warn("⚠️  No se pudo extraer " . implode(' y ', $missing) . " de: " . $filename);
+                if (! $documento) {
+                    $missing[] = 'documento';
+                }
+                if (! $nombreConvenio) {
+                    $missing[] = 'nombre_convenio';
+                }
+                $this->warn('⚠️  No se pudo extraer '.implode(' y ', $missing).' de: '.$filename);
             }
         }
 
         if (empty($filesToProcess)) {
             $this->error('❌ No se encontraron archivos con números de documento y nombres de convenio válidos.');
+
             return 1;
         }
 
-        $this->info("✅ Archivos válidos para procesar: " . count($filesToProcess));
+        $this->info('✅ Archivos válidos para procesar: '.count($filesToProcess));
         $this->line('');
 
         // Apply limit if specified
@@ -118,22 +126,23 @@ class SendBulkConvenioManualEmailsCommand extends Command
 
             $this->table(['Archivo', 'Documento', 'Convenio'], $tableData);
             $this->line('');
-            $this->info("Total: " . count($filesToProcess) . " correos se enviarían");
-            $this->info("Tiempo estimado: " . $this->calculateEstimatedTime(count($filesToProcess)));
+            $this->info('Total: '.count($filesToProcess).' correos se enviarían');
+            $this->info('Tiempo estimado: '.$this->calculateEstimatedTime(count($filesToProcess)));
 
             return 0;
         }
 
         // Confirmation
-        $this->warn("⚠️  Se enviarán " . count($filesToProcess) . " correos electrónicos con PDFs adjuntos");
-        $this->info("⏱️  Tiempo estimado: " . $this->calculateEstimatedTime(count($filesToProcess)));
+        $this->warn('⚠️  Se enviarán '.count($filesToProcess).' correos electrónicos con PDFs adjuntos');
+        $this->info('⏱️  Tiempo estimado: '.$this->calculateEstimatedTime(count($filesToProcess)));
         $this->line('');
-        $this->warn("📊 Rate limit: " . self::EMAILS_PER_SECOND . " correos por segundo");
+        $this->warn('📊 Rate limit: '.self::EMAILS_PER_SECOND.' correos por segundo');
         $this->line('');
 
-        if (!$this->option('force')) {
-            if (!$this->confirm('¿Deseas continuar con el envío masivo?')) {
+        if (! $this->option('force')) {
+            if (! $this->confirm('¿Deseas continuar con el envío masivo?')) {
                 $this->info('❌ Operación cancelada por el usuario.');
+
                 return 0;
             }
         } else {
@@ -157,7 +166,7 @@ class SendBulkConvenioManualEmailsCommand extends Command
         foreach ($filesToProcess as $index => $item) {
             try {
                 // Verify file exists
-                if (!file_exists($item['ruta_archivo_pdf'])) {
+                if (! file_exists($item['ruta_archivo_pdf'])) {
                     $errors++;
                     Log::warning('Archivo PDF no encontrado al encolar job', [
                         'archivo' => $item['filename'],
@@ -165,6 +174,7 @@ class SendBulkConvenioManualEmailsCommand extends Command
                     ]);
                     $progressBar->setMessage("Error: Archivo no encontrado - {$item['filename']}");
                     $progressBar->advance();
+
                     continue;
                 }
 
@@ -177,7 +187,10 @@ class SendBulkConvenioManualEmailsCommand extends Command
                     $item['documento'],
                     $item['filename'],
                     $item['ruta_archivo_pdf'],
-                    $item['nombre_convenio']
+                    $item['nombre_convenio'],
+                    null,
+                    null,
+                    null,
                 )->delay(now()->addSeconds($delaySeconds));
 
                 $enqueued++;
@@ -202,19 +215,19 @@ class SendBulkConvenioManualEmailsCommand extends Command
         // Summary
         $this->info('✅ Procesamiento completado');
         $this->line('');
-        $this->info("📊 Resumen:");
+        $this->info('📊 Resumen:');
         $this->line("  • Jobs encolados: {$enqueued}");
         if ($errors > 0) {
             $this->warn("  • Errores: {$errors}");
         }
-        $this->line("  • Tiempo estimado: " . $this->calculateEstimatedTime($enqueued));
+        $this->line('  • Tiempo estimado: '.$this->calculateEstimatedTime($enqueued));
         $this->line('');
 
         Log::info('Bulk convenio manual emails queued', [
             'total_files' => count($filesToProcess),
             'enqueued' => $enqueued,
             'errors' => $errors,
-            'rate_limit' => self::EMAILS_PER_SECOND . ' emails/second',
+            'rate_limit' => self::EMAILS_PER_SECOND.' emails/second',
         ]);
 
         return 0;
@@ -240,7 +253,7 @@ class SendBulkConvenioManualEmailsCommand extends Command
         // Normalize: remove any non-numeric characters and return
         $documento = preg_replace('/[^0-9]/', '', $documento);
 
-        return !empty($documento) ? $documento : null;
+        return ! empty($documento) ? $documento : null;
     }
 
     /**
@@ -260,7 +273,7 @@ class SendBulkConvenioManualEmailsCommand extends Command
         // Get the first part (should be the convenio name)
         $nombreConvenio = trim($parts[0]);
 
-        return !empty($nombreConvenio) ? $nombreConvenio : null;
+        return ! empty($nombreConvenio) ? $nombreConvenio : null;
     }
 
     /**
@@ -276,7 +289,7 @@ class SendBulkConvenioManualEmailsCommand extends Command
         $seconds = $count / self::EMAILS_PER_SECOND;
 
         if ($seconds < 60) {
-            return round($seconds, 1) . ' segundos';
+            return round($seconds, 1).' segundos';
         }
 
         $minutes = floor($seconds / 60);
@@ -292,4 +305,3 @@ class SendBulkConvenioManualEmailsCommand extends Command
         return "{$hours} horas, {$remainingMinutes} minutos";
     }
 }
-

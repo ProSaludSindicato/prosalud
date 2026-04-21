@@ -14,11 +14,13 @@ use App\Http\Controllers\Assembly\AssemblyReportController;
 use App\Http\Controllers\Assembly\AssemblyVoteController;
 use App\Http\Controllers\Assembly\QuorumController;
 use App\Http\Controllers\AuthController as ApiAuthController;
+use App\Http\Controllers\CandidateVotingPeriodController;
 use App\Http\Controllers\CertificadoConvenioController;
 use App\Http\Controllers\ChatbotConversationController;
 use App\Http\Controllers\ComfenalcoEventController;
 use App\Http\Controllers\CompensacionesFileController;
 use App\Http\Controllers\ConvenioManualController;
+use App\Http\Controllers\ConvenioPublicSigningController;
 use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\DelegadosFileController;
 use App\Http\Controllers\DocumentSigningAdminController;
@@ -47,6 +49,7 @@ use App\Http\Controllers\SurveyConfigController;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\VaccinationSurveyController;
 use App\Http\Controllers\VoteController;
+use App\Http\Controllers\VotingModeController;
 use App\Http\Controllers\WellnessActivityRealizedController;
 use App\Http\Controllers\WellnessDeliveryTypeController;
 use App\Http\Controllers\WellnessEventController;
@@ -56,7 +59,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('auth')->group(function () {
     // Endpoints de autenticación con rate limiting + reCAPTCHA
     Route::post('/login', [ApiAuthController::class, 'login'])
-        ->middleware(['throttle:5,1', 'recaptcha:login']);
+        ->middleware(['throttle:5,1']);
     Route::post('/set-password', [ApiAuthController::class, 'setPasswordFromInvitation']);
     Route::post('/forgot-password', [ApiAuthController::class, 'forgotPassword'])
         ->middleware(['throttle:5,1', 'recaptcha:forgot_password']);
@@ -73,8 +76,25 @@ Route::middleware('throttle:public-endpoints')->group(function () {
     Route::post('/chatbot-conversations', [ChatbotConversationController::class, 'store']);
     Route::post('/incapacidades/search', [IncapacidadesController::class, 'search']);
     Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search']);
-    Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital']);
+    Route::post('/activos/search-hospital', [ActivosController::class, 'searchHospital'])->middleware('assembly.voting.enabled');
+    Route::post('/activos/search-candidate-voting', [ActivosController::class, 'searchCandidateVoting'])->middleware('candidate.voting.enabled');
 });
+
+// Firma digital de convenios (público, token en URL; sin autenticación de panel)
+if (config('convenio_signing.enabled', true)) {
+    Route::prefix('public/convenio-firma')->middleware(['throttle:convenio-signing-public'])->group(function () {
+        Route::get('{token}/metadata', [ConvenioPublicSigningController::class, 'metadata'])
+            ->where('token', '[A-Za-z0-9]{32,128}');
+        Route::get('{token}/document.pdf', [ConvenioPublicSigningController::class, 'documentPdf'])
+            ->where('token', '[A-Za-z0-9]{32,128}');
+        Route::post('{token}/submit-affiliate-signature', [ConvenioPublicSigningController::class, 'submitAffiliateSignature'])
+            ->where('token', '[A-Za-z0-9]{32,128}');
+    });
+}
+
+// Voting mode - public read endpoint
+Route::get('/voting/mode', [VotingModeController::class, 'show']);
+Route::get('/candidate-voting-periods/current', [CandidateVotingPeriodController::class, 'current']);
 
 // Public read-only endpoints
 Route::get('/comfenalco-events', [ComfenalcoEventController::class, 'index']);
@@ -86,12 +106,14 @@ Route::get('/public/wellness-events/{wellness_event}', [WellnessEventController:
 // Private API - Wellness Events (requires authentication and permissions)
 // These routes are moved inside the authenticated group below
 Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show']);
-Route::post('/votes', [VoteController::class, 'store']);
-Route::get('/votes/check', [VoteController::class, 'checkVote']);
-Route::get('/delegados', [DelegadosController::class, 'index']);
-Route::get('/delegados/by-sede', [DelegadosController::class, 'getBySede']);
-Route::get('/delegados/by-cedula', [DelegadosController::class, 'getByCedula']);
-Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupedBySede']);
+Route::middleware('candidate.voting.enabled')->group(function () {
+    Route::post('/votes', [VoteController::class, 'store']);
+    Route::get('/votes/check', [VoteController::class, 'checkVote']);
+    Route::get('/delegados', [DelegadosController::class, 'index']);
+    Route::get('/delegados/by-sede', [DelegadosController::class, 'getBySede']);
+    Route::get('/delegados/by-cedula', [DelegadosController::class, 'getByCedula']);
+    Route::get('/delegados/grouped-by-sede', [DelegadosController::class, 'getGroupedBySede']);
+});
 
 // Afiliados authentication routes - Rate limiting aplicado
 Route::middleware('throttle:public-endpoints')->group(function () {
@@ -249,6 +271,12 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     // Statistics
     Route::get('/statistics', [ConvenioManualController::class, 'getStatistics'])
         ->middleware('permission:document_signing.view');
+
+    Route::get('/tracking/{tracking}/download-final', [ConvenioManualController::class, 'downloadConvenioFinal'])
+        ->middleware('permission:document_signing.view');
+
+    Route::get('/tracking/{tracking}/download-original', [ConvenioManualController::class, 'downloadConvenioOriginal'])
+        ->middleware('permission:document_signing.view');
 });
 
 // Assembly Voting System Routes
@@ -257,8 +285,8 @@ Route::prefix('assembly')->group(function () {
     Route::get('/questions', [AssemblyQuestionController::class, 'index']);
     Route::get('/questions/{id}', [AssemblyQuestionController::class, 'show']);
 
-    // Public routes - Votes
-    Route::post('/questions/{questionId}/votes', [AssemblyVoteController::class, 'store']);
+    // Public routes - Votes (protected by assembly voting enabled gate)
+    Route::post('/questions/{questionId}/votes', [AssemblyVoteController::class, 'store'])->middleware('assembly.voting.enabled');
     Route::get('/questions/{questionId}/votes/me', [AssemblyVoteController::class, 'getMyVote']);
 
     // Public routes - Results
@@ -331,11 +359,18 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::patch('/requests/{request}/respond-with-compensaciones', [RequestController::class, 'respondWithCompensaciones'])->middleware('permission:requests.respond');
     Route::get('/requests/{request}/files/{fileKey}', [RequestController::class, 'downloadFile'])->middleware('permission:requests.view');
 
+    // Voting mode management (admin)
+    Route::put('/voting/mode', [VotingModeController::class, 'update'])->middleware('permission:voting.mode.manage');
+
     // Votes admin reporting routes
     Route::get('/votes/statistics', [VoteController::class, 'statistics'])->middleware('permission:votes.statistics.view');
     Route::get('/votes/hospital-statistics', [VoteController::class, 'hospitalStatistics'])->middleware('permission:votes.statistics.view');
     Route::get('/votes/audit-trail', [VoteController::class, 'auditTrail'])->middleware('permission:votes.audit.view');
     Route::put('/votes/change-candidate', [VoteController::class, 'changeVoteCandidate'])->middleware('permission:votes.audit.view');
+    Route::get('/candidate-voting-periods', [CandidateVotingPeriodController::class, 'index'])->middleware('permission:votes.statistics.view|votes.audit.view');
+    Route::post('/candidate-voting-periods', [CandidateVotingPeriodController::class, 'store'])->middleware('permission:voting.mode.manage');
+    Route::patch('/candidate-voting-periods/{id}/activate', [CandidateVotingPeriodController::class, 'activate'])->middleware('permission:voting.mode.manage');
+    Route::patch('/candidate-voting-periods/{id}/close', [CandidateVotingPeriodController::class, 'close'])->middleware('permission:voting.mode.manage');
 
     // User management routes
     Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
@@ -408,6 +443,8 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/liquidaciones-file/info', [LiquidacionesFileController::class, 'info'])->middleware('permission:liquidaciones_files.manage');
     Route::get('/liquidaciones-file/download', [LiquidacionesFileController::class, 'download'])->middleware('permission:liquidaciones_files.manage');
     Route::post('/delegados-file/upload', [DelegadosFileController::class, 'upload'])->middleware('permission:delegados_files.manage');
+    Route::get('/delegados-file/download', [DelegadosFileController::class, 'download'])->middleware('permission:delegados_files.manage');
+    Route::post('/delegados-file/photos/upload', [DelegadosFileController::class, 'uploadPhotosZip'])->middleware('permission:delegados_files.manage');
     Route::post('/compensaciones-file/upload', [CompensacionesFileController::class, 'upload'])->middleware('permission:compensaciones_files.manage');
     Route::get('/compensaciones-file/info', [CompensacionesFileController::class, 'info'])->middleware('permission:compensaciones_files.manage');
     Route::get('/compensaciones-file/download', [CompensacionesFileController::class, 'download'])->middleware('permission:compensaciones_files.manage');

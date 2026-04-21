@@ -1,10 +1,10 @@
 <?php
 
-use Illuminate\Foundation\Application;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\HandleCors;
@@ -26,16 +26,16 @@ return Application::configure(basePath: dirname(__DIR__))
             // EnsureFrontendRequestsAreStateful::class,
             HandleCors::class,
         ]);
-        
+
         $middleware->web(append: [
             \App\Http\Middleware\SecurityHeaders::class,
         ]);
-        
+
         $middleware->api(append: [
             \App\Http\Middleware\SecurityHeaders::class,
             \App\Http\Middleware\RequestLoggingMiddleware::class,
         ]);
-        
+
         $middleware->alias([
             'permission' => \App\Http\Middleware\CheckPermission::class,
             'auth.token' => \App\Http\Middleware\AuthenticateWithApiToken::class,
@@ -43,8 +43,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'ensure.api.user' => \App\Http\Middleware\EnsureApiTokenIsValid::class,
             'recaptcha' => \App\Http\Middleware\VerifyRecaptcha::class,
             'dual-rate-limit' => \App\Http\Middleware\DualRateLimit::class,
+            'candidate.voting.enabled' => \App\Http\Middleware\EnsureCandidateVotingEnabled::class,
+            'assembly.voting.enabled' => \App\Http\Middleware\EnsureAssemblyVotingEnabled::class,
         ]);
-        
+
         // La configuración de rate limiters ahora está en AppServiceProvider::boot()
         // para evitar el error "A facade root has not been set"
     })
@@ -60,13 +62,13 @@ return Application::configure(basePath: dirname(__DIR__))
                     'error' => 'rate_limit_exceeded',
                 ], 429);
             }
-            
+
             // Para rutas web, retornar la respuesta por defecto de Laravel
             return null;
         });
-        
+
         $exceptions->render(function (\Throwable $e, Request $request) {
-            if (!$request->expectsJson() && !$request->is('api/*')) {
+            if (! $request->expectsJson() && ! $request->is('api/*')) {
                 return null;
             }
 
