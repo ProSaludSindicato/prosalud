@@ -41,11 +41,11 @@ class RespondToRequestRequest extends FormRequest
         // Las actividades solo se requieren cuando se va a generar el certificado
         if ($this->input('status') === 'COMPLETED' && $this->has('actividades')) {
             $rules['actividades'] = 'required|array|min:1';
-            $rules['actividades.*'] = 'required|string|min:1|max:500';
+            $rules['actividades.*'] = 'required|string|min:1|max:1200';
         } elseif ($this->has('actividades')) {
             // Si viene actividades pero el status no es COMPLETED, es opcional
             $rules['actividades'] = 'nullable|array';
-            $rules['actividades.*'] = 'nullable|string|max:500';
+            $rules['actividades.*'] = 'nullable|string|max:1200';
         }
 
         // Validar compensaciones si vienen en el request (opcionales, solo si están presentes)
@@ -85,7 +85,7 @@ class RespondToRequestRequest extends FormRequest
             'actividades.*.required' => 'Cada actividad es obligatoria.',
             'actividades.*.string' => 'Cada actividad debe ser texto.',
             'actividades.*.min' => 'Cada actividad debe tener al menos 1 carácter.',
-            'actividades.*.max' => 'Cada actividad no puede exceder 500 caracteres.',
+            'actividades.*.max' => 'Cada actividad no puede exceder 1200 caracteres.',
             't_basicos.integer' => 'El valor de T. Basicos debe ser un número entero.',
             't_basicos.min' => 'El valor de T. Basicos no puede ser negativo.',
             't_auxilios.integer' => 'El valor de T. Auxilios debe ser un número entero.',
@@ -132,7 +132,7 @@ class RespondToRequestRequest extends FormRequest
                 $hasCompressed = false;
 
                 // Normalizar a array si es un solo archivo
-                if (!is_array($attachments)) {
+                if (! is_array($attachments)) {
                     $attachments = [$attachments];
                 }
 
@@ -152,7 +152,7 @@ class RespondToRequestRequest extends FormRequest
                             if ($fileSizeKB > $maxTotalSizeKB) {
                                 $fileSizeMBRounded = round($fileSizeMB, 2);
                                 $validator->errors()->add(
-                                    'attachments.' . $index,
+                                    'attachments.'.$index,
                                     "El archivo comprimido '{$file->getClientOriginalName()}' ({$fileSizeMBRounded}MB) excede el límite máximo permitido de {$maxTotalSizeMB}MB."
                                 );
                             }
@@ -162,7 +162,7 @@ class RespondToRequestRequest extends FormRequest
                             if ($fileSizeKB > $maxNonCompressedKB) {
                                 $fileSizeMBRounded = round($fileSizeMB, 2);
                                 $validator->errors()->add(
-                                    'attachments.' . $index,
+                                    'attachments.'.$index,
                                     "El archivo '{$file->getClientOriginalName()}' ({$fileSizeMBRounded}MB) excede el límite máximo permitido de 5MB."
                                 );
                             }
@@ -195,7 +195,7 @@ class RespondToRequestRequest extends FormRequest
             // Si se rechaza, no tiene sentido requerir actividades
             if ($this->input('status') === 'COMPLETED' && $this->has('actividades')) {
                 $actividades = $this->input('actividades', []);
-                if (empty($actividades) || (is_array($actividades) && count(array_filter($actividades, fn($a) => !empty(trim($a ?? '')))) === 0)) {
+                if (empty($actividades) || (is_array($actividades) && count(array_filter($actividades, fn ($a) => ! empty(trim($a ?? '')))) === 0)) {
                     $validator->errors()->add('actividades', 'Debe incluir al menos una actividad cuando se completa la solicitud.');
                 }
             }

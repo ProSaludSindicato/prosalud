@@ -363,6 +363,32 @@ class StoreRequestFormRequest extends FormRequest
                         $validator->errors()->add('files.certificadoAfp', 'El certificado de AFP es obligatorio cuando se actualiza la AFP.');
                     }
                 }
+
+                // Validación interdependiente: Campos de contacto de emergencia
+                // Los tres campos (nombre, relación y teléfono) deben completarse todos o ninguno
+                $nombre = trim($payload['nombreContactoEmergencia'] ?? '');
+                $relacion = trim($payload['relacionContactoEmergencia'] ?? '');
+                $telefono = trim($payload['telefonoContactoEmergencia'] ?? '');
+
+                // Contar cuántos campos tienen valor
+                $fieldsWithValue = 0;
+                if (! empty($nombre)) {
+                    $fieldsWithValue++;
+                }
+                if (! empty($relacion)) {
+                    $fieldsWithValue++;
+                }
+                if (! empty($telefono)) {
+                    $fieldsWithValue++;
+                }
+
+                // Validación: o los tres tienen valor, o ninguno
+                if ($fieldsWithValue > 0 && $fieldsWithValue < 3) {
+                    $validator->errors()->add(
+                        'payload.nombreContactoEmergencia',
+                        'Debe completar todos los datos del contacto de emergencia (nombre, parentesco y celular) o dejar todos en blanco.'
+                    );
+                }
             }
 
             // Validaciones específicas para certificado-convenio
