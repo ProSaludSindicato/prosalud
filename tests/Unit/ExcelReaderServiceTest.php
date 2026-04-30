@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\ExcelReaderService;
-use PhpOffice\PhpSpreadsheet\{IOFactory};
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
 
 class ExcelReaderServiceTest extends TestCase
@@ -13,7 +13,7 @@ class ExcelReaderServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new ExcelReaderService();
+        $this->service = new ExcelReaderService;
     }
 
     protected function tearDown(): void
@@ -22,10 +22,10 @@ class ExcelReaderServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function testReadIncapacidadesFileReturnsDataWhenFileExists()
+    public function test_read_incapacidades_file_returns_data_when_file_exists()
     {
         // This test requires the actual Excel file to exist
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -36,16 +36,16 @@ class ExcelReaderServiceTest extends TestCase
         $this->assertArrayHasKey(0, $data); // Headers should be present
     }
 
-    public function testReadIncapacidadesFileReturnsEmptyArrayWhenFileNotExists()
+    public function test_read_incapacidades_file_returns_empty_array_when_file_not_exists()
     {
         // This test is complex to mock properly, so we'll skip it
         $this->markTestSkipped('Complex path mocking required');
     }
 
-    public function testReadLiquidacionesFileReturnsDataWhenFileExists()
+    public function test_read_liquidaciones_file_returns_data_when_file_exists()
     {
         // This test requires the actual Excel file to exist
-        if (!file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
+        if (! file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -56,15 +56,15 @@ class ExcelReaderServiceTest extends TestCase
         $this->assertArrayHasKey(0, $data); // Headers should be present
     }
 
-    public function testReadLiquidacionesFileReturnsEmptyArrayWhenFileNotExists()
+    public function test_read_liquidaciones_file_returns_empty_array_when_file_not_exists()
     {
         // This test is complex to mock properly, so we'll skip it
         $this->markTestSkipped('Complex path mocking required');
     }
 
-    public function testIsFileAvailableReturnsTrueWhenFileExists()
+    public function test_is_file_available_returns_true_when_file_exists()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -73,15 +73,15 @@ class ExcelReaderServiceTest extends TestCase
         $this->assertTrue($isAvailable);
     }
 
-    public function testIsFileAvailableReturnsFalseWhenFileNotExists()
+    public function test_is_file_available_returns_false_when_file_not_exists()
     {
         // This test is complex to mock properly, so we'll skip it
         $this->markTestSkipped('Complex path mocking required');
     }
 
-    public function testIsLiquidacionesFileAvailableReturnsTrueWhenFileExists()
+    public function test_is_liquidaciones_file_available_returns_true_when_file_exists()
     {
-        if (!file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
+        if (! file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -90,45 +90,52 @@ class ExcelReaderServiceTest extends TestCase
         $this->assertTrue($isAvailable);
     }
 
-    public function testIsLiquidacionesFileAvailableReturnsFalseWhenFileNotExists()
+    public function test_is_liquidaciones_file_available_returns_false_when_file_not_exists()
     {
         // This test is complex to mock properly, so we'll skip it
         $this->markTestSkipped('Complex path mocking required');
     }
 
-    public function testGetFileInfoReturnsCorrectStructure()
+    public function test_get_file_info_returns_correct_structure()
     {
         $fileInfo = $this->service->getFileInfo();
 
         $this->assertIsArray($fileInfo);
         $this->assertArrayHasKey('exists', $fileInfo);
-        $this->assertArrayHasKey('readable', $fileInfo);
-        $this->assertArrayHasKey('size', $fileInfo);
-        $this->assertArrayHasKey('modified', $fileInfo);
+        $this->assertArrayHasKey('path', $fileInfo);
+
+        if ($fileInfo['exists']) {
+            $this->assertArrayHasKey('readable', $fileInfo);
+            $this->assertArrayHasKey('size', $fileInfo);
+            $this->assertArrayHasKey('modified', $fileInfo);
+            $this->assertTrue($fileInfo['readable']);
+        } else {
+            $this->assertFalse($fileInfo['exists']);
+        }
     }
 
-    public function testReadIncapacidadesFileHandlesSpreadsheetException()
+    public function test_read_incapacidades_file_handles_spreadsheet_exception()
     {
         // This test would require mocking the IOFactory, which is complex
         // Instead, we'll test the error handling through the service layer
         $this->markTestSkipped('Complex mocking required for SpreadsheetException');
     }
 
-    public function testReadLiquidacionesFileHandlesSpreadsheetException()
+    public function test_read_liquidaciones_file_handles_spreadsheet_exception()
     {
         // This test would require mocking the IOFactory, which is complex
         // Instead, we'll test the error handling through the service layer
         $this->markTestSkipped('Complex mocking required for SpreadsheetException');
     }
 
-    public function testReadIncapacidadesFileHandlesGeneralException()
+    public function test_read_incapacidades_file_handles_general_exception()
     {
         // This test would require mocking the IOFactory, which is complex
         // Instead, we'll test the error handling through the service layer
         $this->markTestSkipped('Complex mocking required for general exceptions');
     }
 
-    public function testReadLiquidacionesFileHandlesGeneralException()
+    public function test_read_liquidaciones_file_handles_general_exception()
     {
         // This test would require mocking the IOFactory, which is complex
         // Instead, we'll test the error handling through the service layer

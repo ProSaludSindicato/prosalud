@@ -2,14 +2,21 @@
 
 namespace Tests\Unit;
 
-use App\Services\{DateFormatterService, ExcelReaderService, IncapacidadService};
+use App\Services\AfiliadoService;
+use App\Services\DateFormatterService;
+use App\Services\ExcelReaderService;
+use App\Services\IncapacidadService;
 use Tests\TestCase;
 
 class IncapacidadServiceTest extends TestCase
 {
     private IncapacidadService $service;
+
     private $excelReader;
+
     private $dateFormatter;
+
+    private $afiliadoService;
 
     protected function setUp(): void
     {
@@ -17,7 +24,8 @@ class IncapacidadServiceTest extends TestCase
 
         $this->excelReader = \Mockery::mock(ExcelReaderService::class);
         $this->dateFormatter = \Mockery::mock(DateFormatterService::class);
-        $this->service = new IncapacidadService($this->excelReader, $this->dateFormatter);
+        $this->afiliadoService = \Mockery::mock(AfiliadoService::class);
+        $this->service = new IncapacidadService($this->excelReader, $this->dateFormatter, $this->afiliadoService);
     }
 
     protected function tearDown(): void
@@ -26,7 +34,7 @@ class IncapacidadServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function testSearchByDocumentReturnsSuccessWhenRecordsFound()
+    public function test_search_by_document_returns_success_when_records_found()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI'],
@@ -54,7 +62,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertArrayNotHasKey('REPORTE VIVI', $record);
     }
 
-    public function testSearchByDocumentReturnsNotFoundWhenNoRecords()
+    public function test_search_by_document_returns_not_found_when_no_records()
     {
         $this->excelReader
             ->shouldReceive('readIncapacidadesFile')
@@ -67,7 +75,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertStringContainsString('No se pudo leer', $result['message']);
     }
 
-    public function testSearchByDocumentHandlesExcelReaderException()
+    public function test_search_by_document_handles_excel_reader_exception()
     {
         $this->excelReader
             ->shouldReceive('readIncapacidadesFile')
@@ -80,7 +88,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertStringContainsString('Error interno', $result['message']);
     }
 
-    public function testInternalFieldsAreFilteredFromResponse()
+    public function test_internal_fields_are_filtered_from_response()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI', 'estado'],
@@ -111,7 +119,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('PAGADA', $record['estado']);
     }
 
-    public function testDateConversionWithEnglishFormat()
+    public function test_date_conversion_with_english_format()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'FECHA ENVIO', 'Fecha Incio Incapacidad'],
@@ -193,7 +201,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('01/01/2025', $record['Fecha Expedicion']);  // Fecha Expedicion converted
     }
 
-    public function testSearchByDocumentWithDateValidationFiltersMismatchedDates()
+    public function test_search_by_document_with_date_validation_filters_mismatched_dates()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
@@ -218,7 +226,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('001', $result['data'][0]['N° Radicado']);
     }
 
-    public function testSearchByDocumentWithDateValidationReturnsNotFoundWhenNoMatchingDates()
+    public function test_search_by_document_with_date_validation_returns_not_found_when_no_matching_dates()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],

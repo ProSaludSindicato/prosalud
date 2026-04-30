@@ -46,6 +46,8 @@ use App\Http\Controllers\Request\RequestController;
 use App\Http\Controllers\SocioDemographicSurveyController;
 use App\Http\Controllers\SstDeliveryReportController;
 use App\Http\Controllers\SurveyConfigController;
+use App\Http\Controllers\SurveyController;
+use App\Http\Controllers\SurveyResponseController;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\VaccinationSurveyController;
 use App\Http\Controllers\VoteController;
@@ -175,6 +177,11 @@ Route::post('/socio-demographic-surveys', [SocioDemographicSurveyController::cla
 
 // Public route for vaccination surveys (used by affiliates from public site) - Rate limiting: 20 requests per minute
 Route::post('/encuesta-vacunacion', [VaccinationSurveyController::class, 'store'])->middleware('throttle:public-endpoints');
+
+// Dynamic surveys public routes - Rate limiting: 20 requests per minute
+Route::get('/surveys/{survey}/info', [SurveyResponseController::class, 'info'])->middleware('throttle:public-endpoints');
+Route::post('/surveys/{survey}/verify-respondent', [SurveyResponseController::class, 'verifyRespondent'])->middleware('throttle:public-endpoints');
+Route::post('/surveys/{survey}/responses', [SurveyResponseController::class, 'store'])->middleware('throttle:public-endpoints');
 
 // RUTA TEMPORAL: Reintentar generación de certificado cuando falló por intermitencia del servicio Word a PDF
 // TODO: Eliminar esta ruta después de resolver el problema de intermitencia
@@ -487,6 +494,23 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::post('/encuesta-vacunacion/export/excel', [VaccinationSurveyController::class, 'exportExcel'])->middleware('permission:vaccination_surveys.view');
     Route::get('/encuesta-vacunacion/export/status/{jobId}', [VaccinationSurveyController::class, 'checkStatus'])->middleware('permission:vaccination_surveys.view');
     Route::get('/encuesta-vacunacion/export/download/{jobId}', [VaccinationSurveyController::class, 'downloadReport'])->middleware('permission:vaccination_surveys.view');
+
+    // Dynamic Surveys (Módulo de Encuestas Dinámicas)
+    // filter-options MUST come before {survey} to avoid route conflict
+    Route::get('/surveys/filter-options', [SurveyController::class, 'filterOptions'])->middleware('permission:surveys.view');
+    Route::get('/surveys', [SurveyController::class, 'index'])->middleware('permission:surveys.view');
+    Route::post('/surveys', [SurveyController::class, 'store'])->middleware('permission:surveys.manage');
+    Route::get('/surveys/{survey}', [SurveyController::class, 'show'])->middleware('permission:surveys.view');
+    Route::put('/surveys/{survey}', [SurveyController::class, 'update'])->middleware('permission:surveys.manage');
+    Route::patch('/surveys/{survey}/status', [SurveyController::class, 'updateStatus'])->middleware('permission:surveys.manage');
+    Route::post('/surveys/{survey}/duplicate', [SurveyController::class, 'duplicate'])->middleware('permission:surveys.manage');
+    Route::delete('/surveys/{survey}', [SurveyController::class, 'destroy'])->middleware('permission:surveys.manage');
+    Route::get('/surveys/{survey}/responses', [SurveyResponseController::class, 'index'])->middleware('permission:surveys.view');
+    Route::get('/surveys/{survey}/responses/{response}', [SurveyResponseController::class, 'show'])->middleware('permission:surveys.view');
+    Route::get('/surveys/{survey}/responses/{response}/signature', [SurveyResponseController::class, 'downloadSignature'])->middleware('permission:surveys.view');
+    Route::post('/surveys/{survey}/export', [SurveyResponseController::class, 'exportExcel'])->middleware('permission:surveys.export');
+    Route::get('/surveys/{survey}/export/status/{jobId}', [SurveyResponseController::class, 'checkExportStatus'])->middleware('permission:surveys.export');
+    Route::get('/surveys/{survey}/export/download/{jobId}', [SurveyResponseController::class, 'downloadExport'])->middleware('permission:surveys.export');
 
     // Survey Configuration management routes (admin)
     Route::get('/survey-config', [SurveyConfigController::class, 'show'])->middleware('permission:socio_demographic_surveys.config.manage');

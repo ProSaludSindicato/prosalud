@@ -100,6 +100,11 @@ class RolePermissionSeeder extends Seeder
             // Vaccination Surveys (encuesta vacunación - fiebre amarilla / sarampión)
             'vaccination_surveys.view' => 'Ver encuestas de vacunación y exportar reportes Excel',
 
+            // Dynamic Surveys (Módulo de Encuestas Dinámicas)
+            'surveys.view' => 'Ver encuestas dinámicas y sus respuestas',
+            'surveys.manage' => 'Crear, editar y cambiar estado de encuestas dinámicas',
+            'surveys.export' => 'Exportar respuestas de encuestas dinámicas a Excel',
+
             // Document Signing
             'document_signing.view' => 'Ver historial de envíos de correos de firma y estadísticas',
             'document_signing.manage' => 'Enviar correos masivos de firma y reenviar correos a afiliados',

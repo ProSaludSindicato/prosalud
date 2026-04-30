@@ -2,14 +2,21 @@
 
 namespace Tests\Unit;
 
-use App\Services\{DateFormatterService, ExcelReaderService, LiquidacionService};
+use App\Services\AfiliadoService;
+use App\Services\DateFormatterService;
+use App\Services\ExcelReaderService;
+use App\Services\LiquidacionService;
 use Tests\TestCase;
 
 class LiquidacionServiceTest extends TestCase
 {
     private LiquidacionService $service;
+
     private $excelReader;
+
     private $dateFormatter;
+
+    private $afiliadoService;
 
     protected function setUp(): void
     {
@@ -17,7 +24,8 @@ class LiquidacionServiceTest extends TestCase
 
         $this->excelReader = \Mockery::mock(ExcelReaderService::class);
         $this->dateFormatter = \Mockery::mock(DateFormatterService::class);
-        $this->service = new LiquidacionService($this->excelReader, $this->dateFormatter);
+        $this->afiliadoService = \Mockery::mock(AfiliadoService::class);
+        $this->service = new LiquidacionService($this->excelReader, $this->dateFormatter, $this->afiliadoService);
     }
 
     protected function tearDown(): void
@@ -26,7 +34,7 @@ class LiquidacionServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function testSearchByDocumentReturnsSuccessWhenRecordsFound()
+    public function test_search_by_document_returns_success_when_records_found()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'HOSPITAL', 'PROCESO', 'FECHA INGRESO', 'FECHA RETIRO', 'ESTADO BD', 'REVISION', 'FORMATO DE REVISION FISICO', 'CONVENIOS', 'N° CONVENIOS FIRMADOS', 'N° CONVENIOS PENDIENTES', 'SOLICITUD AFILIACION', 'ACTA DE ENTENDIMIENTO', 'ACTA DE COMPROMISO', 'MOTIVO DE RETIRO', 'CARTA RETIRO', 'DTOS PENDIENTES', 'OBSERVACIONES', 'FECHA DE ENTREGA A CAMILA', 'RESPONSABLE DE ENTREGA CONTABILIDAD'],
@@ -55,7 +63,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertArrayNotHasKey('FORMATO DE REVISION FISICO', $record);
     }
 
-    public function testSearchByDocumentReturnsNotFoundWhenNoRecords()
+    public function test_search_by_document_returns_not_found_when_no_records()
     {
         $this->excelReader
             ->shouldReceive('readLiquidacionesFile')
@@ -68,7 +76,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertStringContainsString('No se pudo leer', $result['message']);
     }
 
-    public function testSearchByDocumentHandlesExcelReaderException()
+    public function test_search_by_document_handles_excel_reader_exception()
     {
         $this->excelReader
             ->shouldReceive('readLiquidacionesFile')
@@ -81,7 +89,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertStringContainsString('Error interno', $result['message']);
     }
 
-    public function testInternalFieldsAreFilteredFromResponse()
+    public function test_internal_fields_are_filtered_from_response()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'HOSPITAL', 'PROCESO', 'FECHA INGRESO', 'FECHA RETIRO', 'ESTADO BD', 'REVISION', 'FORMATO DE REVISION FISICO', 'CONVENIOS', 'N° CONVENIOS FIRMADOS', 'N° CONVENIOS PENDIENTES', 'SOLICITUD AFILIACION', 'ACTA DE ENTENDIMIENTO', 'ACTA DE COMPROMISO', 'MOTIVO DE RETIRO', 'CARTA RETIRO', 'DTOS PENDIENTES', 'OBSERVACIONES', 'FECHA DE ENTREGA A CAMILA', 'RESPONSABLE DE ENTREGA CONTABILIDAD'],
@@ -116,7 +124,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertEquals('Retirado', $record['ESTADO BD']);
     }
 
-    public function testDateConversionWithLiquidacionesFormat()
+    public function test_date_conversion_with_liquidaciones_format()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'FECHA INGRESO', 'FECHA RETIRO'],
@@ -183,7 +191,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertEquals('31/07/2025', $record['FECHA RETIRO']);
     }
 
-    public function testSearchByDocumentWithDateValidationFiltersMismatchedDates()
+    public function test_search_by_document_with_date_validation_filters_mismatched_dates()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE'],
@@ -208,7 +216,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertEquals('1/1/2020', $result['data'][0]['FECHA EXPEDICION']);
     }
 
-    public function testSearchByDocumentWithDateValidationReturnsNotFoundWhenNoMatchingDates()
+    public function test_search_by_document_with_date_validation_returns_not_found_when_no_matching_dates()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE'],
