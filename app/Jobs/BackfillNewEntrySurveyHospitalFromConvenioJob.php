@@ -25,6 +25,12 @@ class BackfillNewEntrySurveyHospitalFromConvenioJob implements ShouldQueue
      */
     public const HOSPITALES_LEGACY_PERMITIDOS = [
         'E.S.E. HOSPITAL CARISMA',
+        'E.S.E. Hospital Carisma',
+        'E.S.ECARISMA',
+        'E.S.ECARISMA ',
+        'E.S.E CARISMA ADMON ',
+        'E.S.E CARISMA ASISTENCIAL',
+        'ESECARISMA',
         'E.S.E. HOSPITAL LA MARÍA',
         'E.S.E. HOSPITAL MARCO FIDEL SUAREZ DE BELLO',
         'E.S.E. HOSPITAL SAN JUAN DE DIOS - RIONEGRO',

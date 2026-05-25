@@ -5,15 +5,22 @@ namespace App\Services;
 use App\Constants\RequestStatuses;
 use App\Constants\RequestTypes;
 use App\Models\RequestForm;
+use App\Support\HospitalCatalog;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\Chart\Chart;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
+use PhpOffice\PhpSpreadsheet\Chart\Legend;
+use PhpOffice\PhpSpreadsheet\Chart\PlotArea;
+use PhpOffice\PhpSpreadsheet\Chart\Title;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
-use PhpOffice\PhpSpreadsheet\Chart\{Chart, DataSeries, DataSeriesValues, Legend, PlotArea, Title};
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class RequestExcelExportService
 {
@@ -69,122 +76,6 @@ class RequestExcelExportService
     ];
 
     /**
-     * Mapeo de códigos de hospital a nombres completos para generación de certificados.
-     */
-    private const HOSPITAL_NAME_MAPPINGS = [
-        'ABEJORRAL' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-        'ABEJORRAL - ADMON' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-        'ABEJORRAL - ADMON ' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-        'ABEJORRAL - ASIST' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-        'ABEJORRAL - BUEN COMIENZO' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Buen Comienzo',
-        'ABEJORRAL - CBA' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-        'ABEJORRAL - SALUD P' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Salud Pública',
-        'ABEJORRAL SP' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-        'ADMON' => 'Sede Administrativa',
-        'ADMON-HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-        'BARBOSA' => 'E.S.E. Hospital San Vicente de Paul de Barbosa (Ant)',
-        'BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
-        'BETANIA' => 'E.S.E. Hospital San Antonio de Betania',
-        'CALDAS' => 'E.S.E. Hospital San Vicente de Paúl de Caldas',
-        'CENTRO NEUROLOGICO' => 'Centro Neurológico',
-        'CISNEROS' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
-        'CIUDAD BOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
-        'CIUDADBOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
-        'E.S.E CARISMA ADMON ' => 'E.S.E. Hospital Carisma',
-        'E.S.E CARISMA ASISTENCIAL' => 'E.S.E. Hospital Carisma',
-        'E.S.ECARISMA' => 'E.S.E. Hospital Carisma',
-        'FREDONIA' => 'E.S.E. Hospital Santa Lucia - Fredonia (Ant)',
-        'HGM SEDE 80 ADMON' => 'E.S.E. Hospital General de Medellín - Sede 80',
-        'HGM SEDE 80 ASISTENCIAL' => 'E.S.E. Hospital General de Medellín - Sede 80',
-        'HGM SEDE 80 ASISTENCIAL ' => 'E.S.E. Hospital General de Medellín - Sede 80',
-        'HLM - GRUPO 1' => 'E.S.E. Hospital La María',
-        'HLM - GRUPO 2' => 'E.S.E. Hospital La María',
-        'HLM - GRUPO 3' => 'E.S.E. Hospital La María',
-        'HMFS - BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
-        'HSJD Rionegro - ADMON' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-        'HSJD Rionegro - ASISTENCIAL' => 'Centro Neurológico',
-        'HSJD Rionegro - PIC ' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
-        'HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-        'HSRI' => 'E.S.E. Hospital San Rafael de Itagüí',
-        'HSRI ' => 'E.S.E. Hospital San Rafael de Itagüí',
-        'JARDIN' => 'E.S.E. Hospital Gabriel Peláez Montoya',
-        'LA MARIA' => 'E.S.E. Hospital La María',
-        'LA MARIA - 000065-2021' => 'E.S.E. Hospital La María',
-        'LA MARIA - 262-2021' => 'E.S.E. Hospital La María',
-        'LA MARIA - COOSALUD' => 'E.S.E. Hospital La María',
-        'LA MARIA - ENTERRITORIO' => 'E.S.E. Hospital La María',
-        'LA MARIA - ENTERRITORIO 1 - 044' => 'E.S.E. Hospital La María',
-        'LA MARIA - ENTERRITORIO 2' => 'E.S.E. Hospital La María',
-        'LA MARIA - ENTERRITORIO 2 - 045' => 'E.S.E. Hospital La María',
-        'LA MARIA - INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
-        'LA MARIA - ITS 257' => 'E.S.E. Hospital La María',
-        'LA MARIA - PROGRAMA ESPECIAL SAVIA SALUD EPS - VIH-SIDA' => 'E.S.E. Hospital La María',
-        'LA MARIA - TRANSMISIBLES' => 'E.S.E. Hospital La María',
-        'LA MARIA - TRANSMISIBLES - 122 - 2023' => 'E.S.E. Hospital La María',
-        'LA MARIA - TRANSMISIBLES 176' => 'E.S.E. Hospital La María',
-        'LA MARIA - UNION TEMPORAL' => 'E.S.E. Hospital La María',
-        'LA MARIA - UNION TEMPORAL 020 - 2023' => 'E.S.E. Hospital La María',
-        'LA MARIA - VIH' => 'E.S.E. Hospital La María',
-        'LA MARIA - VIH - 1' => 'E.S.E. Hospital La María',
-        'LA MARIA 216 - 2021' => 'E.S.E. Hospital La María',
-        'LA MARIA 317 COOSALUD' => 'E.S.E. Hospital La María',
-        'LA MARIA COOSALUD - 046' => 'E.S.E. Hospital La María',
-        'LA MARIA COOSALUD 191' => 'E.S.E. Hospital La María',
-        'LA MARIA COOSALUD 36-2022' => 'E.S.E. Hospital La María',
-        'LA MARIA ENTERRITORIO - 287' => 'E.S.E. Hospital La María',
-        'LA MARIA ENTERRITORIO 038' => 'E.S.E. Hospital La María',
-        'LA MARIA ENTERRITORIO 238' => 'E.S.E. Hospital La María',
-        'LA MARIA- INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
-        'LA MARIA ITS ' => 'E.S.E. Hospital La María',
-        'LA MARIA ITS 127' => 'E.S.E. Hospital La María',
-        'LA MARIA ITS- 376' => 'E.S.E. Hospital La María',
-        'LA MARIA PAI ' => 'E.S.E. Hospital La María',
-        'LA MARIA TB 137' => 'E.S.E. Hospital La María',
-        'LA MARIA TB Y LEPRA  319-2021' => 'E.S.E. Hospital La María',
-        'LA MARIA TBC' => 'E.S.E. Hospital La María',
-        'LA MARIA TRANSMISIBLES - 122' => 'E.S.E. Hospital La María',
-        'LA MARIA TRANSMISIBLES - 275' => 'E.S.E. Hospital La María',
-        'LA MARIA TRANSMISIBLES 234' => 'E.S.E. Hospital La María',
-        'LA MARIA UPAI - 0028 - 2023' => 'E.S.E. Hospital La María',
-        'LA MARIA UPAI - 140 - 2023' => 'E.S.E. Hospital La María',
-        'LA MARIA UPAI - 271' => 'E.S.E. Hospital La María',
-        'LA MARIA UPAI 0028 - 2023' => 'E.S.E. Hospital La María',
-        'LA MARIA UPAI 245' => 'E.S.E. Hospital La María',
-        'LA MARIA UPAI 35' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH - 158' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH 037' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH 131' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH 131 - 2023' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH 158' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH 188' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH N°043' => 'E.S.E. Hospital La María',
-        'LA MARIA VIH UT ' => 'E.S.E. Hospital La María',
-        'LAMARIACOOSALUD36' => 'E.S.E. Hospital La María',
-        'LAMARIAENTERRITORIO038' => 'E.S.E. Hospital La María',
-        'LAMARIAITS127' => 'E.S.E. Hospital La María',
-        'LAMARIATB2022' => 'E.S.E. Hospital La María',
-        'LAMARIAUPAI35' => 'E.S.E. Hospital La María',
-        'LAMARIAVIH037' => 'E.S.E. Hospital La María',
-        'POLICLINICO' => 'POLICLINICO',
-        'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.' => 'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.',
-        'PUERTO BERRIO' => 'E.S.E. Hospital La Cruz',
-        'SOMER' => 'SOMER',
-        'STA GERTRUDIS' => 'E.S.E. Santa Gertrudis',
-        'UNION TEMPORAL - 020 - 2023' => 'E.S.E. Hospital La María',
-        'VENANCIO' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO -  SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO - ADMON' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO - ASIST' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO - ASIST ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO - PIC ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO - SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO - SALUD P.' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO - UCI' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENANCIO ADMON - APH' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-        'VENECIA' => 'ESE Hospital San Rafael de Venecia',
-    ];
-
-    /**
      * Generar reporte Excel con las 4 hojas especificadas.
      */
     public function generateReport(array $filters): string
@@ -197,7 +88,7 @@ class RequestExcelExportService
             $requests = $this->getRequests($filters);
 
             // Crear spreadsheet
-            $spreadsheet = new Spreadsheet();
+            $spreadsheet = new Spreadsheet;
             $spreadsheet->removeSheetByIndex(0);
 
             // Crear hoja "Resumen"
@@ -224,7 +115,7 @@ class RequestExcelExportService
             $spreadsheet->setActiveSheetIndex(0);
 
             // Guardar en archivo temporal
-            $tempFile = tempnam(sys_get_temp_dir(), 'request_report_') . '.xlsx';
+            $tempFile = tempnam(sys_get_temp_dir(), 'request_report_').'.xlsx';
             $writer = new Xlsx($spreadsheet);
             $writer->setIncludeCharts(true);
             $writer->save($tempFile);
@@ -247,7 +138,7 @@ class RequestExcelExportService
     {
         $dateRange = $filters['date_range'] ?? [];
 
-        if (!($dateRange['include_all'] ?? true)) {
+        if (! ($dateRange['include_all'] ?? true)) {
             if (isset($dateRange['start_date']) && isset($dateRange['end_date'])) {
                 $startDate = Carbon::parse($dateRange['start_date']);
                 $endDate = Carbon::parse($dateRange['end_date']);
@@ -274,7 +165,7 @@ class RequestExcelExportService
 
         // Filtro por rango de fechas
         $dateRange = $filters['date_range'] ?? [];
-        if (!($dateRange['include_all'] ?? true)) {
+        if (! ($dateRange['include_all'] ?? true)) {
             if (isset($dateRange['start_date'])) {
                 $startDate = Carbon::parse($dateRange['start_date'])->startOfDay();
                 $query->where('created_at', '>=', $startDate);
@@ -315,7 +206,7 @@ class RequestExcelExportService
 
         // Período
         $dateRange = $filters['date_range'] ?? [];
-        if (!($dateRange['include_all'] ?? true) && isset($dateRange['start_date']) && isset($dateRange['end_date'])) {
+        if (! ($dateRange['include_all'] ?? true) && isset($dateRange['start_date']) && isset($dateRange['end_date'])) {
             $startDate = Carbon::parse($dateRange['start_date'])->format('d/m/Y');
             $endDate = Carbon::parse($dateRange['end_date'])->format('d/m/Y');
             $sheet->setCellValue("A{$row}", 'Período:');
@@ -348,7 +239,7 @@ class RequestExcelExportService
 
         $summaryStartRow = $row;
         $sheet->fromArray($summaryData, null, "A{$row}");
-        
+
         // Aplicar estilo a encabezados de tabla
         $sheet->getStyle("A{$row}:B{$row}")->applyFromArray([
             'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
@@ -363,7 +254,7 @@ class RequestExcelExportService
         ]);
 
         // Aplicar bordes a todas las celdas de datos
-        $dataRange = "A{$row}:B" . ($row + count($summaryData) - 1);
+        $dataRange = "A{$row}:B".($row + count($summaryData) - 1);
         $sheet->getStyle($dataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -405,7 +296,7 @@ class RequestExcelExportService
         ]);
 
         // Aplicar bordes a todas las celdas de datos
-        $distributionDataRange = "A{$row}:B" . ($row + count($distributionData) - 1);
+        $distributionDataRange = "A{$row}:B".($row + count($distributionData) - 1);
         $sheet->getStyle($distributionDataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -447,7 +338,7 @@ class RequestExcelExportService
         ]);
 
         // Aplicar bordes a todas las celdas de datos
-        $hospitalDataRange = "A{$row}:B" . ($row + count($hospitalData) - 1);
+        $hospitalDataRange = "A{$row}:B".($row + count($hospitalData) - 1);
         $sheet->getStyle($hospitalDataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -489,7 +380,7 @@ class RequestExcelExportService
         ]);
 
         // Aplicar bordes a todas las celdas de datos
-        $uniqueAffiliatesDataRange = "A{$row}:B" . ($row + count($uniqueAffiliatesData) - 1);
+        $uniqueAffiliatesDataRange = "A{$row}:B".($row + count($uniqueAffiliatesData) - 1);
         $sheet->getStyle($uniqueAffiliatesDataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -589,10 +480,10 @@ class RequestExcelExportService
                     ->whereIn('status', [RequestStatuses::COMPLETED, RequestStatuses::REJECTED])
                     ->sortByDesc('created_at')
                     ->first();
-                
+
                 if ($latestResponse && $latestResponse->responder) {
                     $responder = $latestResponse->responder;
-                    $responsiblePerson = $responder->name . ' (' . $responder->email . ')';
+                    $responsiblePerson = $responder->name.' ('.$responder->email.')';
                 }
             }
 
@@ -602,16 +493,16 @@ class RequestExcelExportService
             // Obtener cuerpo del correo de la última respuesta (la más reciente) para trazabilidad
             $respuestaAlAfiliado = '';
             $latestResponse = $request->responses->first();
-            if ($latestResponse && !empty($latestResponse->email_body)) {
+            if ($latestResponse && ! empty($latestResponse->email_body)) {
                 $respuestaAlAfiliado = trim(strip_tags($latestResponse->email_body));
             }
 
             // Formatear subtipo a etiqueta amigable
             $formattedSubtype = $this->getSubtypeLabel($request->request_subtype);
-            
+
             // Calcular horas laborales de procesamiento
             $businessHours = $this->calculateBusinessHours($request->created_at, $request->processed_at);
-            $businessHoursDisplay = $businessHours > 0 ? $businessHours . ' horas' : '';
+            $businessHoursDisplay = $businessHours > 0 ? $businessHours.' horas' : '';
 
             // Extraer valores del payload
             $payload = $request->payload ?? [];
@@ -658,7 +549,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:S" . ($row - 1);
+            $dataRange = 'A1:S'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -669,7 +560,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:S" . ($row - 1));
+            $sheet->setAutoFilter('A1:S'.($row - 1));
         }
 
         // Congelar primera fila
@@ -743,7 +634,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:F" . ($row - 1);
+            $dataRange = 'A1:F'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -753,7 +644,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:F" . ($row - 1));
+            $sheet->setAutoFilter('A1:F'.($row - 1));
         }
 
         // Congelar primera fila
@@ -829,7 +720,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:F" . ($row - 1);
+            $dataRange = 'A1:F'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -840,7 +731,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:F" . ($row - 1));
+            $sheet->setAutoFilter('A1:F'.($row - 1));
         }
 
         // Congelar primera fila
@@ -863,7 +754,7 @@ class RequestExcelExportService
 
         foreach ($requests as $request) {
             $normalizedStatus = $this->normalizeStatus($request->status);
-            
+
             if (isset($stats[$normalizedStatus])) {
                 $stats[$normalizedStatus]++;
             }
@@ -900,9 +791,10 @@ class RequestExcelExportService
         foreach ($requests as $request) {
             $payload = $request->payload ?? [];
             // Soportar ambos campos: 'dondeRealizaProceso' y 'sedeProceso'
-            $hospitalCode = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
-            
-            if (empty($hospitalCode)) {
+            $rawCode = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
+            $hospitalCode = is_string($rawCode) ? $rawCode : '';
+
+            if ($hospitalCode === '' || trim($hospitalCode) === '') {
                 continue;
             }
 
@@ -926,19 +818,20 @@ class RequestExcelExportService
         foreach ($requests as $request) {
             $payload = $request->payload ?? [];
             // Soportar ambos campos: 'dondeRealizaProceso' y 'sedeProceso'
-            $hospitalCode = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
-            
-            if (empty($hospitalCode)) {
+            $rawCode = $payload['dondeRealizaProceso'] ?? $payload['sedeProceso'] ?? '';
+            $hospitalCode = is_string($rawCode) ? $rawCode : '';
+
+            if ($hospitalCode === '' || trim($hospitalCode) === '') {
                 continue;
             }
 
             $hospitalName = $this->getHospitalName($hospitalCode);
-            
+
             // Agregar afiliado único a la distribución del hospital
-            if (!isset($distribution[$hospitalName])) {
+            if (! isset($distribution[$hospitalName])) {
                 $distribution[$hospitalName] = [];
             }
-            
+
             $distribution[$hospitalName][] = $request->document_number;
         }
 
@@ -965,7 +858,7 @@ class RequestExcelExportService
             $typeLabel = $this->getRequestTypeLabel($request->request_type);
             $normalizedStatus = $this->normalizeStatus($request->status);
 
-            if (!isset($statsByType[$typeLabel])) {
+            if (! isset($statsByType[$typeLabel])) {
                 $statsByType[$typeLabel] = [
                     'total' => 0,
                     'pending' => 0,
@@ -1023,7 +916,7 @@ class RequestExcelExportService
         $normalized = $statusMap[strtoupper($status)] ?? strtolower($status);
 
         // Asegurar que sea uno de los estados esperados
-        if (!in_array($normalized, ['pending', 'in_progress', 'resolved', 'rejected'])) {
+        if (! in_array($normalized, ['pending', 'in_progress', 'resolved', 'rejected'])) {
             // Intentar mapear por similitud
             if (str_contains(strtolower($status), 'pend')) {
                 return 'pending';
@@ -1047,6 +940,7 @@ class RequestExcelExportService
     private function isResolvedStatus(string $status): bool
     {
         $normalized = $this->normalizeStatus($status);
+
         return $normalized === 'resolved';
     }
 
@@ -1056,6 +950,7 @@ class RequestExcelExportService
     private function isRejectedStatus(string $status): bool
     {
         $normalized = $this->normalizeStatus($status);
+
         return $normalized === 'rejected';
     }
 
@@ -1081,7 +976,7 @@ class RequestExcelExportService
      */
     private function formatDate($date): string
     {
-        if (!$date) {
+        if (! $date) {
             return '';
         }
 
@@ -1101,7 +996,7 @@ class RequestExcelExportService
      */
     private function formatDateTime($date): string
     {
-        if (!$date) {
+        if (! $date) {
             return '';
         }
 
@@ -1121,7 +1016,7 @@ class RequestExcelExportService
      */
     private function getRejectionReasonLabel(?string $rejectionReason): string
     {
-        if (!$rejectionReason) {
+        if (! $rejectionReason) {
             return '';
         }
 
@@ -1140,7 +1035,7 @@ class RequestExcelExportService
      */
     private function getSubtypeLabel(?string $subtype): string
     {
-        if (!$subtype) {
+        if (! $subtype) {
             return '';
         }
 
@@ -1167,10 +1062,10 @@ class RequestExcelExportService
         // Para otros valores, formatear automáticamente
         // Convertir a título y limificar espacios
         $formatted = ucwords(strtolower(trim($subtype)));
-        
+
         // Reemplazar puntos y caracteres extraños
         $formatted = str_replace(['.', '  ', '  '], [' ', ' ', ' '], $formatted);
-        
+
         return $formatted;
     }
 
@@ -1179,13 +1074,7 @@ class RequestExcelExportService
      */
     private function getHospitalName(string $hospitalCode): string
     {
-        // Si el código ya contiene el nombre completo, retornarlo tal cual
-        if (empty($hospitalCode)) {
-            return '';
-        }
-
-        // Buscar en el mapeo de hospitales
-        return self::HOSPITAL_NAME_MAPPINGS[$hospitalCode] ?? $hospitalCode;
+        return HospitalCatalog::resolve($hospitalCode);
     }
 
     /**
@@ -1194,17 +1083,17 @@ class RequestExcelExportService
      */
     private function calculateBusinessHours($createdAt, $processedAt): float
     {
-        if (!$createdAt || !$processedAt) {
+        if (! $createdAt || ! $processedAt) {
             return 0;
         }
 
         try {
             $start = is_string($createdAt) ? Carbon::parse($createdAt) : $createdAt;
             $end = is_string($processedAt) ? Carbon::parse($processedAt) : $processedAt;
-            
+
             $totalHours = 0;
             $current = $start->copy();
-            
+
             while ($current < $end) {
                 // Solo procesar días laborales (lunes-viernes)
                 if ($current->dayOfWeek >= Carbon::MONDAY && $current->dayOfWeek <= Carbon::FRIDAY) {
@@ -1212,22 +1101,22 @@ class RequestExcelExportService
                     $dayStart = $current->copy()->setTime(7, 0, 0);
                     // Fin del día laboral (5pm)
                     $dayEnd = $current->copy()->setTime(17, 0, 0);
-                    
+
                     // Ajustar el tiempo actual al inicio del rango del día
                     $periodStart = max($current, $dayStart);
                     // Ajustar el tiempo final al fin del rango del día
                     $periodEnd = min($end, $dayEnd);
-                    
+
                     // Si hay superposición, agregar las horas
                     if ($periodStart < $periodEnd) {
                         $totalHours += $periodStart->diffInHours($periodEnd);
                     }
                 }
-                
+
                 // Mover al siguiente día
                 $current = $current->addDay()->setTime(0, 0, 0);
             }
-            
+
             return round($totalHours, 1);
         } catch (\Exception $e) {
             Log::error('Error calculating business hours', [
@@ -1235,6 +1124,7 @@ class RequestExcelExportService
                 'created_at' => $createdAt,
                 'processed_at' => $processedAt,
             ]);
+
             return 0;
         }
     }
@@ -1256,27 +1146,27 @@ class RequestExcelExportService
         $hospitalData = $this->prepareHospitalDataForChart($requests);
 
         // Gráfica 1: Distribución por Estado (Pastel) - Columna D
-        if (!empty($statusData)) {
+        if (! empty($statusData)) {
             $this->addStatusDistributionChart($sheet, $statusData, 'D2', 'I2', 'D17', 'I30');
         }
 
         // Gráfica 2: Distribución por Tipo de Solicitud (Barras) - Columna D, después de la primera
-        if (!empty($typeData)) {
+        if (! empty($typeData)) {
             $this->addTypeDistributionChart($sheet, $typeData, 'K2', 'Q2', 'K17', 'Q30');
         }
 
         // Gráfica 3: Tendencia Mensual de Solicitudes (Líneas) - Más abajo
-        if (!empty($monthlyData)) {
+        if (! empty($monthlyData)) {
             $this->addMonthlyTrendChart($sheet, $monthlyData, 'D32', 'I32', 'D47', 'I60');
         }
 
         // Gráfica 4: Estados por Mes (Barras Apiladas) - Más abajo
-        if (!empty($statusByMonthData)) {
+        if (! empty($statusByMonthData)) {
             $this->addStatusByMonthChart($sheet, $statusByMonthData, 'K32', 'Q32', 'K47', 'Q60');
         }
 
         // Gráfica 5: Distribución por Hospital (Barras Horizontales) - A la derecha de las gráficas superiores
-        if (!empty($hospitalData)) {
+        if (! empty($hospitalData)) {
             $this->addHospitalDistributionChart($sheet, $hospitalData, 'R2', 'Y2', 'R17', 'Y30');
         }
     }
@@ -1304,7 +1194,7 @@ class RequestExcelExportService
         }
 
         // Filtrar estados con 0 solicitudes
-        return array_filter($statusCounts, fn($count) => $count > 0);
+        return array_filter($statusCounts, fn ($count) => $count > 0);
     }
 
     /**
@@ -1321,6 +1211,7 @@ class RequestExcelExportService
 
         // Ordenar por cantidad descendente y tomar los top 10
         arsort($typeCounts);
+
         return array_slice($typeCounts, 0, 10, true);
     }
 
@@ -1332,7 +1223,7 @@ class RequestExcelExportService
         $monthlyCounts = [];
 
         foreach ($requests as $request) {
-            if (!$request->created_at) {
+            if (! $request->created_at) {
                 continue;
             }
 
@@ -1357,7 +1248,7 @@ class RequestExcelExportService
         $statusByMonth = [];
 
         foreach ($requests as $request) {
-            if (!$request->created_at) {
+            if (! $request->created_at) {
                 continue;
             }
 
@@ -1367,7 +1258,7 @@ class RequestExcelExportService
 
             $statusLabel = $this->getStatusLabel($request->status);
 
-            if (!isset($statusByMonth[$month])) {
+            if (! isset($statusByMonth[$month])) {
                 $statusByMonth[$month] = [
                     'Pendiente' => 0,
                     'En Proceso' => 0,
@@ -1530,7 +1421,7 @@ class RequestExcelExportService
         $types = array_keys($data);
         // Truncar nombres largos para mejor visualización
         $types = array_map(function ($name) {
-            return mb_strlen($name) > 25 ? mb_substr($name, 0, 22) . '...' : $name;
+            return mb_strlen($name) > 25 ? mb_substr($name, 0, 22).'...' : $name;
         }, $types);
         $values = array_values($data);
 
@@ -1603,7 +1494,7 @@ class RequestExcelExportService
         $values = [];
 
         foreach ($data as $month => $count) {
-            $months[] = Carbon::parse($month . '-01')->format('M Y');
+            $months[] = Carbon::parse($month.'-01')->format('M Y');
             $values[] = $count;
         }
 
@@ -1678,7 +1569,7 @@ class RequestExcelExportService
         $rejectedValues = [];
 
         foreach ($data as $month => $statuses) {
-            $months[] = Carbon::parse($month . '-01')->format('M Y');
+            $months[] = Carbon::parse($month.'-01')->format('M Y');
             $pendingValues[] = $statuses['Pendiente'] ?? 0;
             $inProgressValues[] = $statuses['En Proceso'] ?? 0;
             $resolvedValues[] = $statuses['Resuelto'] ?? 0;
@@ -1881,6 +1772,7 @@ class RequestExcelExportService
         $label = preg_replace('/([a-z])([A-Z])/', '$1 $2', $key);
         // Reemplazar guiones bajos por espacios
         $label = str_replace('_', ' ', $label);
+
         // Capitalizar primera letra de cada palabra
         return ucwords(strtolower($label));
     }
@@ -1910,13 +1802,14 @@ class RequestExcelExportService
 
         // Formatear números
         if (is_numeric($value)) {
-            return (string)$value;
+            return (string) $value;
         }
 
         // Formatear fechas si parecen ser fechas
         if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
             try {
                 $date = Carbon::parse($value);
+
                 return $date->format('d/m/Y');
             } catch (\Exception $e) {
                 // Si no es una fecha válida, devolver el valor original
@@ -1924,7 +1817,7 @@ class RequestExcelExportService
         }
 
         // Devolver el valor como string
-        return (string)$value;
+        return (string) $value;
     }
 
     /**
@@ -1932,12 +1825,11 @@ class RequestExcelExportService
      */
     private function formatCurrencyCOP($amount): string
     {
-        if (!is_numeric($amount)) {
-            return (string)$amount;
+        if (! is_numeric($amount)) {
+            return (string) $amount;
         }
 
         // Formatear como moneda COP sin decimales: $1.234.567
-        return '$' . number_format((float)$amount, 0, ',', '.');
+        return '$'.number_format((float) $amount, 0, ',', '.');
     }
 }
-

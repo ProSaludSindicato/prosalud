@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Support\HospitalCatalog;
 use Carbon\Carbon;
 
 class SurveyFormatter
@@ -16,11 +17,11 @@ class SurveyFormatter
         }
 
         $normalized = strtolower(trim((string) $value));
-        
+
         if (in_array($normalized, ['si', 'sí', 'yes', 'true', '1', '1.0'])) {
             return 'Sí';
         }
-        
+
         if (in_array($normalized, ['no', 'false', '0', '0.0'])) {
             return 'No';
         }
@@ -33,7 +34,7 @@ class SurveyFormatter
      */
     public static function getSurveyTypeDisplayName(?string $value): string
     {
-        if (!$value || $value === 'active_affiliate') {
+        if (! $value || $value === 'active_affiliate') {
             return 'Afiliados Activos';
         }
 
@@ -49,7 +50,7 @@ class SurveyFormatter
      */
     public static function getTipoDocumentoDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -71,7 +72,7 @@ class SurveyFormatter
      */
     public static function getGeneroDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -89,7 +90,7 @@ class SurveyFormatter
      */
     public static function getEstadoCivilDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -109,7 +110,7 @@ class SurveyFormatter
      */
     public static function getNivelEducativoDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -132,7 +133,7 @@ class SurveyFormatter
      */
     public static function getRazaDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -152,7 +153,7 @@ class SurveyFormatter
      */
     public static function getViviendaDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -170,7 +171,7 @@ class SurveyFormatter
      */
     public static function getConviveConDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -191,7 +192,7 @@ class SurveyFormatter
      */
     public static function getTransporteDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -212,7 +213,7 @@ class SurveyFormatter
      */
     public static function getTiempoLibreConDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -232,7 +233,7 @@ class SurveyFormatter
      */
     public static function getRelacionContactoEmergenciaDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -265,7 +266,7 @@ class SurveyFormatter
      */
     public static function getFrecuenciaDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -285,7 +286,7 @@ class SurveyFormatter
      */
     public static function getTallaVestimentaDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -309,7 +310,7 @@ class SurveyFormatter
      */
     public static function getPaisDisplayName(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return '';
         }
 
@@ -378,7 +379,7 @@ class SurveyFormatter
      */
     public static function formatLimitacion(?string $value): string
     {
-        if (!$value) {
+        if (! $value) {
             return 'No especificado';
         }
 
@@ -396,7 +397,7 @@ class SurveyFormatter
      */
     public static function formatDate($dateString): string
     {
-        if (!$dateString) {
+        if (! $dateString) {
             return 'No especificado';
         }
 
@@ -407,8 +408,8 @@ class SurveyFormatter
                 5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
                 9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre',
             ];
-            
-            return $date->day . ' de ' . $months[$date->month] . ', ' . $date->year;
+
+            return $date->day.' de '.$months[$date->month].', '.$date->year;
         } catch (\Exception $e) {
             return (string) $dateString;
         }
@@ -419,7 +420,7 @@ class SurveyFormatter
      */
     public static function formatDateTime($dateString): string
     {
-        if (!$dateString) {
+        if (! $dateString) {
             return 'No especificado';
         }
 
@@ -430,8 +431,8 @@ class SurveyFormatter
                 5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
                 9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre',
             ];
-            
-            return $date->day . ' de ' . $months[$date->month] . ', ' . $date->year . ' a las ' . $date->format('H:i');
+
+            return $date->day.' de '.$months[$date->month].', '.$date->year.' a las '.$date->format('H:i');
         } catch (\Exception $e) {
             return (string) $dateString;
         }
@@ -477,135 +478,6 @@ class SurveyFormatter
      */
     public static function getHospitalDisplayName(?string $value): string
     {
-        if (!$value) {
-            return '';
-        }
-
-        $map = [
-            'ABEJORRAL' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - ADMON' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - ADMON ' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - ASIST' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - BUEN COMIENZO' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Buen Comienzo',
-            'ABEJORRAL - CBA' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - SALUD P' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Salud Pública',
-            'ABEJORRAL SP' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ADMON' => 'Sede Administrativa',
-            'ADMON-HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-            'BARBOSA' => 'E.S.E. Hospital San Vicente de Paul de Barbosa (Ant)',
-            'BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
-            'BETANIA' => 'E.S.E. Hospital San Antonio de Betania',
-            'CALDAS' => 'E.S.E. Hospital San Vicente de Paúl de Caldas',
-            'CENTRO NEUROLOGICO' => 'Centro Neurológico',
-            'CISNEROS' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
-            'CIUDAD BOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
-            'CIUDADBOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
-            'COPACABANA' => 'E.S.E. Hospital Santa Margarita',
-            'COPACABANA ' => 'E.S.E. Hospital Santa Margarita',
-            'E.S.E CARISMA ADMON ' => 'E.S.E. Hospital Carisma',
-            'E.S.E CARISMA ASISTENCIAL' => 'E.S.E. Hospital Carisma',
-            'E.S.ECARISMA' => 'E.S.E. Hospital Carisma',
-            'FREDONIA' => 'E.S.E. Hospital Santa Lucia - Fredonia (Ant)',
-            'HGM SEDE 80 ADMON' => 'E.S.E. Hospital General de Medellín - Sede 80',
-            'HGM SEDE 80 ASISTENCIAL' => 'E.S.E. Hospital General de Medellín - Sede 80',
-            'HGM SEDE 80 ASISTENCIAL ' => 'E.S.E. Hospital General de Medellín - Sede 80',
-            'HLM - GRUPO 1' => 'E.S.E. Hospital La María',
-            'HLM - GRUPO 2' => 'E.S.E. Hospital La María',
-            'HLM - GRUPO 3' => 'E.S.E. Hospital La María',
-            'HMFS - BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
-            'HSJD Rionegro - ADMON' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-            'HSJD Rionegro - ASISTENCIAL' => 'Centro Neurológico',
-            'HSJD Rionegro - PIC ' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
-            'HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-            'HSRI' => 'E.S.E. Hospital San Rafael de Itagüí',
-            'HSRI ' => 'E.S.E. Hospital San Rafael de Itagüí',
-            'JARDIN' => 'E.S.E. Hospital Gabriel Peláez Montoya',
-            'LA MARIA' => 'E.S.E. Hospital La María',
-            'LA MARIA - 000065-2021' => 'E.S.E. Hospital La María',
-            'LA MARIA - 262-2021' => 'E.S.E. Hospital La María',
-            'LA MARIA - COOSALUD' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO 1 - 044' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO 2' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO 2 - 045' => 'E.S.E. Hospital La María',
-            'LA MARIA - INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
-            'LA MARIA - ITS 257' => 'E.S.E. Hospital La María',
-            'LA MARIA - PROGRAMA ESPECIAL SAVIA SALUD EPS - VIH-SIDA' => 'E.S.E. Hospital La María',
-            'LA MARIA - TRANSMISIBLES' => 'E.S.E. Hospital La María',
-            'LA MARIA - TRANSMISIBLES - 122 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA - TRANSMISIBLES 176' => 'E.S.E. Hospital La María',
-            'LA MARIA - UNION TEMPORAL' => 'E.S.E. Hospital La María',
-            'LA MARIA - UNION TEMPORAL 020 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA - VIH' => 'E.S.E. Hospital La María',
-            'LA MARIA - VIH - 1' => 'E.S.E. Hospital La María',
-            'LA MARIA 216 - 2021' => 'E.S.E. Hospital La María',
-            'LA MARIA 317 COOSALUD' => 'E.S.E. Hospital La María',
-            'LA MARIA COOSALUD - 046' => 'E.S.E. Hospital La María',
-            'LA MARIA COOSALUD 191' => 'E.S.E. Hospital La María',
-            'LA MARIA COOSALUD 36-2022' => 'E.S.E. Hospital La María',
-            'LA MARIA ENTERRITORIO - 287' => 'E.S.E. Hospital La María',
-            'LA MARIA ENTERRITORIO 038' => 'E.S.E. Hospital La María',
-            'LA MARIA ENTERRITORIO 238' => 'E.S.E. Hospital La María',
-            'LA MARIA- INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
-            'LA MARIA ITS ' => 'E.S.E. Hospital La María',
-            'LA MARIA ITS 127' => 'E.S.E. Hospital La María',
-            'LA MARIA ITS- 376' => 'E.S.E. Hospital La María',
-            'LA MARIA PAI ' => 'E.S.E. Hospital La María',
-            'LA MARIA TB 137' => 'E.S.E. Hospital La María',
-            'LA MARIA TB Y LEPRA  319-2021' => 'E.S.E. Hospital La María',
-            'LA MARIA TBC' => 'E.S.E. Hospital La María',
-            'LA MARIA TRANSMISIBLES - 122' => 'E.S.E. Hospital La María',
-            'LA MARIA TRANSMISIBLES - 275' => 'E.S.E. Hospital La María',
-            'LA MARIA TRANSMISIBLES 234' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI - 0028 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI - 140 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI - 271' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI 0028 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI 245' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI 35' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH - 158' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 037' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 131' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 131 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 158' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 188' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH N°043' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH UT ' => 'E.S.E. Hospital La María',
-            'LAMARIACOOSALUD36' => 'E.S.E. Hospital La María',
-            'LAMARIAENTERRITORIO038' => 'E.S.E. Hospital La María',
-            'LAMARIAITS127' => 'E.S.E. Hospital La María',
-            'LAMARIATB2022' => 'E.S.E. Hospital La María',
-            'LAMARIAUPAI35' => 'E.S.E. Hospital La María',
-            'LAMARIAVIH037' => 'E.S.E. Hospital La María',
-            'POLICLINICO' => 'POLICLINICO',
-            'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.' => 'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.',
-            'PUERTO BERRIO' => 'E.S.E. Hospital La Cruz',
-            'SOMER' => 'SOMER',
-            'STA GERTRUDIS' => 'E.S.E. Santa Gertrudis',
-            'UNION TEMPORAL - 020 - 2023' => 'E.S.E. Hospital La María',
-            'VENANCIO' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO -  SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - ADMON' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - ASIST' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - ASIST ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - PIC ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - SALUD P.' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - UCI' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO ADMON - APH' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENECIA' => 'ESE Hospital San Rafael de Venecia',
-        ];
-
-        // Normalizar el valor (trim y buscar en el mapa)
-        $normalized = trim($value);
-        
-        // Buscar coincidencia exacta primero
-        if (isset($map[$normalized])) {
-            return $map[$normalized];
-        }
-
-        // Si no hay coincidencia, retornar el valor original
-        return $value;
+        return HospitalCatalog::resolve($value);
     }
 }
-

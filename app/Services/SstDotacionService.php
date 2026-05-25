@@ -87,7 +87,11 @@ class SstDotacionService
         $hospitalFilter = isset($filters['hospital']) ? strtoupper(trim($filters['hospital'])) : null;
         $searchTerm = isset($filters['searchTerm']) ? trim($filters['searchTerm']) : null;
 
-        $affiliates = $this->buildAffiliatesCollection()
+        $fullCollection = $this->buildAffiliatesCollection();
+        $rawTotal = $fullCollection->count();
+        $activeFromFile = $fullCollection->filter(fn (array $affiliate) => $affiliate['active'] ?? false)->count();
+
+        $affiliates = $fullCollection
             ->filter(fn (array $affiliate) => $affiliate['active'] ?? false)
             ->sortBy(function (array $affiliate) {
                 $fullName = trim(($affiliate['firstName'] ?? '').' '.($affiliate['lastName'] ?? ''));
@@ -143,6 +147,16 @@ class SstDotacionService
         $total = $filtered->count();
         $items = $filtered->slice(($page - 1) * $pageSize, $pageSize)->values()->all();
 
+        if ($total === 0 && $page === 1) {
+            $this->logEmptyAffiliatesListContext(
+                $filters,
+                $rawTotal,
+                $activeFromFile,
+                $affiliates->count(),
+                $fullCollection,
+            );
+        }
+
         return [
             'items' => $items,
             'total' => $total,
@@ -156,14 +170,25 @@ class SstDotacionService
      */
     public function findAffiliate(string $documentType, string $documentNumber): ?array
     {
-        $documentType = strtoupper(trim($documentType));
-        $documentNumber = trim($documentNumber);
+        return $this->matchAffiliateInCollection(
+            $this->buildAffiliatesCollection(),
+            $documentType,
+            $documentNumber,
+        );
+    }
 
-        return $this->buildAffiliatesCollection()
-            ->first(function (array $affiliate) use ($documentType, $documentNumber) {
-                return strtoupper($affiliate['documentType']) === $documentType
-                    && $affiliate['documentNumber'] === $documentNumber;
-            });
+    /**
+     * @param  Collection<int, array<string, mixed>>  $collection
+     */
+    private function matchAffiliateInCollection(Collection $collection, string $documentType, string $documentNumber): ?array
+    {
+        $documentTypeNormalized = strtoupper(trim($documentType));
+        $documentNumberNormalized = trim($documentNumber);
+
+        return $collection->first(function (array $affiliate) use ($documentTypeNormalized, $documentNumberNormalized) {
+            return strtoupper($affiliate['documentType']) === $documentTypeNormalized
+                && $affiliate['documentNumber'] === $documentNumberNormalized;
+        });
     }
 
     /**
@@ -171,9 +196,20 @@ class SstDotacionService
      */
     public function createDelivery(array $data): array
     {
-        $affiliate = $this->findAffiliate($data['affiliateDocumentType'], $data['affiliateDocumentNumber']);
+        $collection = $this->buildAffiliatesCollection();
+        $affiliate = $this->matchAffiliateInCollection(
+            $collection,
+            $data['affiliateDocumentType'],
+            $data['affiliateDocumentNumber'],
+        );
 
         if (! $affiliate) {
+            $this->logFindAffiliateMiss(
+                $collection,
+                strtoupper(trim((string) $data['affiliateDocumentType'])),
+                trim((string) $data['affiliateDocumentNumber']),
+            );
+
             throw new \RuntimeException('No se encontró el afiliado solicitado.');
         }
 
@@ -308,9 +344,20 @@ class SstDotacionService
      */
     public function createReturn(array $data): array
     {
-        $affiliate = $this->findAffiliate($data['affiliateDocumentType'], $data['affiliateDocumentNumber']);
+        $collection = $this->buildAffiliatesCollection();
+        $affiliate = $this->matchAffiliateInCollection(
+            $collection,
+            $data['affiliateDocumentType'],
+            $data['affiliateDocumentNumber'],
+        );
 
         if (! $affiliate) {
+            $this->logFindAffiliateMiss(
+                $collection,
+                strtoupper(trim((string) $data['affiliateDocumentType'])),
+                trim((string) $data['affiliateDocumentNumber']),
+            );
+
             throw new \RuntimeException('No se encontró el afiliado solicitado.');
         }
 
@@ -479,6 +526,196 @@ class SstDotacionService
             'page' => $page,
             'pageSize' => $pageSize,
         ];
+    }
+
+    /**
+     * Log cuando el listado paginado de dotación devuelve 0 filas (primera página), con causas típicas.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    private function logEmptyAffiliatesListContext(
+        array $filters,
+        int $rawTotal,
+        int $activeFromFileEstadoColumn,
+        int $activeAfterDedupPipeline,
+        Collection $fullCollection,
+    ): void {
+        $baseContext = [
+            'dotacion_epp' => true,
+            'lookup' => 'affiliates_list',
+            'filters' => [
+                'status' => $filters['status'] ?? 'active',
+                'documentType' => $filters['documentType'] ?? null,
+                'documentNumber' => $filters['documentNumber'] ?? null,
+                'hospital' => $filters['hospital'] ?? null,
+                'searchTerm' => $filters['searchTerm'] ?? null,
+                'pageSize' => $filters['pageSize'] ?? null,
+            ],
+            'counts' => [
+                'loaded_from_basic_list' => $rawTotal,
+                'active_estado_column_activo' => $activeFromFileEstadoColumn,
+                'active_after_pipeline' => $activeAfterDedupPipeline,
+            ],
+        ];
+
+        if ($rawTotal === 0) {
+            Log::warning('Dotación/EPP: listado de afiliados vacío — no hay registros después de leer el Excel/cache (revisar archivo y pestaña INFORMACIÓN GENERAL)', $baseContext + [
+                'cause' => 'empty_basic_list_or_cache_miss',
+                'hint' => 'Si acaba de subir PROSANET_INFORMACION_AFILIADOS.xlsx, espere hasta 30 min o invalide cache `afiliado_service.all_basic` (tag afiliados). Revise también logs AfiliadoService (hoja ausente / error de lectura).',
+            ]);
+
+            return;
+        }
+
+        if ($activeFromFileEstadoColumn === 0) {
+            $histogram = $this->estadoStatusHistogram($fullCollection);
+
+            Log::warning('Dotación/EPP: listado vacío para entregas — hay filas cargadas pero ninguna con Estado=ACTIVO tras normalización', $baseContext + [
+                'cause' => 'no_afiliados_activos_por_columna_estado',
+                'estado_values_top' => $histogram,
+                'hint' => 'Revise valores en columna Estado del Excel; solo se muestran filas donde strtoupper(estado)==="ACTIVO".',
+            ]);
+
+            return;
+        }
+
+        if ($filteredOut = $this->guessListEmptyDueToFilters($filters)) {
+            Log::info('Dotación/EPP: listado vacío — filtros de la solicitud no coinciden con afiliados activos', $baseContext + [
+                'cause' => $filteredOut['cause'],
+                'detail' => $filteredOut['detail'],
+            ]);
+
+            return;
+        }
+
+        if ($activeFromFileEstadoColumn > 0 && $activeAfterDedupPipeline > 0) {
+            Log::warning('Dotación/EPP: listado vacío — hay afiliados activos cargados pero el pipeline devolvió 0 filas (revisar lógica de filtros)', $baseContext + [
+                'cause' => 'unexpected_empty_pipeline',
+                'hint' => 'Reportar a desarrollo junto con el JSON de filtros.',
+            ]);
+        }
+    }
+
+    /**
+     * Registra causa probable cuando GET /affiliados/{tipo}/{número} responde 404 (uso explícito del controlador).
+     */
+    public function logAffiliateMissDiagnostics(string $documentType, string $documentNumber): void
+    {
+        $documentType = strtoupper(trim($documentType));
+        $documentNumber = trim($documentNumber);
+        $collection = $this->buildAffiliatesCollection();
+
+        $this->logFindAffiliateMiss($collection, $documentType, $documentNumber);
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function estadoStatusHistogram(Collection $affiliates): array
+    {
+        return $affiliates
+            ->groupBy(function (array $a) {
+                $s = $a['status'] ?? '';
+
+                return $s === '' || $s === null ? '(vacío)' : (string) $s;
+            })
+            ->map(fn (Collection $g) => $g->count())
+            ->sortDesc()
+            ->take(12)
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array{cause: string, detail?: string}|null
+     */
+    private function guessListEmptyDueToFilters(array $filters): ?array
+    {
+        $hospital = isset($filters['hospital']) ? trim((string) $filters['hospital']) : '';
+        $search = isset($filters['searchTerm']) ? trim((string) $filters['searchTerm']) : '';
+        $docType = isset($filters['documentType']) ? strtoupper(trim((string) $filters['documentType'])) : '';
+        $docNum = isset($filters['documentNumber']) ? trim((string) $filters['documentNumber']) : '';
+
+        if ($docType !== '' && $docNum !== '') {
+            return [
+                'cause' => 'filter_document_type_and_number',
+                'detail' => "Ningún activo coincide con tipo {$docType} y documento proporcionados.",
+            ];
+        }
+
+        if ($hospital !== '' && strtolower($hospital) !== 'all') {
+            return [
+                'cause' => 'filter_hospital',
+                'detail' => 'Ningún activo coincide con hospital (comparación exacta tras mayúsculas).',
+            ];
+        }
+
+        if ($search !== '') {
+            return [
+                'cause' => 'filter_search_term',
+                'detail' => 'Ningún activo coincide con searchTerm en nombre, documento u hospital.',
+            ];
+        }
+
+        if (($filters['status'] ?? '') === 'inactive') {
+            return [
+                'cause' => 'filter_status_inactive',
+                'detail' => 'El backend solo incluye ACTIVOS en la colección base; status=inactive puede dejar lista vacía (limitación conocida del pipeline).',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Diagnóstico cuando GET afiliados por tipo+número no encuentra coincidencia.
+     */
+    private function logFindAffiliateMiss(Collection $all, string $documentTypeRequested, string $documentNumberRequested): void
+    {
+        $total = $all->count();
+
+        if ($total === 0) {
+            Log::warning('Dotación/EPP: búsqueda de afiliado sin resultados — colección vacía (Excel/cache sin filas válidas)', [
+                'dotacion_epp' => true,
+                'lookup' => 'find_affiliate',
+                'document_type_requested' => $documentTypeRequested,
+                'document_number_requested' => $documentNumberRequested,
+                'cause' => 'empty_affiliate_collection',
+                'hint' => 'Mismo origen que listado vacío: ver PROSANET_INFORMACION_AFILIADOS.xlsx, caché 30min, errores AfiliadoService.',
+            ]);
+
+            return;
+        }
+
+        $sameNumber = $all->filter(
+            fn (array $affiliate) => ($affiliate['documentNumber'] ?? '') === $documentNumberRequested
+        )->values();
+
+        if ($sameNumber->isEmpty()) {
+            Log::warning('Dotación/EPP: búsqueda de afiliado sin resultados — documento no existe en datos cargados', [
+                'dotacion_epp' => true,
+                'lookup' => 'find_affiliate',
+                'document_type_requested' => $documentTypeRequested,
+                'document_number_requested' => $documentNumberRequested,
+                'cause' => 'document_number_not_in_loaded_data',
+                'affiliates_loaded' => $total,
+                'hint' => 'Compruebe número en archivo, formato Excel (sin notación científica), y espacios. El front solo intenta algunos tipos de documento en cadena.',
+            ]);
+
+            return;
+        }
+
+        $typesFound = $sameNumber->pluck('documentType')->map(fn ($t) => strtoupper((string) $t))->unique()->sort()->values()->all();
+
+        Log::info('Dotación/EPP: búsqueda de afiliado sin resultado — documento existe pero el tipo solicitado no coincide (p.ej. prueba CE/CC/PT en la UI)', [
+            'dotacion_epp' => true,
+            'lookup' => 'find_affiliate',
+            'document_type_requested' => $documentTypeRequested,
+            'document_number_requested' => $documentNumberRequested,
+            'document_types_found_for_number' => $typesFound,
+            'cause' => 'document_type_mismatch',
+            'hint' => 'Use el tipo de documento registrado en la columna correspondiente del Excel o amplíe los tipos en la búsqueda del SPA.',
+        ]);
     }
 
     /**

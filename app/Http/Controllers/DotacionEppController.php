@@ -2,16 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{StoreSstDeliveryRequest, StoreSstReturnRequest};
+use App\Http\Requests\StoreSstDeliveryRequest;
+use App\Http\Requests\StoreSstReturnRequest;
 use App\Services\SstDotacionService;
-use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class DotacionEppController extends Controller
 {
-    public function __construct(private readonly SstDotacionService $dotacionService)
-    {
-    }
+    public function __construct(private readonly SstDotacionService $dotacionService) {}
 
     public function affiliates(Request $request): JsonResponse
     {
@@ -26,7 +26,7 @@ class DotacionEppController extends Controller
                 'searchTerm',
             ]);
 
-            if (!isset($filters['status'])) {
+            if (! isset($filters['status'])) {
                 $filters['status'] = 'active';
             }
 
@@ -34,7 +34,9 @@ class DotacionEppController extends Controller
 
             return response()->json($result);
         } catch (\Throwable $e) {
-            Log::error('Error al obtener afiliados para dotación/EPP', [
+            Log::error('Dotación/EPP: fallo HTTP al obtener listado de afiliados', [
+                'dotacion_epp' => true,
+                'lookup' => 'affiliates_list',
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -50,7 +52,9 @@ class DotacionEppController extends Controller
         try {
             $affiliate = $this->dotacionService->findAffiliate($documentType, $documentNumber);
 
-            if (!$affiliate) {
+            if (! $affiliate) {
+                $this->dotacionService->logAffiliateMissDiagnostics($documentType, $documentNumber);
+
                 return response()->json([
                     'message' => 'Afiliado no encontrado',
                 ], 404);
@@ -58,9 +62,11 @@ class DotacionEppController extends Controller
 
             return response()->json($affiliate);
         } catch (\Throwable $e) {
-            Log::error('Error al consultar afiliado para dotación/EPP', [
-                'document_type' => $documentType,
-                'document_number' => $documentNumber,
+            Log::error('Dotación/EPP: fallo HTTP al consultar afiliado por tipo y documento', [
+                'dotacion_epp' => true,
+                'lookup' => 'find_affiliate',
+                'document_type_param' => $documentType,
+                'document_number_param' => $documentNumber,
                 'error' => $e->getMessage(),
             ]);
 

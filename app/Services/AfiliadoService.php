@@ -999,6 +999,17 @@ class AfiliadoService
     public function getAllAfiliadosBasic(): array
     {
         return Cache::tags(['afiliados'])->remember('afiliado_service.all_basic', now()->addMinutes(30), function () {
+            if (! $this->isFileAvailable()) {
+                Log::error('AfiliadoService: no existe archivo de afiliados PROSANET en almacenamiento — listado básico y dotación vacíos hasta cargar data/PROSANET_INFORMACION_AFILIADOS.xlsx', [
+                    'dotacion_epp' => true,
+                    'afiliado_basic_list' => true,
+                    'cause' => 'excel_file_missing',
+                    'expected_path' => self::EXCEL_FILE_PATH,
+                ]);
+
+                return [];
+            }
+
             return $this->withExcelFile(function (string $excelPath, string $disk) {
                 try {
                     $reader = IOFactory::createReader('Xlsx');
@@ -1036,7 +1047,12 @@ class AfiliadoService
 
                     $informacionSheet = $spreadsheet->getSheetByName(self::SHEET_INFORMACION_GENERAL);
                     if (! $informacionSheet) {
-                        Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para listado general');
+                        Log::error('Pestaña INFORMACIÓN GENERAL no encontrada para listado general (dotación/EPP no tendrá afiliados hasta corregir Excel)', [
+                            'dotacion_epp' => true,
+                            'afiliado_basic_list' => true,
+                            'expected_sheet' => self::SHEET_INFORMACION_GENERAL,
+                            'disk' => $disk,
+                        ]);
 
                         return [];
                     }
@@ -1046,6 +1062,7 @@ class AfiliadoService
 
                     $highestRow = $informacionSheet->getHighestRow();
                     $affiliates = [];
+                    $skippedRowsMissingTipoOrDocumento = 0;
 
                     for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
                         $tipoDocumento = $this->normalizeValue(
@@ -1060,6 +1077,8 @@ class AfiliadoService
                         );
 
                         if (empty($tipoDocumento) || empty($documento)) {
+                            $skippedRowsMissingTipoOrDocumento++;
+
                             continue;
                         }
 
@@ -1104,6 +1123,27 @@ class AfiliadoService
                         ];
                     }
 
+                    if (count($affiliates) === 0 && $highestRow >= 2) {
+                        Log::warning('AfiliadoService: listado básico (dotación/caché) quedó sin filas pese a filas en hoja INFORMACIÓN GENERAL — suele indicar columnas desplazadas o celdas tipo/doc vacías', [
+                            'dotacion_epp' => true,
+                            'afiliado_basic_list' => true,
+                            'cause' => 'no_valid_rows_after_scan',
+                            'highest_row_in_sheet' => $highestRow,
+                            'rows_skipped_missing_tipo_or_documento' => $skippedRowsMissingTipoOrDocumento,
+                            'cache_key' => 'afiliado_service.all_basic',
+                            'cache_ttl_minutes' => 30,
+                            'disk' => $disk,
+                        ]);
+                    }
+
+                    if (! $conveniosSheet) {
+                        Log::info('AfiliadoService: pestaña CONVENIOS no encontrada durante listado básico — hospital quedará SIN ASIGNAR en dotación', [
+                            'dotacion_epp' => true,
+                            'afiliado_basic_list' => true,
+                            'rows_in_list' => count($affiliates),
+                        ]);
+                    }
+
                     Log::info('Listado general de afiliados generado para dotación/EPP', [
                         'count' => count($affiliates),
                         'disk' => $disk,
@@ -1112,6 +1152,9 @@ class AfiliadoService
                     return $affiliates;
                 } catch (SpreadsheetException $e) {
                     Log::error('Error al procesar archivo Excel de afiliados (listado general)', [
+                        'dotacion_epp' => true,
+                        'afiliado_basic_list' => true,
+                        'cause' => 'spreadsheet_exception',
                         'error' => $e->getMessage(),
                         'file_path' => self::EXCEL_FILE_PATH,
                         'disk' => $disk,
@@ -1120,6 +1163,9 @@ class AfiliadoService
                     return [];
                 } catch (\Throwable $e) {
                     Log::error('Error inesperado al generar listado general de afiliados', [
+                        'dotacion_epp' => true,
+                        'afiliado_basic_list' => true,
+                        'cause' => 'unexpected_throwable',
                         'error' => $e->getMessage(),
                         'file' => $e->getFile(),
                         'line' => $e->getLine(),

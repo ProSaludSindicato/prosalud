@@ -2,41 +2,48 @@
 
 namespace App\Services;
 
-use Carbon\Carbon;
-use Illuminate\Support\Facades\{Log, Storage};
-use PhpOffice\PhpWord\TemplateProcessor;
-use PhpOffice\PhpSpreadsheet\{IOFactory, Cell\Coordinate};
 use App\Models\CertificadoConvenioRecord;
+use App\Support\HospitalCatalog;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpWord\TemplateProcessor;
 
 class CertificadoConvenioService
 {
     private const TEMPLATE_PATH = 'resources/templates/certificado_convenio_template.docx';
+
     private const TEMPLATE_PATH_BANCOLOMBIA = 'resources/templates/certificado_convenio_cuenta_bancolombia_template.docx';
+
     private const TEMPLATE_PATH_SUBSIDIO_VIVIENDA = 'resources/templates/certificado_convenio_subsidio_vivienda_template.docx';
+
     private const TEMPLATE_PATH_SUBSIDIO_DESEMPLEO = 'resources/templates/certificado_convenio_subsidio_desempleo_template.docx';
+
     private const TEMPLATE_PATH_ACTIVIDADES = 'resources/templates/certificado_convenio_actividades_template.docx';
+
     private const TEMPLATE_PATH_AFP = 'resources/templates/certificado_convenio_dirigido_afp_template.docx';
+
     private const TEMP_DIR = 'temp';
 
     public function __construct(
         private AfiliadoService $afiliadoService,
         private ExcelReaderService $excelReaderService
-    ) {
-    }
+    ) {}
 
     /**
      * Genera un certificado de convenio en formato PDF
      * Primero genera el Word desde la plantilla, luego lo convierte a PDF usando CloudConvert
      * Guarda el PDF en el bucket privado y crea un registro en la base de datos
      *
-     * @param string $documento Número de documento del afiliado
-     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @param array|null $compensaciones ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int] o ['mensaje_compensaciones_parte1' => string, 'mensaje_compensaciones_parte2' => string]
-     * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
-     * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
-     * @param bool $esParaSubsidioDesempleo Indica si el certificado es para subsidio de desempleo (opcional)
-     * @param bool $esOtros Indica si el certificado es tipo "otros" (necesidad específica descrita por el usuario) (opcional)
-     * @return array
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  string|null  $dirigidoAEntidad  Nombre de la entidad destinataria (opcional)
+     * @param  array|null  $compensaciones  ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int] o ['mensaje_compensaciones_parte1' => string, 'mensaje_compensaciones_parte2' => string]
+     * @param  bool  $esParaBancolombia  Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
+     * @param  bool  $esParaSubsidioVivienda  Indica si el certificado es para subsidio de vivienda (opcional)
+     * @param  bool  $esParaSubsidioDesempleo  Indica si el certificado es para subsidio de desempleo (opcional)
+     * @param  bool  $esOtros  Indica si el certificado es tipo "otros" (necesidad específica descrita por el usuario) (opcional)
      */
     public function generarCertificadoPDF(string $documento, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false, bool $esOtros = false): array
     {
@@ -44,7 +51,7 @@ class CertificadoConvenioService
 
         // Obtener información del afiliado primero para tener los datos necesarios
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
-        if (!$afiliadoData) {
+        if (! $afiliadoData) {
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
@@ -69,7 +76,7 @@ class CertificadoConvenioService
             $nombrePDF = str_replace('.docx', '.pdf', $resultadoWord['nombre']);
 
             // Obtener ruta absoluta del PDF
-            $rutaPDF = storage_path('app/' . $resultadoPDF['path']);
+            $rutaPDF = storage_path('app/'.$resultadoPDF['path']);
 
             // Guardar PDF en bucket privado y crear registro en BD
             $bucketPath = $this->guardarCertificadoEnBucket($rutaPDF, $documento, $consecutivo, $fechaCertificado, $afiliadoData);
@@ -94,14 +101,14 @@ class CertificadoConvenioService
                 $fechaCertificado,
                 $afiliadoData,
                 $tipoCertificado,
-                $compensaciones !== null && !empty($compensaciones),
+                $compensaciones !== null && ! empty($compensaciones),
                 $dirigidoAEntidad
             );
 
             // Agregar métricas en el procesamiento
             Log::info('Recursos utilizados durante generación de certificado', [
-                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB',
-                'execution_time' => round(microtime(true) - $startTime, 2) . ' segundos',
+                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2).' MB',
+                'execution_time' => round(microtime(true) - $startTime, 2).' segundos',
                 'documento' => $documento,
                 'consecutivo' => $consecutivo,
             ]);
@@ -132,14 +139,13 @@ class CertificadoConvenioService
     /**
      * Genera un certificado de convenio en formato Word
      *
-     * @param string $documento Número de documento del afiliado
-     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
-     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @param array|null $compensaciones ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int] o ['mensaje_compensaciones_parte1' => string, 'mensaje_compensaciones_parte2' => string]
-     * @param bool $esParaBancolombia Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
-     * @param bool $esParaSubsidioVivienda Indica si el certificado es para subsidio de vivienda (opcional)
-     * @param bool $esParaSubsidioDesempleo Indica si el certificado es para subsidio de desempleo (opcional)
-     * @return array
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  string|null  $consecutivo  Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param  string|null  $dirigidoAEntidad  Nombre de la entidad destinataria (opcional)
+     * @param  array|null  $compensaciones  ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int] o ['mensaje_compensaciones_parte1' => string, 'mensaje_compensaciones_parte2' => string]
+     * @param  bool  $esParaBancolombia  Indica si el certificado es para apertura de cuenta en Bancolombia (opcional)
+     * @param  bool  $esParaSubsidioVivienda  Indica si el certificado es para subsidio de vivienda (opcional)
+     * @param  bool  $esParaSubsidioDesempleo  Indica si el certificado es para subsidio de desempleo (opcional)
      */
     public function generarCertificadoWord(string $documento, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null, bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false): array
     {
@@ -150,7 +156,7 @@ class CertificadoConvenioService
         // Obtener información del afiliado
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
 
-        if (!$afiliadoData) {
+        if (! $afiliadoData) {
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
@@ -172,7 +178,7 @@ class CertificadoConvenioService
 
         // Cargar plantilla según el tipo de certificado
         $templatePath = $this->obtenerRutaPlantilla($esParaBancolombia, $esParaSubsidioVivienda, $esParaSubsidioDesempleo, false);
-        if (!file_exists($templatePath)) {
+        if (! file_exists($templatePath)) {
             $templateNombre = $esParaBancolombia
                 ? 'certificado_convenio_cuenta_bancolombia_template.docx'
                 : ($esParaSubsidioVivienda
@@ -193,11 +199,11 @@ class CertificadoConvenioService
 
         // Generar nombre de archivo (usar la misma fecha)
         $nombreArchivo = $this->generarNombreArchivo($afiliadoData, $fechaCertificado);
-        $rutaSalida = storage_path("app/" . self::TEMP_DIR . "/{$nombreArchivo}");
+        $rutaSalida = storage_path('app/'.self::TEMP_DIR."/{$nombreArchivo}");
 
         // Crear directorio si no existe
-        $tempDir = storage_path("app/" . self::TEMP_DIR);
-        if (!is_dir($tempDir)) {
+        $tempDir = storage_path('app/'.self::TEMP_DIR);
+        if (! is_dir($tempDir)) {
             mkdir($tempDir, 0755, true);
         }
 
@@ -214,11 +220,10 @@ class CertificadoConvenioService
     /**
      * Genera un certificado de convenio con actividades en formato Word
      *
-     * @param string $documento Número de documento del afiliado
-     * @param array $actividades Array de actividades a incluir en el certificado
-     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
-     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @return array
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  array  $actividades  Array de actividades a incluir en el certificado
+     * @param  string|null  $consecutivo  Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param  string|null  $dirigidoAEntidad  Nombre de la entidad destinataria (opcional)
      */
     public function generarCertificadoWordConActividades(string $documento, array $actividades, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
     {
@@ -228,7 +233,7 @@ class CertificadoConvenioService
         // Obtener información del afiliado
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
 
-        if (!$afiliadoData) {
+        if (! $afiliadoData) {
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
@@ -242,7 +247,7 @@ class CertificadoConvenioService
 
         // Cargar plantilla de actividades
         $templatePath = $this->obtenerRutaPlantilla(false, false, false, true);
-        if (!file_exists($templatePath)) {
+        if (! file_exists($templatePath)) {
             throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/certificado_convenio_actividades_template.docx");
         }
 
@@ -256,11 +261,11 @@ class CertificadoConvenioService
 
         // Generar nombre de archivo (usar la misma fecha)
         $nombreArchivo = $this->generarNombreArchivo($afiliadoData, $fechaCertificado);
-        $rutaSalida = storage_path("app/" . self::TEMP_DIR . "/{$nombreArchivo}");
+        $rutaSalida = storage_path('app/'.self::TEMP_DIR."/{$nombreArchivo}");
 
         // Crear directorio si no existe
-        $tempDir = storage_path("app/" . self::TEMP_DIR);
-        if (!is_dir($tempDir)) {
+        $tempDir = storage_path('app/'.self::TEMP_DIR);
+        if (! is_dir($tempDir)) {
             mkdir($tempDir, 0755, true);
         }
 
@@ -278,11 +283,10 @@ class CertificadoConvenioService
      * Genera un certificado de convenio con actividades en formato PDF
      * Primero genera el Word desde la plantilla, luego lo convierte a PDF usando CloudConvert
      *
-     * @param string $documento Número de documento del afiliado
-     * @param array $actividades Array de actividades a incluir en el certificado
-     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
-     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @return array
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  array  $actividades  Array de actividades a incluir en el certificado
+     * @param  string|null  $consecutivo  Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param  string|null  $dirigidoAEntidad  Nombre de la entidad destinataria (opcional)
      */
     public function generarCertificadoPDFConActividades(string $documento, array $actividades, ?string $consecutivo = null, ?string $dirigidoAEntidad = null): array
     {
@@ -290,7 +294,7 @@ class CertificadoConvenioService
 
         // Obtener información del afiliado primero para tener los datos necesarios
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
-        if (!$afiliadoData) {
+        if (! $afiliadoData) {
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
@@ -319,7 +323,7 @@ class CertificadoConvenioService
             $nombrePDF = "Certificado_Sindicato_ProSalud_{$documentoNormalizado}_{$consecutivo}.pdf";
 
             // Obtener ruta absoluta del PDF
-            $rutaPDF = storage_path('app/' . $resultadoPDF['path']);
+            $rutaPDF = storage_path('app/'.$resultadoPDF['path']);
 
             // Guardar PDF en bucket privado y crear registro en BD
             $bucketPath = $this->guardarCertificadoEnBucket($rutaPDF, $documento, $consecutivo, $fechaCertificado, $afiliadoData);
@@ -338,8 +342,8 @@ class CertificadoConvenioService
 
             // Agregar métricas en el procesamiento
             Log::info('Recursos utilizados durante generación de certificado con actividades', [
-                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB',
-                'execution_time' => round(microtime(true) - $startTime, 2) . ' segundos',
+                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2).' MB',
+                'execution_time' => round(microtime(true) - $startTime, 2).' segundos',
                 'documento' => $documento,
                 'consecutivo' => $consecutivo,
                 'actividades_count' => count($actividades),
@@ -371,10 +375,9 @@ class CertificadoConvenioService
     /**
      * Genera un certificado de convenio dirigido a fondo de pensiones (AFP) en formato Word
      *
-     * @param string $documento Número de documento del afiliado
-     * @param string|null $afp Nombre del fondo de pensiones (AFP)
-     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
-     * @return array
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  string|null  $afp  Nombre del fondo de pensiones (AFP)
+     * @param  string|null  $consecutivo  Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
      */
     public function generarCertificadoWordDirigidoAFP(string $documento, ?string $afp = null, ?string $consecutivo = null): array
     {
@@ -384,7 +387,7 @@ class CertificadoConvenioService
         // Obtener información del afiliado
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
 
-        if (!$afiliadoData) {
+        if (! $afiliadoData) {
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
@@ -398,7 +401,7 @@ class CertificadoConvenioService
 
         // Cargar plantilla de AFP
         $templatePath = $this->obtenerRutaPlantilla(false, false, false, false, true);
-        if (!file_exists($templatePath)) {
+        if (! file_exists($templatePath)) {
             throw new \Exception("Plantilla no encontrada en: {$templatePath}. Por favor, coloca la plantilla en resources/templates/certificado_convenio_dirigido_afp_template.docx");
         }
 
@@ -412,11 +415,11 @@ class CertificadoConvenioService
 
         // Generar nombre de archivo (usar la misma fecha)
         $nombreArchivo = $this->generarNombreArchivo($afiliadoData, $fechaCertificado);
-        $rutaSalida = storage_path("app/" . self::TEMP_DIR . "/{$nombreArchivo}");
+        $rutaSalida = storage_path('app/'.self::TEMP_DIR."/{$nombreArchivo}");
 
         // Crear directorio si no existe
-        $tempDir = storage_path("app/" . self::TEMP_DIR);
-        if (!is_dir($tempDir)) {
+        $tempDir = storage_path('app/'.self::TEMP_DIR);
+        if (! is_dir($tempDir)) {
             mkdir($tempDir, 0755, true);
         }
 
@@ -434,10 +437,9 @@ class CertificadoConvenioService
      * Genera un certificado de convenio dirigido a fondo de pensiones (AFP) en formato PDF
      * Primero genera el Word desde la plantilla, luego lo convierte a PDF usando CloudConvert
      *
-     * @param string $documento Número de documento del afiliado
-     * @param string|null $afp Nombre del fondo de pensiones (AFP)
-     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
-     * @return array
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  string|null  $afp  Nombre del fondo de pensiones (AFP)
+     * @param  string|null  $consecutivo  Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
      */
     public function generarCertificadoPDFDirigidoAFP(string $documento, ?string $afp = null, ?string $consecutivo = null): array
     {
@@ -445,7 +447,7 @@ class CertificadoConvenioService
 
         // Obtener información del afiliado primero para tener los datos necesarios
         $afiliadoData = $this->obtenerDatosAfiliado($documento);
-        if (!$afiliadoData) {
+        if (! $afiliadoData) {
             throw new \Exception("Afiliado con documento {$documento} no encontrado");
         }
 
@@ -474,7 +476,7 @@ class CertificadoConvenioService
             $nombrePDF = "Certificado_Sindicato_ProSalud_{$documentoNormalizado}_{$consecutivo}.pdf";
 
             // Obtener ruta absoluta del PDF
-            $rutaPDF = storage_path('app/' . $resultadoPDF['path']);
+            $rutaPDF = storage_path('app/'.$resultadoPDF['path']);
 
             // Guardar PDF en bucket privado y crear registro en BD
             $bucketPath = $this->guardarCertificadoEnBucket($rutaPDF, $documento, $consecutivo, $fechaCertificado, $afiliadoData);
@@ -493,8 +495,8 @@ class CertificadoConvenioService
 
             // Agregar métricas en el procesamiento
             Log::info('Recursos utilizados durante generación de certificado dirigido a AFP', [
-                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB',
-                'execution_time' => round(microtime(true) - $startTime, 2) . ' segundos',
+                'memory_peak' => round(memory_get_peak_usage(true) / 1024 / 1024, 2).' MB',
+                'execution_time' => round(microtime(true) - $startTime, 2).' segundos',
                 'documento' => $documento,
                 'consecutivo' => $consecutivo,
                 'afp' => $afp,
@@ -542,20 +544,21 @@ class CertificadoConvenioService
 
             foreach ($disks as $disk) {
                 try {
-                    if (!Storage::disk($disk)->exists($excelPath)) {
+                    if (! Storage::disk($disk)->exists($excelPath)) {
                         continue;
                     }
 
                     // Crear copia temporal
                     $stream = Storage::disk($disk)->readStream($excelPath);
-                    if (false === $stream) {
+                    if ($stream === false) {
                         continue;
                     }
 
-                    $tempPath = tempnam(sys_get_temp_dir(), 'prosanet_certificado_') . '.xlsx';
+                    $tempPath = tempnam(sys_get_temp_dir(), 'prosanet_certificado_').'.xlsx';
                     $destination = fopen($tempPath, 'w+b');
-                    if (false === $destination) {
+                    if ($destination === false) {
                         fclose($stream);
+
                         continue;
                     }
 
@@ -580,8 +583,9 @@ class CertificadoConvenioService
                         $spreadsheet = $reader->load($tempPath);
                         $informacionSheet = $spreadsheet->getSheetByName('INFORMACIÓN GENERAL');
 
-                        if (!$informacionSheet) {
+                        if (! $informacionSheet) {
                             @unlink($tempPath);
+
                             continue;
                         }
 
@@ -589,9 +593,9 @@ class CertificadoConvenioService
                         $normalizedDocumento = $this->normalizeDocumento($documento);
 
                         // Buscar por documento leyendo solo la columna B primero (optimización)
-                        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+                        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
                             // Leer solo la columna del documento primero
-                            $cell = $informacionSheet->getCell('B' . $rowIndex);
+                            $cell = $informacionSheet->getCell('B'.$rowIndex);
                             $rowDocumento = $this->normalizeDocumento($cell->getValue());
 
                             if ($rowDocumento === $normalizedDocumento) {
@@ -601,7 +605,7 @@ class CertificadoConvenioService
                                 $neededColumns = [0, 1, 2, 3, 4, 8, 10, 18, 20, 32];
                                 foreach ($neededColumns as $colIndex) {
                                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                                    $cell = $informacionSheet->getCell($colLetter . $rowIndex);
+                                    $cell = $informacionSheet->getCell($colLetter.$rowIndex);
                                     $rowData[$colIndex] = $cell->getValue();
                                 }
 
@@ -622,7 +626,7 @@ class CertificadoConvenioService
                                     $todosLosConvenios = $this->getTodosLosConveniosByDocumento($conveniosSheet, $documento);
                                     // Obtener el convenio actual (más reciente/activo)
                                     $conveniosFull = $this->getConveniosByDocumentoOptimized($conveniosSheet, $documento);
-                                    $convenioActual = !empty($conveniosFull) ? $conveniosFull[0] : null;
+                                    $convenioActual = ! empty($conveniosFull) ? $conveniosFull[0] : null;
                                     $conveniosFull = $todosLosConvenios;
                                 }
 
@@ -662,10 +666,10 @@ class CertificadoConvenioService
             return null;
         } finally {
             // Restaurar límites originales
-            if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+            if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
                 ini_set('memory_limit', (string) $originalMemoryLimit);
             }
-            if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+            if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
                 set_time_limit((int) $originalMaxExecutionTime);
             }
         }
@@ -683,7 +687,7 @@ class CertificadoConvenioService
         // Normalizar el valor de AFP
         $afpRaw = $this->normalizeValue($row[32] ?? '');
         $afp = trim($afpRaw);
-        
+
         // Si está vacío o es "NINGUNA", dejarlo como string vacío
         if (empty($afp) || strtoupper($afp) === 'NINGUNA') {
             $afp = '';
@@ -712,17 +716,17 @@ class CertificadoConvenioService
         $normalizedDocumento = $this->normalizeDocumento($documento);
         $highestRow = $sheet->getHighestRow();
 
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
-            $cell = $sheet->getCell('A' . $rowIndex);
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+            $cell = $sheet->getCell('A'.$rowIndex);
             $rowDocumento = $this->normalizeDocumento($cell->getValue());
 
             if ($rowDocumento === $normalizedDocumento) {
                 $convenios[] = [
-                    'cliente' => $this->normalizeValue($sheet->getCell('D' . $rowIndex)->getValue() ?? ''),
-                    'proceso' => $this->normalizeValue($sheet->getCell('F' . $rowIndex)->getValue() ?? ''),
-                    'estado' => $this->normalizeValue($sheet->getCell('G' . $rowIndex)->getValue() ?? ''),
-                    'fecha_ingreso' => $this->normalizeDate($sheet->getCell('H' . $rowIndex)->getValue() ?? ''),
-                    'fecha_fin' => $this->normalizeDate($sheet->getCell('I' . $rowIndex)->getValue() ?? ''),
+                    'cliente' => $this->normalizeValue($sheet->getCell('D'.$rowIndex)->getValue() ?? ''),
+                    'proceso' => $this->normalizeValue($sheet->getCell('F'.$rowIndex)->getValue() ?? ''),
+                    'estado' => $this->normalizeValue($sheet->getCell('G'.$rowIndex)->getValue() ?? ''),
+                    'fecha_ingreso' => $this->normalizeDate($sheet->getCell('H'.$rowIndex)->getValue() ?? ''),
+                    'fecha_fin' => $this->normalizeDate($sheet->getCell('I'.$rowIndex)->getValue() ?? ''),
                 ];
             }
         }
@@ -744,15 +748,15 @@ class CertificadoConvenioService
             $bFechaFinVacia = empty($b['fecha_fin']);
 
             // Si uno tiene fecha_fin y el otro no, el finalizado va primero
-            if (!$aFechaFinVacia && $bFechaFinVacia) {
+            if (! $aFechaFinVacia && $bFechaFinVacia) {
                 return -1; // $a (finalizado) va primero
             }
-            if ($aFechaFinVacia && !$bFechaFinVacia) {
+            if ($aFechaFinVacia && ! $bFechaFinVacia) {
                 return 1; // $b (finalizado) va primero
             }
 
             // Si ambos tienen fecha_fin, ordenar por fecha_fin descendente (más reciente primero)
-            if (!$aFechaFinVacia && !$bFechaFinVacia) {
+            if (! $aFechaFinVacia && ! $bFechaFinVacia) {
                 return strcmp($b['fecha_fin'], $a['fecha_fin']);
             }
 
@@ -773,17 +777,17 @@ class CertificadoConvenioService
         $normalizedDocumento = $this->normalizeDocumento($documento);
         $highestRow = $sheet->getHighestRow();
 
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
-            $cell = $sheet->getCell('A' . $rowIndex);
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+            $cell = $sheet->getCell('A'.$rowIndex);
             $rowDocumento = $this->normalizeDocumento($cell->getValue());
 
             if ($rowDocumento === $normalizedDocumento) {
                 $convenios[] = [
-                    'cliente' => $this->normalizeValue($sheet->getCell('D' . $rowIndex)->getValue() ?? ''),
-                    'proceso' => $this->normalizeValue($sheet->getCell('F' . $rowIndex)->getValue() ?? ''),
-                    'estado' => $this->normalizeValue($sheet->getCell('G' . $rowIndex)->getValue() ?? ''),
-                    'fecha_ingreso' => $this->normalizeDate($sheet->getCell('H' . $rowIndex)->getValue() ?? ''),
-                    'fecha_fin' => $this->normalizeDate($sheet->getCell('I' . $rowIndex)->getValue() ?? ''),
+                    'cliente' => $this->normalizeValue($sheet->getCell('D'.$rowIndex)->getValue() ?? ''),
+                    'proceso' => $this->normalizeValue($sheet->getCell('F'.$rowIndex)->getValue() ?? ''),
+                    'estado' => $this->normalizeValue($sheet->getCell('G'.$rowIndex)->getValue() ?? ''),
+                    'fecha_ingreso' => $this->normalizeDate($sheet->getCell('H'.$rowIndex)->getValue() ?? ''),
+                    'fecha_fin' => $this->normalizeDate($sheet->getCell('I'.$rowIndex)->getValue() ?? ''),
                 ];
             }
         }
@@ -799,7 +803,7 @@ class CertificadoConvenioService
 
         $selectedConvenio = null;
 
-        if (!empty($conveniosActivos)) {
+        if (! empty($conveniosActivos)) {
             // Si hay convenios activos, seleccionar el más reciente/actual
             // Prioridad: fecha_fin vacía > fecha_fin más reciente > fecha_ingreso más reciente
             usort($conveniosActivos, function ($a, $b) {
@@ -807,15 +811,15 @@ class CertificadoConvenioService
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
 
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
 
                 // Si ambos tienen fecha_fin o ambos están vacíos, comparar por fecha_fin
-                if (!$aFechaFinVacia && !$bFechaFinVacia) {
+                if (! $aFechaFinVacia && ! $bFechaFinVacia) {
                     $comparison = strcmp($b['fecha_fin'], $a['fecha_fin']);
                     if ($comparison !== 0) {
                         return $comparison; // Más reciente primero
@@ -834,10 +838,10 @@ class CertificadoConvenioService
                 $aFechaFinVacia = empty($a['fecha_fin']);
                 $bFechaFinVacia = empty($b['fecha_fin']);
 
-                if ($aFechaFinVacia && !$bFechaFinVacia) {
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
                     return 1; // $b tiene prioridad
                 }
-                if (!$aFechaFinVacia && $bFechaFinVacia) {
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
                     return -1; // $a tiene prioridad
                 }
 
@@ -860,12 +864,10 @@ class CertificadoConvenioService
     /**
      * Prepara los datos del certificado
      *
-     * @param array $afiliadoData
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
-     * @param string|null $consecutivo Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
-     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
-     * @return array
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
+     * @param  string|null  $consecutivo  Número consecutivo opcional (si no se proporciona, se genera uno nuevo)
+     * @param  string|null  $dirigidoAEntidad  Nombre de la entidad destinataria (opcional)
+     * @param  array|null  $compensaciones  Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      */
     private function prepararDatosCertificado(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, ?array $compensaciones = null): array
     {
@@ -885,7 +887,7 @@ class CertificadoConvenioService
 
         // Nombre completo en mayúsculas
         $nombreCompleto = strtoupper(
-            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+            trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''))
         );
 
         // Documento formateado con puntos
@@ -969,7 +971,7 @@ class CertificadoConvenioService
         } else {
             Log::warning('Compensaciones no disponibles o incompletas en prepararDatosCertificado', [
                 'compensaciones' => $compensaciones,
-                'tiene_compensaciones' => !empty($compensaciones),
+                'tiene_compensaciones' => ! empty($compensaciones),
             ]);
         }
 
@@ -1009,10 +1011,8 @@ class CertificadoConvenioService
      * Prepara los datos del certificado específico para Bancolombia
      * Esta plantilla usa placeholders más simples: FECHA_CERTIFICADO, NOMBRE_COMPLETO, DOCUMENTO, CONSECUTIVO
      *
-     * @param array $afiliadoData
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
-     * @param string|null $consecutivo Número consecutivo
-     * @return array
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado
+     * @param  string|null  $consecutivo  Número consecutivo
      */
     private function prepararDatosCertificadoBancolombia(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null): array
     {
@@ -1028,7 +1028,7 @@ class CertificadoConvenioService
 
         // Nombre completo en mayúsculas
         $nombreCompleto = strtoupper(
-            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+            trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''))
         );
 
         // Documento formateado con puntos
@@ -1058,11 +1058,9 @@ class CertificadoConvenioService
      * Prepara los datos del certificado específico para Subsidio de Vivienda
      * Similar al certificado de convenio simple pero con formato especial para compensaciones
      *
-     * @param array $afiliadoData
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
-     * @param string|null $consecutivo Número consecutivo
-     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
-     * @return array
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado
+     * @param  string|null  $consecutivo  Número consecutivo
+     * @param  array|null  $compensaciones  Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      */
     private function prepararDatosCertificadoSubsidioVivienda(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?array $compensaciones = null): array
     {
@@ -1080,7 +1078,7 @@ class CertificadoConvenioService
 
         // Nombre completo en mayúsculas
         $nombreCompleto = strtoupper(
-            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+            trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''))
         );
 
         // Documento formateado con puntos
@@ -1142,7 +1140,7 @@ class CertificadoConvenioService
         } else {
             Log::warning('Compensaciones no disponibles o incompletas en prepararDatosCertificadoSubsidioVivienda', [
                 'compensaciones' => $compensaciones,
-                'tiene_compensaciones' => !empty($compensaciones),
+                'tiene_compensaciones' => ! empty($compensaciones),
             ]);
         }
 
@@ -1177,11 +1175,9 @@ class CertificadoConvenioService
      * Prepara los datos del certificado específico para Subsidio de Desempleo
      * Similar al certificado de subsidio de vivienda pero con FECHA_HASTA y MOTIVO_RETIRO
      *
-     * @param array $afiliadoData
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
-     * @param string|null $consecutivo Número consecutivo
-     * @param array|null $compensaciones Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
-     * @return array
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado
+     * @param  string|null  $consecutivo  Número consecutivo
+     * @param  array|null  $compensaciones  Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
      */
     private function prepararDatosCertificadoSubsidioDesempleo(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?array $compensaciones = null): array
     {
@@ -1199,7 +1195,7 @@ class CertificadoConvenioService
 
         // Nombre completo en mayúsculas
         $nombreCompleto = strtoupper(
-            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+            trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''))
         );
 
         // Documento formateado con puntos
@@ -1214,7 +1210,7 @@ class CertificadoConvenioService
 
         // FECHA_HASTA: fecha de fin del convenio más actual/reciente (el que se usa para conocer el proceso)
         $fechaHasta = '';
-        if ($convenio && !empty($convenio['fecha_fin'])) {
+        if ($convenio && ! empty($convenio['fecha_fin'])) {
             $fechaHasta = $this->formatearFechaEspanol($convenio['fecha_fin']);
         }
 
@@ -1267,7 +1263,7 @@ class CertificadoConvenioService
         } else {
             Log::warning('Compensaciones no disponibles o incompletas en prepararDatosCertificadoSubsidioDesempleo', [
                 'compensaciones' => $compensaciones,
-                'tiene_compensaciones' => !empty($compensaciones),
+                'tiene_compensaciones' => ! empty($compensaciones),
             ]);
         }
 
@@ -1304,12 +1300,10 @@ class CertificadoConvenioService
      * Prepara los datos del certificado con actividades
      * Similar al certificado de convenio simple pero incluye lista de actividades
      *
-     * @param array $afiliadoData
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
-     * @param string|null $consecutivo Número consecutivo
-     * @param string|null $dirigidoAEntidad Nombre de la entidad destinataria (opcional)
-     * @param array $actividades Array de actividades a incluir en el certificado
-     * @return array
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado
+     * @param  string|null  $consecutivo  Número consecutivo
+     * @param  string|null  $dirigidoAEntidad  Nombre de la entidad destinataria (opcional)
+     * @param  array  $actividades  Array de actividades a incluir en el certificado
      */
     private function prepararDatosCertificadoActividades(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $dirigidoAEntidad = null, array $actividades = []): array
     {
@@ -1329,7 +1323,7 @@ class CertificadoConvenioService
 
         // Nombre completo en mayúsculas
         $nombreCompleto = strtoupper(
-            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+            trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''))
         );
 
         // Documento formateado con puntos
@@ -1419,7 +1413,7 @@ class CertificadoConvenioService
      * Formatea la lista de actividades para el placeholder LISTA_ACTIVIDADES
      * Genera una lista con viñetas de actividades con saltos de línea entre cada item
      *
-     * @param array $actividades Array de strings con las actividades
+     * @param  array  $actividades  Array de strings con las actividades
      * @return string Lista formateada con viñetas y saltos de línea
      */
     private function formatearListaActividades(array $actividades): string
@@ -1431,7 +1425,7 @@ class CertificadoConvenioService
         // Filtrar actividades vacías y limpiar espacios
         $actividadesLimpias = array_filter(
             array_map('trim', $actividades),
-            fn($actividad) => !empty($actividad)
+            fn ($actividad) => ! empty($actividad)
         );
 
         if (empty($actividadesLimpias)) {
@@ -1452,11 +1446,9 @@ class CertificadoConvenioService
      * Prepara los datos del certificado dirigido a fondo de pensiones (AFP)
      * Similar al certificado de convenio simple pero incluye placeholder AFP
      *
-     * @param array $afiliadoData
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado
-     * @param string|null $consecutivo Número consecutivo
-     * @param string|null $afp Nombre del fondo de pensiones (AFP)
-     * @return array
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado
+     * @param  string|null  $consecutivo  Número consecutivo
+     * @param  string|null  $afp  Nombre del fondo de pensiones (AFP)
      */
     private function prepararDatosCertificadoAFP(array $afiliadoData, ?Carbon $fechaCertificado = null, ?string $consecutivo = null, ?string $afp = null): array
     {
@@ -1476,7 +1468,7 @@ class CertificadoConvenioService
 
         // Nombre completo en mayúsculas
         $nombreCompleto = strtoupper(
-            trim(($afiliado['nombres'] ?? '') . ' ' . ($afiliado['apellidos'] ?? ''))
+            trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''))
         );
 
         // Documento formateado con puntos
@@ -1515,7 +1507,7 @@ class CertificadoConvenioService
         // Procesar DESTINATARIO - Si no se proporciona AFP, usar valor genérico
         // La plantilla Word ya tiene un valor genérico definido, por lo que no se personaliza
         $destinatarioCompleto = 'A quien corresponda.';
-        if (!empty($afp)) {
+        if (! empty($afp)) {
             $destinatarioCompleto = "Señores\n{$afp}";
         }
 
@@ -1533,7 +1525,7 @@ class CertificadoConvenioService
 
         // AFP - usar el valor proporcionado o vacío
         // La plantilla Word ya tiene un valor genérico definido, por lo que no se personaliza
-        $afpValue = !empty($afp) ? trim($afp) : '';
+        $afpValue = ! empty($afp) ? trim($afp) : '';
 
         return [
             'NOMBRE_COMPLETO' => $nombreCompleto,
@@ -1569,7 +1561,7 @@ class CertificadoConvenioService
      */
     private function formatearFechaEspanol($fecha): string
     {
-        if (!$fecha) {
+        if (! $fecha) {
             return '';
         }
 
@@ -1596,7 +1588,7 @@ class CertificadoConvenioService
         $meses = [
             1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril',
             5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
-            9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre'
+            9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre',
         ];
 
         return $meses[$mes] ?? '';
@@ -1610,7 +1602,7 @@ class CertificadoConvenioService
         $meses = [
             1 => 'ene.', 2 => 'feb.', 3 => 'mar.', 4 => 'abr.',
             5 => 'may.', 6 => 'jun.', 7 => 'jul.', 8 => 'ago.',
-            9 => 'sept.', 10 => 'oct.', 11 => 'nov.', 12 => 'dic.'
+            9 => 'sept.', 10 => 'oct.', 11 => 'nov.', 12 => 'dic.',
         ];
 
         return $meses[$mes] ?? '';
@@ -1621,7 +1613,7 @@ class CertificadoConvenioService
      */
     private function formatearFechaCorta($fecha): string
     {
-        if (!$fecha) {
+        if (! $fecha) {
             return '';
         }
 
@@ -1680,22 +1672,22 @@ class CertificadoConvenioService
                 $fechaFinFormateada = 'hasta la fecha, se encuentra vigente';
             } else {
                 $fechaFinFormateada = $this->formatearFechaCorta($fechaFin);
-                if (!empty($fechaFinFormateada)) {
+                if (! empty($fechaFinFormateada)) {
                     $fechaFinFormateada = "hasta {$fechaFinFormateada}";
                 }
             }
 
             $linea = "❖ {$cliente}";
-            if (!empty($fechaIngresoFormateada)) {
+            if (! empty($fechaIngresoFormateada)) {
                 $linea .= " , desde {$fechaIngresoFormateada}";
             }
-            if (!empty($fechaFinFormateada)) {
+            if (! empty($fechaFinFormateada)) {
                 $linea .= " {$fechaFinFormateada}";
             }
 
             // Solo agregar si la línea no existe ya (deduplicación)
             // Usar la línea completa como clave para detectar duplicados
-            if (!isset($lineasUnicas[$linea])) {
+            if (! isset($lineasUnicas[$linea])) {
                 $lineasUnicas[$linea] = true;
                 $lineas[] = $linea;
             }
@@ -1709,138 +1701,11 @@ class CertificadoConvenioService
      */
     private function transformarCliente(?string $cliente): string
     {
-        if (empty($cliente)) {
+        if ($cliente === null || trim($cliente) === '') {
             return 'No asignado';
         }
 
-        $clienteNormalizado = trim($cliente);
-
-        // Mapeo de clientes del Excel a formato legible
-        $mapeoClientes = [
-            'ABEJORRAL' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - ADMON' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - ADMON ' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - ASIST' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - BUEN COMIENZO' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Buen Comienzo',
-            'ABEJORRAL - CBA' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ABEJORRAL - SALUD P' => 'E.S.E. Hospital San Juan de Dios Abejorral - Programa Salud Pública',
-            'ABEJORRAL SP' => 'E.S.E. Hospital San Juan de Dios - Abejorral',
-            'ADMON' => 'Sede Administrativa',
-            'ADMON-HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-            'BARBOSA' => 'E.S.E. Hospital San Vicente de Paul de Barbosa (Ant)',
-            'BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
-            'BETANIA' => 'E.S.E. Hospital San Antonio de Betania',
-            'CALDAS' => 'E.S.E. Hospital San Vicente de Paúl de Caldas',
-            'CENTRO NEUROLOGICO' => 'Centro Neurológico',
-            'CISNEROS' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
-            'CIUDAD BOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
-            'CIUDADBOLIVAR' => 'E.S.E. Hospital La Merced - Ciudad Bolivar (Ant)',
-            'COPACABANA' => 'E.S.E. Hospital Santa Margarita',
-            'COPACABANA ' => 'E.S.E. Hospital Santa Margarita',
-            'E.S.E CARISMA ADMON ' => 'E.S.E. Hospital Carisma',
-            'E.S.E CARISMA ASISTENCIAL' => 'E.S.E. Hospital Carisma',
-            'E.S.ECARISMA' => 'E.S.E. Hospital Carisma',
-            'FREDONIA' => 'E.S.E. Hospital Santa Lucia - Fredonia (Ant)',
-            'HGM SEDE 80 ADMON' => 'E.S.E. Hospital General de Medellín - Sede 80',
-            'HGM SEDE 80 ASISTENCIAL' => 'E.S.E. Hospital General de Medellín - Sede 80',
-            'HGM SEDE 80 ASISTENCIAL ' => 'E.S.E. Hospital General de Medellín - Sede 80',
-            'HLM - GRUPO 1' => 'E.S.E. Hospital La María',
-            'HLM - GRUPO 2' => 'E.S.E. Hospital La María',
-            'HLM - GRUPO 3' => 'E.S.E. Hospital La María',
-            'HMFS - BELLO' => 'E.S.E. Hospital Marco Fidel Suarez de Bello',
-            'HSJD Rionegro - ADMON' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-            'HSJD Rionegro - ASISTENCIAL' => 'Centro Neurológico',
-            'HSJD Rionegro - PIC ' => 'E.S.E. Hospital San Antonio - Cisneros (Ant)',
-            'HSJDRionegro' => 'E.S.E. Hospital San Juan de Dios - Rionegro',
-            'HSRI' => 'E.S.E. Hospital San Rafael de Itagüí',
-            'HSRI ' => 'E.S.E. Hospital San Rafael de Itagüí',
-            'JARDIN' => 'E.S.E. Hospital Gabriel Peláez Montoya',
-            'LA MARIA' => 'E.S.E. Hospital La María',
-            'LA MARIA - 000065-2021' => 'E.S.E. Hospital La María',
-            'LA MARIA - 262-2021' => 'E.S.E. Hospital La María',
-            'LA MARIA - COOSALUD' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO 1 - 044' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO 2' => 'E.S.E. Hospital La María',
-            'LA MARIA - ENTERRITORIO 2 - 045' => 'E.S.E. Hospital La María',
-            'LA MARIA - INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
-            'LA MARIA - ITS 257' => 'E.S.E. Hospital La María',
-            'LA MARIA - PROGRAMA ESPECIAL SAVIA SALUD EPS - VIH-SIDA' => 'E.S.E. Hospital La María',
-            'LA MARIA - TRANSMISIBLES' => 'E.S.E. Hospital La María',
-            'LA MARIA - TRANSMISIBLES - 122 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA - TRANSMISIBLES 176' => 'E.S.E. Hospital La María',
-            'LA MARIA - UNION TEMPORAL' => 'E.S.E. Hospital La María',
-            'LA MARIA - UNION TEMPORAL 020 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA - VIH' => 'E.S.E. Hospital La María',
-            'LA MARIA - VIH - 1' => 'E.S.E. Hospital La María',
-            'LA MARIA 216 - 2021' => 'E.S.E. Hospital La María',
-            'LA MARIA 317 COOSALUD' => 'E.S.E. Hospital La María',
-            'LA MARIA COOSALUD - 046' => 'E.S.E. Hospital La María',
-            'LA MARIA COOSALUD 191' => 'E.S.E. Hospital La María',
-            'LA MARIA COOSALUD 36-2022' => 'E.S.E. Hospital La María',
-            'LA MARIA ENTERRITORIO - 287' => 'E.S.E. Hospital La María',
-            'LA MARIA ENTERRITORIO 038' => 'E.S.E. Hospital La María',
-            'LA MARIA ENTERRITORIO 238' => 'E.S.E. Hospital La María',
-            'LA MARIA- INFECCIOSA PS 268' => 'E.S.E. Hospital La María',
-            'LA MARIA ITS ' => 'E.S.E. Hospital La María',
-            'LA MARIA ITS 127' => 'E.S.E. Hospital La María',
-            'LA MARIA ITS- 376' => 'E.S.E. Hospital La María',
-            'LA MARIA PAI ' => 'E.S.E. Hospital La María',
-            'LA MARIA TB 137' => 'E.S.E. Hospital La María',
-            'LA MARIA TB Y LEPRA  319-2021' => 'E.S.E. Hospital La María',
-            'LA MARIA TBC' => 'E.S.E. Hospital La María',
-            'LA MARIA TRANSMISIBLES - 122' => 'E.S.E. Hospital La María',
-            'LA MARIA TRANSMISIBLES - 275' => 'E.S.E. Hospital La María',
-            'LA MARIA TRANSMISIBLES 234' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI - 0028 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI - 140 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI - 271' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI 0028 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI 245' => 'E.S.E. Hospital La María',
-            'LA MARIA UPAI 35' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH - 158' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 037' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 131' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 131 - 2023' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 158' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH 188' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH N°043' => 'E.S.E. Hospital La María',
-            'LA MARIA VIH UT ' => 'E.S.E. Hospital La María',
-            'LAMARIACOOSALUD36' => 'E.S.E. Hospital La María',
-            'LAMARIAENTERRITORIO038' => 'E.S.E. Hospital La María',
-            'LAMARIAITS127' => 'E.S.E. Hospital La María',
-            'LAMARIATB2022' => 'E.S.E. Hospital La María',
-            'LAMARIAUPAI35' => 'E.S.E. Hospital La María',
-            'LAMARIAVIH037' => 'E.S.E. Hospital La María',
-            'POLICLINICO' => 'POLICLINICO',
-            'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.' => 'PROMOTORA MEDICA Y ODONTOLOGICA DE ANTIOQUIA S.A.',
-            'PUERTO BERRIO' => 'E.S.E. Hospital La Cruz',
-            'SOMER' => 'SOMER',
-            'STA GERTRUDIS' => 'E.S.E. Santa Gertrudis',
-            'UNION TEMPORAL - 020 - 2023' => 'E.S.E. Hospital La María',
-            'VENANCIO' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO -  SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - ADMON' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - ASIST' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - ASIST ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - PIC ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - SALUD MENTAL ' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - SALUD P.' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO - UCI' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENANCIO ADMON - APH' => 'E.S.E. Hospital Venancio Diaz Diaz (Sabaneta)',
-            'VENECIA' => 'ESE Hospital San Rafael de Venecia',
-        ];
-
-        // Buscar coincidencia exacta (case-insensitive)
-        $clienteUpper = strtoupper($clienteNormalizado);
-        foreach ($mapeoClientes as $key => $value) {
-            if (strtoupper($key) === $clienteUpper) {
-                return $value;
-            }
-        }
-
-        // Si no hay coincidencia, retornar el valor original
-        return $clienteNormalizado;
+        return HospitalCatalog::resolve($cliente);
     }
 
     /**
@@ -1862,9 +1727,7 @@ class CertificadoConvenioService
     /**
      * Genera nombre de archivo
      *
-     * @param array $afiliadoData
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
-     * @return string
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
      */
     private function generarNombreArchivo(array $afiliadoData, ?Carbon $fechaCertificado = null): string
     {
@@ -1884,8 +1747,7 @@ class CertificadoConvenioService
      * Genera consecutivo único
      * Formato: YYYYMMDD + número secuencial del día (4 dígitos, con padding ceros)
      *
-     * @param Carbon|null $fechaCertificado Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
-     * @return string
+     * @param  Carbon|null  $fechaCertificado  Instancia de Carbon con la fecha del certificado (opcional, usa now() si no se proporciona)
      */
     private function generarConsecutivo(?Carbon $fechaCertificado = null): string
     {
@@ -1897,7 +1759,7 @@ class CertificadoConvenioService
         $fechaFormato = $fechaCertificado->format('Ymd');
 
         // Buscar el último consecutivo del día
-        $ultimoConsecutivo = CertificadoConvenioRecord::where('consecutivo', 'like', $fechaFormato . '%')
+        $ultimoConsecutivo = CertificadoConvenioRecord::where('consecutivo', 'like', $fechaFormato.'%')
             ->orderBy('consecutivo', 'desc')
             ->value('consecutivo');
 
@@ -1915,17 +1777,16 @@ class CertificadoConvenioService
         // Formatear con padding de ceros a la izquierda
         $numeroFormateado = str_pad((string) $numeroSecuencial, 4, '0', STR_PAD_LEFT);
 
-        return $fechaFormato . $numeroFormateado;
+        return $fechaFormato.$numeroFormateado;
     }
 
     /**
      * Obtiene la ruta de la plantilla según el tipo de certificado
      *
-     * @param bool $esParaBancolombia Indica si es para certificado de Bancolombia
-     * @param bool $esParaSubsidioVivienda Indica si es para certificado de subsidio de vivienda
-     * @param bool $esParaSubsidioDesempleo Indica si es para certificado de subsidio de desempleo
-     * @param bool $esConActividades Indica si es para certificado con actividades
-     * @return string
+     * @param  bool  $esParaBancolombia  Indica si es para certificado de Bancolombia
+     * @param  bool  $esParaSubsidioVivienda  Indica si es para certificado de subsidio de vivienda
+     * @param  bool  $esParaSubsidioDesempleo  Indica si es para certificado de subsidio de desempleo
+     * @param  bool  $esConActividades  Indica si es para certificado con actividades
      */
     private function obtenerRutaPlantilla(bool $esParaBancolombia = false, bool $esParaSubsidioVivienda = false, bool $esParaSubsidioDesempleo = false, bool $esConActividades = false, bool $esParaAFP = false): string
     {
@@ -1945,13 +1806,12 @@ class CertificadoConvenioService
         }
     }
 
-
     /**
      * Normaliza un valor (similar al método en AfiliadoService)
      */
     private function normalizeValue($value): string
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return '';
         }
 
@@ -1963,7 +1823,7 @@ class CertificadoConvenioService
      */
     private function normalizeDocumento($value): string
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return '';
         }
 
@@ -2003,11 +1863,11 @@ class CertificadoConvenioService
      * Guarda el certificado PDF en el bucket privado con estructura organizada
      * Estructura: certificados/convenio/YYYY/MM/documento_consecutivo.pdf
      *
-     * @param string $rutaPDF Ruta local del archivo PDF
-     * @param string $documento Número de documento del afiliado
-     * @param string $consecutivo Número consecutivo del certificado
-     * @param Carbon $fechaCertificado Fecha de generación
-     * @param array $afiliadoData Datos del afiliado
+     * @param  string  $rutaPDF  Ruta local del archivo PDF
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  string  $consecutivo  Número consecutivo del certificado
+     * @param  Carbon  $fechaCertificado  Fecha de generación
+     * @param  array  $afiliadoData  Datos del afiliado
      * @return string Ruta del archivo en el bucket
      */
     private function guardarCertificadoEnBucket(
@@ -2040,8 +1900,8 @@ class CertificadoConvenioService
             // Guardar en el bucket
             $guardado = $storage->put($bucketPath, $contenidoPDF);
 
-            if (!$guardado) {
-                throw new \Exception("No se pudo guardar el certificado en el bucket");
+            if (! $guardado) {
+                throw new \Exception('No se pudo guardar el certificado en el bucket');
             }
 
             Log::info('Certificado guardado en bucket privado', [
@@ -2079,6 +1939,7 @@ class CertificadoConvenioService
                         'consecutivo' => $consecutivo,
                         'path' => "{$directorioLocal}/{$nombreArchivo}",
                     ]);
+
                     return "{$directorioLocal}/{$nombreArchivo}";
                 }
             } catch (\Exception $fallbackError) {
@@ -2087,22 +1948,21 @@ class CertificadoConvenioService
                 ]);
             }
 
-            throw new \Exception("Error al guardar certificado en almacenamiento: " . $e->getMessage());
+            throw new \Exception('Error al guardar certificado en almacenamiento: '.$e->getMessage());
         }
     }
 
     /**
      * Crea un registro del certificado en la base de datos
      *
-     * @param string $documento Número de documento del afiliado
-     * @param string $consecutivo Número consecutivo del certificado
-     * @param string $bucketPath Ruta del archivo en el bucket
-     * @param Carbon $fechaCertificado Fecha de generación
-     * @param array $afiliadoData Datos del afiliado
-     * @param string|null $tipoCertificado Tipo de certificado: 'basico', 'con_actividades', 'dirigido_afp', 'bancolombia', 'subsidio_vivienda', 'subsidio_desempleo', 'otros'
-     * @param bool $tieneCompensaciones Indica si el certificado tiene valores de compensaciones
-     * @param string|null $dirigidoAEntidad Entidad a la que está dirigido el certificado
-     * @return CertificadoConvenioRecord
+     * @param  string  $documento  Número de documento del afiliado
+     * @param  string  $consecutivo  Número consecutivo del certificado
+     * @param  string  $bucketPath  Ruta del archivo en el bucket
+     * @param  Carbon  $fechaCertificado  Fecha de generación
+     * @param  array  $afiliadoData  Datos del afiliado
+     * @param  string|null  $tipoCertificado  Tipo de certificado: 'basico', 'con_actividades', 'dirigido_afp', 'bancolombia', 'subsidio_vivienda', 'subsidio_desempleo', 'otros'
+     * @param  bool  $tieneCompensaciones  Indica si el certificado tiene valores de compensaciones
+     * @param  string|null  $dirigidoAEntidad  Entidad a la que está dirigido el certificado
      */
     private function crearRegistroCertificado(
         string $documento,
@@ -2139,9 +1999,9 @@ class CertificadoConvenioService
      * Genera el mensaje de compensaciones para el certificado
      * Retorna un array con dos partes separadas para usar en diferentes placeholders
      *
-     * @param int $tBasicos Valor de T. Basicos
-     * @param int $tAuxilios Valor de T. Auxilios
-     * @param int $tIngresos Valor de T. Ingresos (Total)
+     * @param  int  $tBasicos  Valor de T. Basicos
+     * @param  int  $tAuxilios  Valor de T. Auxilios
+     * @param  int  $tIngresos  Valor de T. Ingresos (Total)
      * @return array ['parte1' => string, 'parte2' => string]
      */
     private function generarMensajeCompensaciones(int $tBasicos, int $tAuxilios, int $tIngresos): array
@@ -2178,7 +2038,7 @@ class CertificadoConvenioService
             $parte1 .= ", auxilios por \${$tAuxiliosFormateado}";
         }
 
-        $parte1 .= ", para un";
+        $parte1 .= ', para un';
 
         // Construir segunda parte: "Total de $X. En letras: [número en letras] pesos."
         $parte2 = "Total de \${$tIngresosFormateado}. En letras: {$totalEnLetras} pesos.";
@@ -2199,9 +2059,9 @@ class CertificadoConvenioService
      * Formato especial: "Con una compensación Básica mensual variable de $X, más los beneficios económicos que no hacen parte integral de la compensación Básica por $Y, para un"
      * Retorna un array con dos partes separadas para usar en diferentes placeholders
      *
-     * @param int $tBasicos Valor de T. Basicos
-     * @param int $tAuxilios Valor de T. Auxilios (beneficios económicos)
-     * @param int $tIngresos Valor de T. Ingresos (Total)
+     * @param  int  $tBasicos  Valor de T. Basicos
+     * @param  int  $tAuxilios  Valor de T. Auxilios (beneficios económicos)
+     * @param  int  $tIngresos  Valor de T. Ingresos (Total)
      * @return array ['parte1' => string, 'parte2' => string]
      */
     private function generarMensajeCompensacionesSubsidioVivienda(int $tBasicos, int $tAuxilios, int $tIngresos): array
@@ -2239,7 +2099,7 @@ class CertificadoConvenioService
             $parte1 .= ", más los beneficios económicos que no hacen parte integral de la compensación Básica por \${$tAuxiliosFormateado}";
         }
 
-        $parte1 .= ", para un";
+        $parte1 .= ', para un';
 
         // Construir segunda parte: "Total de $X. En letras: [número en letras] pesos."
         $parte2 = "Total de \${$tIngresosFormateado}. En letras: {$totalEnLetras} pesos.";
@@ -2258,7 +2118,7 @@ class CertificadoConvenioService
     /**
      * Convierte un número a letras en español
      *
-     * @param int $numero Número a convertir
+     * @param  int  $numero  Número a convertir
      * @return string Número en letras
      */
     private function numeroALetras(int $numero): string
@@ -2278,7 +2138,7 @@ class CertificadoConvenioService
             if ($millones == 1) {
                 $resultado .= 'un millón';
             } else {
-                $resultado .= $this->convertirUnidades($millones) . ' millones';
+                $resultado .= $this->convertirUnidades($millones).' millones';
             }
             if ($miles > 0 || $unidades > 0) {
                 $resultado .= ' ';
@@ -2290,7 +2150,7 @@ class CertificadoConvenioService
             if ($miles == 1) {
                 $resultado .= 'mil';
             } else {
-                $resultado .= $this->convertirUnidades($miles) . ' mil';
+                $resultado .= $this->convertirUnidades($miles).' mil';
             }
             if ($unidades > 0) {
                 $resultado .= ' ';
@@ -2308,7 +2168,7 @@ class CertificadoConvenioService
     /**
      * Convierte un número de 0 a 999 a letras
      *
-     * @param int $numero Número entre 0 y 999
+     * @param  int  $numero  Número entre 0 y 999
      * @return string Número en letras
      */
     private function convertirUnidades(int $numero): string
@@ -2323,7 +2183,7 @@ class CertificadoConvenioService
             15 => 'quince', 16 => 'dieciséis', 17 => 'diecisiete', 18 => 'dieciocho',
             19 => 'diecinueve', 20 => 'veinte', 21 => 'veintiuno', 22 => 'veintidós',
             23 => 'veintitrés', 24 => 'veinticuatro', 25 => 'veinticinco', 26 => 'veintiséis',
-            27 => 'veintisiete', 28 => 'veintiocho', 29 => 'veintinueve'
+            27 => 'veintisiete', 28 => 'veintiocho', 29 => 'veintinueve',
         ];
         $decenas = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
         $centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
@@ -2356,7 +2216,7 @@ class CertificadoConvenioService
                 if ($decena > 0) {
                     $resultado .= $decenas[$decena];
                     if ($unidad > 0) {
-                        $resultado .= ' y ' . $unidades[$unidad];
+                        $resultado .= ' y '.$unidades[$unidad];
                     }
                 } else {
                     $resultado .= $unidades[$unidad];
@@ -2370,8 +2230,8 @@ class CertificadoConvenioService
     /**
      * Valida las reglas de negocio para el certificado de convenio
      *
-     * @param array $data Datos de la solicitud (payload completo)
-     * @param string|null $estadoAfiliado Estado del afiliado ('activo' o 'retirado')
+     * @param  array  $data  Datos de la solicitud (payload completo)
+     * @param  string|null  $estadoAfiliado  Estado del afiliado ('activo' o 'retirado')
      * @return array Array de mensajes de error (vacío si no hay errores)
      */
     public function validarCertificadoConvenio(array $data, ?string $estadoAfiliado = null): array
@@ -2382,7 +2242,7 @@ class CertificadoConvenioService
         // Parsear infoCertificado si viene como string JSON
         if (is_string($info)) {
             $info = json_decode($info, true);
-            if (!is_array($info)) {
+            if (! is_array($info)) {
                 $info = [];
             }
         }
@@ -2398,6 +2258,7 @@ class CertificadoConvenioService
             if (is_numeric($value)) {
                 return (bool) $value;
             }
+
             return false;
         };
 
@@ -2413,7 +2274,7 @@ class CertificadoConvenioService
         $otros = $parseBoolean($info['otros'] ?? false);
 
         // 1. Validación obligatoria: fechaIngresoRetiro siempre debe ser true
-        if (!$fechaIngresoRetiro) {
+        if (! $fechaIngresoRetiro) {
             $errors[] = 'fechaIngresoRetiro debe estar siempre marcado';
         }
 
@@ -2428,7 +2289,7 @@ class CertificadoConvenioService
 
         // 3. Validación: Si hay subsidio, valorCompensaciones es obligatorio
         $tieneSubsidio = $paraSubsidioVivienda || $paraSubsidioDesempleo;
-        if ($tieneSubsidio && !$valorCompensaciones) {
+        if ($tieneSubsidio && ! $valorCompensaciones) {
             $errors[] = 'Valor de compensaciones es obligatorio cuando se selecciona un subsidio';
         }
 
@@ -2468,12 +2329,12 @@ class CertificadoConvenioService
         }
 
         // 11. Validación: valorCompensaciones sin subsidios no puede estar con dirigidoFondoPensiones
-        if ($valorCompensaciones && !$tieneSubsidio && $dirigidoFondoPensiones) {
+        if ($valorCompensaciones && ! $tieneSubsidio && $dirigidoFondoPensiones) {
             $errors[] = 'Valor de compensaciones no puede seleccionarse con Dirigido al Fondo de Pensiones cuando no hay subsidios';
         }
 
         // 12. Validación: valorCompensaciones sin subsidios no puede estar con dirigidoBancolombia
-        if ($valorCompensaciones && !$tieneSubsidio && $dirigidoBancolombia) {
+        if ($valorCompensaciones && ! $tieneSubsidio && $dirigidoBancolombia) {
             $errors[] = 'Valor de compensaciones no puede seleccionarse con Dirigido a Bancolombia cuando no hay subsidios';
         }
 
@@ -2498,7 +2359,7 @@ class CertificadoConvenioService
         }
 
         // 17. Validación: dirigidoFondoPensiones no puede estar con valorCompensaciones (sin subsidios)
-        if ($dirigidoFondoPensiones && $valorCompensaciones && !$tieneSubsidio) {
+        if ($dirigidoFondoPensiones && $valorCompensaciones && ! $tieneSubsidio) {
             $errors[] = 'Dirigido al Fondo de Pensiones no puede seleccionarse con Valor de compensaciones cuando no hay subsidios';
         }
 
@@ -2520,7 +2381,7 @@ class CertificadoConvenioService
             } elseif (isset($data['actividadesPdf'])) {
                 $hasActividadesPdf = true;
             }
-            if (!$hasActividadesPdf) {
+            if (! $hasActividadesPdf) {
                 $errors[] = 'actividadesPdf es obligatorio cuando se selecciona Adicionar actividades';
             }
         }
@@ -2539,8 +2400,8 @@ class CertificadoConvenioService
     /**
      * Obtiene estadísticas y métricas de certificados de convenio generados
      *
-     * @param string|null $fechaDesde Fecha desde (formato Y-m-d)
-     * @param string|null $fechaHasta Fecha hasta (formato Y-m-d)
+     * @param  string|null  $fechaDesde  Fecha desde (formato Y-m-d)
+     * @param  string|null  $fechaHasta  Fecha hasta (formato Y-m-d)
      * @return array Estadísticas agrupadas por tipo de certificado y características
      */
     public function obtenerEstadisticasCertificados(?string $fechaDesde = null, ?string $fechaHasta = null): array
@@ -2551,6 +2412,7 @@ class CertificadoConvenioService
             if ($fechaDesde || $fechaHasta) {
                 $query->byFechaRango($fechaDesde, $fechaHasta);
             }
+
             return $query;
         };
 
@@ -2664,4 +2526,3 @@ class CertificadoConvenioService
         ];
     }
 }
-
