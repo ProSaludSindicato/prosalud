@@ -3,7 +3,8 @@
 namespace App\Http\Requests;
 
 use Carbon\Carbon;
-use Illuminate\Contracts\Validation\{ValidationRule, Validator};
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Log;
@@ -33,7 +34,7 @@ class StoreWellnessRequestRequest extends FormRequest
         $rules = [
             'nombreActividad' => 'required|string|max:200',
             'descripcionActividad' => 'nullable|string|max:300',
-            'centroCostos' => 'required|string|in:Bello,Rionegro,La Maria asistencial,La Maria VIH,La Maria Cosalud,La Maria Enterritorio,Admon',
+            'centroCostos' => 'required|string|in:Bello,Rionegro,La Maria asistencial,La Maria VIH,La Maria Cosalud,La Maria Enterritorio,Carisma,Admon',
             'fechaPropuesta' => [
                 'required',
                 'date',
@@ -59,7 +60,7 @@ class StoreWellnessRequestRequest extends FormRequest
             $rules['sedes.*'] = [
                 'required',
                 'string',
-                'in:' . implode(',', $sedesValidas),
+                'in:'.implode(',', $sedesValidas),
             ];
         } else {
             $rules['sedes'] = 'nullable|array';
@@ -250,6 +251,7 @@ class StoreWellnessRequestRequest extends FormRequest
             'La Maria VIH' => ['Castilla', 'La 33'],
             'La Maria Cosalud' => ['Castilla', 'La 33'],
             'La Maria Enterritorio' => ['Castilla', 'La 33'],
+            'Carisma' => ['Principal'],
             'Admon' => ['Principal'],
             default => null,
         };

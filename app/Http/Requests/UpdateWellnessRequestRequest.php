@@ -34,7 +34,7 @@ class UpdateWellnessRequestRequest extends FormRequest
         $rules = [
             'nombreActividad' => 'sometimes|required|string|max:200',
             'descripcionActividad' => 'nullable|string|max:300',
-            'centroCostos' => 'sometimes|required|string|in:Bello,Rionegro,La Maria asistencial,La Maria VIH,La Maria Cosalud,La Maria Enterritorio,Admon',
+            'centroCostos' => 'sometimes|required|string|in:Bello,Rionegro,La Maria asistencial,La Maria VIH,La Maria Cosalud,La Maria Enterritorio,Carisma,Admon',
             'fechaPropuesta' => [
                 'sometimes',
                 'required',
@@ -62,7 +62,7 @@ class UpdateWellnessRequestRequest extends FormRequest
                 $rules['sedes.*'] = [
                     'required',
                     'string',
-                    'in:' . implode(',', $sedesValidas),
+                    'in:'.implode(',', $sedesValidas),
                 ];
             } else {
                 $rules['sedes'] = 'nullable|array';
@@ -72,7 +72,7 @@ class UpdateWellnessRequestRequest extends FormRequest
         }
 
         // Validación condicional de detalles
-        if (null !== $requiereDetalles) {
+        if ($requiereDetalles !== null) {
             if ($requiereDetalles) {
                 $rules['detalles'] = [
                     'required',
@@ -286,6 +286,7 @@ class UpdateWellnessRequestRequest extends FormRequest
             'La Maria VIH' => ['Castilla', 'La 33'],
             'La Maria Cosalud' => ['Castilla', 'La 33'],
             'La Maria Enterritorio' => ['Castilla', 'La 33'],
+            'Carisma' => ['Principal'],
             'Admon' => ['Principal'],
             default => null,
         };

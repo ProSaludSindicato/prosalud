@@ -13,8 +13,9 @@ class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory;
-    use Notifiable;
+
     use HasRoles;
+    use Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -57,6 +58,11 @@ class User extends Authenticatable
     public function requestSubtypeAssignments(): HasMany
     {
         return $this->hasMany(RequestSubtypeAssignment::class);
+    }
+
+    public function wellnessHospitalAssignments(): HasMany
+    {
+        return $this->hasMany(WellnessHospitalAssignment::class);
     }
 
     /**

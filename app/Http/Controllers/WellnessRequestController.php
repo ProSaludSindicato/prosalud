@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\WellnessRequest;
 use App\Services\AuditLogService;
 use App\Services\WellnessExcelExportService;
+use App\Services\WellnessRequestVisibilityService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ class WellnessRequestController extends Controller
     public function __construct(
         private WellnessExcelExportService $excelExportService,
         private AuditLogService $auditLogService,
+        private WellnessRequestVisibilityService $visibilityService,
     ) {}
 
     /**
@@ -34,16 +36,9 @@ class WellnessRequestController extends Controller
     {
         $query = WellnessRequest::with(['requester', 'details']);
 
-        // Apply permission-based filtering
         $user = $request->user();
         if ($user) {
-            // Check if user has permission to update status (can see all requests)
-            $canUpdateStatus = $user->can('wellness_requests.update_status');
-
-            // If user cannot update status, only show their own requests
-            if (! $canUpdateStatus) {
-                $query->where('requester_id', $user->id);
-            }
+            $this->visibilityService->applyListScope($query, $user);
         }
 
         // Filter by status
@@ -120,9 +115,8 @@ class WellnessRequestController extends Controller
         $perPage = $request->integer('per_page', 15);
         $wellnessRequests = $query->paginate($perPage);
 
-        // Transform to Spanish keys for frontend
-        $transformedItems = $wellnessRequests->map(function ($wellnessRequest) {
-            return $this->formatWellnessRequestResponse($wellnessRequest);
+        $transformedItems = $wellnessRequests->map(function ($wellnessRequest) use ($user) {
+            return $this->formatWellnessRequestResponse($wellnessRequest, $user);
         });
 
         Log::info('Wellness requests list retrieved', [
@@ -249,26 +243,19 @@ class WellnessRequestController extends Controller
      */
     public function show(Request $request, WellnessRequest $wellnessRequest): JsonResponse
     {
-        // Apply permission-based filtering
         $user = $request->user();
-        if ($user) {
-            // Check if user has permission to update status (can see all requests)
-            $canUpdateStatus = $user->can('wellness_requests.update_status');
-
-            // If user cannot update status, only show their own requests
-            if (! $canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No tienes permiso para ver esta solicitud',
-                ], 403);
-            }
+        if ($user && ! $this->visibilityService->canViewRequest($user, $wellnessRequest)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para ver esta solicitud',
+            ], 403);
         }
 
         $wellnessRequest->load(['requester', 'details', 'activityRealized.evidences']);
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatWellnessRequestResponse($wellnessRequest),
+            'data' => $this->formatWellnessRequestResponse($wellnessRequest, $user),
         ], 200);
     }
 
@@ -278,19 +265,12 @@ class WellnessRequestController extends Controller
      */
     public function update(UpdateWellnessRequestRequest $request, WellnessRequest $wellnessRequest): JsonResponse
     {
-        // Apply permission-based filtering
         $user = $request->user();
-        if ($user) {
-            // Check if user has permission to update status (can edit all requests)
-            $canUpdateStatus = $user->can('wellness_requests.update_status');
-
-            // If user cannot update status, only edit their own requests
-            if (! $canUpdateStatus && $wellnessRequest->requester_id !== $user->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No tienes permiso para editar esta solicitud',
-                ], 403);
-            }
+        if ($user && ! $this->visibilityService->canEditRequest($user, $wellnessRequest)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para editar esta solicitud',
+            ], 403);
         }
 
         // Check if request is in a final state and user doesn't have update_status permission
@@ -545,10 +525,15 @@ class WellnessRequestController extends Controller
     /**
      * Format wellness request for response with Spanish keys.
      */
-    private function formatWellnessRequestResponse(WellnessRequest $wellnessRequest): array
+    private function formatWellnessRequestResponse(WellnessRequest $wellnessRequest, ?User $viewer = null): array
     {
+        $esPropia = $viewer
+            ? $this->visibilityService->isOwnRequest($viewer, $wellnessRequest)
+            : null;
+
         return [
             'id' => $wellnessRequest->id,
+            'esPropia' => $esPropia,
             'nombreActividad' => $wellnessRequest->activity_name,
             'descripcionActividad' => $wellnessRequest->activity_description,
             'centroCostos' => $wellnessRequest->cost_center,
@@ -767,16 +752,9 @@ class WellnessRequestController extends Controller
                 ->where('status', 'resolved')
                 ->whereDoesntHave('activityRealized');
 
-            // Apply permission-based filtering
             $user = $request->user();
             if ($user) {
-                // Check if user has permission to update status (can see all requests)
-                $canUpdateStatus = $user->can('wellness_requests.update_status');
-
-                // If user cannot update status, only show their own requests
-                if (! $canUpdateStatus) {
-                    $query->where('requester_id', $user->id);
-                }
+                $this->visibilityService->applyListScope($query, $user);
             }
 
             // Filter by cost center
@@ -824,9 +802,8 @@ class WellnessRequestController extends Controller
             $perPage = $request->integer('per_page', 15);
             $wellnessRequests = $query->paginate($perPage);
 
-            // Transform to Spanish keys for frontend
-            $transformedItems = $wellnessRequests->map(function ($wellnessRequest) {
-                return $this->formatWellnessRequestResponse($wellnessRequest);
+            $transformedItems = $wellnessRequests->map(function ($wellnessRequest) use ($user) {
+                return $this->formatWellnessRequestResponse($wellnessRequest, $user);
             });
 
             Log::info('Completed wellness requests without activities retrieved', [

@@ -28,7 +28,13 @@ class WellnessRequestFactory extends Factory
         return [
             'activity_name' => $this->faker->sentence(3),
             'activity_description' => $this->faker->paragraph(),
-            'cost_center' => $this->faker->randomElement(['CC-001', 'CC-002', 'CC-003']),
+            'cost_center' => $this->faker->randomElement([
+                'Bello',
+                'Rionegro',
+                'La Maria asistencial',
+                'Carisma',
+                'Admon',
+            ]),
             'locations' => $this->faker->randomElements(['Sede Principal', 'Sede Norte', 'Sede Sur'], $this->faker->numberBetween(1, 3)),
             'proposed_date' => $this->faker->dateTimeBetween('+1 week', '+1 month'),
             'start_time' => $this->faker->time('H:i'),

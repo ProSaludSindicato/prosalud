@@ -2,16 +2,25 @@
 
 namespace App\Services;
 
-use App\Models\{WellnessRequest, WellnessActivityRealized};
+use App\Models\WellnessActivityRealized;
+use App\Models\WellnessRequest;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\{Log, Storage};
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Chart\Chart;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
+use PhpOffice\PhpSpreadsheet\Chart\Legend;
+use PhpOffice\PhpSpreadsheet\Chart\PlotArea;
+use PhpOffice\PhpSpreadsheet\Chart\Title;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
-use PhpOffice\PhpSpreadsheet\Worksheet\{Drawing, Worksheet};
-use PhpOffice\PhpSpreadsheet\Chart\{Chart, DataSeries, DataSeriesValues, Legend, PlotArea, Title};
 
 class WellnessExcelExportService
 {
@@ -50,6 +59,7 @@ class WellnessExcelExportService
         'La Maria VIH' => 'La María VIH',
         'La Maria Cosalud' => 'La María Cosalud',
         'La Maria Enterritorio' => 'La María Enterritorio',
+        'Carisma' => 'Carisma',
         'Admon' => 'Administración',
     ];
 
@@ -71,7 +81,7 @@ class WellnessExcelExportService
             $requests = $this->getRequests($filters, $options);
 
             // Crear spreadsheet
-            $spreadsheet = new Spreadsheet();
+            $spreadsheet = new Spreadsheet;
             $spreadsheet->removeSheetByIndex(0);
 
             // Crear hoja "Resumen"
@@ -103,7 +113,7 @@ class WellnessExcelExportService
             $spreadsheet->setActiveSheetIndex(0);
 
             // Guardar en archivo temporal
-            $tempFile = tempnam(sys_get_temp_dir(), 'wellness_report_') . '.xlsx';
+            $tempFile = tempnam(sys_get_temp_dir(), 'wellness_report_').'.xlsx';
             $writer = new Xlsx($spreadsheet);
             $writer->setIncludeCharts(true);
             $writer->save($tempFile);
@@ -115,7 +125,7 @@ class WellnessExcelExportService
         } catch (\Exception $e) {
             // Limpiar archivos temporales en caso de error
             $this->cleanupTempFiles();
-            
+
             Log::error('Error generando reporte Excel de bienestar', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
@@ -146,38 +156,38 @@ class WellnessExcelExportService
     private function getRequests(array $filters, array $options = []): Collection
     {
         $includeImages = $options['include_images'] ?? false;
-        
+
         $relationships = ['requester', 'details', 'activityRealized'];
-        
+
         // Si se necesitan imágenes, cargar también las evidencias
         if ($includeImages) {
             $relationships[] = 'activityRealized.evidences';
         }
-        
+
         $query = WellnessRequest::with($relationships);
 
         // Filtro por centro de costos (hospital)
-        if (!empty($filters['cost_center'])) {
+        if (! empty($filters['cost_center'])) {
             $query->where('cost_center', $filters['cost_center']);
         }
 
         // Filtro por solicitante
-        if (!empty($filters['requester_id'])) {
+        if (! empty($filters['requester_id'])) {
             $query->where('requester_id', $filters['requester_id']);
         }
 
         // Filtro por estado
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
 
         // Filtro por rango de fechas (fecha propuesta)
-        if (!empty($filters['fecha_desde'])) {
+        if (! empty($filters['fecha_desde'])) {
             $startDate = Carbon::parse($filters['fecha_desde'])->startOfDay();
             $query->where('proposed_date', '>=', $startDate);
         }
 
-        if (!empty($filters['fecha_hasta'])) {
+        if (! empty($filters['fecha_hasta'])) {
             $endDate = Carbon::parse($filters['fecha_hasta'])->endOfDay();
             $query->where('proposed_date', '<=', $endDate);
         }
@@ -207,7 +217,7 @@ class WellnessExcelExportService
         $row++;
 
         // Período
-        if (!empty($filters['fecha_desde']) && !empty($filters['fecha_hasta'])) {
+        if (! empty($filters['fecha_desde']) && ! empty($filters['fecha_hasta'])) {
             $startDate = Carbon::parse($filters['fecha_desde'])->format('d/m/Y');
             $endDate = Carbon::parse($filters['fecha_hasta'])->format('d/m/Y');
             $sheet->setCellValue("A{$row}", 'Período:');
@@ -225,19 +235,19 @@ class WellnessExcelExportService
         $sheet->getStyle("A{$row}")->getFont()->setBold(true);
         $row++;
 
-        if (!empty($filters['cost_center'])) {
+        if (! empty($filters['cost_center'])) {
             $sheet->setCellValue("A{$row}", 'Centro de Costos:');
             $sheet->setCellValue("B{$row}", $this->getCostCenterLabel($filters['cost_center']));
             $row++;
         }
 
-        if (!empty($filters['requester_id'])) {
+        if (! empty($filters['requester_id'])) {
             $sheet->setCellValue("A{$row}", 'Solicitante ID:');
             $sheet->setCellValue("B{$row}", $filters['requester_id']);
             $row++;
         }
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $sheet->setCellValue("A{$row}", 'Estado:');
             $sheet->setCellValue("B{$row}", $this->getStatusLabel($filters['status']));
             $row++;
@@ -262,8 +272,8 @@ class WellnessExcelExportService
             ['Actividades realizadas', $stats['realized']],
             ['Total de participantes estimados', $stats['total_participants_estimated']],
             ['Total de participantes reales', $stats['total_participants_real']],
-            ['Tasa de aprobación', $stats['approval_rate'] . '%'],
-            ['Tasa de realización', $stats['realization_rate'] . '%'],
+            ['Tasa de aprobación', $stats['approval_rate'].'%'],
+            ['Tasa de realización', $stats['realization_rate'].'%'],
         ];
 
         $summaryStartRow = $row;
@@ -283,7 +293,7 @@ class WellnessExcelExportService
         ]);
 
         // Aplicar bordes a todas las celdas de datos
-        $dataRange = "A{$row}:B" . ($row + count($summaryData) - 1);
+        $dataRange = "A{$row}:B".($row + count($summaryData) - 1);
         $sheet->getStyle($dataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -324,7 +334,7 @@ class WellnessExcelExportService
         ]);
 
         // Aplicar bordes a todas las celdas de datos
-        $distributionDataRange = "A{$row}:B" . ($row + count($distributionData) - 1);
+        $distributionDataRange = "A{$row}:B".($row + count($distributionData) - 1);
         $sheet->getStyle($distributionDataRange)->applyFromArray([
             'borders' => [
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -445,7 +455,7 @@ class WellnessExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:P" . ($row - 1);
+            $dataRange = 'A1:P'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -456,7 +466,7 @@ class WellnessExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:P" . ($row - 1));
+            $sheet->setAutoFilter('A1:P'.($row - 1));
         }
 
         // Congelar primera fila
@@ -469,7 +479,7 @@ class WellnessExcelExportService
     private function buildRealizedSheet(Worksheet $sheet, Collection $requests, array $options = []): void
     {
         $includeImages = $options['include_images'] ?? false;
-        
+
         $headers = [
             'ID Solicitud',
             'Nombre Actividad',
@@ -541,7 +551,7 @@ class WellnessExcelExportService
         $row = 2;
 
         foreach ($requests as $request) {
-            if (!$request->activityRealized) {
+            if (! $request->activityRealized) {
                 continue;
             }
 
@@ -606,7 +616,7 @@ class WellnessExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:{$lastColumn}" . ($row - 1);
+            $dataRange = "A1:{$lastColumn}".($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -617,7 +627,7 @@ class WellnessExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:{$lastColumn}" . ($row - 1));
+            $sheet->setAutoFilter("A1:{$lastColumn}".($row - 1));
         }
 
         // Congelar primera fila
@@ -696,8 +706,8 @@ class WellnessExcelExportService
                 $stats['realized'],
                 $stats['total_participants_estimated'],
                 $stats['total_participants_real'],
-                $stats['approval_rate'] . '%',
-                $stats['realization_rate'] . '%',
+                $stats['approval_rate'].'%',
+                $stats['realization_rate'].'%',
             ];
 
             $sheet->fromArray([$rowData], null, "A{$row}");
@@ -706,7 +716,7 @@ class WellnessExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:K" . ($row - 1);
+            $dataRange = 'A1:K'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -716,7 +726,7 @@ class WellnessExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:K" . ($row - 1));
+            $sheet->setAutoFilter('A1:K'.($row - 1));
         }
 
         // Congelar primera fila
@@ -802,7 +812,7 @@ class WellnessExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = "A1:J" . ($row - 1);
+            $dataRange = 'A1:J'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -812,7 +822,7 @@ class WellnessExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:J" . ($row - 1));
+            $sheet->setAutoFilter('A1:J'.($row - 1));
         }
 
         // Congelar primera fila
@@ -837,7 +847,7 @@ class WellnessExcelExportService
 
         foreach ($requests as $request) {
             $stats[$request->status]++;
-            
+
             if ($request->participant_count) {
                 $stats['total_participants_estimated'] += $request->participant_count;
             }
@@ -851,12 +861,12 @@ class WellnessExcelExportService
         }
 
         // Calcular tasas
-        $stats['approval_rate'] = $stats['total'] > 0 
-            ? round(($stats['resolved'] / $stats['total']) * 100, 2) 
+        $stats['approval_rate'] = $stats['total'] > 0
+            ? round(($stats['resolved'] / $stats['total']) * 100, 2)
             : 0;
-        
-        $stats['realization_rate'] = $stats['resolved'] > 0 
-            ? round(($stats['realized'] / $stats['resolved']) * 100, 2) 
+
+        $stats['realization_rate'] = $stats['resolved'] > 0
+            ? round(($stats['realized'] / $stats['resolved']) * 100, 2)
             : 0;
 
         return $stats;
@@ -875,6 +885,7 @@ class WellnessExcelExportService
         }
 
         arsort($distribution);
+
         return $distribution;
     }
 
@@ -888,7 +899,7 @@ class WellnessExcelExportService
         foreach ($requests as $request) {
             $centerLabel = $this->getCostCenterLabel($request->cost_center);
 
-            if (!isset($statsByCenter[$centerLabel])) {
+            if (! isset($statsByCenter[$centerLabel])) {
                 $statsByCenter[$centerLabel] = [
                     'total' => 0,
                     'pending' => 0,
@@ -918,12 +929,12 @@ class WellnessExcelExportService
 
         // Calcular tasas
         foreach ($statsByCenter as $center => &$stats) {
-            $stats['approval_rate'] = $stats['total'] > 0 
-                ? round(($stats['resolved'] / $stats['total']) * 100, 2) 
+            $stats['approval_rate'] = $stats['total'] > 0
+                ? round(($stats['resolved'] / $stats['total']) * 100, 2)
                 : 0;
-            
-            $stats['realization_rate'] = $stats['resolved'] > 0 
-                ? round(($stats['realized'] / $stats['resolved']) * 100, 2) 
+
+            $stats['realization_rate'] = $stats['resolved'] > 0
+                ? round(($stats['realized'] / $stats['resolved']) * 100, 2)
                 : 0;
         }
 
@@ -946,7 +957,7 @@ class WellnessExcelExportService
             $requesterName = $request->requester ? $request->requester->name : 'N/A';
             $requesterEmail = $request->requester ? $request->requester->email : 'N/A';
 
-            if (!isset($statsByRequester[$requesterName])) {
+            if (! isset($statsByRequester[$requesterName])) {
                 $statsByRequester[$requesterName] = [
                     'email' => $requesterEmail,
                     'total' => 0,
@@ -999,22 +1010,22 @@ class WellnessExcelExportService
         $realizedVsApprovedData = $this->prepareRealizedVsApprovedDataForChart($requests);
 
         // Gráfica 1: Distribución por Estado (Pastel) - Columna D
-        if (!empty($statusData)) {
+        if (! empty($statusData)) {
             $this->addStatusDistributionChart($sheet, $statusData, 'D2', 'I2', 'D17', 'I30');
         }
 
         // Gráfica 2: Distribución por Centro de Costos (Barras) - Columna K
-        if (!empty($costCenterData)) {
+        if (! empty($costCenterData)) {
             $this->addCostCenterDistributionChart($sheet, $costCenterData, 'K2', 'Q2', 'K17', 'Q30');
         }
 
         // Gráfica 3: Tendencia Mensual de Solicitudes (Líneas) - Columna D, más abajo
-        if (!empty($monthlyData)) {
+        if (! empty($monthlyData)) {
             $this->addMonthlyTrendChart($sheet, $monthlyData, 'D32', 'I32', 'D47', 'I60');
         }
 
         // Gráfica 4: Actividades Aprobadas vs Realizadas (Barras) - Columna K, más abajo
-        if (!empty($realizedVsApprovedData)) {
+        if (! empty($realizedVsApprovedData)) {
             $this->addRealizedVsApprovedChart($sheet, $realizedVsApprovedData, 'K32', 'Q32', 'K47', 'Q60');
         }
     }
@@ -1046,6 +1057,7 @@ class WellnessExcelExportService
                 $result[$label] = $statusCounts[$label];
             }
         }
+
         return $result;
     }
 
@@ -1062,6 +1074,7 @@ class WellnessExcelExportService
         }
 
         arsort($costCenterCounts);
+
         return $costCenterCounts;
     }
 
@@ -1073,7 +1086,7 @@ class WellnessExcelExportService
         $monthlyCounts = [];
 
         foreach ($requests as $request) {
-            if (!$request->proposed_date) {
+            if (! $request->proposed_date) {
                 continue;
             }
 
@@ -1085,6 +1098,7 @@ class WellnessExcelExportService
         }
 
         ksort($monthlyCounts);
+
         return $monthlyCounts;
     }
 
@@ -1190,7 +1204,7 @@ class WellnessExcelExportService
 
         $centers = array_keys($data);
         $centers = array_map(function ($name) {
-            return mb_strlen($name) > 20 ? mb_substr($name, 0, 17) . '...' : $name;
+            return mb_strlen($name) > 20 ? mb_substr($name, 0, 17).'...' : $name;
         }, $centers);
         $values = array_values($data);
 
@@ -1263,7 +1277,7 @@ class WellnessExcelExportService
         $values = [];
 
         foreach ($data as $month => $count) {
-            $months[] = Carbon::parse($month . '-01')->format('M Y');
+            $months[] = Carbon::parse($month.'-01')->format('M Y');
             $values[] = $count;
         }
 
@@ -1425,7 +1439,7 @@ class WellnessExcelExportService
      */
     private function formatDate($date): string
     {
-        if (!$date) {
+        if (! $date) {
             return '';
         }
 
@@ -1445,7 +1459,7 @@ class WellnessExcelExportService
      */
     private function generateListadoAsistenciaUrl(WellnessActivityRealized $realized): ?string
     {
-        if (!$realized->listado_asistencia_path) {
+        if (! $realized->listado_asistencia_path) {
             return null;
         }
 
@@ -1483,7 +1497,7 @@ class WellnessExcelExportService
      */
     private function embedEvidenceImages(Worksheet $sheet, WellnessActivityRealized $realized, string $startCell, int $row): void
     {
-        if (!$realized->evidences || $realized->evidences->isEmpty()) {
+        if (! $realized->evidences || $realized->evidences->isEmpty()) {
             return;
         }
 
@@ -1503,7 +1517,7 @@ class WellnessExcelExportService
             try {
                 // Obtener la imagen desde la URL
                 $imageUrl = $evidence->image_url;
-                if (!$imageUrl) {
+                if (! $imageUrl) {
                     continue;
                 }
 
@@ -1514,6 +1528,7 @@ class WellnessExcelExportService
                         'evidence_id' => $evidence->id,
                         'image_url' => $imageUrl,
                     ]);
+
                     continue;
                 }
 
@@ -1523,12 +1538,13 @@ class WellnessExcelExportService
                         'evidence_id' => $evidence->id,
                         'size' => strlen($imageContent),
                     ]);
+
                     continue;
                 }
 
                 // Detectar tipo de imagen
                 $imageInfo = @getimagesizefromstring($imageContent);
-                if (!$imageInfo) {
+                if (! $imageInfo) {
                     continue;
                 }
 
@@ -1542,12 +1558,12 @@ class WellnessExcelExportService
                 };
 
                 // Crear archivo temporal
-                $tempImageFile = tempnam(sys_get_temp_dir(), 'wellness_evidence_') . '.' . $extension;
+                $tempImageFile = tempnam(sys_get_temp_dir(), 'wellness_evidence_').'.'.$extension;
                 file_put_contents($tempImageFile, $imageContent);
                 $this->tempImageFiles[] = $tempImageFile;
 
                 // Crear objeto Drawing
-                $drawing = new Drawing();
+                $drawing = new Drawing;
                 $drawing->setPath($tempImageFile);
                 $drawing->setCoordinates($startCell);
                 $drawing->setWidth($imageWidth);
@@ -1563,6 +1579,7 @@ class WellnessExcelExportService
                     'evidence_id' => $evidence->id,
                     'error' => $e->getMessage(),
                 ]);
+
                 continue;
             }
         }
@@ -1591,4 +1608,3 @@ class WellnessExcelExportService
         $this->tempImageFiles = [];
     }
 }
-

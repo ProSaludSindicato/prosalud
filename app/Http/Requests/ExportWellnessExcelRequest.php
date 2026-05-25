@@ -12,7 +12,6 @@ class ExportWellnessExcelRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        // La autorización se maneja mediante el middleware de permisos en la ruta
         return true;
     }
 
@@ -28,6 +27,7 @@ class ExportWellnessExcelRequest extends FormRequest
             'La Maria VIH',
             'La Maria Cosalud',
             'La Maria Enterritorio',
+            'Carisma',
             'Admon',
         ];
 
@@ -94,4 +94,3 @@ class ExportWellnessExcelRequest extends FormRequest
         ];
     }
 }
-
