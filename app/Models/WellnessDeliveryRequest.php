@@ -152,11 +152,18 @@ class WellnessDeliveryRequest extends Model
     }
 
     /**
-     * Scope para filtrar por documento
+     * Scope para filtrar por documento.
+     * Permite búsquedas parciales por número de documento.
      */
     public function scopePorDocumento($query, string $documento)
     {
-        return $query->where('documento_afiliado', $documento);
+        $search = trim($documento);
+
+        if ($search === '') {
+            return $query;
+        }
+
+        return $query->where('documento_afiliado', 'like', '%'.$search.'%');
     }
 
     /**
