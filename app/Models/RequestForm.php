@@ -811,6 +811,30 @@ class RequestForm extends Model
      * Check if the request form includes bank information updates
      * Returns true if any of tipoCuenta, numeroCuenta, or banco fields are present in payload
      */
+    /**
+     * @return array<string, mixed>
+     */
+    public function extractListPayload(): array
+    {
+        $payload = $this->payload ?? [];
+        $result = [];
+
+        foreach (['proceso', 'dondeRealizaProceso', 'sedeProceso', 'solicitudRelacionadaCon', 'tipoCuenta', 'numeroCuenta', 'banco'] as $key) {
+            if (! array_key_exists($key, $payload)) {
+                continue;
+            }
+
+            $value = $payload[$key];
+            if ($value === null || $value === '') {
+                continue;
+            }
+
+            $result[$key] = $value;
+        }
+
+        return $result;
+    }
+
     public function hasBankInfoUpdate(): bool
     {
         // Only check for actualizar-datos-personales requests

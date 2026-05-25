@@ -339,6 +339,8 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
 
     // Request management routes
     Route::get('/requests', [RequestController::class, 'index'])->middleware('permission:requests.view');
+    Route::get('/requests/stats', [RequestController::class, 'stats'])->middleware('permission:requests.view');
+    Route::get('/requests/filter-options', [RequestController::class, 'filterOptions'])->middleware('permission:requests.view');
     Route::get('/requests/pending-personal-data-updates', [RequestController::class, 'pendingPersonalDataUpdates'])->middleware('permission:requests.view');
 
     // Rutas específicas (sin parámetros dinámicos) - DEBEN IR ANTES de las rutas con {request}

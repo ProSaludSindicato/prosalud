@@ -2,22 +2,43 @@
 
 namespace App\Http\Controllers\Request;
 
-use App\Constants\{RequestStatuses, RequestTypes, RequestSubtypes};
+use App\Constants\RequestStatuses;
+use App\Constants\RequestSubtypes;
+use App\Constants\RequestTypes;
 use App\Domain\RequestForm\RequestFormDTO;
 use App\Http\Controllers\Controller;
-use App\Http\Resources\RequestStatusLogResource;
-use App\Http\Requests\{RespondToRequestRequest, RespondToCertificadoConCompensacionesRequest, RedirectSubtypeRequest};
+use App\Http\Requests\BulkRequestResponseRequest;
+use App\Http\Requests\ExportRequestsExcelRequest;
+use App\Http\Requests\ProcessBulkResponseRequest;
+use App\Http\Requests\RedirectSubtypeRequest;
 // Import only Mailables, no Jobs – all emails se envían de forma síncrona
-use App\Mail\{RequestFormReceived, RequestFormResponse};
-use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment, RequestStatusLog, RequestSubtypeAssignment, RequestTypeAssignment};
-use App\Services\{AuditLogService, BulkRequestResponseService, CertificadoConvenioAutomaticoService, ConvenioGenerationService, ExcelReaderService, RequestAssignmentService, RequestExcelExportService};
+use App\Http\Requests\RespondToCertificadoConCompensacionesRequest;
+use App\Http\Requests\RespondToRequestRequest;
+use App\Http\Resources\RequestStatusLogResource;
+use App\Mail\RequestFormReceived;
+use App\Mail\RequestFormResponse;
+use App\Models\RequestForm;
+use App\Models\RequestResponse;
+use App\Models\RequestResponseAttachment;
+use App\Models\RequestStatusLog;
+use App\Services\AuditLogService;
+use App\Services\BulkRequestResponseService;
+use App\Services\CertificadoConvenioAutomaticoService;
 use App\Services\CertificadoConvenioService;
-use App\Http\Requests\{BulkRequestResponseRequest, ExportRequestsExcelRequest, ProcessBulkResponseRequest};
-use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
+use App\Services\ConvenioGenerationService;
+use App\Services\ExcelReaderService;
+use App\Services\RequestAssignmentService;
+use App\Services\RequestExcelExportService;
+use App\Services\RequestListService;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Carbon\Carbon;
 
 class RequestController extends Controller
 {
@@ -33,8 +54,8 @@ class RequestController extends Controller
         private ExcelReaderService $excelReaderService,
         private CertificadoConvenioService $certificadoService,
         private BulkRequestResponseService $bulkResponseService,
-    ) {
-    }
+        private RequestListService $requestListService,
+    ) {}
 
     public function store(StoreRequestFormRequest $request): JsonResponse
     {
@@ -56,7 +77,7 @@ class RequestController extends Controller
 
         $filesMetadata = $this->processAndStoreFiles($request);
 
-        if (!empty($filesMetadata)) {
+        if (! empty($filesMetadata)) {
             $requestData['files'] = $filesMetadata;
         }
 
@@ -132,7 +153,7 @@ class RequestController extends Controller
         ];
 
         // For 'actualizar-datos-personales' requests, also include 'request' key for backward compatibility
-        if ('actualizar-datos-personales' === $requestForm->request_type) {
+        if ($requestForm->request_type === 'actualizar-datos-personales') {
             $response['request'] = [
                 'id' => $requestForm->id,
                 'request_type' => $requestForm->request_type,
@@ -144,7 +165,7 @@ class RequestController extends Controller
 
         // Procesar automáticamente certificados de convenio simples (solo fecha ingreso/retiro y/o dirigido a entidad)
         // O con compensaciones si el afiliado está activo y tiene registro en el Excel
-        if (RequestTypes::CERTIFICADO_CONVENIO === $requestForm->request_type) {
+        if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
             Log::info('RequestController: Verificando procesamiento automático para certificado de convenio', [
                 'request_id' => $requestForm->id,
                 'document_number' => $requestForm->document_number,
@@ -168,7 +189,7 @@ class RequestController extends Controller
                 // Intentar obtener compensaciones automáticamente del Excel
                 $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
 
-                if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
+                if ($puedeProcesarConCompensaciones['puede_procesar'] && ! empty($puedeProcesarConCompensaciones['compensaciones'])) {
                     Log::info('Certificado de subsidio de vivienda con compensaciones detectado, iniciando procesamiento automático', [
                         'request_id' => $requestForm->id,
                         'documento' => $requestForm->document_number,
@@ -202,6 +223,7 @@ class RequestController extends Controller
                             ]);
                         }
                     })->afterResponse();
+
                     // Salir temprano para evitar procesamiento duplicado
                     return response()->json($response, 201);
                 } else {
@@ -294,238 +316,84 @@ class RequestController extends Controller
         return response()->json($response, 201);
     }
 
-    /**
-     * Display a listing of requests
-     * IMPORTANT: This is an administrative endpoint with authentication and permissions.
-     * Contact information (email, phone_number) should NOT be obfuscated for administrative processes.
-     * Obfuscation should only apply to public endpoints without authentication.
-     */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = RequestForm::query();
+        $filters = $this->extractListFilters($request);
+        $query = $this->requestListService->buildFilteredQuery($user, $filters);
+        $this->requestListService->applyListEagerLoads($query);
 
-        // Filter by user assignments (unless user is admin)
-        if (!$user->hasRole('admin')) {
-            $userId = $user->id;
+        if ($request->filled('page') || $request->filled('per_page')) {
+            $perPage = min(max((int) $request->input('per_page', 15), 1), 100);
+            $paginator = $query->paginate($perPage);
 
-            // Get all request types assigned to this user
-            $assignedTypes = RequestTypeAssignment::where('user_id', $userId)
-                ->pluck('request_type')
-                ->toArray();
+            Log::info('Lista de solicitudes consultada', [
+                'total_requests' => $paginator->total(),
+                'filters' => $filters,
+                'page' => $paginator->currentPage(),
+                'per_page' => $paginator->perPage(),
+            ]);
 
-            // Get all subtypes assigned to this user, grouped by request type
-            $assignedSubtypes = RequestSubtypeAssignment::where('user_id', $userId)
-                ->get()
-                ->groupBy('request_type')
-                ->map(function ($assignments) {
-                    return $assignments->pluck('subtype')->toArray();
-                })
-                ->toArray();
-
-            // This prevents users with permissions but no assignments from seeing all requests
-            if (empty($assignedTypes) && empty($assignedSubtypes)) {
-                $query->whereRaw('1 = 0'); // Always false condition - returns no results
-            } else {
-                // Build query conditions
-                $query->where(function ($q) use ($assignedTypes, $assignedSubtypes) {
-                    // Handle types without subtypes
-                    $typesWithoutSubtypes = array_filter($assignedTypes, function ($type) {
-                        return !RequestTypes::hasSubtypes($type);
-                    });
-
-                    if (!empty($typesWithoutSubtypes)) {
-                        // For each type, also include its aliases/variants
-                        $typesToSearch = [];
-                        foreach ($typesWithoutSubtypes as $type) {
-                            $typesToSearch[] = $type;
-                            // Add aliases/variants for backward compatibility
-                            if ($type === RequestTypes::INCAPACIDADES_LICENCIAS) {
-                                $typesToSearch[] = 'incapacidad-licencia';
-                                $typesToSearch[] = 'incapacidad-laboral';
-                            }
-                            if ($type === RequestTypes::SOLICITUD_RETIRO_SINDICAL) {
-                                $typesToSearch[] = 'retiro-sindical';
-                            }
-                        }
-                        $q->whereIn('request_type', array_unique($typesToSearch));
-                    }
-
-                    // Handle types with subtypes
-                    $typesWithSubtypes = array_filter($assignedTypes, function ($type) {
-                        return RequestTypes::hasSubtypes($type);
-                    });
-
-                    foreach ($typesWithSubtypes as $type) {
-                        $q->orWhere(function ($typeQ) use ($type) {
-                            // If user has type assignment, they can see ALL requests of that type
-                            // regardless of subtype assignments (type assignment has priority)
-                            $typeQ->where('request_type', $type);
-                        });
-                    }
-
-                    // Handle cases where user only has subtype assignments (no type assignment)
-                    // IMPORTANT: Only filter by subtypes if user does NOT have type assignment
-                    foreach ($assignedSubtypes as $type => $subtypes) {
-                        if (!in_array($type, $assignedTypes)) {
-                            // User only has subtype assignments, filter by specific subtypes
-                            $q->orWhere(function ($typeQ) use ($type, $subtypes) {
-                                $typeQ->where('request_type', $type);
-                                $typeQ->where(function ($subtypeQ) use ($subtypes) {
-                                    foreach ($subtypes as $subtype) {
-                                        // Normalize both values for flexible comparison
-                                        // Handle variations like "COMPENSACIÓN ANUAL DIFERIDA" vs "COMPENSACIÓN ANUAL DIFERIDA Y/O DESCANSO"
-                                        $normalizedSubtype = $this->normalizeSubtypeValue($subtype);
-                                        $subtypeQ->orWhere(function ($sq) use ($normalizedSubtype) {
-                                            // Normalize the DB value the same way (remove Y/O DESCANSO, uppercase, trim)
-                                            // Then use bidirectional LIKE comparison to handle variations
-                                            $sq->whereRaw(
-                                                "REPLACE(REPLACE(UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.solicitudRelacionadaCon')))), ' Y/O DESCANSO', ''), 'Y/O DESCANSO', '') LIKE ? OR ? LIKE CONCAT('%', REPLACE(REPLACE(UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.solicitudRelacionadaCon')))), ' Y/O DESCANSO', ''), 'Y/O DESCANSO', ''), '%')",
-                                                [$normalizedSubtype . '%', $normalizedSubtype]
-                                            );
-                                        });
-                                    }
-                                });
-                            });
-                        }
-                    }
-                });
-            }
+            return response()->json([
+                'success' => true,
+                'data' => $paginator->getCollection()->map(
+                    fn (RequestForm $requestForm) => $this->requestListService->formatListItem($requestForm)
+                )->values(),
+                'pagination' => [
+                    'total' => $paginator->total(),
+                    'per_page' => $paginator->perPage(),
+                    'current_page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'from' => $paginator->firstItem(),
+                    'to' => $paginator->lastItem(),
+                ],
+            ]);
         }
 
-        // Search by name, email, or document number
-        if ($request->has('search')) {
-            $search = $request->get('search');
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhere('document_number', 'like', "%{$search}%");
-            });
-        }
-
-        // Filter by status
-        if ($request->has('status')) {
-            $query->where('status', $request->get('status'));
-        }
-
-        // Filter by request type
-        if ($request->has('request_type')) {
-            $requestType = RequestTypes::normalize($request->get('request_type'));
-            $query->where('request_type', $requestType);
-        }
-
-        // Order by created_at desc by default
-        $query->orderBy('created_at', 'desc');
-
-        // Eager load responses with attachments and responder, and status logs for last change info
-        $requests = $query
-            ->with('responses.attachments', 'responses.responder', 'statusLogs.user')
-            ->get();
+        $requests = $query->get();
 
         Log::info('Lista de solicitudes consultada', [
             'total_requests' => $requests->count(),
-            'filters' => $request->only(['search', 'status', 'request_type']),
+            'filters' => $filters,
         ]);
 
-        // Return data WITHOUT obfuscation for administrative users
-        // This endpoint requires authentication and 'requests.view' permission
-        // IMPORTANT: Contact information (email, phone_number) should NOT be obfuscated for administrative processes
         return response()->json([
             'success' => true,
-            'data' => $requests->map(function ($request) {
-                // Último cambio de estado (si existe)
-                $lastStatusLog = $request->relationLoaded('statusLogs') ? $request->statusLogs->last() : null;
-
-                $lastStatusChange = null;
-                if ($lastStatusLog) {
-                    $lastStatusChange = [
-                        'old_status' => $lastStatusLog->old_status,
-                        'new_status' => $lastStatusLog->new_status,
-                        'reason' => $lastStatusLog->reason,
-                        'changed_by' => $lastStatusLog->changed_by,
-                        'changed_by_name' => $lastStatusLog->user?->name,
-                        'changed_by_email' => $lastStatusLog->user?->email,
-                        'changed_at' => $lastStatusLog->created_at?->toIso8601String(),
-                        'changed_at_formatted' => $lastStatusLog->created_at
-                            ? $lastStatusLog->created_at->format('d/m/Y H:i:s')
-                            : null,
-                    ];
-                }
-
-                return [
-                    'id' => $request->id,
-                    'request_type' => $request->request_type,
-                    'document_type' => $request->document_type,
-                    'document_number' => $request->document_number,
-                    'name' => $request->name,
-                    'last_name' => $request->last_name,
-                    'full_name' => $request->full_name,
-                    // Subtipo explícito para tipos que lo soportan (ej: verificacion-pagos)
-                    // Se basa en payload['solicitudRelacionadaCon'] y se expone como campo de primer nivel
-                    'request_subtype' => $request->request_subtype,
-                    // Flag to identify if request includes bank information updates
-                    'has_bank_info_update' => $request->hasBankInfoUpdate(),
-                    // Contact information returned WITHOUT obfuscation for administrative processes
-                    // Use getRawOriginal() to get raw value directly from database, bypassing any accessors or transformations
-                    'email' => $request->getRawOriginal('email') ?? $request->getAttribute('email'),
-                    'phone_number' => $request->getRawOriginal('phone_number') ?? $request->getAttribute('phone_number'),
-                    'status' => $request->status,
-                    'rejection_reason' => $request->rejection_reason,
-                    'payload' => $request->payload,
-                    'created_at' => $request->created_at?->toIso8601String(),
-                    'formatted_created_at' => $request->formatted_created_at,
-                    'processed_at' => $request->processed_at?->toIso8601String(),
-                    'formatted_processed_at' => $request->formatted_processed_at,
-                    'validated_at' => $request->validated_at?->toIso8601String(),
-                    'validated_by' => $request->validator?->email,
-                    'last_status_change' => $lastStatusChange,
-                    'responses' => $request->responses->map(function ($response) {
-                        $attachments = $response->relationLoaded('attachments')
-                            ? $response->attachments
-                            : $response->attachments()->get();
-
-                        // Load responder if not already loaded
-                        $responder = $response->relationLoaded('responder')
-                            ? $response->responder
-                            : $response->responder;
-
-                    // Handle created_at - cast should convert it to Carbon, but handle both cases defensively
-                    $responseCreatedAt = $response->created_at;
-                    if ($responseCreatedAt instanceof \DateTime || $responseCreatedAt instanceof \Carbon\Carbon) {
-                        $responseCreatedAt = $responseCreatedAt->toIso8601String();
-                    } elseif (is_string($responseCreatedAt) && !empty($responseCreatedAt)) {
-                        // If it's still a string, try to parse and format it
-                        try {
-                            $responseCreatedAt = \Carbon\Carbon::parse($responseCreatedAt)->toIso8601String();
-                        } catch (\Exception $e) {
-                            $responseCreatedAt = $responseCreatedAt; // Keep as is if parsing fails
-                        }
-                    } else {
-                        $responseCreatedAt = null;
-                    }
-
-                    return [
-                        'id' => $response->id,
-                        'status' => $response->status,
-                        'email_subject' => $response->email_subject,
-                        'email_body' => $response->email_body,
-                        'created_at' => $responseCreatedAt,
-                        'responded_by' => $responder ? [
-                            'id' => $responder->id,
-                            'name' => $responder->name,
-                            'email' => $responder->email,
-                        ] : null,
-                        'attachments' => $this->formatResponseAttachments($attachments, $response->id),
-                        'attachments_count' => $attachments->count(),
-                    ];
-                }),
-                    'responses_count' => $request->responses->count(),
-                    'files' => $this->formatFilesMetadata($request->files, $request->id),
-                    'files_count' => is_array($request->files) ? count($request->files) : 0,
-                ];
-            }),
+            'data' => $requests->map(
+                fn (RequestForm $requestForm) => $this->requestListService->formatListItem($requestForm)
+            )->values(),
         ]);
+    }
+
+    public function stats(Request $request): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $this->requestListService->getStats($request->user()),
+        ]);
+    }
+
+    public function filterOptions(Request $request): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $this->requestListService->getFilterOptions($request->user()),
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function extractListFilters(Request $request): array
+    {
+        return array_filter([
+            'search' => $request->input('search'),
+            'status' => $request->input('status'),
+            'request_type' => $request->input('request_type'),
+            'request_subtype' => $request->input('request_subtype'),
+            'sort_by' => $request->input('sort_by'),
+            'sort_order' => $request->input('sort_order'),
+        ], fn ($value) => $value !== null && $value !== '');
     }
 
     /**
@@ -540,7 +408,7 @@ class RequestController extends Controller
 
         // SECURITY FIX: Validate that user has access to this specific request
         // This prevents users with permissions but no assignments from accessing requests
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $request)) {
             Log::warning('Intento de acceso no autorizado a solicitud', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -613,7 +481,7 @@ class RequestController extends Controller
                     $responseCreatedAt = $response->created_at;
                     if ($responseCreatedAt instanceof \DateTime || $responseCreatedAt instanceof \Carbon\Carbon) {
                         $responseCreatedAt = $responseCreatedAt->toIso8601String();
-                    } elseif (is_string($responseCreatedAt) && !empty($responseCreatedAt)) {
+                    } elseif (is_string($responseCreatedAt) && ! empty($responseCreatedAt)) {
                         // If it's still a string, try to parse and format it
                         try {
                             $responseCreatedAt = \Carbon\Carbon::parse($responseCreatedAt)->toIso8601String();
@@ -655,7 +523,7 @@ class RequestController extends Controller
         $user = auth()->user();
 
         // SECURITY FIX: Validate that user has access to this specific request
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $request)) {
             Log::warning('Intento de validación no autorizada de solicitud', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -749,7 +617,7 @@ class RequestController extends Controller
         $user = request()->user();
 
         // SECURITY FIX: Validate that user has access to this specific request
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $request)) {
             Log::warning('Intento de descarga de archivo no autorizada de solicitud', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -766,7 +634,7 @@ class RequestController extends Controller
 
         $files = $request->files ?? [];
 
-        if (!isset($files[$fileKey])) {
+        if (! isset($files[$fileKey])) {
             return response()->json([
                 'success' => false,
                 'message' => 'Archivo no encontrado',
@@ -777,7 +645,7 @@ class RequestController extends Controller
         $disk = $fileMetadata['disk'] ?? 'prosalud-private';
         $path = $fileMetadata['path'] ?? null;
 
-        if (!$path || !Storage::disk($disk)->exists($path)) {
+        if (! $path || ! Storage::disk($disk)->exists($path)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Archivo no existe en el almacenamiento',
@@ -823,7 +691,7 @@ class RequestController extends Controller
         $user = request()->user();
 
         // SECURITY FIX: Validate that user has access to this specific request
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $request)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $request)) {
             Log::warning('Intento de cambio de estado no autorizado de solicitud', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -842,7 +710,7 @@ class RequestController extends Controller
 
         $updateData = ['status' => $status];
 
-        if (RequestStatuses::COMPLETED === $status || RequestStatuses::REJECTED === $status) {
+        if ($status === RequestStatuses::COMPLETED || $status === RequestStatuses::REJECTED) {
             $updateData['processed_at'] = now();
         } else {
             // For other statuses, clear processed_at and rejection_reason
@@ -851,9 +719,9 @@ class RequestController extends Controller
         }
 
         // Si el estado es REJECTED, guardar la razón de rechazo
-        if (RequestStatuses::REJECTED === $status && isset($validated['rejection_reason'])) {
+        if ($status === RequestStatuses::REJECTED && isset($validated['rejection_reason'])) {
             $updateData['rejection_reason'] = $validated['rejection_reason'];
-        } elseif (RequestStatuses::REJECTED !== $status) {
+        } elseif ($status !== RequestStatuses::REJECTED) {
             // Si cambia de REJECTED a otro estado, limpiar la razón de rechazo
             $updateData['rejection_reason'] = null;
         }
@@ -885,7 +753,7 @@ class RequestController extends Controller
 
         $statusText = $this->getStatusText($status);
 
-        Log::info("Solicitud marcada como {$statusText}" . ($wasValidated ? " y validada automáticamente" : ""), [
+        Log::info("Solicitud marcada como {$statusText}".($wasValidated ? ' y validada automáticamente' : ''), [
             'request_id' => $request->id,
             'request_type' => $request->request_type,
             'affiliate_info' => [
@@ -913,7 +781,7 @@ class RequestController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => "Solicitud marcada como {$statusText} exitosamente" . ($wasValidated ? " y validada automáticamente" : ""),
+            'message' => "Solicitud marcada como {$statusText} exitosamente".($wasValidated ? ' y validada automáticamente' : ''),
             'data' => [
                 'id' => $request->id,
                 'request_type' => $request->request_type,
@@ -934,7 +802,7 @@ class RequestController extends Controller
      * Redirigir una solicitud cambiando su subtipo.
      * Esto hace que la solicitud sea visible para los usuarios asignados al nuevo subtipo.
      */
-    public function redirectSubtype(RedirectSubtypeRequest $request, RequestForm $requestForm = null): JsonResponse
+    public function redirectSubtype(RedirectSubtypeRequest $request, ?RequestForm $requestForm = null): JsonResponse
     {
         $user = request()->user();
 
@@ -951,11 +819,11 @@ class RequestController extends Controller
         ]);
 
         // Buscar el RequestForm manualmente para asegurar que funciona con IDs string con ceros a la izquierda
-        if (!$requestForm || !$requestForm->exists) {
+        if (! $requestForm || ! $requestForm->exists) {
             $requestForm = RequestForm::where('id', $requestId)->first();
         }
 
-        if (!$requestForm) {
+        if (! $requestForm) {
             Log::error('RequestForm no encontrado en redirectSubtype', [
                 'route_id' => $requestId,
                 'searched_id' => $requestId,
@@ -975,7 +843,7 @@ class RequestController extends Controller
         ]);
 
         // Validar que el usuario tiene acceso a la solicitud actual
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $requestForm)) {
             Log::warning('Intento de redirección de subtipo no autorizado', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -1016,7 +884,7 @@ class RequestController extends Controller
         }
 
         // Validar que el tipo de solicitud tiene subtipos
-        if (!RequestTypes::hasSubtypes($requestType)) {
+        if (! RequestTypes::hasSubtypes($requestType)) {
             Log::warning('Intento de redirección de subtipo en tipo de solicitud sin subtipos', [
                 'request_id' => $requestForm->id,
                 'request_type' => $requestType,
@@ -1033,7 +901,7 @@ class RequestController extends Controller
         }
 
         // Validar que el subtipo es válido para este tipo de solicitud
-        if (!RequestSubtypes::isValid($requestType, $newSubtype)) {
+        if (! RequestSubtypes::isValid($requestType, $newSubtype)) {
             $validSubtypes = RequestSubtypes::forRequestType($requestType);
 
             Log::warning('Intento de redirección con subtipo inválido', [
@@ -1108,7 +976,7 @@ class RequestController extends Controller
     {
         // SECURITY: Ensure user can access this specific request
         $user = $request->user();
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $requestForm)) {
             Log::warning('Intento de acceso no autorizado al historial de estados de solicitud', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -1136,7 +1004,7 @@ class RequestController extends Controller
     public function respond(RespondToRequestRequest $request, $requestId = null): JsonResponse
     {
         // Get the ID from the route parameter (route model binding may not work with string IDs with leading zeros)
-        if (!$requestId) {
+        if (! $requestId) {
             $requestId = $request->route('request');
         }
 
@@ -1151,7 +1019,7 @@ class RequestController extends Controller
         // Find the request form manually to ensure it works with string IDs with leading zeros
         $requestForm = RequestForm::where('id', $requestId)->first();
 
-        if (!$requestForm) {
+        if (! $requestForm) {
             Log::error('RequestForm no encontrado en respond', [
                 'route_id' => $requestId,
                 'searched_id' => $requestId,
@@ -1172,7 +1040,7 @@ class RequestController extends Controller
         $user = request()->user();
 
         // SECURITY FIX: Validate that user has access to this specific request
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $requestForm)) {
             Log::warning('Intento de respuesta no autorizada a solicitud', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -1321,7 +1189,7 @@ class RequestController extends Controller
                                 // Filter out empty values and trim
                                 $actividades = array_filter(
                                     array_map('trim', $actividadesInput),
-                                    fn($actividad) => !empty($actividad)
+                                    fn ($actividad) => ! empty($actividad)
                                 );
                                 // Re-index array to ensure sequential numbering
                                 $actividades = array_values($actividades);
@@ -1456,9 +1324,9 @@ class RequestController extends Controller
         // NO validar si tiene la opción "Otros" activa, ya que no se genera automáticamente
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO
             && $tieneValorCompensaciones
-            && !$tieneActividades
-            && !$esDirigidoFondoPensiones
-            && !$esOtros // Excluir si tiene "Otros" activo
+            && ! $tieneActividades
+            && ! $esDirigidoFondoPensiones
+            && ! $esOtros // Excluir si tiene "Otros" activo
             && $status === RequestStatuses::COMPLETED
         ) {
             // Verificar si el usuario envió compensaciones manualmente (t_basicos, t_auxilios)
@@ -1488,7 +1356,7 @@ class RequestController extends Controller
             }
 
             // Si no se enviaron compensaciones manuales, intentar obtenerlas del Excel
-            if (!$compensacionesManuales) {
+            if (! $compensacionesManuales) {
                 Log::info('No se enviaron compensaciones manuales, intentando obtenerlas del Excel', [
                     'request_id' => $requestFormId,
                     'documento' => $requestForm->document_number,
@@ -1496,7 +1364,7 @@ class RequestController extends Controller
 
                 $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
 
-                if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
+                if ($puedeProcesarConCompensaciones['puede_procesar'] && ! empty($puedeProcesarConCompensaciones['compensaciones'])) {
                     // Compensaciones encontradas en Excel, generar certificado automáticamente
                     $compensacionesExcel = $puedeProcesarConCompensaciones['compensaciones'];
 
@@ -1511,7 +1379,7 @@ class RequestController extends Controller
                         $dirigidoAEntidad = null;
 
                         // Extraer dirigidoAEntidad del payload
-                        if (isset($payload['dirigidoAQuien']) && !empty($payload['dirigidoAQuien'])) {
+                        if (isset($payload['dirigidoAQuien']) && ! empty($payload['dirigidoAQuien'])) {
                             $dirigidoAEntidad = $payload['dirigidoAQuien'];
                         } elseif (isset($payload['infoCertificado'])) {
                             $infoCertificado = $payload['infoCertificado'];
@@ -1576,7 +1444,7 @@ class RequestController extends Controller
                             $attachments[] = $uploadedFile;
 
                             // Modificar emailSubject y emailBody para incluir el consecutivo si no lo tienen
-                            if (!empty($consecutivo)) {
+                            if (! empty($consecutivo)) {
                                 if (stripos($emailSubject, $consecutivo) === false) {
                                     $emailSubject = "Certificado de Convenio - Consecutivo {$consecutivo}";
                                 }
@@ -1655,9 +1523,9 @@ class RequestController extends Controller
         // que quedó pendiente o en revisión y debería procesarse automáticamente, generar el certificado y anexarlo
         // Esto cubre el caso donde quedó pendiente porque había una actualización de correo pendiente
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO
-            && !$tieneActividades
-            && !$esDirigidoFondoPensiones
-            && !$tieneValorCompensaciones
+            && ! $tieneActividades
+            && ! $esDirigidoFondoPensiones
+            && ! $tieneValorCompensaciones
             && in_array($oldStatus, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])
             && $this->debeProcesarCertificadoAutomatico($requestForm)
         ) {
@@ -1672,7 +1540,7 @@ class RequestController extends Controller
                 $dirigidoAEntidad = null;
 
                 // Extraer dirigidoAEntidad del payload
-                if (isset($payload['dirigidoAQuien']) && !empty($payload['dirigidoAQuien'])) {
+                if (isset($payload['dirigidoAQuien']) && ! empty($payload['dirigidoAQuien'])) {
                     $dirigidoAEntidad = $payload['dirigidoAQuien'];
                 } elseif (isset($payload['infoCertificado'])) {
                     $infoCertificado = $payload['infoCertificado'];
@@ -1742,7 +1610,7 @@ class RequestController extends Controller
                     $attachments[] = $uploadedFile;
 
                     // Modificar emailSubject y emailBody para incluir el consecutivo si no lo tienen
-                    if (!empty($consecutivo)) {
+                    if (! empty($consecutivo)) {
                         // Verificar si el asunto ya incluye el consecutivo
                         if (stripos($emailSubject, $consecutivo) === false) {
                             $emailSubject = "Certificado de Convenio - Consecutivo {$consecutivo}";
@@ -1778,7 +1646,7 @@ class RequestController extends Controller
         }
 
         // Generate certificate with activities if needed
-        if ($tieneActividades && !empty($actividades)) {
+        if ($tieneActividades && ! empty($actividades)) {
             try {
                 Log::info('Generando certificado con actividades', [
                     'request_id' => $requestFormId,
@@ -1789,7 +1657,7 @@ class RequestController extends Controller
                 // Get dirigidoAEntidad from payload if available
                 $dirigidoAEntidad = null;
                 $payload = $requestForm->payload ?? [];
-                if (isset($payload['dirigidoAQuien']) && !empty($payload['dirigidoAQuien'])) {
+                if (isset($payload['dirigidoAQuien']) && ! empty($payload['dirigidoAQuien'])) {
                     $dirigidoAEntidad = $payload['dirigidoAQuien'];
                 }
 
@@ -1903,7 +1771,7 @@ class RequestController extends Controller
                 // Return error - this is critical for AFP certificates
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error al generar el certificado dirigido a fondo de pensiones: ' . $e->getMessage(),
+                    'message' => 'Error al generar el certificado dirigido a fondo de pensiones: '.$e->getMessage(),
                     'error' => config('app.debug') ? $e->getMessage() : 'Error al generar el certificado',
                 ], 500);
             }
@@ -1921,7 +1789,7 @@ class RequestController extends Controller
             $payload = $requestForm->payload ?? [];
             $nuevoCorreo = $payload['correo'] ?? null;
 
-            if (!empty($nuevoCorreo) && filter_var($nuevoCorreo, FILTER_VALIDATE_EMAIL)) {
+            if (! empty($nuevoCorreo) && filter_var($nuevoCorreo, FILTER_VALIDATE_EMAIL)) {
                 $recipientEmail = $nuevoCorreo;
 
                 Log::info('Usando nuevo correo del payload para solicitud de actualización de datos personales', [
@@ -1954,7 +1822,7 @@ class RequestController extends Controller
             'new_status' => $status,
             'email_original' => $requestForm->email,
             'email_recipient' => $recipientEmail,
-            'has_attachments' => !empty($attachments),
+            'has_attachments' => ! empty($attachments),
             'attachments_count' => count($attachments),
             'tiene_actividades' => $tieneActividades,
             'actividades_count' => $tieneActividades ? count($actividades) : 0,
@@ -1967,7 +1835,7 @@ class RequestController extends Controller
         $nonCompressedFiles = [];
         $hasCompressedFiles = false;
 
-        if (!empty($attachments)) {
+        if (! empty($attachments)) {
             foreach ($attachments as $file) {
                 if ($file && $file->isValid()) {
                     $extension = strtolower($file->getClientOriginalExtension() ?? '');
@@ -2075,7 +1943,7 @@ class RequestController extends Controller
                 'attachments_count' => count($attachments),
                 'compressed_files_count' => count($compressedFiles),
                 'non_compressed_files_count' => count($nonCompressedFiles),
-                'has_compressed_urls' => !empty($compressedFileUrls),
+                'has_compressed_urls' => ! empty($compressedFileUrls),
             ]);
 
             // Enviar correo directamente SIN usar Job encolado
@@ -2107,7 +1975,7 @@ class RequestController extends Controller
                 'email_recipient' => $recipientEmail,
                 'email_original' => $requestForm->email,
                 'status' => $status,
-                'has_attachments' => !empty($attachments),
+                'has_attachments' => ! empty($attachments),
                 'attachments_count' => count($attachments),
                 'compressed_files_count' => count($compressedFiles),
                 'non_compressed_files_count' => count($nonCompressedFiles),
@@ -2146,7 +2014,7 @@ class RequestController extends Controller
                 'error_file' => $e->getFile(),
                 'error_line' => $e->getLine(),
                 'error_trace' => $e->getTraceAsString(),
-                'has_attachments' => !empty($attachments),
+                'has_attachments' => ! empty($attachments),
                 'attachments_count' => count($attachments),
             ]);
 
@@ -2161,7 +2029,7 @@ class RequestController extends Controller
         // Email was sent successfully, now update the request status
         $updateData = ['status' => $status];
 
-        if (RequestStatuses::COMPLETED === $status || RequestStatuses::REJECTED === $status) {
+        if ($status === RequestStatuses::COMPLETED || $status === RequestStatuses::REJECTED) {
             $updateData['processed_at'] = now();
         } else {
             // For other statuses, clear processed_at and rejection_reason
@@ -2170,9 +2038,9 @@ class RequestController extends Controller
         }
 
         // Si el estado es REJECTED, guardar la razón de rechazo
-        if (RequestStatuses::REJECTED === $status && isset($validated['rejection_reason'])) {
+        if ($status === RequestStatuses::REJECTED && isset($validated['rejection_reason'])) {
             $updateData['rejection_reason'] = $validated['rejection_reason'];
-        } elseif (RequestStatuses::REJECTED !== $status) {
+        } elseif ($status !== RequestStatuses::REJECTED) {
             // Si cambia de REJECTED a otro estado, limpiar la razón de rechazo
             $updateData['rejection_reason'] = null;
         }
@@ -2182,7 +2050,7 @@ class RequestController extends Controller
 
         // Store the response for traceability (only after email is sent successfully)
         // If RequestResponse was already created for compressed files, reuse it
-        if (!$requestResponse) {
+        if (! $requestResponse) {
             $requestResponse = RequestResponse::create([
                 'request_form_id' => $requestFormId,
                 'responded_by' => $userId,
@@ -2195,7 +2063,7 @@ class RequestController extends Controller
 
         // Store non-compressed attachments if any (compressed files were already stored)
         // Los certificados generados automáticamente ya se incluyen en $attachments y se guardan aquí
-        if (!empty($nonCompressedFiles)) {
+        if (! empty($nonCompressedFiles)) {
             $this->storeResponseAttachments($requestResponse, $nonCompressedFiles);
         }
 
@@ -2215,7 +2083,7 @@ class RequestController extends Controller
             ],
             'old_status' => $oldStatus,
             'new_status' => $status,
-            'has_attachments' => !empty($attachments),
+            'has_attachments' => ! empty($attachments),
             'attachments_count' => count($attachments),
         ]);
 
@@ -2230,7 +2098,7 @@ class RequestController extends Controller
             'new_status' => $status,
             'affiliate_document' => $requestForm->document_number,
             'affiliate_email' => $requestForm->email,
-            'has_attachments' => !empty($attachments),
+            'has_attachments' => ! empty($attachments),
         ]));
 
         return response()->json([
@@ -2270,7 +2138,7 @@ class RequestController extends Controller
     public function respondWithCompensaciones(RespondToCertificadoConCompensacionesRequest $request, $requestId = null): JsonResponse
     {
         // Get the ID from the route parameter
-        if (!$requestId) {
+        if (! $requestId) {
             $requestId = $request->route('request');
         }
 
@@ -2285,7 +2153,7 @@ class RequestController extends Controller
         // Find the request form manually
         $requestForm = RequestForm::where('id', $requestId)->first();
 
-        if (!$requestForm) {
+        if (! $requestForm) {
             Log::error('RequestForm no encontrado en respondWithCompensaciones', [
                 'route_id' => $requestId,
             ]);
@@ -2299,7 +2167,7 @@ class RequestController extends Controller
         $user = request()->user();
 
         // SECURITY FIX: Validate that user has access to this specific request
-        if (!$user->hasRole('admin') && !$this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+        if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $requestForm)) {
             Log::warning('Intento de respuesta con compensaciones no autorizada a solicitud', [
                 'user_id' => $user->id,
                 'user_email' => $user->email,
@@ -2314,7 +2182,7 @@ class RequestController extends Controller
         }
 
         // Validate that the request is a certificado convenio
-        if (RequestTypes::CERTIFICADO_CONVENIO !== $requestForm->request_type) {
+        if ($requestForm->request_type !== RequestTypes::CERTIFICADO_CONVENIO) {
             Log::error('Request no es de tipo certificado convenio', [
                 'request_id' => $requestId,
                 'request_type' => $requestForm->request_type,
@@ -2364,7 +2232,7 @@ class RequestController extends Controller
         $requestForm->refresh();
 
         // Validate that the request is pending (or in review)
-        if (!in_array($requestForm->status, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])) {
+        if (! in_array($requestForm->status, [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW])) {
             // Si la solicitud ya está completada, verificar si realmente fue procesada
             // Puede ser que el procesamiento automático falló silenciosamente
             if ($requestForm->status === RequestStatuses::COMPLETED) {
@@ -2445,7 +2313,7 @@ class RequestController extends Controller
 
         if ($mensajeParte1 !== '') {
             $compensaciones = [
-                'mensaje_compensaciones_parte1' => self::PREFIJO_COMPENSACION_CONVENIO_SINDICAL . $mensajeParte1,
+                'mensaje_compensaciones_parte1' => self::PREFIJO_COMPENSACION_CONVENIO_SINDICAL.$mensajeParte1,
                 'mensaje_compensaciones_parte2' => '',
             ];
             Log::info('Usando mensaje de compensaciones redactado (parte1)', [
@@ -2460,7 +2328,7 @@ class RequestController extends Controller
                         $textoConstruido .= '.';
                     }
                     $compensaciones = [
-                        'mensaje_compensaciones_parte1' => self::PREFIJO_COMPENSACION_CONVENIO_SINDICAL . $textoConstruido,
+                        'mensaje_compensaciones_parte1' => self::PREFIJO_COMPENSACION_CONVENIO_SINDICAL.$textoConstruido,
                         'mensaje_compensaciones_parte2' => '',
                     ];
                     $compensacionesConstruidasDesdeValores = true;
@@ -2480,7 +2348,7 @@ class RequestController extends Controller
 
                 $debeConsultarExcel = ($tBasicosNormalizado === 0);
 
-                if (!$debeConsultarExcel && $tBasicosNormalizado > 0) {
+                if (! $debeConsultarExcel && $tBasicosNormalizado > 0) {
                     $compensacionesManuales = [
                         't_basicos' => $tBasicosNormalizado,
                         't_auxilios' => $tAuxiliosNormalizado,
@@ -2498,7 +2366,7 @@ class RequestController extends Controller
 
                     $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
 
-                    if ($puedeProcesarConCompensaciones['puede_procesar'] && !empty($puedeProcesarConCompensaciones['compensaciones'])) {
+                    if ($puedeProcesarConCompensaciones['puede_procesar'] && ! empty($puedeProcesarConCompensaciones['compensaciones'])) {
                         $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
                         Log::info('Compensaciones obtenidas del Excel', [
                             'request_id' => $requestId,
@@ -2512,6 +2380,7 @@ class RequestController extends Controller
                                 'documento' => $requestForm->document_number,
                                 'razon' => $razon,
                             ]);
+
                             return response()->json([
                                 'success' => false,
                                 'message' => 'Este certificado requiere valores de compensaciones para ser generado.',
@@ -2677,6 +2546,7 @@ class RequestController extends Controller
                 ]);
 
                 $requestForm->refresh();
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Certificado rechazado y respuesta enviada exitosamente',
@@ -2724,6 +2594,7 @@ class RequestController extends Controller
 
             // The service already sends the email and updates the status, so we just need to return success
             $requestForm->refresh(); // Refresh to get latest data including rejection_reason
+
             return response()->json([
                 'success' => true,
                 'message' => 'Certificado generado y respuesta enviada exitosamente',
@@ -2753,7 +2624,7 @@ class RequestController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al generar el certificado con compensaciones: ' . $e->getMessage(),
+                'message' => 'Error al generar el certificado con compensaciones: '.$e->getMessage(),
                 'error' => config('app.debug') ? $e->getMessage() : 'Error al procesar la solicitud',
             ], 500);
         }
@@ -2779,7 +2650,7 @@ class RequestController extends Controller
                 }
             }
             // Handle files with dot notation (files.certificacionBancaria)
-            elseif (0 === strpos($key, 'files.')) {
+            elseif (strpos($key, 'files.') === 0) {
                 if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
                     $originalFiles[] = $file;
                 }
@@ -2807,7 +2678,7 @@ class RequestController extends Controller
         $allFiles = $request->allFiles();
 
         foreach ($allFiles as $key => $file) {
-            if (!is_array($file) && !($file instanceof \Illuminate\Http\UploadedFile)) {
+            if (! is_array($file) && ! ($file instanceof \Illuminate\Http\UploadedFile)) {
                 continue;
             }
 
@@ -2823,7 +2694,7 @@ class RequestController extends Controller
                 }
             }
             // Handle files with dot notation (files.certificacionBancaria)
-            elseif ('files' === $key && $file instanceof \Illuminate\Http\UploadedFile) {
+            elseif ($key === 'files' && $file instanceof \Illuminate\Http\UploadedFile) {
                 // This shouldn't happen, but handle it just in case
                 $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
                 if ($metadata) {
@@ -2843,7 +2714,7 @@ class RequestController extends Controller
         // Laravel converts files[certificacionBancaria] to files.certificacionBancaria
         $dotNotationFiles = [];
         foreach ($allFiles as $key => $value) {
-            if (0 === strpos($key, 'files.')) {
+            if (strpos($key, 'files.') === 0) {
                 $fileKey = substr($key, 6); // Remove 'files.' prefix
                 if ($value instanceof \Illuminate\Http\UploadedFile && $value->isValid()) {
                     $dotNotationFiles[$fileKey] = $value;
@@ -2853,7 +2724,7 @@ class RequestController extends Controller
 
         // Process dot notation files
         foreach ($dotNotationFiles as $fileKey => $file) {
-            if (!isset($filesMetadata[$fileKey])) {
+            if (! isset($filesMetadata[$fileKey])) {
                 $metadata = $this->storeUploadedFile($file, $fileKey, $disk, $fallbackDisk);
                 if ($metadata) {
                     $filesMetadata[$fileKey] = $metadata;
@@ -2863,7 +2734,7 @@ class RequestController extends Controller
 
         // Then, handle files from JSON array (base64 encoded)
         $jsonFiles = $request->input('files', []);
-        if (is_array($jsonFiles) && !empty($jsonFiles)) {
+        if (is_array($jsonFiles) && ! empty($jsonFiles)) {
             foreach ($jsonFiles as $key => $fileData) {
                 // Skip if we already processed this file from multipart
                 if (isset($filesMetadata[$key])) {
@@ -2877,23 +2748,24 @@ class RequestController extends Controller
                         $base64Data = substr($fileData, strpos($fileData, ',') + 1);
                         $fileContent = base64_decode($base64Data, true);
 
-                        if (false === $fileContent) {
+                        if ($fileContent === false) {
                             Log::warning('Failed to decode base64 file', [
                                 'key' => $key,
                                 'mime_type' => $mimeType,
                             ]);
+
                             continue;
                         }
 
                         // Determine file extension from mime type
                         $extension = $this->getExtensionFromMimeType($mimeType);
                         $filename = $this->generateDescriptiveFilenameForBase64($key, $extension);
-                        $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+                        $storagePath = 'request-forms/'.date('Y/m').'/'.$filename;
 
                         // Store file
                         $stored = Storage::disk($disk)->put($storagePath, $fileContent);
 
-                        if (false === $stored) {
+                        if ($stored === false) {
                             Log::warning('Failed to store file in private bucket, trying fallback', [
                                 'key' => $key,
                                 'path' => $storagePath,
@@ -2931,19 +2803,20 @@ class RequestController extends Controller
                             $fileContent = base64_decode($content, true);
                         }
 
-                        if (false === $fileContent) {
+                        if ($fileContent === false) {
                             Log::warning('Failed to decode file content', ['key' => $key]);
+
                             continue;
                         }
 
                         $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: $this->getExtensionFromMimeType($mimeType);
-                        $filename = Str::uuid() . ($extension ? '.' . $extension : '');
-                        $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+                        $filename = Str::uuid().($extension ? '.'.$extension : '');
+                        $storagePath = 'request-forms/'.date('Y/m').'/'.$filename;
 
                         // Store file
                         $stored = Storage::disk($disk)->put($storagePath, $fileContent);
 
-                        if (false === $stored) {
+                        if ($stored === false) {
                             Log::warning('Failed to store file in private bucket, trying fallback', [
                                 'key' => $key,
                                 'path' => $storagePath,
@@ -2991,23 +2864,23 @@ class RequestController extends Controller
         try {
             $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
             $filename = $this->generateDescriptiveFilenameForUpload($file, $key, $extension);
-            $storagePath = 'request-forms/' . date('Y/m') . '/' . $filename;
+            $storagePath = 'request-forms/'.date('Y/m').'/'.$filename;
 
             // Store file
             $storedPath = Storage::disk($disk)->putFileAs(
-                'request-forms/' . date('Y/m'),
+                'request-forms/'.date('Y/m'),
                 $file,
                 $filename
             );
 
             $finalDisk = $disk;
-            if (false === $storedPath) {
+            if ($storedPath === false) {
                 Log::warning('Failed to store file in private bucket, trying fallback', [
                     'key' => $key,
                     'path' => $storagePath,
                 ]);
                 $storedPath = Storage::disk($fallbackDisk)->putFileAs(
-                    'request-forms/' . date('Y/m'),
+                    'request-forms/'.date('Y/m'),
                     $file,
                     $filename
                 );
@@ -3110,13 +2983,13 @@ class RequestController extends Controller
      * Store a single attachment for a request response and return its metadata.
      * This is used for compressed files that need URLs generated before sending email.
      *
-     * @param RequestResponse $requestResponse The response to attach file to
-     * @param \Illuminate\Http\UploadedFile $attachment The file to store
+     * @param  RequestResponse  $requestResponse  The response to attach file to
+     * @param  \Illuminate\Http\UploadedFile  $attachment  The file to store
      * @return array|null Array with 'path' and 'original_name', or null on failure
      */
     private function storeSingleResponseAttachment(RequestResponse $requestResponse, \Illuminate\Http\UploadedFile $attachment): ?array
     {
-        if (!($attachment instanceof \Illuminate\Http\UploadedFile) || !$attachment->isValid()) {
+        if (! ($attachment instanceof \Illuminate\Http\UploadedFile) || ! $attachment->isValid()) {
             return null;
         }
 
@@ -3135,26 +3008,27 @@ class RequestController extends Controller
 
             // Store file
             $storedPath = Storage::disk($disk)->putFileAs(
-                'request-responses/' . date('Y/m'),
+                'request-responses/'.date('Y/m'),
                 $attachment,
                 $filename
             );
 
-            if (false === $storedPath) {
+            if ($storedPath === false) {
                 Log::warning('Failed to store response attachment in private bucket, trying fallback', [
                     'response_id' => $requestResponse->id,
                     'original_name' => $originalName,
                 ]);
                 $storedPath = Storage::disk($fallbackDisk)->putFileAs(
-                    'request-responses/' . date('Y/m'),
+                    'request-responses/'.date('Y/m'),
                     $attachment,
                     $filename
                 );
-                if (false === $storedPath) {
+                if ($storedPath === false) {
                     Log::error('Failed to store response attachment in fallback disk', [
                         'response_id' => $requestResponse->id,
                         'original_name' => $originalName,
                     ]);
+
                     return null;
                 }
             }
@@ -3184,6 +3058,7 @@ class RequestController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
             return null;
         }
     }
@@ -3192,8 +3067,8 @@ class RequestController extends Controller
      * Store attachments for a request response.
      * This method saves uploaded files to storage and creates database records for traceability.
      *
-     * @param RequestResponse $requestResponse The response to attach files to
-     * @param array $attachments Array of UploadedFile instances
+     * @param  RequestResponse  $requestResponse  The response to attach files to
+     * @param  array  $attachments  Array of UploadedFile instances
      */
     private function storeResponseAttachments(RequestResponse $requestResponse, array $attachments): void
     {
@@ -3201,7 +3076,7 @@ class RequestController extends Controller
         $fallbackDisk = 'local';
 
         foreach ($attachments as $attachment) {
-            if (!($attachment instanceof \Illuminate\Http\UploadedFile) || !$attachment->isValid()) {
+            if (! ($attachment instanceof \Illuminate\Http\UploadedFile) || ! $attachment->isValid()) {
                 continue;
             }
 
@@ -3214,30 +3089,31 @@ class RequestController extends Controller
                 // Generate unique filename for storage
                 $uniqueId = substr(Str::uuid()->toString(), 0, 8);
                 $filename = "response-attachment-{$requestResponse->id}-{$uniqueId}.{$extension}";
-                $storagePath = 'request-responses/' . date('Y/m') . '/' . $filename;
+                $storagePath = 'request-responses/'.date('Y/m').'/'.$filename;
 
                 // Store file
                 $storedPath = Storage::disk($disk)->putFileAs(
-                    'request-responses/' . date('Y/m'),
+                    'request-responses/'.date('Y/m'),
                     $attachment,
                     $filename
                 );
 
-                if (false === $storedPath) {
+                if ($storedPath === false) {
                     Log::warning('Failed to store response attachment in private bucket, trying fallback', [
                         'response_id' => $requestResponse->id,
                         'original_name' => $originalName,
                     ]);
                     $storedPath = Storage::disk($fallbackDisk)->putFileAs(
-                        'request-responses/' . date('Y/m'),
+                        'request-responses/'.date('Y/m'),
                         $attachment,
                         $filename
                     );
-                    if (false === $storedPath) {
+                    if ($storedPath === false) {
                         Log::error('Failed to store response attachment in fallback disk', [
                             'response_id' => $requestResponse->id,
                             'original_name' => $originalName,
                         ]);
+
                         continue;
                     }
                 }
@@ -3324,7 +3200,7 @@ class RequestController extends Controller
      */
     private function formatFilesMetadata(?array $files, ?string $requestId = null): array
     {
-        if (!is_array($files) || empty($files)) {
+        if (! is_array($files) || empty($files)) {
             return [];
         }
 
@@ -3337,7 +3213,7 @@ class RequestController extends Controller
             $downloadUrl = null;
             $urlExpiresAt = null;
 
-            if ($path && 'prosalud-private' === $disk) {
+            if ($path && $disk === 'prosalud-private') {
                 try {
                     $storage = Storage::disk($disk);
                     $downloadUrl = $storage->temporaryUrl($path, now()->addHours(1));
@@ -3377,13 +3253,11 @@ class RequestController extends Controller
     /**
      * Format response attachments with temporary URLs for private bucket files.
      *
-     * @param \Illuminate\Database\Eloquent\Collection|null $attachments
-     * @param int $responseId
-     * @return array
+     * @param  \Illuminate\Database\Eloquent\Collection|null  $attachments
      */
     private function formatResponseAttachments($attachments, int $responseId): array
     {
-        if (!$attachments || $attachments->isEmpty()) {
+        if (! $attachments || $attachments->isEmpty()) {
             return [];
         }
 
@@ -3444,7 +3318,7 @@ class RequestController extends Controller
             ->where('id', $attachmentId)
             ->first();
 
-        if (!$attachment) {
+        if (! $attachment) {
             return response()->json([
                 'success' => false,
                 'message' => 'Anexo no encontrado',
@@ -3454,10 +3328,10 @@ class RequestController extends Controller
         $disk = 'prosalud-private';
         $path = $attachment->path;
 
-        if (!Storage::disk($disk)->exists($path)) {
+        if (! Storage::disk($disk)->exists($path)) {
             // Try fallback disk
             $disk = 'local';
-            if (!Storage::disk($disk)->exists($path)) {
+            if (! Storage::disk($disk)->exists($path)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Archivo no existe en el almacenamiento',
@@ -3522,7 +3396,7 @@ class RequestController extends Controller
             // Generar reporte
             $filePath = $this->excelExportService->generateReport($filters);
 
-            if (!file_exists($filePath)) {
+            if (! file_exists($filePath)) {
                 Log::error('Error generando reporte Excel de solicitudes: archivo no creado', [
                     'user_id' => $user->id,
                     'filters' => $filters,
@@ -3535,7 +3409,7 @@ class RequestController extends Controller
             }
 
             // Nombre del archivo
-            $fileName = 'Reporte_Solicitudes_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d') . '.xlsx';
+            $fileName = 'Reporte_Solicitudes_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d').'.xlsx';
 
             Log::info('Reporte Excel de solicitudes generado', [
                 'user_id' => $user->id,
@@ -3581,7 +3455,7 @@ class RequestController extends Controller
      * Verifica si existe una solicitud pendiente o en revisión de actualización de datos personales
      * que incluya actualización de correo electrónico para el mismo documento.
      *
-     * @param RequestForm $requestForm La solicitud de certificado de convenio a verificar
+     * @param  RequestForm  $requestForm  La solicitud de certificado de convenio a verificar
      * @return bool true si existe una actualización de correo pendiente, false en caso contrario
      */
     private function tieneActualizacionCorreoPendiente(RequestForm $requestForm): bool
@@ -3595,17 +3469,18 @@ class RequestController extends Controller
             ->orderBy('created_at', 'desc')
             ->first();
 
-        if (!$solicitudActualizacion) {
+        if (! $solicitudActualizacion) {
             Log::debug('tieneActualizacionCorreoPendiente: No se encontró solicitud de actualización pendiente', [
                 'request_id' => $requestForm->id,
                 'document_number' => $requestForm->document_number,
             ]);
+
             return false;
         }
 
         // Verificar si el payload incluye actualización de correo electrónico
         $payload = $solicitudActualizacion->payload ?? [];
-        $tieneCorreo = !empty($payload['correo'] ?? null);
+        $tieneCorreo = ! empty($payload['correo'] ?? null);
 
         Log::info('tieneActualizacionCorreoPendiente: Solicitud de actualización encontrada', [
             'request_id' => $requestForm->id,
@@ -3639,17 +3514,19 @@ class RequestController extends Controller
                 'request_id' => $requestForm->id,
                 'document_number' => $requestForm->document_number,
             ]);
+
             return false;
         }
 
         $payload = $requestForm->payload ?? [];
 
         // Verificar si tiene infoCertificado en el payload
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             Log::debug('debeProcesarCertificadoAutomatico: No tiene infoCertificado en payload', [
                 'request_id' => $requestForm->id,
                 'payload_keys' => array_keys($payload),
             ]);
+
             return false;
         }
 
@@ -3659,11 +3536,12 @@ class RequestController extends Controller
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             Log::debug('debeProcesarCertificadoAutomatico: infoCertificado no es un array', [
                 'request_id' => $requestForm->id,
                 'infoCertificado_type' => gettype($payload['infoCertificado']),
             ]);
+
             return false;
         }
 
@@ -3692,6 +3570,7 @@ class RequestController extends Controller
                 'otros' => $otros,
                 'otros_campos' => $infoCertificado,
             ]);
+
             return false;
         }
 
@@ -3704,6 +3583,7 @@ class RequestController extends Controller
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'otros_campos' => $infoCertificado,
             ]);
+
             return true;
         }
 
@@ -3716,6 +3596,7 @@ class RequestController extends Controller
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'otros_campos' => $infoCertificado,
             ]);
+
             return true;
         }
 
@@ -3739,6 +3620,7 @@ class RequestController extends Controller
                     'campo' => $campo,
                     'valor' => $infoCertificado[$campo] ?? null,
                 ]);
+
                 return false;
             }
         }
@@ -3751,6 +3633,7 @@ class RequestController extends Controller
             'fechaIngresoRetiro' => $fechaIngresoRetiro,
             'dirigidoAEntidad' => $dirigidoAEntidad,
         ]);
+
         return $resultado;
     }
 
@@ -3761,7 +3644,7 @@ class RequestController extends Controller
     {
         $payload = $requestForm->payload ?? [];
 
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             return false;
         }
 
@@ -3770,24 +3653,21 @@ class RequestController extends Controller
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             return false;
         }
 
-        return !empty($infoCertificado['valorCompensaciones'] ?? false);
+        return ! empty($infoCertificado['valorCompensaciones'] ?? false);
     }
 
     /**
      * Verifica si el certificado es para subsidio de vivienda
-     *
-     * @param RequestForm $requestForm
-     * @return bool
      */
     private function esParaSubsidioVivienda(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
 
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             return false;
         }
 
@@ -3796,7 +3676,7 @@ class RequestController extends Controller
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             return false;
         }
 
@@ -3832,6 +3712,7 @@ class RequestController extends Controller
                         'documento' => $documento,
                         'otros' => $otros,
                     ]);
+
                     return [
                         'puede_procesar' => false,
                         'razon' => 'Opción "Otros" seleccionada - requiere revisión manual',
@@ -3850,11 +3731,12 @@ class RequestController extends Controller
 
             $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($documento);
 
-            if (!$afiliadoData) {
+            if (! $afiliadoData) {
                 Log::warning('puedeProcesarCertificadoConCompensaciones: Afiliado no encontrado', [
                     'request_id' => $requestForm->id,
                     'documento' => $documento,
                 ]);
+
                 return [
                     'puede_procesar' => false,
                     'razon' => 'Afiliado no encontrado',
@@ -3880,12 +3762,13 @@ class RequestController extends Controller
                 'esta_activo' => $estaActivo,
             ]);
 
-            if (!$estaActivo) {
+            if (! $estaActivo) {
                 Log::warning('puedeProcesarCertificadoConCompensaciones: Afiliado no está activo', [
                     'request_id' => $requestForm->id,
                     'documento' => $documento,
                     'estado_original' => $estadoOriginal,
                 ]);
+
                 return [
                     'puede_procesar' => false,
                     'razon' => 'Afiliado no está activo',
@@ -3904,15 +3787,16 @@ class RequestController extends Controller
             Log::info('puedeProcesarCertificadoConCompensaciones: Resultado de búsqueda de compensaciones', [
                 'request_id' => $requestForm->id,
                 'documento' => $documento,
-                'compensaciones_encontradas' => !empty($compensaciones),
+                'compensaciones_encontradas' => ! empty($compensaciones),
                 'compensaciones' => $compensaciones,
             ]);
 
-            if (!$compensaciones) {
+            if (! $compensaciones) {
                 Log::warning('puedeProcesarCertificadoConCompensaciones: No se encontró registro de compensaciones en el Excel', [
                     'request_id' => $requestForm->id,
                     'documento' => $documento,
                 ]);
+
                 return [
                     'puede_procesar' => false,
                     'razon' => 'No se encontró registro de compensaciones en el Excel',
@@ -3921,12 +3805,13 @@ class RequestController extends Controller
             }
 
             // 3. Verificar que los valores sean válidos
-            if (!isset($compensaciones['t_basicos']) || !isset($compensaciones['t_auxilios']) || !isset($compensaciones['t_ingresos'])) {
+            if (! isset($compensaciones['t_basicos']) || ! isset($compensaciones['t_auxilios']) || ! isset($compensaciones['t_ingresos'])) {
                 Log::warning('puedeProcesarCertificadoConCompensaciones: Datos de compensaciones incompletos', [
                     'request_id' => $requestForm->id,
                     'documento' => $documento,
                     'compensaciones' => $compensaciones,
                 ]);
+
                 return [
                     'puede_procesar' => false,
                     'razon' => 'Datos de compensaciones incompletos',
@@ -3941,6 +3826,7 @@ class RequestController extends Controller
                     'documento' => $documento,
                     'compensaciones' => $compensaciones,
                 ]);
+
                 return [
                     'puede_procesar' => false,
                     'razon' => 'Los valores de compensaciones están en cero',
@@ -3971,7 +3857,7 @@ class RequestController extends Controller
 
             return [
                 'puede_procesar' => false,
-                'razon' => 'Error al verificar compensaciones: ' . $e->getMessage(),
+                'razon' => 'Error al verificar compensaciones: '.$e->getMessage(),
                 'compensaciones' => null,
             ];
         }
@@ -3981,10 +3867,11 @@ class RequestController extends Controller
      * Guarda un certificado generado en los archivos de la solicitud
      * Similar al método en CertificadoConvenioAutomaticoService
      *
-     * @param string $requestId ID de la solicitud
-     * @param string $rutaPdf Ruta local del archivo PDF
-     * @param string $nombreArchivo Nombre del archivo
+     * @param  string  $requestId  ID de la solicitud
+     * @param  string  $rutaPdf  Ruta local del archivo PDF
+     * @param  string  $nombreArchivo  Nombre del archivo
      * @return array Metadatos del archivo guardado
+     *
      * @throws \Exception Si no se puede leer o guardar el archivo
      */
     private function guardarCertificadoEnSolicitud(string $requestId, string $rutaPdf, string $nombreArchivo): array
@@ -3999,22 +3886,22 @@ class RequestController extends Controller
             // Crear un nombre único para el archivo
             $nombreSinExtension = pathinfo($nombreArchivo, PATHINFO_FILENAME);
             $extension = pathinfo($nombreArchivo, PATHINFO_EXTENSION) ?: 'pdf';
-            $nombreUnico = "certificado-convenio-actividades-{$requestId}-" . Str::random(8) . ".{$extension}";
+            $nombreUnico = "certificado-convenio-actividades-{$requestId}-".Str::random(8).".{$extension}";
 
             // Guardar en el bucket privado
             $disk = 'prosalud-private';
-            $directorio = 'request-forms/' . date('Y/m');
+            $directorio = 'request-forms/'.date('Y/m');
             $rutaStorage = "{$directorio}/{$nombreUnico}";
 
             $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
 
-            if (!$guardado) {
+            if (! $guardado) {
                 // Intentar con disco de fallback
                 $disk = 'local';
                 $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
 
-                if (!$guardado) {
-                    throw new \Exception("No se pudo guardar el certificado en storage");
+                if (! $guardado) {
+                    throw new \Exception('No se pudo guardar el certificado en storage');
                 }
             }
 
@@ -4145,7 +4032,7 @@ class RequestController extends Controller
      * Allowed tags: p, br, strong, b, em, i, u, table, tr, td, th, thead, tbody, ul, ol, li, div, span, h1-h6
      * Allowed attributes: border, cellpadding, cellspacing, style (with safe CSS only)
      *
-     * @param string $html The HTML content to sanitize
+     * @param  string  $html  The HTML content to sanitize
      * @return string The sanitized HTML content
      */
     private function sanitizeHtmlContent(string $html): string
@@ -4155,16 +4042,17 @@ class RequestController extends Controller
         $allowedAttributes = ['border', 'cellpadding', 'cellspacing', 'style', 'align', 'valign', 'colspan', 'rowspan'];
 
         // Step 1: Sanitize attributes of allowed tags first
-        $pattern = '/<(' . implode('|', $allowedTagNames) . ')(\s[^>]*)?>/i';
+        $pattern = '/<('.implode('|', $allowedTagNames).')(\s[^>]*)?>/i';
         $result = preg_replace_callback($pattern, function ($matches) use ($allowedAttributes) {
             $tagName = strtolower($matches[1]);
             $attributes = $matches[2] ?? '';
             $sanitizedAttrs = $this->sanitizeTagAttributes($attributes, $allowedAttributes);
-            return '<' . $tagName . ($sanitizedAttrs ? ' ' . $sanitizedAttrs : '') . '>';
+
+            return '<'.$tagName.($sanitizedAttrs ? ' '.$sanitizedAttrs : '').'>';
         }, $html);
 
         // Step 2: Remove dangerous tags (tags not in allowed list)
-        $dangerousTagPattern = '/<\/?(?!' . implode('|', $allowedTagNames) . ')[^>]*>/i';
+        $dangerousTagPattern = '/<\/?(?!'.implode('|', $allowedTagNames).')[^>]*>/i';
         $result = preg_replace($dangerousTagPattern, '', $result);
 
         // Step 3: CRITICAL - Separate tables from text content to prevent text from being absorbed into tables
@@ -4208,10 +4096,10 @@ class RequestController extends Controller
             }
 
             // If we found a complete table, store it
-            if ($depth === 0 && !empty($tableContent)) {
+            if ($depth === 0 && ! empty($tableContent)) {
                 // Ensure table is properly closed
                 $tableContent = rtrim($tableContent);
-                if (!preg_match('/<\/table>\s*$/i', $tableContent)) {
+                if (! preg_match('/<\/table>\s*$/i', $tableContent)) {
                     $tableContent .= '</table>';
                 }
 
@@ -4239,10 +4127,10 @@ class RequestController extends Controller
             if (preg_match('/\{\{TABLE_PLACEHOLDER_(\d+)\}\}/', $part, $placeholderMatch)) {
                 // Restore the table and add a clear separator after it
                 $table = $placeholders[$part] ?? '';
-                if (!empty($table)) {
+                if (! empty($table)) {
                     // Ensure table is properly closed
                     $table = rtrim($table);
-                    if (!preg_match('/<\/table>\s*$/i', $table)) {
+                    if (! preg_match('/<\/table>\s*$/i', $table)) {
                         $table .= '</table>';
                     }
 
@@ -4259,8 +4147,8 @@ class RequestController extends Controller
                             $existingStyle = preg_replace('/width\s*:\s*100%;?/i', '', $existingStyle);
                             $existingStyle = trim($existingStyle, '; ');
                             // Append new width control styles
-                            $newStyle = (!empty($existingStyle) ? $existingStyle . '; ' : '') . 'width:auto !important; max-width:100% !important; margin:16px auto !important;';
-                            $table = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="' . htmlspecialchars($newStyle, ENT_QUOTES) . '"', $table, 1);
+                            $newStyle = (! empty($existingStyle) ? $existingStyle.'; ' : '').'width:auto !important; max-width:100% !important; margin:16px auto !important;';
+                            $table = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="'.htmlspecialchars($newStyle, ENT_QUOTES).'"', $table, 1);
                         } else {
                             // Add new style attribute
                             $table = preg_replace('/<table([^>]*)>/i', '<table$1 style="width:auto !important; max-width:100% !important; margin:16px auto !important;">', $table, 1);
@@ -4268,7 +4156,7 @@ class RequestController extends Controller
                     }
 
                     // Ensure all table rows have consistent alignment
-                    $table = preg_replace_callback('/<tr([^>]*)>/i', function($matches) {
+                    $table = preg_replace_callback('/<tr([^>]*)>/i', function ($matches) {
                         $attrs = $matches[1];
 
                         // Check if style attribute exists
@@ -4277,19 +4165,19 @@ class RequestController extends Controller
                             // Remove any existing vertical-align
                             $existingStyle = preg_replace('/vertical-align\s*:\s*[^;]+;?/i', '', $existingStyle);
                             $existingStyle = trim($existingStyle, '; ');
-                            $newStyle = (!empty($existingStyle) ? $existingStyle . '; ' : '') . 'vertical-align:middle;';
-                            $attrs = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="' . htmlspecialchars($newStyle, ENT_QUOTES) . '"', $attrs, 1);
+                            $newStyle = (! empty($existingStyle) ? $existingStyle.'; ' : '').'vertical-align:middle;';
+                            $attrs = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="'.htmlspecialchars($newStyle, ENT_QUOTES).'"', $attrs, 1);
                         } else {
-                            $attrs = rtrim($attrs) . ' style="vertical-align:middle;"';
+                            $attrs = rtrim($attrs).' style="vertical-align:middle;"';
                         }
 
-                        return '<tr' . $attrs . '>';
+                        return '<tr'.$attrs.'>';
                     }, $table);
 
                     // Ensure all table cells (td/th) have proper vertical alignment
                     // This prevents vertical misalignment issues in email clients
                     // Force consistent vertical alignment, line-height, and padding for all cells
-                    $table = preg_replace_callback('/<(td|th)([^>]*)>/i', function($matches) {
+                    $table = preg_replace_callback('/<(td|th)([^>]*)>/i', function ($matches) {
                         $tagName = $matches[1];
                         $attrs = $matches[2];
 
@@ -4303,31 +4191,31 @@ class RequestController extends Controller
                             // Clean up and add consistent styles
                             $existingStyle = trim($existingStyle, '; ');
                             // Force consistent vertical alignment and line-height - use !important to override any conflicting styles
-                            $newStyle = (!empty($existingStyle) ? $existingStyle . '; ' : '') . 'vertical-align:middle !important; line-height:1.5 !important;';
-                            $attrs = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="' . htmlspecialchars($newStyle, ENT_QUOTES) . '"', $attrs, 1);
+                            $newStyle = (! empty($existingStyle) ? $existingStyle.'; ' : '').'vertical-align:middle !important; line-height:1.5 !important;';
+                            $attrs = preg_replace('/style\s*=\s*["\']([^"\']*)["\']/i', 'style="'.htmlspecialchars($newStyle, ENT_QUOTES).'"', $attrs, 1);
                         } else {
                             // Add style attribute with vertical-align and line-height
-                            $attrs = rtrim($attrs) . ' style="vertical-align:middle !important; line-height:1.5 !important;"';
+                            $attrs = rtrim($attrs).' style="vertical-align:middle !important; line-height:1.5 !important;"';
                         }
 
-                        return '<' . $tagName . $attrs . '>';
+                        return '<'.$tagName.$attrs.'>';
                     }, $table);
 
                     // Add a clear separator after the table to prevent content absorption
-                    $normalized .= $table . '<p style="margin:16px 0; padding:0; clear:both; display:block; height:0; line-height:0; font-size:0;"></p>';
+                    $normalized .= $table.'<p style="margin:16px 0; padding:0; clear:both; display:block; height:0; line-height:0; font-size:0;"></p>';
                 }
             } else {
                 // This is text content - process it
                 $text = $part; // Don't trim yet, preserve whitespace structure
 
-                if (!empty(trim($text))) {
+                if (! empty(trim($text))) {
                     // Check if text already starts with a block-level tag (p, div, h1-h6, etc.)
                     $startsWithBlock = preg_match('/^\s*<(?:p|div|h[1-6]|ul|ol)/i', $text);
 
                     if ($startsWithBlock) {
                         // Text already has block-level structure, just ensure line breaks are preserved
                         // Convert line breaks in text nodes to <br>
-                        $text = preg_replace('/([^<>\n]+\n[^<>\n]+)/', function($m) {
+                        $text = preg_replace('/([^<>\n]+\n[^<>\n]+)/', function ($m) {
                             return nl2br($m[1], false);
                         }, $text);
                         $normalized .= $text;
@@ -4346,11 +4234,12 @@ class RequestController extends Controller
                             if (preg_match('/<[^>]+>/', $para)) {
                                 // Has HTML tags like <strong>, <br>, etc.
                                 // Convert line breaks in plain text portions to <br>
-                                $para = preg_replace_callback('/([^<>\n]+)/', function($m) {
+                                $para = preg_replace_callback('/([^<>\n]+)/', function ($m) {
                                     $content = $m[1];
                                     if (trim($content) !== '') {
                                         return nl2br($content, false);
                                     }
+
                                     return $content;
                                 }, $para);
                             } else {
@@ -4359,7 +4248,7 @@ class RequestController extends Controller
                             }
 
                             // Wrap in <p> tag
-                            $normalized .= '<p>' . $para . '</p>';
+                            $normalized .= '<p>'.$para.'</p>';
                         }
                     }
                 }
@@ -4371,7 +4260,8 @@ class RequestController extends Controller
             $tagName = strtolower($matches[1]);
             $attributes = $matches[2] ?? '';
             $sanitizedAttrs = $this->sanitizeTagAttributes($attributes, $allowedAttributes);
-            return '<' . $tagName . ($sanitizedAttrs ? ' ' . $sanitizedAttrs : '') . '>';
+
+            return '<'.$tagName.($sanitizedAttrs ? ' '.$sanitizedAttrs : '').'>';
         }, $normalized);
 
         // Step 6: Additional security - Remove dangerous URLs and event handlers
@@ -4401,8 +4291,8 @@ class RequestController extends Controller
     /**
      * Sanitize HTML tag attributes, allowing only safe attributes with safe values.
      *
-     * @param string $attributesString The attributes string from an HTML tag
-     * @param array $allowedAttributes List of allowed attribute names
+     * @param  string  $attributesString  The attributes string from an HTML tag
+     * @param  array  $allowedAttributes  List of allowed attribute names
      * @return string Sanitized attributes string
      */
     private function sanitizeTagAttributes(string $attributesString, array $allowedAttributes): string
@@ -4421,7 +4311,7 @@ class RequestController extends Controller
             $attrValue = $attrMatch[2];
 
             // Only allow specified attributes
-            if (!in_array($attrName, $allowedAttributes)) {
+            if (! in_array($attrName, $allowedAttributes)) {
                 continue;
             }
 
@@ -4437,7 +4327,7 @@ class RequestController extends Controller
             } elseif (in_array($attrName, ['align', 'valign'])) {
                 // Alignment attributes - only allow safe values
                 $safeAlignValues = ['left', 'right', 'center', 'justify', 'top', 'middle', 'bottom'];
-                if (!in_array(strtolower($attrValue), $safeAlignValues)) {
+                if (! in_array(strtolower($attrValue), $safeAlignValues)) {
                     continue;
                 }
             }
@@ -4445,7 +4335,7 @@ class RequestController extends Controller
             // Escape quotes in attribute values
             $attrValue = htmlspecialchars($attrValue, ENT_QUOTES, 'UTF-8');
 
-            $sanitized[] = $attrName . '="' . $attrValue . '"';
+            $sanitized[] = $attrName.'="'.$attrValue.'"';
         }
 
         return implode(' ', $sanitized);
@@ -4504,7 +4394,7 @@ class RequestController extends Controller
             // Generar plantilla
             $filePath = $this->bulkResponseService->generateTemplate($filters);
 
-            if (!file_exists($filePath)) {
+            if (! file_exists($filePath)) {
                 Log::error('Error generando plantilla de respuesta masiva: archivo no creado', [
                     'user_id' => $user->id,
                     'filters' => $filters,
@@ -4517,7 +4407,7 @@ class RequestController extends Controller
             }
 
             // Nombre del archivo
-            $fileName = 'Plantilla_Respuestas_Masivas_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+            $fileName = 'Plantilla_Respuestas_Masivas_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
 
             Log::info('Plantilla de respuesta masiva generada', [
                 'user_id' => $user->id,
@@ -4610,7 +4500,7 @@ class RequestController extends Controller
             $user = $request->user();
             $uploadedFile = $request->file('file');
 
-            if (!$uploadedFile || !$uploadedFile->isValid()) {
+            if (! $uploadedFile || ! $uploadedFile->isValid()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'El archivo no es válido',
@@ -4622,12 +4512,12 @@ class RequestController extends Controller
             $tempFilePath = $uploadedFile->getRealPath();
 
             // Si getRealPath() no funciona, usar getPathname() como alternativa
-            if (!$tempFilePath || !file_exists($tempFilePath)) {
+            if (! $tempFilePath || ! file_exists($tempFilePath)) {
                 $tempFilePath = $uploadedFile->getPathname();
             }
 
             // Verificar que el archivo existe
-            if (!$tempFilePath || !file_exists($tempFilePath)) {
+            if (! $tempFilePath || ! file_exists($tempFilePath)) {
                 Log::error('No se pudo obtener la ruta del archivo temporal', [
                     'getRealPath' => $uploadedFile->getRealPath(),
                     'getPathname' => $uploadedFile->getPathname(),
@@ -4739,9 +4629,7 @@ class RequestController extends Controller
      * Ruta temporal pública para reintentar el proceso automático de generación de certificado
      * cuando falló por intermitencia del servicio de conversión Word a PDF
      *
-     * @param Request $request
-     * @param string $requestId ID de la solicitud
-     * @return JsonResponse
+     * @param  string  $requestId  ID de la solicitud
      */
     public function retryCertificateGeneration(Request $request, string $requestId): JsonResponse
     {
@@ -4755,7 +4643,7 @@ class RequestController extends Controller
             // Buscar la solicitud
             $requestForm = RequestForm::find($requestId);
 
-            if (!$requestForm) {
+            if (! $requestForm) {
                 Log::warning('Solicitud no encontrada para reintento', [
                     'request_id' => $requestId,
                 ]);
@@ -4870,8 +4758,8 @@ class RequestController extends Controller
     /**
      * Determine if a request should be automatically validated based on its type and target status.
      *
-     * @param string $requestType The request type
-     * @param string $targetStatus The target status
+     * @param  string  $requestType  The request type
+     * @param  string  $targetStatus  The target status
      * @return bool True if the request should be auto-validated
      */
     private function shouldAutoValidateRequest(string $requestType, string $targetStatus): bool
@@ -4884,7 +4772,7 @@ class RequestController extends Controller
         ];
 
         // Check if this is one of the specified request types
-        if (!in_array($requestType, $autoValidateRequestTypes, true)) {
+        if (! in_array($requestType, $autoValidateRequestTypes, true)) {
             return false;
         }
 
@@ -4902,8 +4790,7 @@ class RequestController extends Controller
      * Indica si en el request de respuesta con compensaciones se enviaron valores individuales
      * (basico, auxilios, auxilio_de_transporte, etc.) para construir el texto con plantillas de convenio.
      *
-     * @param array $validated Datos validados del request
-     * @return bool
+     * @param  array  $validated  Datos validados del request
      */
     private function tieneValoresIndividualesCertificadoConvenio(array $validated): bool
     {
@@ -4920,14 +4807,14 @@ class RequestController extends Controller
                 return true;
             }
         }
+
         return false;
     }
 
     /**
      * Extrae del request validado solo las claves de compensación individual usadas por ConvenioGenerationService.
      *
-     * @param array $validated Datos validados del request
-     * @return array
+     * @param  array  $validated  Datos validados del request
      */
     private function extraerDatosCompensacionIndividualCertificado(array $validated): array
     {
@@ -4944,6 +4831,7 @@ class RequestController extends Controller
                 $data[$clave] = $validated[$clave];
             }
         }
+
         return $data;
     }
 }
