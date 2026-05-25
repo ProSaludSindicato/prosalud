@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\RichText\RichText;
+use PhpOffice\PhpSpreadsheet\Shared\Date as SpreadsheetExcelDate;
 
 class ExcelReaderService
 {
@@ -292,13 +294,9 @@ class ExcelReaderService
                 $rowDocumento = trim($row[1] ?? '');
                 $rowFechaExpedicion = trim($row[6] ?? ''); // Fecha Expedición is column 6 (0-indexed)
 
-                // Normalize dates for comparison
-                $normalizedInputDate = $this->normalizeAssemblyDate($fechaExpedicion);
-                $normalizedRowDate = $this->normalizeAssemblyDate($rowFechaExpedicion);
-
                 if ($rowTipoDocumento === $tipoDocumento
                     && $rowDocumento === $documento
-                    && $normalizedInputDate === $normalizedRowDate) {
+                    && $this->assemblyNormalizedDatesEquivalent($fechaExpedicion, $rowFechaExpedicion)) {
                     // Return the HOSPITAL column (column 5, 0-indexed)
                     return trim($row[5] ?? '');
                 }
@@ -777,6 +775,11 @@ class ExcelReaderService
         try {
             $assembly = $assembly ?? Assembly::getCurrent();
             if (! $assembly || ! $assembly->delegates_file_path) {
+                Log::warning('Asamblea delegados: no hay asamblea activa o falta ruta de archivo de delegados', [
+                    'assembly_id' => $assembly?->id,
+                    'delegates_file_path' => $assembly?->delegates_file_path,
+                ]);
+
                 return null;
             }
 
@@ -784,38 +787,104 @@ class ExcelReaderService
             $data = $this->readAssemblyDelegatesFromStoredPath($assembly->delegates_file_path, $preferredDisk);
 
             if (empty($data)) {
+                Log::warning('Asamblea delegados: lectura del Excel devolvió vacío', [
+                    'assembly_id' => $assembly->id,
+                    'delegates_file_path' => $assembly->delegates_file_path,
+                    'disk' => $preferredDisk,
+                ]);
+
                 return null;
             }
 
-            // Skip header row (assuming first row is header)
+            try {
+                $columnMap = AssemblyDelegateColumnResolver::resolveOrFail($data[0] ?? []);
+            } catch (\InvalidArgumentException $e) {
+                Log::error('Encabezados inválidos en archivo de delegados de asamblea', [
+                    'error' => $e->getMessage(),
+                    'assembly_id' => $assembly->id,
+                ]);
+
+                return null;
+            }
+
             $rows = array_slice($data, 1);
+            $headerRow = $data[0] ?? [];
+            $normalizedSoughtDoc = $this->normalizeAssemblyDocumentForMatch($cedula);
+            $normalizedInputDate = $this->normalizeAssemblyDate(trim($fechaExpedicion));
 
             foreach ($rows as $row) {
-                // Check if row has enough columns
-                // Columns: CEDULA, NOMBRE Y APELLIDOS, ESTADO BD, F. EXPEDICIÓN
-                if (count($row) < 4) {
+                if (! is_array($row)) {
                     continue;
                 }
 
-                $rowCedula = trim($row[0] ?? '');
-                $rowNombreApellidos = trim($row[1] ?? '');
-                $rowEstadoBD = trim($row[2] ?? '');
-                $rowFechaExpedicion = trim($row[3] ?? '');
+                $rowCedula = $this->normalizeAssemblyDocumentForMatch(
+                    $this->assemblyDelegateCellToString($row[$columnMap->cedula] ?? null)
+                );
+                $rowNombreApellidos = $this->assemblyDelegateCellToString($row[$columnMap->nombreApellidos] ?? null);
+                $rowEstadoBD = $this->assemblyDelegateCellToString($row[$columnMap->estadoBd] ?? null);
+                $rowSede = $columnMap->sede !== null
+                    ? $this->assemblyDelegateCellToString($row[$columnMap->sede] ?? null)
+                    : '';
+                $rowProceso = $columnMap->proceso !== null
+                    ? $this->assemblyDelegateCellToString($row[$columnMap->proceso] ?? null)
+                    : '';
 
-                // Normalize dates for comparison
-                $normalizedInputDate = $this->normalizeAssemblyDate($fechaExpedicion);
-                $normalizedRowDate = $this->normalizeAssemblyDate($rowFechaExpedicion);
-
-                if ($rowCedula === $cedula && $normalizedInputDate === $normalizedRowDate) {
-                    // Return the affiliate's information
-                    return [
-                        'cedula' => $rowCedula,
-                        'nombre_apellidos' => $rowNombreApellidos,
-                        'estado_bd' => $rowEstadoBD,
-                        'fecha_expedicion' => $rowFechaExpedicion,
-                    ];
+                if ($rowCedula === '') {
+                    continue;
                 }
+
+                if ($rowCedula !== $normalizedSoughtDoc) {
+                    continue;
+                }
+
+                $dateCandidates = $this->assemblyDelegateExpeditionDateCandidates($row, $columnMap);
+                $rowFechaExpedicion = $this->assemblyDelegateCellToString($row[$columnMap->fechaExpedicion] ?? null);
+                $matchedDateToken = null;
+
+                foreach ($dateCandidates as $candidate) {
+                    $asString = $this->delegateExcelCellToComparableDateString($candidate);
+                    if ($asString !== '' && $this->assemblyNormalizedDatesEquivalent($asString, $normalizedInputDate)) {
+                        $matchedDateToken = is_scalar($candidate) ? (string) $candidate : $asString;
+                        break;
+                    }
+                }
+
+                if ($matchedDateToken === null) {
+                    continue;
+                }
+
+                if ($rowFechaExpedicion === '') {
+                    $rowFechaExpedicion = $matchedDateToken;
+                }
+
+                $payload = [
+                    'cedula' => $rowCedula,
+                    'nombre_apellidos' => $rowNombreApellidos,
+                    'estado_bd' => $rowEstadoBD,
+                    'fecha_expedicion' => $rowFechaExpedicion,
+                ];
+
+                if ($rowSede !== '') {
+                    $payload['sede'] = $rowSede;
+                }
+
+                if ($rowProceso !== '') {
+                    $payload['proceso'] = $rowProceso;
+                }
+
+                return $payload;
             }
+
+            $this->logAssemblyDelegateSearchMissDiagnostics(
+                $assembly,
+                $columnMap,
+                $headerRow,
+                $rows,
+                $cedula,
+                $normalizedSoughtDoc,
+                $fechaExpedicion,
+                $normalizedInputDate
+            );
 
             return null;
         } catch (\Exception $e) {
@@ -830,11 +899,352 @@ class ExcelReaderService
     }
 
     /**
+     * Extrae texto legible de una celda PhpSpreadsheet (RichText, número entero “grande”, etc.).
+     */
+    private function assemblyDelegateCellToString(mixed $value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        if ($value instanceof RichText) {
+            return trim(str_replace("\xC2\xA0", ' ', $value->getPlainText()));
+        }
+
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if (is_int($value) || is_float($value)) {
+            $n = (float) $value;
+            if ($this->looksLikeExcelSerialDate($n)) {
+                return (string) $n;
+            }
+
+            if ($n == round($n) && abs($n) <= 1e15) {
+                return (string) (int) round($n);
+            }
+
+            return trim(str_replace("\xC2\xA0", ' ', (string) $value));
+        }
+
+        return trim(str_replace("\xC2\xA0", ' ', (string) $value));
+    }
+
+    /**
+     * @param  array<int, mixed>  $headerRow
+     * @param  array<int, array<int, mixed>|mixed>  $rows
+     */
+    private function logAssemblyDelegateSearchMissDiagnostics(
+        Assembly $assembly,
+        AssemblyDelegateColumnMap $columnMap,
+        array $headerRow,
+        array $rows,
+        string $cedulaInput,
+        string $normalizedSoughtDoc,
+        string $fechaExpedicionInput,
+        string $normalizedInputDate,
+    ): void {
+        $sampleCedulas = [];
+        $documentMatchedRows = [];
+        $rowIndex = 0;
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                $rowIndex++;
+
+                continue;
+            }
+
+            $rawCedulaCell = $row[$columnMap->cedula] ?? null;
+            $rowCedula = $this->normalizeAssemblyDocumentForMatch(
+                $this->assemblyDelegateCellToString($rawCedulaCell)
+            );
+
+            if (count($sampleCedulas) < 20 && $rowCedula !== '') {
+                $sampleCedulas[] = [
+                    'fila_excel' => $rowIndex + 2,
+                    'documento_normalizado' => $rowCedula,
+                    'celda_tipo' => is_object($rawCedulaCell) ? $rawCedulaCell::class : gettype($rawCedulaCell),
+                    'celda_valor_bruto' => is_scalar($rawCedulaCell)
+                        ? (string) $rawCedulaCell
+                        : '(no escalar)',
+                ];
+            }
+
+            if ($rowCedula === $normalizedSoughtDoc) {
+                $dateCandidates = $this->assemblyDelegateExpeditionDateCandidates($row, $columnMap);
+                $detail = [];
+                foreach ($dateCandidates as $cand) {
+                    $coerced = $this->delegateExcelCellToComparableDateString($cand);
+                    $detail[] = [
+                        'fragmento' => is_scalar($cand) ? (string) $cand : get_debug_type($cand),
+                        'coercido' => $coerced,
+                        'candidatos_Ymd' => $coerced !== '' ? $this->assemblyDateNormalizationCandidatesForMatch($coerced) : [],
+                    ];
+                }
+
+                $documentMatchedRows[] = [
+                    'fila_excel' => $rowIndex + 2,
+                    'nombre_columna' => $this->assemblyDelegateCellToString($row[$columnMap->nombreApellidos] ?? null),
+                    'candidatos_fecha' => $detail,
+                    'fecha_esperada_normalizada' => $normalizedInputDate,
+                    'columna_fecha_cruda' => $this->assemblyDelegateCellToString($row[$columnMap->fechaExpedicion] ?? null),
+                    'columna_sede_cruda' => $columnMap->sede !== null
+                        ? $this->assemblyDelegateCellToString($row[$columnMap->sede] ?? null)
+                        : null,
+                    'columna_proceso_cruda' => $columnMap->proceso !== null
+                        ? $this->assemblyDelegateCellToString($row[$columnMap->proceso] ?? null)
+                        : null,
+                ];
+            }
+
+            $rowIndex++;
+        }
+
+        $headersForLog = [];
+        foreach ($headerRow as $i => $h) {
+            $headersForLog[$i] = $this->assemblyDelegateCellToString($h);
+        }
+
+        Log::warning('Asamblea delegados: búsqueda sin coincidencia (diagnóstico detallado)', [
+            'assembly_id' => $assembly->id,
+            'delegates_file_path' => $assembly->delegates_file_path,
+            'delegates_file_disk' => $assembly->delegates_file_disk,
+            'indices_columnas' => [
+                'cedula' => $columnMap->cedula,
+                'nombre' => $columnMap->nombreApellidos,
+                'sede' => $columnMap->sede,
+                'estado_bd' => $columnMap->estadoBd,
+                'proceso' => $columnMap->proceso,
+                'fecha_expedicion' => $columnMap->fechaExpedicion,
+            ],
+            'encabezados_por_indice' => $headersForLog,
+            'busqueda' => [
+                'documento_original' => $cedulaInput,
+                'documento_normalizado' => $normalizedSoughtDoc,
+                'fecha_original' => $fechaExpedicionInput,
+                'fecha_normalizada' => $normalizedInputDate,
+            ],
+            'filas_datos_escaneadas' => count($rows),
+            'muestra_primeras_cedulas_en_archivo' => $sampleCedulas,
+            'filas_con_mismo_documento_fecha_no_coincide' => $documentMatchedRows,
+        ]);
+    }
+
+    /**
+     * @param  array<int, mixed>  $row
+     * @return list<mixed>
+     */
+    private function assemblyDelegateExpeditionDateCandidates(array $row, AssemblyDelegateColumnMap $columnMap): array
+    {
+        $seen = [];
+        $ordered = [];
+
+        $push = function (mixed $raw) use (&$seen, &$ordered): void {
+            if ($raw === null || $raw === '') {
+                return;
+            }
+            foreach ($this->splitDelegateCellLines($raw) as $piece) {
+                if ($piece === '' || $piece === null) {
+                    continue;
+                }
+                $key = is_scalar($piece) ? (string) $piece : serialize($piece);
+                if (! isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $ordered[] = $piece;
+                }
+            }
+        };
+
+        $push($row[$columnMap->fechaExpedicion] ?? '');
+        if ($columnMap->sede !== null) {
+            $push($row[$columnMap->sede] ?? '');
+        }
+        if ($columnMap->proceso !== null) {
+            $push($row[$columnMap->proceso] ?? '');
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * @return list<string|int|float>
+     */
+    private function splitDelegateCellLines(mixed $value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+
+        if ($value instanceof RichText) {
+            $value = $value->getPlainText();
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return [$value];
+        }
+
+        $s = trim(str_replace("\xC2\xA0", ' ', (string) $value));
+        if ($s === '') {
+            return [];
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $s);
+        if ($lines === false) {
+            return [$s];
+        }
+
+        $out = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+
+        return $out !== [] ? $out : [$s];
+    }
+
+    private function delegateExcelCellToComparableDateString(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        if ($value instanceof RichText) {
+            $value = $value->getPlainText();
+        }
+
+        if (is_int($value) || is_float($value)) {
+            $n = (float) $value;
+            if ($this->looksLikeExcelSerialDate($n)) {
+                try {
+                    return SpreadsheetExcelDate::excelToDateTimeObject($n)->format('Y-m-d');
+                } catch (\Throwable) {
+                    return '';
+                }
+            }
+        }
+
+        $s = trim(str_replace("\xC2\xA0", ' ', (string) $value));
+        if ($s !== '' && is_numeric($s)) {
+            $n = (float) $s;
+            if ($this->looksLikeExcelSerialDate($n)) {
+                try {
+                    return SpreadsheetExcelDate::excelToDateTimeObject($n)->format('Y-m-d');
+                } catch (\Throwable) {
+                    return $s;
+                }
+            }
+        }
+
+        return $s;
+    }
+
+    private function looksLikeExcelSerialDate(float $n): bool
+    {
+        return $n >= 200 && $n < 1200000;
+    }
+
+    private function normalizeAssemblyDocumentForMatch(string $documento): string
+    {
+        $d = str_replace(["\xC2\xA0", ' '], '', trim($documento));
+        if ($d !== '' && is_numeric($d)) {
+            return (string) (int) round((float) $d);
+        }
+
+        return $d;
+    }
+
+    /**
+     * Interpretaciones posibles en Y-m-d para comparar fechas (Excel US m/d vs CO d/m cuando ambos ≤ 12).
+     *
+     * @return list<string>
+     */
+    public function assemblyDateNormalizationCandidatesForMatch(string $date): array
+    {
+        $date = trim(str_replace("\xC2\xA0", ' ', $date));
+        if ($date === '') {
+            return [];
+        }
+
+        /** @var array<string, bool> $ymdKeys */
+        $ymdKeys = [];
+
+        $pushYmd = function (string $ymd) use (&$ymdKeys): void {
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
+                $ymdKeys[$ymd] = true;
+            }
+        };
+
+        $norm = $this->normalizeAssemblyDate($date);
+        $pushYmd($norm);
+
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $date, $m)) {
+            $a = (int) $m[1];
+            $b = (int) $m[2];
+            if ($a <= 12 && $b <= 12) {
+                $us = \DateTime::createFromFormat('n/j/Y', $date);
+                if ($us instanceof \DateTimeInterface && $us->format('n/j/Y') === $date) {
+                    $pushYmd($us->format('Y-m-d'));
+                }
+                $eu = \DateTime::createFromFormat('j/n/Y', $date);
+                if ($eu instanceof \DateTimeInterface && $eu->format('j/n/Y') === $date) {
+                    $pushYmd($eu->format('Y-m-d'));
+                }
+            }
+        }
+
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/', $date, $m)) {
+            $a = (int) $m[1];
+            $b = (int) $m[2];
+            if ($a <= 12 && $b <= 12) {
+                $us = \DateTime::createFromFormat('n/j/y', $date);
+                if ($us instanceof \DateTimeInterface && $us->format('n/j/y') === $date) {
+                    $pushYmd($us->format('Y-m-d'));
+                }
+                $eu = \DateTime::createFromFormat('j/n/y', $date);
+                if ($eu instanceof \DateTimeInterface && $eu->format('j/n/y') === $date) {
+                    $pushYmd($eu->format('Y-m-d'));
+                }
+            }
+        }
+
+        return array_keys($ymdKeys);
+    }
+
+    public function assemblyNormalizedDatesEquivalent(string $left, string $right): bool
+    {
+        $a = $this->assemblyDateNormalizationCandidatesForMatch($left);
+        $b = $this->assemblyDateNormalizationCandidatesForMatch($right);
+
+        foreach ($a as $ymd) {
+            if (in_array($ymd, $b, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Normalize date format for comparison.
      */
     public function normalizeAssemblyDate(string $date): string
     {
         try {
+            $date = trim(str_replace("\xC2\xA0", ' ', $date));
+            if ($date === '') {
+                return $date;
+            }
+
+            // Format: Y-m-d (e.g., 1993-06-30) — común desde formularios HTML
+            $parsedDate = \DateTime::createFromFormat('Y-m-d', $date);
+            if ($parsedDate && $parsedDate->format('Y-m-d') === $date) {
+                return $parsedDate->format('Y-m-d');
+            }
+
             // Try to parse the date and return in Y-m-d format
             // Format: j/M/Y (e.g., 8/Mar/2017) - abbreviated month name, day without leading zero
             $parsedDate = \DateTime::createFromFormat('j/M/Y', $date);
@@ -848,21 +1258,37 @@ class ExcelReaderService
                 return $parsedDate->format('Y-m-d');
             }
 
-            // Format: j/m/Y (e.g., 8/3/2017) - numeric, day without leading zero
-            $parsedDate = \DateTime::createFromFormat('j/m/Y', $date);
-            if ($parsedDate && $parsedDate->format('j/m/Y') === $date) {
+            // d/m/y, j/m/y — año de dos dígitos antes que d/m/Y (evita 8/4/16 → año 0016)
+            $parsedDate = \DateTime::createFromFormat('d/m/y', $date);
+            if ($parsedDate && $parsedDate->format('d/m/y') === $date) {
                 return $parsedDate->format('Y-m-d');
             }
 
-            // Format: d/m/Y (e.g., 30/06/1993) - numeric, day with leading zero
+            $parsedDate = \DateTime::createFromFormat('j/n/y', $date);
+            if ($parsedDate && $parsedDate->format('j/n/y') === $date) {
+                return $parsedDate->format('Y-m-d');
+            }
+
+            // Format: j/n/Y (e.g., 8/3/2017) — día y mes sin ceros a la izquierda
+            $parsedDate = \DateTime::createFromFormat('j/n/Y', $date);
+            if ($parsedDate && $parsedDate->format('j/n/Y') === $date) {
+                return $parsedDate->format('Y-m-d');
+            }
+
+            // Format: d/m/Y (e.g., 30/06/1993) - numeric, day with leading zero, año 4 dígitos
             $parsedDate = \DateTime::createFromFormat('d/m/Y', $date);
             if ($parsedDate && $parsedDate->format('d/m/Y') === $date) {
                 return $parsedDate->format('Y-m-d');
             }
 
-            // Format: Y-m-d (e.g., 1993-06-30)
-            $parsedDate = \DateTime::createFromFormat('Y-m-d', $date);
-            if ($parsedDate && $parsedDate->format('Y-m-d') === $date) {
+            // US-style from Excel (e.g. 1/14/2002) — validación estricta para no confundir con d/m
+            $parsedDate = \DateTime::createFromFormat('n/j/Y', $date);
+            if ($parsedDate && $parsedDate->format('n/j/Y') === $date) {
+                return $parsedDate->format('Y-m-d');
+            }
+
+            $parsedDate = \DateTime::createFromFormat('n/j/y', $date);
+            if ($parsedDate && $parsedDate->format('n/j/y') === $date) {
                 return $parsedDate->format('Y-m-d');
             }
 

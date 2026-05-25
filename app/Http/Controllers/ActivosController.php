@@ -91,6 +91,9 @@ class ActivosController extends Controller
                 'encontrado' => $afiliado !== null,
                 'afiliado' => $afiliado,
                 'timestamp' => now()->toISOString(),
+                'diagnostico' => $afiliado === null
+                    ? 'Si no encontrado: revise el log WARNING «Asamblea delegados: búsqueda sin coincidencia (diagnóstico detallado)» en el mismo momento.'
+                    : null,
             ]);
 
             return response()->json($response);
