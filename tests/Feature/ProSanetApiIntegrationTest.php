@@ -260,6 +260,127 @@ class ProSanetApiIntegrationTest extends TestCase
         });
     }
 
+    public function test_afiliado_service_returns_certificado_raw_data_from_api(): void
+    {
+        Http::fake([
+            'https://api.prosanet.test/index.php?r=erpuser/login' => Http::response([
+                'access_token' => 'cert-token',
+                'expireIn' => (string) (time() + 3600),
+            ]),
+            'https://api.prosanet.test/index.php*' => Http::response([
+                'items' => [
+                    [
+                        'personal_information' => [
+                            'document_type_label' => 'CC',
+                            'document_number' => '1000918728',
+                            'first_name' => 'JUAN',
+                            'last_name' => 'PEREZ',
+                            'status' => 'Activo',
+                            'gender' => 'M',
+                            'admission_date' => '2020-01-15',
+                            'email' => 'juan@example.com',
+                            'settled_date' => null,
+                            'address' => 'Calle 123',
+                            'mobile_phone_number' => '3001234567',
+                        ],
+                        'labor_information' => [
+                            'afp_name' => 'PROTECCION',
+                        ],
+                        'covenants' => [
+                            [
+                                'client_business_name' => 'HMFS - BELLO',
+                                'charge_name' => 'ENFERMERO(A)',
+                                'admission_date' => '2020-01-15',
+                                'end_date' => null,
+                            ],
+                        ],
+                        'beneficiaries' => [],
+                    ],
+                ],
+                'pagination' => ['page' => 1, 'pageSize' => 20, 'totalCount' => 1, 'pageCount' => 1],
+            ]),
+        ]);
+
+        $result = app(AfiliadoService::class)->getAfiliadoCertificadoRawByDocumento('1000918728');
+
+        $this->assertIsArray($result);
+        $this->assertSame('1000918728', $result['afiliado']['documento']);
+        $this->assertSame('PROTECCION', $result['afiliado']['afp']);
+        $this->assertCount(1, $result['convenios']);
+        $this->assertSame('Activo', $result['convenios'][0]['estado']);
+        $this->assertSame('HMFS - BELLO', $result['convenios'][0]['cliente']);
+    }
+
+    public function test_afiliado_service_returns_contact_from_api(): void
+    {
+        Http::fake([
+            'https://api.prosanet.test/index.php?r=erpuser/login' => Http::response([
+                'access_token' => 'contact-token',
+                'expireIn' => (string) (time() + 3600),
+            ]),
+            'https://api.prosanet.test/index.php*' => Http::response([
+                'items' => [
+                    [
+                        'personal_information' => [
+                            'document_number' => '1000918728',
+                            'address' => 'Carrera 45 # 10-20',
+                            'mobile_phone_number' => '3109876543',
+                        ],
+                        'covenants' => [],
+                        'beneficiaries' => [],
+                    ],
+                ],
+                'pagination' => ['page' => 1, 'pageSize' => 20, 'totalCount' => 1, 'pageCount' => 1],
+            ]),
+        ]);
+
+        $result = app(AfiliadoService::class)->getAfiliadoContactByDocumento('1000918728');
+
+        $this->assertSame('Carrera 45 # 10-20', $result['direccion']);
+        $this->assertSame('3109876543', $result['celular']);
+    }
+
+    public function test_certificado_service_obtains_afiliado_data_from_api(): void
+    {
+        Http::fake([
+            'https://api.prosanet.test/index.php?r=erpuser/login' => Http::response([
+                'access_token' => 'cert-token',
+                'expireIn' => (string) (time() + 3600),
+            ]),
+            'https://api.prosanet.test/index.php*' => Http::response([
+                'items' => [
+                    [
+                        'personal_information' => [
+                            'document_type_label' => 'CC',
+                            'document_number' => '1000918728',
+                            'first_name' => 'JUAN',
+                            'last_name' => 'PEREZ',
+                            'status' => 'Activo',
+                        ],
+                        'labor_information' => ['afp_name' => ''],
+                        'covenants' => [
+                            [
+                                'client_business_name' => 'HMFS - BELLO',
+                                'charge_name' => 'AUXILIAR',
+                                'admission_date' => '2021-06-01',
+                                'end_date' => null,
+                            ],
+                        ],
+                        'beneficiaries' => [],
+                    ],
+                ],
+                'pagination' => ['page' => 1, 'pageSize' => 20, 'totalCount' => 1, 'pageCount' => 1],
+            ]),
+        ]);
+
+        $result = app(\App\Services\CertificadoConvenioService::class)->obtenerDatosAfiliado('1000918728');
+
+        $this->assertNotNull($result);
+        $this->assertSame('1000918728', $result['afiliado']['documento']);
+        $this->assertSame('HMFS - BELLO', $result['convenio']['cliente']);
+        $this->assertSame('Activo', $result['convenio']['estado']);
+    }
+
     public function test_prosanet_api_fetch_all_summary_items_paginates_until_last_page(): void
     {
         Http::fake([

@@ -1022,6 +1022,56 @@ class AfiliadoService
     }
 
     /**
+     * Datos de afiliado para certificados de convenio (API primero, false = fallback Excel).
+     *
+     * @return array{afiliado: array<string, mixed>, convenios: list<array<string, mixed>>}|false|null
+     */
+    public function getAfiliadoCertificadoRawByDocumento(string $documento): array|false|null
+    {
+        $item = $this->tryFetchFirstDetailItemByDocumentFromApi($documento);
+        if ($item === false || $item === null) {
+            return $item;
+        }
+
+        $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($item);
+        $conveniosFull = $this->proSanetAfiliadoMapper->mapDetailItemToConveniosFull($item, $documento);
+
+        Log::info(self::PROSANET_LOG_PREFIX.' Datos de certificado obtenidos desde API', [
+            'documento' => $documento,
+            'convenios_count' => count($conveniosFull),
+        ]);
+
+        return [
+            'afiliado' => $this->mapAfiliadoFullToCertificadoShape($afiliadoFull),
+            'convenios' => $this->mapConveniosForCertificado($conveniosFull),
+        ];
+    }
+
+    /**
+     * Dirección y celular del afiliado (API primero, false = fallback Excel).
+     *
+     * @return array{direccion: string, celular: string}|false|null
+     */
+    public function getAfiliadoContactByDocumento(string $documento): array|false|null
+    {
+        $item = $this->tryFetchFirstDetailItemByDocumentFromApi($documento);
+        if ($item === false || $item === null) {
+            return $item;
+        }
+
+        $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($item);
+
+        Log::info(self::PROSANET_LOG_PREFIX.' Datos de contacto obtenidos desde API', [
+            'documento' => $documento,
+        ]);
+
+        return [
+            'direccion' => trim((string) ($afiliadoFull['direccion'] ?? '')),
+            'celular' => trim((string) ($afiliadoFull['celular'] ?? '')),
+        ];
+    }
+
+    /**
      * Check if affiliate data is available (ProSanet API and/or Excel fallback).
      */
     public function isFileAvailable(): bool
@@ -3213,6 +3263,75 @@ class AfiliadoService
         }
 
         return $filters;
+    }
+
+    /**
+     * @return array<string, mixed>|false|null false = fallback Excel; null = no encontrado
+     */
+    private function tryFetchFirstDetailItemByDocumentFromApi(string $documento): array|false|null
+    {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $items = $this->fetchDetailItemsByDocumentFromApi($documento);
+
+            return $items === [] ? null : $items[0];
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('fetchDetailByDocument', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapAfiliadoFullToCertificadoShape(array $afiliadoFull): array
+    {
+        $afp = trim((string) ($afiliadoFull['afp'] ?? ''));
+        if ($afp === '' || strtoupper($afp) === 'NINGUNA') {
+            $afp = '';
+        }
+
+        return [
+            'tipo_documento' => $afiliadoFull['tipo_documento'] ?? '',
+            'documento' => $afiliadoFull['documento'] ?? '',
+            'nombres' => $afiliadoFull['nombres'] ?? '',
+            'apellidos' => $afiliadoFull['apellidos'] ?? '',
+            'estado' => $afiliadoFull['estado'] ?? '',
+            'sexo' => $afiliadoFull['sexo'] ?? '',
+            'fecha_ingreso' => $afiliadoFull['fecha_ingreso'] ?? '',
+            'correo_personal' => $afiliadoFull['correo_personal'] ?? '',
+            'fecha_liquidacion' => $afiliadoFull['fecha_liquidacion'] ?? '',
+            'afp' => $afp,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $conveniosFull
+     * @return list<array<string, mixed>>
+     */
+    private function mapConveniosForCertificado(array $conveniosFull): array
+    {
+        $convenios = [];
+
+        foreach ($conveniosFull as $convenio) {
+            if (! is_array($convenio)) {
+                continue;
+            }
+
+            $convenios[] = [
+                'cliente' => $convenio['cliente'] ?? '',
+                'proceso' => $convenio['proceso'] ?? '',
+                'estado' => $convenio['estado'] ?? '',
+                'fecha_ingreso' => $convenio['fecha_ingreso'] ?? '',
+                'fecha_fin' => $convenio['fecha_fin'] ?? '',
+            ];
+        }
+
+        return $convenios;
     }
 
     private function logProsanetFallback(string $operation, ProSanetApiException $exception): void

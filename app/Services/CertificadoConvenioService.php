@@ -526,10 +526,33 @@ class CertificadoConvenioService
     }
 
     /**
-     * Obtiene los datos del afiliado por documento (versión optimizada para memoria)
+     * Obtiene los datos del afiliado por documento (API ProSanet primero, Excel como respaldo).
      * Método público para uso desde otros servicios
      */
     public function obtenerDatosAfiliado(string $documento): ?array
+    {
+        $fromApi = $this->afiliadoService->getAfiliadoCertificadoRawByDocumento($documento);
+        if ($fromApi !== false) {
+            if ($fromApi === null) {
+                return null;
+            }
+
+            $convenios = $fromApi['convenios'];
+
+            return [
+                'afiliado' => $fromApi['afiliado'],
+                'convenio' => $this->selectConvenioActualForCertificado($convenios),
+                'todos_los_convenios' => $this->sortTodosLosConveniosForCertificado($convenios),
+            ];
+        }
+
+        return $this->obtenerDatosAfiliadoFromExcel($documento);
+    }
+
+    /**
+     * Respaldo Excel cuando la API ProSanet no está disponible.
+     */
+    private function obtenerDatosAfiliadoFromExcel(string $documento): ?array
     {
         $excelPath = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
         $disks = ['prosalud-private', 'local'];
@@ -765,6 +788,110 @@ class CertificadoConvenioService
         });
 
         return $convenios;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $convenios
+     */
+    private function selectConvenioActualForCertificado(array $convenios): ?array
+    {
+        $selected = $this->selectConvenioFromList($convenios);
+
+        return $selected;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $convenios
+     * @return list<array<string, mixed>>
+     */
+    private function sortTodosLosConveniosForCertificado(array $convenios): array
+    {
+        usort($convenios, function (array $a, array $b): int {
+            $comparisonFechaIngreso = strcmp((string) ($a['fecha_ingreso'] ?? ''), (string) ($b['fecha_ingreso'] ?? ''));
+            if ($comparisonFechaIngreso !== 0) {
+                return $comparisonFechaIngreso;
+            }
+
+            $aFechaFinVacia = empty($a['fecha_fin']);
+            $bFechaFinVacia = empty($b['fecha_fin']);
+
+            if (! $aFechaFinVacia && $bFechaFinVacia) {
+                return -1;
+            }
+            if ($aFechaFinVacia && ! $bFechaFinVacia) {
+                return 1;
+            }
+
+            if (! $aFechaFinVacia && ! $bFechaFinVacia) {
+                return strcmp((string) $b['fecha_fin'], (string) $a['fecha_fin']);
+            }
+
+            return 0;
+        });
+
+        return $convenios;
+    }
+
+    /**
+     * Selecciona el convenio activo más reciente, o el más reciente si no hay activos.
+     *
+     * @param  list<array<string, mixed>>  $convenios
+     */
+    private function selectConvenioFromList(array $convenios): ?array
+    {
+        if ($convenios === []) {
+            return null;
+        }
+
+        $conveniosActivos = array_filter($convenios, function (array $conv): bool {
+            return strcasecmp((string) ($conv['estado'] ?? ''), 'Activo') === 0;
+        });
+
+        if (! empty($conveniosActivos)) {
+            usort($conveniosActivos, function (array $a, array $b): int {
+                $aFechaFinVacia = empty($a['fecha_fin']);
+                $bFechaFinVacia = empty($b['fecha_fin']);
+
+                if ($aFechaFinVacia && ! $bFechaFinVacia) {
+                    return -1;
+                }
+                if (! $aFechaFinVacia && $bFechaFinVacia) {
+                    return 1;
+                }
+
+                if (! $aFechaFinVacia && ! $bFechaFinVacia) {
+                    $comparison = strcmp((string) $b['fecha_fin'], (string) $a['fecha_fin']);
+                    if ($comparison !== 0) {
+                        return $comparison;
+                    }
+                }
+
+                return strcmp((string) $b['fecha_ingreso'], (string) $a['fecha_ingreso']);
+            });
+
+            return reset($conveniosActivos) ?: null;
+        }
+
+        usort($convenios, function (array $a, array $b): int {
+            $aFechaFinVacia = empty($a['fecha_fin']);
+            $bFechaFinVacia = empty($b['fecha_fin']);
+
+            if ($aFechaFinVacia && ! $bFechaFinVacia) {
+                return 1;
+            }
+            if (! $aFechaFinVacia && $bFechaFinVacia) {
+                return -1;
+            }
+
+            $comparison = strcmp((string) $b['fecha_fin'], (string) $a['fecha_fin']);
+            if ($comparison !== 0) {
+                return $comparison;
+            }
+
+            return strcmp((string) $b['fecha_ingreso'], (string) $a['fecha_ingreso']);
+        });
+
+        return $convenios[0] ?? null;
     }
 
     /**

@@ -3,34 +3,36 @@
 namespace App\Services;
 
 use Carbon\Carbon;
-use Illuminate\Support\Facades\{Log, Storage};
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpWord\TemplateProcessor;
-use PhpOffice\PhpSpreadsheet\{IOFactory, Cell\Coordinate};
 
 class ConvenioGenerationService
 {
     private const TEMPLATE_PATH = 'resources/templates/Plantilla_convenios.docx';
+
     // Usar directorio temporal en lugar de resources (no accesible en producción)
     // El archivo se generará temporalmente y se descargará directamente
     private const OUTPUT_DIR = 'temp/convenios';
+
     private const AFILIADOS_FILE_PATH = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
 
     public function __construct(
         private AfiliadoService $afiliadoService
-    ) {
-    }
+    ) {}
 
     /**
      * Genera un convenio desde datos proporcionados
      *
-     * @param array $data Datos del convenio
+     * @param  array  $data  Datos del convenio
      * @return array Resultado con ruta y nombre del archivo generado
      */
     public function generarConvenio(array $data): array
     {
         $documento = $this->normalizeDocumento($data['numero_documento'] ?? '');
-        $nombreCompleto = trim(($data['apellidos'] ?? '') . ' ' . ($data['nombres'] ?? ''));
-        
+        $nombreCompleto = trim(($data['apellidos'] ?? '').' '.($data['nombres'] ?? ''));
+
         Log::info('[CONVENIO GENERATION] Iniciando generación de convenio', [
             'documento' => $documento,
             'nombre_completo' => $nombreCompleto,
@@ -40,7 +42,7 @@ class ConvenioGenerationService
 
         // Validar que existe la plantilla
         $templatePath = base_path(self::TEMPLATE_PATH);
-        if (!file_exists($templatePath)) {
+        if (! file_exists($templatePath)) {
             Log::error('[CONVENIO GENERATION] Plantilla no encontrada', [
                 'template_path' => $templatePath,
                 'documento' => $documento,
@@ -54,7 +56,7 @@ class ConvenioGenerationService
         ]);
 
         // Obtener datos faltantes del archivo de afiliados si es necesario
-        if (!empty($documento)) {
+        if (! empty($documento)) {
             Log::debug('[CONVENIO GENERATION] Buscando datos faltantes en archivo de afiliados', [
                 'documento' => $documento,
                 'direccion_vacio' => empty(trim($data['direccion'] ?? '')),
@@ -62,31 +64,31 @@ class ConvenioGenerationService
             ]);
 
             $afiliadoData = $this->obtenerDatosAfiliado($documento);
-            
+
             if ($afiliadoData) {
                 Log::info('[CONVENIO GENERATION] Datos de afiliado encontrados', [
                     'documento' => $documento,
-                    'tiene_direccion' => !empty($afiliadoData['direccion']),
-                    'tiene_celular' => !empty($afiliadoData['celular']),
+                    'tiene_direccion' => ! empty($afiliadoData['direccion']),
+                    'tiene_celular' => ! empty($afiliadoData['celular']),
                 ]);
             } else {
-                Log::warning('[CONVENIO GENERATION] Afiliado no encontrado en archivo de afiliados', [
+                Log::warning('[CONVENIO GENERATION] No se encontraron datos de contacto del afiliado', [
                     'documento' => $documento,
                 ]);
             }
-            
+
             // Completar datos faltantes (solo si están vacíos en los datos originales)
             if (empty(trim($data['direccion'] ?? ''))) {
-                $data['direccion'] = !empty($afiliadoData['direccion']) ? trim($afiliadoData['direccion']) : '';
-                if (!empty($data['direccion'])) {
+                $data['direccion'] = ! empty($afiliadoData['direccion']) ? trim($afiliadoData['direccion']) : '';
+                if (! empty($data['direccion'])) {
                     Log::debug('[CONVENIO GENERATION] Dirección completada desde afiliado', [
                         'documento' => $documento,
                     ]);
                 }
             }
             if (empty(trim($data['celular'] ?? ''))) {
-                $data['celular'] = !empty($afiliadoData['celular']) ? trim($afiliadoData['celular']) : '';
-                if (!empty($data['celular'])) {
+                $data['celular'] = ! empty($afiliadoData['celular']) ? trim($afiliadoData['celular']) : '';
+                if (! empty($data['celular'])) {
                     Log::debug('[CONVENIO GENERATION] Celular completado desde afiliado', [
                         'documento' => $documento,
                     ]);
@@ -106,10 +108,10 @@ class ConvenioGenerationService
             'variables' => array_keys($templateData),
             'fecha_inicio_raw' => $data['fecha_inicio'] ?? null,
             'fecha_finalizacion_raw' => $data['fecha_finalizacion'] ?? null,
-            'tiene_fecha_inicio' => !empty($data['fecha_inicio'] ?? null),
-            'tiene_fecha_finalizacion' => !empty($data['fecha_finalizacion'] ?? null),
-            'duracion_generada' => !empty($templateData['DURACION'] ?? null),
-            'duracion_preview' => !empty($templateData['DURACION'] ?? null) ? substr($templateData['DURACION'], 0, 100) . '...' : 'vacía',
+            'tiene_fecha_inicio' => ! empty($data['fecha_inicio'] ?? null),
+            'tiene_fecha_finalizacion' => ! empty($data['fecha_finalizacion'] ?? null),
+            'duracion_generada' => ! empty($templateData['DURACION'] ?? null),
+            'duracion_preview' => ! empty($templateData['DURACION'] ?? null) ? substr($templateData['DURACION'], 0, 100).'...' : 'vacía',
         ]);
 
         // Crear procesador de plantilla
@@ -127,10 +129,10 @@ class ConvenioGenerationService
 
         // Generar nombre de archivo
         $nombreArchivo = $this->generarNombreArchivo($data);
-        
+
         // Usar storage/app/temp/convenios para archivos temporales (accesible en producción)
-        $outputDir = storage_path('app/' . self::OUTPUT_DIR);
-        $rutaSalida = $outputDir . '/' . $nombreArchivo;
+        $outputDir = storage_path('app/'.self::OUTPUT_DIR);
+        $rutaSalida = $outputDir.'/'.$nombreArchivo;
 
         Log::debug('[CONVENIO GENERATION] Nombre de archivo generado', [
             'documento' => $documento,
@@ -144,8 +146,8 @@ class ConvenioGenerationService
             'existe' => is_dir($outputDir),
             'es_escribible' => is_dir($outputDir) ? is_writable($outputDir) : false,
         ]);
-        
-        if (!is_dir($outputDir)) {
+
+        if (! is_dir($outputDir)) {
             $creado = mkdir($outputDir, 0755, true);
             Log::info('[CONVENIO GENERATION] Intento de creación de directorio de salida', [
                 'output_dir' => $outputDir,
@@ -153,8 +155,8 @@ class ConvenioGenerationService
                 'existe_despues' => is_dir($outputDir),
                 'permisos' => is_dir($outputDir) ? substr(sprintf('%o', fileperms($outputDir)), -4) : null,
             ]);
-            
-            if (!is_dir($outputDir)) {
+
+            if (! is_dir($outputDir)) {
                 Log::error('[CONVENIO GENERATION] No se pudo crear el directorio de salida', [
                     'output_dir' => $outputDir,
                 ]);
@@ -170,15 +172,15 @@ class ConvenioGenerationService
             'directorio_escribible' => is_writable($outputDir),
             'archivo_existe_antes' => file_exists($rutaSalida),
         ]);
-        
+
         try {
             $templateProcessor->saveAs($rutaSalida);
-            
+
             // Verificar que el archivo realmente se guardó
             $archivoExiste = file_exists($rutaSalida);
             $tamañoArchivo = $archivoExiste ? filesize($rutaSalida) : null;
             $esLegible = $archivoExiste ? is_readable($rutaSalida) : false;
-            
+
             Log::info('[CONVENIO GENERATION] Convenio generado exitosamente', [
                 'documento' => $documento,
                 'nombre_completo' => $nombreCompleto,
@@ -189,8 +191,8 @@ class ConvenioGenerationService
                 'es_legible' => $esLegible,
                 'permisos_archivo' => $archivoExiste ? substr(sprintf('%o', fileperms($rutaSalida)), -4) : null,
             ]);
-            
-            if (!$archivoExiste) {
+
+            if (! $archivoExiste) {
                 Log::error('[CONVENIO GENERATION] El archivo no existe después de guardar', [
                     'documento' => $documento,
                     'ruta_salida' => $rutaSalida,
@@ -200,7 +202,7 @@ class ConvenioGenerationService
                 ]);
                 throw new \Exception("El archivo no se guardó correctamente en: {$rutaSalida}");
             }
-            
+
             if ($tamañoArchivo === 0 || $tamañoArchivo === null) {
                 Log::warning('[CONVENIO GENERATION] El archivo se guardó pero tiene tamaño 0', [
                     'documento' => $documento,
@@ -232,7 +234,7 @@ class ConvenioGenerationService
     /**
      * Prepara los datos para la plantilla Word
      *
-     * @param array $data Datos del convenio
+     * @param  array  $data  Datos del convenio
      * @return array Datos formateados para la plantilla
      */
     private function prepararDatosPlantilla(array $data): array
@@ -259,7 +261,7 @@ class ConvenioGenerationService
         }
 
         // Formatear valores numéricos para mostrar en la plantilla
-        $formatearValor = function($valor) {
+        $formatearValor = function ($valor) {
             if (empty($valor) && $valor !== '0' && $valor !== 0) {
                 return '';
             }
@@ -267,6 +269,7 @@ class ConvenioGenerationService
             if (is_numeric($valor)) {
                 return number_format((float) $valor, 0, ',', '.');
             }
+
             return (string) $valor;
         };
 
@@ -282,8 +285,8 @@ class ConvenioGenerationService
             'NUMERO_DOCUMENTO' => $numeroDocumento,
             'COMPENSACION_BASICA_REDACTADA' => $compensacionBasicaRedactada,
             'DURACION' => $duracion,
-            'DIRECCION' => !empty(trim($data['direccion'] ?? '')) ? $data['direccion'] : '__________________________',
-            'CELULAR' => !empty(trim($data['celular'] ?? '')) ? $data['celular'] : '__________________________',
+            'DIRECCION' => ! empty(trim($data['direccion'] ?? '')) ? $data['direccion'] : '__________________________',
+            'CELULAR' => ! empty(trim($data['celular'] ?? '')) ? $data['celular'] : '__________________________',
             // Nuevos campos de compensación
             'BASICO' => $formatearValor($data['basico'] ?? ''),
             'AUXILIOS' => $formatearValor($data['auxilios'] ?? ''),
@@ -311,11 +314,11 @@ class ConvenioGenerationService
      * Misma lógica que la generación de convenios: usa plantillas de mensaje según los valores enviados.
      * Útil para certificados de convenio que reciben estos valores por API.
      *
-     * @param array $data Array con claves: basico, auxilios, manutencion, provisiones, horas,
-     *                     valor_hora_diurna, valor_hora_nocturna, valor_hora_diurna_festiva, valor_hora_nocturna_festiva,
-     *                     auxilio_de_transporte, auxilio_de_manutencion, auxilio_de_encierro, auxilio_de_rodamiento,
-     *                     auxilio_especial, auxilio_prosalud, valor_auxilio_diurno, valor_auxilio_recargo_nocturno,
-     *                     valor_auxilio_recargo_festivo, valor_auxilio_recargo_festivo_nocturno
+     * @param  array  $data  Array con claves: basico, auxilios, manutencion, provisiones, horas,
+     *                       valor_hora_diurna, valor_hora_nocturna, valor_hora_diurna_festiva, valor_hora_nocturna_festiva,
+     *                       auxilio_de_transporte, auxilio_de_manutencion, auxilio_de_encierro, auxilio_de_rodamiento,
+     *                       auxilio_especial, auxilio_prosalud, valor_auxilio_diurno, valor_auxilio_recargo_nocturno,
+     *                       valor_auxilio_recargo_festivo, valor_auxilio_recargo_festivo_nocturno
      * @return string Texto de compensación redactado (puede ser vacío si no hay valores)
      */
     public function construirTextoCompensacionDesdeValores(array $data): string
@@ -327,27 +330,27 @@ class ConvenioGenerationService
      * Genera automáticamente el texto de compensación básica redactada
      * basándose en los valores proporcionados.
      *
-     * @param array $data Datos del convenio con valores de compensación
+     * @param  array  $data  Datos del convenio con valores de compensación
      * @return string Texto de compensación básica redactada
      */
     private function generarCompensacionBasicaRedactada(array $data): string
     {
         Log::debug('[CONVENIO GENERATION] Iniciando generación automática de compensación básica redactada', [
-            'datos_recibidos' => array_keys(array_filter($data, function($v) {
-                return !empty($v) && $v !== null && $v !== '';
+            'datos_recibidos' => array_keys(array_filter($data, function ($v) {
+                return ! empty($v) && $v !== null && $v !== '';
             })),
         ]);
 
         // Función auxiliar para formatear valores monetarios
         $formatearMoneda = function ($valor) {
-            if (null === $valor || $valor === '') {
+            if ($valor === null || $valor === '') {
                 return null;
             }
-            if (!is_numeric($valor)) {
+            if (! is_numeric($valor)) {
                 return null;
             }
 
-            return '$' . number_format((float) $valor, 0, ',', '.');
+            return '$'.number_format((float) $valor, 0, ',', '.');
         };
 
         // Obtener valores (normalizar a números)
@@ -416,84 +419,84 @@ class ConvenioGenerationService
         $patronUsado = null;
 
         // PATRÓN "V/R": V/R Basica Diurna + V/R Auxilio Diurna
-        if ($valorHoraDiurna && $auxilioDiurno && !$valorHoraNocturna && !$valorHoraDiurnaFestiva && !$valorHoraNocturnaFestiva) {
+        if ($valorHoraDiurna && $auxilioDiurno && ! $valorHoraNocturna && ! $valorHoraDiurnaFestiva && ! $valorHoraNocturnaFestiva) {
             $patronUsado = 'V/R';
             Log::debug('[CONVENIO GENERATION] Usando patrón V/R', [
                 'valor_hora_diurna' => $valorHoraDiurna,
                 'auxilio_diurno' => $auxilioDiurno,
                 'auxilio_transporte' => $auxilioTransporte,
             ]);
-            
-            $texto = 'V/R Basica Diurna ' . $formatearMoneda($valorHoraDiurna) . '; V/R Auxilio Diurna ' . $formatearMoneda($auxilioDiurno) . '.';
+
+            $texto = 'V/R Basica Diurna '.$formatearMoneda($valorHoraDiurna).'; V/R Auxilio Diurna '.$formatearMoneda($auxilioDiurno).'.';
 
             if ($auxilioTransporte) {
-                $horasTexto = $horas ? $horas . ' horas' : '186 horas';
-                $texto .= ' El afiliado participe recibirá un auxilio de transporte correspondiente a  ' .
-                    $formatearMoneda($auxilioTransporte) . ' por ' . $horasTexto .
-                    ' o proporción de las mismas sin que este valor exceda ese monto en caso de superarse las ' .
-                    ($horas ? $horas : '186') . ' horas.';
+                $horasTexto = $horas ? $horas.' horas' : '186 horas';
+                $texto .= ' El afiliado participe recibirá un auxilio de transporte correspondiente a  '.
+                    $formatearMoneda($auxilioTransporte).' por '.$horasTexto.
+                    ' o proporción de las mismas sin que este valor exceda ese monto en caso de superarse las '.
+                    ($horas ? $horas : '186').' horas.';
             }
         }
         // PATRÓN 1: Valores por hora + auxilios especiales (transporte, manutención, encierro, prosalud)
         elseif ($tieneValoresHora && $tieneAuxiliosEspeciales) {
             $patronUsado = 'Patrón 1: Valores por hora + auxilios especiales';
-            $usarValorHora = $auxilioProsalud && !$auxilioTransporte && !$auxilioManutencion && !$auxilioEncierro;
+            $usarValorHora = $auxilioProsalud && ! $auxilioTransporte && ! $auxilioManutencion && ! $auxilioEncierro;
             $prefijoHora = $usarValorHora ? 'Valor Hora' : 'Hora';
-            
+
             Log::debug('[CONVENIO GENERATION] Usando patrón 1: Valores por hora + auxilios especiales', [
                 'prefijo_hora' => $prefijoHora,
                 'usar_valor_hora' => $usarValorHora,
                 'auxilios_presentes' => [
-                    'transporte' => !empty($auxilioTransporte),
-                    'manutencion' => !empty($auxilioManutencion),
-                    'encierro' => !empty($auxilioEncierro),
-                    'prosalud' => !empty($auxilioProsalud),
+                    'transporte' => ! empty($auxilioTransporte),
+                    'manutencion' => ! empty($auxilioManutencion),
+                    'encierro' => ! empty($auxilioEncierro),
+                    'prosalud' => ! empty($auxilioProsalud),
                 ],
             ]);
 
             $partesHora = [];
             if ($valorHoraDiurna) {
-                $partesHora[] = $prefijoHora . ' Diurna ' . $formatearMoneda($valorHoraDiurna);
+                $partesHora[] = $prefijoHora.' Diurna '.$formatearMoneda($valorHoraDiurna);
             }
             if ($valorHoraNocturna) {
-                $partesHora[] = $prefijoHora . ' Nocturna ' . $formatearMoneda($valorHoraNocturna);
+                $partesHora[] = $prefijoHora.' Nocturna '.$formatearMoneda($valorHoraNocturna);
             }
             if ($valorHoraDiurnaFestiva) {
-                $partesHora[] = $prefijoHora . ' Diurna Festiva ' . $formatearMoneda($valorHoraDiurnaFestiva);
+                $partesHora[] = $prefijoHora.' Diurna Festiva '.$formatearMoneda($valorHoraDiurnaFestiva);
             }
             if ($valorHoraNocturnaFestiva) {
-                $partesHora[] = $prefijoHora . ' Nocturna Festiva ' . $formatearMoneda($valorHoraNocturnaFestiva);
+                $partesHora[] = $prefijoHora.' Nocturna Festiva '.$formatearMoneda($valorHoraNocturnaFestiva);
             }
 
-            if (!empty($partesHora)) {
-                $texto = implode('; ', $partesHora) . '.';
+            if (! empty($partesHora)) {
+                $texto = implode('; ', $partesHora).'.';
 
                 if ($auxilioTransporte) {
-                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
-                    $texto .= ' El afiliado participe recibirá un auxilio de transporte correspondiente a  ' .
-                        $formatearMoneda($auxilioTransporte) . ' por ' . $horasTexto .
-                        ' o proporción de las mismas sin que este valor exceda ese monto en caso de superarse las ' .
-                        ($horas ? $horas : '186') . ' horas.';
+                    $horasTexto = $horas ? $horas.' horas' : '186 horas';
+                    $texto .= ' El afiliado participe recibirá un auxilio de transporte correspondiente a  '.
+                        $formatearMoneda($auxilioTransporte).' por '.$horasTexto.
+                        ' o proporción de las mismas sin que este valor exceda ese monto en caso de superarse las '.
+                        ($horas ? $horas : '186').' horas.';
                 }
 
                 if ($auxilioManutencion) {
-                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
-                    $texto .= ' Prosalud cancelará un auxilio de manutencion no constitutiva de compensación básica de  ' .
-                        $formatearMoneda($auxilioManutencion) . ' por la prestación efectiva de las ' . $horasTexto .
+                    $horasTexto = $horas ? $horas.' horas' : '186 horas';
+                    $texto .= ' Prosalud cancelará un auxilio de manutencion no constitutiva de compensación básica de  '.
+                        $formatearMoneda($auxilioManutencion).' por la prestación efectiva de las '.$horasTexto.
                         ', la cual será proporcional a las mismas pero que en ningún caso excederá dicho valor.';
                 }
 
                 if ($auxilioEncierro) {
-                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
-                    $texto .= ' Prosalud cancelará un auxilio de encierro por valor de  ' .
-                        $formatearMoneda($auxilioEncierro) . ' en caso de que el afiliado participe realice las ' .
-                        $horasTexto . ' o proporción pero que en ningún caso excederá dicho valor.';
+                    $horasTexto = $horas ? $horas.' horas' : '186 horas';
+                    $texto .= ' Prosalud cancelará un auxilio de encierro por valor de  '.
+                        $formatearMoneda($auxilioEncierro).' en caso de que el afiliado participe realice las '.
+                        $horasTexto.' o proporción pero que en ningún caso excederá dicho valor.';
                 }
 
                 if ($auxilioProsalud) {
-                    $horasTexto = $horas ? $horas . ' horas' : '186 horas';
-                    $texto .= ' Prosalud cancelará un auxilio prosalud no constitutiva de compensación básica de  ' .
-                        $formatearMoneda($auxilioProsalud) . ' por la prestación efectiva de las ' . $horasTexto .
+                    $horasTexto = $horas ? $horas.' horas' : '186 horas';
+                    $texto .= ' Prosalud cancelará un auxilio prosalud no constitutiva de compensación básica de  '.
+                        $formatearMoneda($auxilioProsalud).' por la prestación efectiva de las '.$horasTexto.
                         ', la cual será proporcional a las mismas pero que en ningún caso excederá dicho valor.';
                 }
             }
@@ -503,58 +506,58 @@ class ConvenioGenerationService
             $patronUsado = 'Patrón 2: Valores por hora + auxilios por hora';
             Log::debug('[CONVENIO GENERATION] Usando patrón 2: Valores por hora + auxilios por hora', [
                 'valores_hora_presentes' => [
-                    'diurna' => !empty($valorHoraDiurna),
-                    'nocturna' => !empty($valorHoraNocturna),
-                    'diurna_festiva' => !empty($valorHoraDiurnaFestiva),
-                    'nocturna_festiva' => !empty($valorHoraNocturnaFestiva),
+                    'diurna' => ! empty($valorHoraDiurna),
+                    'nocturna' => ! empty($valorHoraNocturna),
+                    'diurna_festiva' => ! empty($valorHoraDiurnaFestiva),
+                    'nocturna_festiva' => ! empty($valorHoraNocturnaFestiva),
                 ],
                 'auxilios_por_hora_presentes' => [
-                    'diurno' => !empty($auxilioDiurno),
-                    'recargo_nocturno' => !empty($auxilioRecargoNocturno),
-                    'recargo_festivo' => !empty($auxilioRecargoFestivo),
-                    'recargo_festivo_nocturno' => !empty($auxilioRecargoFestivoNocturno),
+                    'diurno' => ! empty($auxilioDiurno),
+                    'recargo_nocturno' => ! empty($auxilioRecargoNocturno),
+                    'recargo_festivo' => ! empty($auxilioRecargoFestivo),
+                    'recargo_festivo_nocturno' => ! empty($auxilioRecargoFestivoNocturno),
                 ],
             ]);
-            
+
             $partesHora = [];
             if ($valorHoraDiurna) {
-                $partesHora[] = 'HORA DIURNA ' . $formatearMoneda($valorHoraDiurna);
+                $partesHora[] = 'HORA DIURNA '.$formatearMoneda($valorHoraDiurna);
             }
             if ($valorHoraNocturna) {
-                $partesHora[] = 'HORA NOCTURNA ' . $formatearMoneda($valorHoraNocturna);
+                $partesHora[] = 'HORA NOCTURNA '.$formatearMoneda($valorHoraNocturna);
             }
             if ($valorHoraDiurnaFestiva) {
-                $partesHora[] = 'HORA FESTIVA ' . $formatearMoneda($valorHoraDiurnaFestiva);
+                $partesHora[] = 'HORA FESTIVA '.$formatearMoneda($valorHoraDiurnaFestiva);
             }
             if ($valorHoraNocturnaFestiva) {
-                $partesHora[] = 'HORA NOCTURNA FESTIVA ' . $formatearMoneda($valorHoraNocturnaFestiva);
+                $partesHora[] = 'HORA NOCTURNA FESTIVA '.$formatearMoneda($valorHoraNocturnaFestiva);
             }
 
-            if (!empty($partesHora)) {
+            if (! empty($partesHora)) {
                 $texto = implode('; ', $partesHora);
 
                 $partesAuxilio = [];
                 if ($auxilioDiurno) {
-                    $partesAuxilio[] = 'HORA DIURNA ' . $formatearMoneda($auxilioDiurno);
+                    $partesAuxilio[] = 'HORA DIURNA '.$formatearMoneda($auxilioDiurno);
                 }
                 if ($auxilioRecargoNocturno) {
-                    $partesAuxilio[] = 'HORA NOCTURNA ' . $formatearMoneda($auxilioRecargoNocturno);
+                    $partesAuxilio[] = 'HORA NOCTURNA '.$formatearMoneda($auxilioRecargoNocturno);
                 }
                 if ($auxilioRecargoFestivo) {
-                    $partesAuxilio[] = 'HORA FESTIVA ' . $formatearMoneda($auxilioRecargoFestivo);
+                    $partesAuxilio[] = 'HORA FESTIVA '.$formatearMoneda($auxilioRecargoFestivo);
                 }
                 if ($auxilioRecargoFestivoNocturno) {
-                    $partesAuxilio[] = 'HORA NOCTURNA FESTIVA ' . $formatearMoneda($auxilioRecargoFestivoNocturno);
+                    $partesAuxilio[] = 'HORA NOCTURNA FESTIVA '.$formatearMoneda($auxilioRecargoFestivoNocturno);
                 }
 
-                if (!empty($partesAuxilio)) {
-                    $texto .= ' y unos AUXILIOS por ' . implode('; ', $partesAuxilio) . '.';
+                if (! empty($partesAuxilio)) {
+                    $texto .= ' y unos AUXILIOS por '.implode('; ', $partesAuxilio).'.';
                 }
-                
+
                 Log::debug('[CONVENIO GENERATION] Patrón 2 - Partes construidas', [
                     'partes_hora_count' => count($partesHora),
                     'partes_auxilio_count' => count($partesAuxilio),
-                    'texto_preview' => substr($texto, 0, 200) . '...',
+                    'texto_preview' => substr($texto, 0, 200).'...',
                 ]);
             }
         }
@@ -563,14 +566,14 @@ class ConvenioGenerationService
             $patronUsado = 'Patrón 3: Básico + auxilios + provisiones';
             Log::debug('[CONVENIO GENERATION] Usando patrón 3: Básico + auxilios + provisiones', [
                 'valores_presentes' => [
-                    'basico' => !empty($basico),
-                    'auxilios' => !empty($auxilios),
-                    'provisiones' => !empty($provisiones),
-                    'auxilio_rodamiento' => !empty($auxilioRodamiento),
-                    'auxilio_especial' => !empty($auxilioEspecial),
+                    'basico' => ! empty($basico),
+                    'auxilios' => ! empty($auxilios),
+                    'provisiones' => ! empty($provisiones),
+                    'auxilio_rodamiento' => ! empty($auxilioRodamiento),
+                    'auxilio_especial' => ! empty($auxilioEspecial),
                 ],
             ]);
-            
+
             $texto = '';
 
             // Si hay básico, empezar con el básico
@@ -583,9 +586,9 @@ class ConvenioGenerationService
             if ($basico && $auxilios !== null && $auxilios !== 0 && $auxilios !== '0') {
                 $texto .= ' y un AUXILIO no constitutivo de compensación básica por: ';
                 $texto .= $formatearMoneda($auxilios);
-            } elseif ($auxilios && $auxilios !== 0 && $auxilios !== '0' && !$basico) {
+            } elseif ($auxilios && $auxilios !== 0 && $auxilios !== '0' && ! $basico) {
                 // Si no hay básico pero hay auxilios, empezar con auxilios
-                $texto = $formatearMoneda($auxilios) . ' y un AUXILIO no constitutivo de compensación básica por:';
+                $texto = $formatearMoneda($auxilios).' y un AUXILIO no constitutivo de compensación básica por:';
             }
 
             // Agregar auxilio especial (nuevo campo, diferente de auxilio_de_rodamiento)
@@ -593,21 +596,21 @@ class ConvenioGenerationService
             if ($auxilioEspecial) {
                 // Si solo hay auxilio_especial sin básico ni auxilios, empezar con "un" en lugar de "y un"
                 if (empty($basico) && empty($auxilios) && empty($provisiones)) {
-                    $texto = 'un AUXILIO especial por: ' . $formatearMoneda($auxilioEspecial);
+                    $texto = 'un AUXILIO especial por: '.$formatearMoneda($auxilioEspecial);
                 } else {
-                    $texto .= (!empty($texto) ? ' ' : '') . 'y un AUXILIO especial por: ' . $formatearMoneda($auxilioEspecial);
+                    $texto .= (! empty($texto) ? ' ' : '').'y un AUXILIO especial por: '.$formatearMoneda($auxilioEspecial);
                 }
             } elseif ($auxilioRodamiento) {
                 // Mantener compatibilidad con auxilio_de_rodamiento (legacy)
-                $texto .= (!empty($texto) ? ' ' : '') . 'y un AUXILIO especial por: ' . $formatearMoneda($auxilioRodamiento);
+                $texto .= (! empty($texto) ? ' ' : '').'y un AUXILIO especial por: '.$formatearMoneda($auxilioRodamiento);
             }
 
             // Agregar devolución de compensaciones (provisiones)
             if ($provisiones) {
-                $texto .= (!empty($texto) ? ' ' : '') . 'y una devolución de compensaciones por valor de: ' . $formatearMoneda($provisiones);
+                $texto .= (! empty($texto) ? ' ' : '').'y una devolución de compensaciones por valor de: '.$formatearMoneda($provisiones);
             }
 
-            if (!empty($texto)) {
+            if (! empty($texto)) {
                 $texto .= '.';
             }
         }
@@ -617,11 +620,11 @@ class ConvenioGenerationService
             'tiene_valores_hora' => $tieneValoresHora,
             'tiene_auxilios_especiales' => $tieneAuxiliosEspeciales,
             'tiene_auxilios_por_hora' => $tieneAuxiliosPorHora,
-            'tiene_basico' => !empty($basico),
-            'tiene_auxilios' => !empty($auxilios),
-            'tiene_provisiones' => !empty($provisiones),
+            'tiene_basico' => ! empty($basico),
+            'tiene_auxilios' => ! empty($auxilios),
+            'tiene_provisiones' => ! empty($provisiones),
             'texto_generado_length' => strlen($texto),
-            'texto_generado_preview' => !empty($texto) ? substr($texto, 0, 200) . (strlen($texto) > 200 ? '...' : '') : 'vacío',
+            'texto_generado_preview' => ! empty($texto) ? substr($texto, 0, 200).(strlen($texto) > 200 ? '...' : '') : 'vacío',
             'texto_completo' => $texto, // Log completo para debugging
         ]);
 
@@ -631,7 +634,7 @@ class ConvenioGenerationService
     /**
      * Normaliza un valor numérico removiendo separadores de miles
      *
-     * @param mixed $valor Valor a normalizar
+     * @param  mixed  $valor  Valor a normalizar
      * @return float|null Valor normalizado o null si está vacío
      */
     private function normalizarValor($valor): ?float
@@ -657,194 +660,161 @@ class ConvenioGenerationService
     }
 
     /**
-     * Obtiene datos del afiliado por documento
+     * Obtiene dirección y celular del afiliado (API primero, Excel como respaldo).
      *
-     * @param string $documento Número de documento normalizado
-     * @return array|null Datos del afiliado o null si no se encuentra
+     * @return array{direccion: string, celular: string}|null
      */
     private function obtenerDatosAfiliado(string $documento): ?array
     {
-        Log::debug('[CONVENIO GENERATION] Obteniendo datos completos de afiliado', [
+        Log::debug('[CONVENIO GENERATION] Obteniendo datos de contacto del afiliado', [
             'documento' => $documento,
         ]);
 
         try {
-            $afiliadoData = $this->afiliadoService->getAfiliadoByDocumentoOnly($documento);
-            
-            if (!$afiliadoData) {
-                Log::debug('[CONVENIO GENERATION] Afiliado no encontrado en servicio', [
-                    'documento' => $documento,
-                ]);
-                return null;
-            }
-
-            // Obtener datos completos del afiliado para dirección, teléfono y celular
-            $excelPath = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
-            $disks = ['prosalud-private', 'local'];
-
-            Log::debug('[CONVENIO GENERATION] Buscando datos de contacto en archivo de afiliados', [
-                'documento' => $documento,
-                'excel_path' => $excelPath,
-                'disks' => $disks,
-            ]);
-
-            foreach ($disks as $disk) {
-                try {
-                    Log::debug('[CONVENIO GENERATION] Intentando acceder a archivo de afiliados', [
+            $fromApi = $this->afiliadoService->getAfiliadoContactByDocumento($documento);
+            if ($fromApi !== false) {
+                if ($fromApi === null) {
+                    Log::debug('[CONVENIO GENERATION] Afiliado no encontrado vía API', [
                         'documento' => $documento,
-                        'disk' => $disk,
-                        'excel_path' => $excelPath,
                     ]);
 
-                    if (!Storage::disk($disk)->exists($excelPath)) {
-                        Log::debug('[CONVENIO GENERATION] Archivo no existe en disco', [
-                            'documento' => $documento,
-                            'disk' => $disk,
-                            'excel_path' => $excelPath,
-                        ]);
-                        continue;
-                    }
-
-                    $stream = Storage::disk($disk)->readStream($excelPath);
-                    if (false === $stream) {
-                        Log::warning('[CONVENIO GENERATION] No se pudo leer stream del archivo', [
-                            'documento' => $documento,
-                            'disk' => $disk,
-                        ]);
-                        continue;
-                    }
-
-                    $tempPath = tempnam(sys_get_temp_dir(), 'prosanet_convenio_') . '.xlsx';
-                    $destination = fopen($tempPath, 'w+b');
-                    if (false === $destination) {
-                        fclose($stream);
-                        Log::warning('[CONVENIO GENERATION] No se pudo crear archivo temporal', [
-                            'documento' => $documento,
-                            'temp_path' => $tempPath,
-                        ]);
-                        continue;
-                    }
-
-                    stream_copy_to_stream($stream, $destination);
-                    fclose($stream);
-                    fclose($destination);
-
-                    Log::debug('[CONVENIO GENERATION] Archivo temporal creado', [
-                        'documento' => $documento,
-                        'temp_path' => $tempPath,
-                    ]);
-
-                    try {
-                        $reader = IOFactory::createReader('Xlsx');
-                        if (method_exists($reader, 'setReadDataOnly')) {
-                            $reader->setReadDataOnly(true);
-                        }
-
-                        if (method_exists($reader, 'setLoadSheetsOnly')) {
-                            $reader->setLoadSheetsOnly(['INFORMACIÓN GENERAL']);
-                        }
-
-                        $spreadsheet = $reader->load($tempPath);
-                        $informacionSheet = $spreadsheet->getSheetByName('INFORMACIÓN GENERAL');
-
-                        if (!$informacionSheet) {
-                            @unlink($tempPath);
-                            Log::warning('[CONVENIO GENERATION] Hoja INFORMACIÓN GENERAL no encontrada', [
-                                'documento' => $documento,
-                            ]);
-                            continue;
-                        }
-
-                        $highestRow = $informacionSheet->getHighestRow();
-                        $normalizedDocumento = $this->normalizeDocumento($documento);
-
-                        Log::debug('[CONVENIO GENERATION] Buscando documento en archivo de afiliados', [
-                            'documento' => $documento,
-                            'documento_normalizado' => $normalizedDocumento,
-                            'total_filas' => $highestRow,
-                        ]);
-
-                        // Buscar por documento
-                        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
-                            $cell = $informacionSheet->getCell('B' . $rowIndex);
-                            $rowDocumento = $this->normalizeDocumento($cell->getValue());
-
-                            if ($rowDocumento === $normalizedDocumento) {
-                                // Leer columnas: DIRECCION (13), CELULAR (17)
-                                $direccion = $this->getCellValue($informacionSheet->getCell('N' . $rowIndex));
-                                $celular = $this->getCellValue($informacionSheet->getCell('R' . $rowIndex));
-
-                                Log::info('[CONVENIO GENERATION] Datos de contacto encontrados en archivo de afiliados', [
-                                    'documento' => $documento,
-                                    'fila' => $rowIndex,
-                                    'tiene_direccion' => !empty(trim($direccion)),
-                                    'tiene_celular' => !empty(trim($celular)),
-                                ]);
-
-                                $spreadsheet->disconnectWorksheets();
-                                unset($spreadsheet);
-                                @unlink($tempPath);
-
-                                return [
-                                    'direccion' => trim($direccion),
-                                    'celular' => trim($celular),
-                                ];
-                            }
-                        }
-
-                        Log::debug('[CONVENIO GENERATION] Documento no encontrado en archivo de afiliados', [
-                            'documento' => $documento,
-                            'documento_normalizado' => $normalizedDocumento,
-                            'filas_revisadas' => $highestRow - 1,
-                        ]);
-
-                        $spreadsheet->disconnectWorksheets();
-                        unset($spreadsheet);
-                        @unlink($tempPath);
-                    } catch (\Exception $e) {
-                        @unlink($tempPath);
-                        Log::error('[CONVENIO GENERATION] Error leyendo archivo de afiliados', [
-                            'error' => $e->getMessage(),
-                            'documento' => $documento,
-                            'disk' => $disk,
-                            'trace' => $e->getTraceAsString(),
-                        ]);
-                    }
-                } catch (\Exception $e) {
-                    Log::error('[CONVENIO GENERATION] Error accediendo a archivo de afiliados', [
-                        'error' => $e->getMessage(),
-                        'disk' => $disk,
-                        'documento' => $documento,
-                        'trace' => $e->getTraceAsString(),
-                    ]);
+                    return null;
                 }
+
+                Log::info('[CONVENIO GENERATION] Datos de contacto obtenidos desde API ProSanet', [
+                    'documento' => $documento,
+                    'tiene_direccion' => ($fromApi['direccion'] ?? '') !== '',
+                    'tiene_celular' => ($fromApi['celular'] ?? '') !== '',
+                ]);
+
+                return $fromApi;
             }
 
-            Log::debug('[CONVENIO GENERATION] No se encontraron datos de contacto en ningún disco', [
-                'documento' => $documento,
-            ]);
-            return null;
+            return $this->obtenerDatosContactoFromExcel($documento);
         } catch (\Exception $e) {
-            Log::error('[CONVENIO GENERATION] Error obteniendo datos de afiliado para convenio', [
+            Log::error('[CONVENIO GENERATION] Error obteniendo datos de contacto para convenio', [
                 'error' => $e->getMessage(),
                 'documento' => $documento,
                 'trace' => $e->getTraceAsString(),
             ]);
+
             return null;
         }
     }
 
     /**
+     * Respaldo Excel para dirección y celular cuando la API no está disponible.
+     *
+     * @return array{direccion: string, celular: string}|null
+     */
+    private function obtenerDatosContactoFromExcel(string $documento): ?array
+    {
+        $excelPath = self::AFILIADOS_FILE_PATH;
+        $disks = ['prosalud-private', 'local'];
+
+        foreach ($disks as $disk) {
+            try {
+                if (! Storage::disk($disk)->exists($excelPath)) {
+                    continue;
+                }
+
+                $stream = Storage::disk($disk)->readStream($excelPath);
+                if ($stream === false) {
+                    continue;
+                }
+
+                $tempPath = tempnam(sys_get_temp_dir(), 'prosanet_convenio_').'.xlsx';
+                $destination = fopen($tempPath, 'w+b');
+                if ($destination === false) {
+                    fclose($stream);
+
+                    continue;
+                }
+
+                stream_copy_to_stream($stream, $destination);
+                fclose($stream);
+                fclose($destination);
+
+                try {
+                    $reader = IOFactory::createReader('Xlsx');
+                    if (method_exists($reader, 'setReadDataOnly')) {
+                        $reader->setReadDataOnly(true);
+                    }
+
+                    if (method_exists($reader, 'setLoadSheetsOnly')) {
+                        $reader->setLoadSheetsOnly(['INFORMACIÓN GENERAL']);
+                    }
+
+                    $spreadsheet = $reader->load($tempPath);
+                    $informacionSheet = $spreadsheet->getSheetByName('INFORMACIÓN GENERAL');
+
+                    if (! $informacionSheet) {
+                        @unlink($tempPath);
+
+                        continue;
+                    }
+
+                    $highestRow = $informacionSheet->getHighestRow();
+                    $normalizedDocumento = $this->normalizeDocumento($documento);
+
+                    for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+                        $cell = $informacionSheet->getCell('B'.$rowIndex);
+                        $rowDocumento = $this->normalizeDocumento($cell->getValue());
+
+                        if ($rowDocumento === $normalizedDocumento) {
+                            $direccion = $this->getCellValue($informacionSheet->getCell('N'.$rowIndex));
+                            $celular = $this->getCellValue($informacionSheet->getCell('R'.$rowIndex));
+
+                            $spreadsheet->disconnectWorksheets();
+                            unset($spreadsheet);
+                            @unlink($tempPath);
+
+                            Log::info('[CONVENIO GENERATION] Datos de contacto obtenidos desde Excel (fallback)', [
+                                'documento' => $documento,
+                                'disk' => $disk,
+                            ]);
+
+                            return [
+                                'direccion' => trim((string) $direccion),
+                                'celular' => trim((string) $celular),
+                            ];
+                        }
+                    }
+
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+                    @unlink($tempPath);
+                } catch (\Exception $e) {
+                    @unlink($tempPath);
+                    Log::error('[CONVENIO GENERATION] Error leyendo Excel de contacto (fallback)', [
+                        'error' => $e->getMessage(),
+                        'documento' => $documento,
+                        'disk' => $disk,
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error('[CONVENIO GENERATION] Error accediendo Excel de contacto (fallback)', [
+                    'error' => $e->getMessage(),
+                    'disk' => $disk,
+                    'documento' => $documento,
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Formatea un documento agregando comas cada 3 dígitos
      *
-     * @param string $documento Número de documento
+     * @param  string  $documento  Número de documento
      * @return string Documento formateado
      */
     private function formatearDocumentoConComas(string $documento): string
     {
         // Remover caracteres no numéricos
         $documento = preg_replace('/[^0-9]/', '', $documento);
-        
+
         if (empty($documento)) {
             return '';
         }
@@ -856,12 +826,12 @@ class ConvenioGenerationService
     /**
      * Formatea fecha en español
      *
-     * @param mixed $fecha Fecha a formatear
+     * @param  mixed  $fecha  Fecha a formatear
      * @return string Fecha formateada
      */
     private function formatearFechaEspanol($fecha): string
     {
-        if (!$fecha) {
+        if (! $fecha) {
             return '';
         }
 
@@ -883,12 +853,11 @@ class ConvenioGenerationService
     /**
      * Formatea la fecha de nacimiento en formato dd/mm/aaaa
      *
-     * @param mixed $fecha
-     * @return string
+     * @param  mixed  $fecha
      */
     private function formatearFechaNacimiento($fecha): string
     {
-        if (!$fecha) {
+        if (! $fecha) {
             return '';
         }
 
@@ -909,7 +878,7 @@ class ConvenioGenerationService
     /**
      * Obtiene el nombre del mes en español
      *
-     * @param int $mes Número del mes (1-12)
+     * @param  int  $mes  Número del mes (1-12)
      * @return string Nombre del mes
      */
     private function obtenerMesEspanol(int $mes): string
@@ -917,7 +886,7 @@ class ConvenioGenerationService
         $meses = [
             1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril',
             5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
-            9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre'
+            9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre',
         ];
 
         return $meses[$mes] ?? '';
@@ -926,8 +895,8 @@ class ConvenioGenerationService
     /**
      * Genera el texto de duración según si existe fecha de finalización o no
      *
-     * @param mixed $fechaInicio Fecha de inicio
-     * @param mixed $fechaFinalizacion Fecha de finalización (puede estar vacía)
+     * @param  mixed  $fechaInicio  Fecha de inicio
+     * @param  mixed  $fechaFinalizacion  Fecha de finalización (puede estar vacía)
      * @return string Texto de duración formateado
      */
     private function calcularDuracion($fechaInicio, $fechaFinalizacion): string
@@ -935,11 +904,11 @@ class ConvenioGenerationService
         Log::debug('[CONVENIO GENERATION] Calculando duración', [
             'fecha_inicio' => $fechaInicio,
             'fecha_finalizacion' => $fechaFinalizacion,
-            'tiene_fecha_fin' => !empty($fechaFinalizacion),
+            'tiene_fecha_fin' => ! empty($fechaFinalizacion),
         ]);
 
         // Si hay fecha de finalización definida
-        if (!empty($fechaFinalizacion)) {
+        if (! empty($fechaFinalizacion)) {
             try {
                 $fechaInicioFormateada = $this->formatearFechaEspanol($fechaInicio);
                 $fechaFinFormateada = $this->formatearFechaEspanol($fechaFinalizacion);
@@ -952,6 +921,7 @@ class ConvenioGenerationService
                         'fecha_inicio_formateada' => $fechaInicioFormateada,
                         'fecha_fin_formateada' => $fechaFinFormateada,
                     ]);
+
                     return $this->obtenerMensajeDuracionSinFechaFin();
                 }
 
@@ -968,6 +938,7 @@ class ConvenioGenerationService
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
+
                 return $this->obtenerMensajeDuracionSinFechaFin();
             }
         }
@@ -976,6 +947,7 @@ class ConvenioGenerationService
         Log::debug('[CONVENIO GENERATION] Usando mensaje de duración por defecto (sin fecha fin)', [
             'fecha_inicio' => $fechaInicio,
         ]);
+
         return $this->obtenerMensajeDuracionSinFechaFin();
     }
 
@@ -986,13 +958,13 @@ class ConvenioGenerationService
      */
     private function obtenerMensajeDuracionSinFechaFin(): string
     {
-        return "La duración será definida por el tiempo de duración del CONTRATO SINDICAL que suscriban la Entidad contratante y el Sindicato, además de la necesidad del servicio que tenga la Entidad contratante, dependiendo así mismo del cumplimiento de obligaciones por parte del AFILIADO PARTICIPE. Este vínculo también estará supeditado a lo dispuesto en el reglamento del contrato sindical";
+        return 'La duración será definida por el tiempo de duración del CONTRATO SINDICAL que suscriban la Entidad contratante y el Sindicato, además de la necesidad del servicio que tenga la Entidad contratante, dependiendo así mismo del cumplimiento de obligaciones por parte del AFILIADO PARTICIPE. Este vínculo también estará supeditado a lo dispuesto en el reglamento del contrato sindical';
     }
 
     /**
      * Genera el nombre del archivo para el convenio
      *
-     * @param array $data Datos del convenio
+     * @param  array  $data  Datos del convenio
      * @return string Nombre del archivo
      */
     private function generarNombreArchivo(array $data): string
@@ -1003,18 +975,18 @@ class ConvenioGenerationService
 
         $nombreBase = "Convenio_{$documento}_{$apellidos}_{$nombres}";
 
-        return $nombreBase . '.docx';
+        return $nombreBase.'.docx';
     }
 
     /**
      * Normaliza un documento removiendo puntos, espacios y caracteres especiales
      *
-     * @param mixed $value Valor a normalizar
+     * @param  mixed  $value  Valor a normalizar
      * @return string Documento normalizado
      */
     private function normalizeDocumento($value): string
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return '';
         }
 
@@ -1024,13 +996,13 @@ class ConvenioGenerationService
     /**
      * Obtiene el valor de una celda de Excel
      *
-     * @param mixed $cell Celda de Excel
+     * @param  mixed  $cell  Celda de Excel
      * @return string Valor de la celda
      */
     private function getCellValue($cell): string
     {
         $value = $cell->getValue();
-        
+
         if ($value === null) {
             return '';
         }
@@ -1045,8 +1017,8 @@ class ConvenioGenerationService
 
     /**
      * Convierte un convenio Word a PDF (comentado para implementación futura)
-     * 
-     * @param string $rutaWord Ruta del archivo Word
+     *
+     * @param  string  $rutaWord  Ruta del archivo Word
      * @return array Resultado con ruta del PDF
      */
     /*
@@ -1054,15 +1026,14 @@ class ConvenioGenerationService
     {
         // TODO: Implementar conversión a PDF usando CloudConvert
         // Similar a como se hace en CertificadoConvenioService
-        // 
+        //
         // Ejemplo:
         // $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
         // $resultadoPDF = $converterService->convert($rutaWord, true);
-        // 
+        //
         // return $resultadoPDF;
-        
+
         throw new \Exception('Conversión a PDF no implementada aún');
     }
     */
 }
-
