@@ -93,4 +93,18 @@ return [
         'app_url' => env('FIRMA_DIGITAL_APP_URL', 'http://localhost:5173'),
         'sign_path' => env('FIRMA_DIGITAL_SIGN_PATH', '/sign'),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | ProSanet Employees API
+    |--------------------------------------------------------------------------
+    */
+    'prosanet' => [
+        'base_url' => env('PROSANET_API_BASE_URL', 'https://api.prosanet.aksingeneo.net/index.php'),
+        'username' => env('PROSANET_API_USERNAME'),
+        'password' => env('PROSANET_API_PASSWORD'),
+        'timeout' => (int) env('PROSANET_API_TIMEOUT', 15),
+        'enabled' => filter_var(env('PROSANET_API_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'token_cache_ttl_minutes' => (int) env('PROSANET_API_TOKEN_CACHE_TTL', 55),
+    ],
 ];

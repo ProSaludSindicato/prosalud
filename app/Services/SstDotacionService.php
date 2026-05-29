@@ -170,6 +170,19 @@ class SstDotacionService
      */
     public function findAffiliate(string $documentType, string $documentNumber): ?array
     {
+        $fromApi = $this->afiliadoService->getAfiliadoBasicWithConvenios($documentType, $documentNumber);
+
+        if ($fromApi !== false) {
+            if ($fromApi === null) {
+                return null;
+            }
+
+            return $this->mapAfiliadoBasicToDotacionRecord(
+                $fromApi,
+                $this->resolveLastDeliveryAtIso($documentType, $documentNumber),
+            );
+        }
+
         return $this->matchAffiliateInCollection(
             $this->buildAffiliatesCollection(),
             $documentType,
@@ -734,35 +747,60 @@ class SstDotacionService
             $documentType = strtoupper($afiliado['tipo_documento'] ?? '');
             $documentNumber = $afiliado['documento'] ?? '';
             $id = sprintf('%s-%s', $documentType, $documentNumber);
-
-            // Seleccionar el convenio más reciente o activo usando la misma lógica que otros servicios
-            $convenios = $afiliado['convenios'] ?? [];
-            $convenio = $this->selectMostRecentConvenio($convenios);
-
-            $hospital = $convenio['cliente'] ?? 'SIN ASIGNAR';
-            $role = $convenio['proceso'] ?? null;
-            $status = strtoupper($afiliado['estado'] ?? '');
-
             $lastDeliveryAt = $lastDeliveries[$id] ?? null;
             $lastDeliveryIso = $lastDeliveryAt
                 ? Carbon::parse($lastDeliveryAt)->setTimezone('America/Bogota')->toISOString()
                 : null;
 
-            return [
-                'id' => $id,
-                'firstName' => trim($afiliado['nombres'] ?? ''),
-                'lastName' => trim($afiliado['apellidos'] ?? ''),
-                'documentType' => $documentType,
-                'documentNumber' => $documentNumber,
-                'hospital' => $hospital,
-                'role' => $role,
-                'active' => $status === 'ACTIVO',
-                'status' => $status,
-                'convenioStatus' => $convenio['estado'] ?? null,
-                'lastDeliveryAt' => $lastDeliveryIso,
-                'notes' => null,
-            ];
+            return $this->mapAfiliadoBasicToDotacionRecord($afiliado, $lastDeliveryIso);
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $afiliado
+     * @return array<string, mixed>
+     */
+    private function mapAfiliadoBasicToDotacionRecord(array $afiliado, ?string $lastDeliveryIso = null): array
+    {
+        $documentType = strtoupper($afiliado['tipo_documento'] ?? '');
+        $documentNumber = $afiliado['documento'] ?? '';
+        $id = sprintf('%s-%s', $documentType, $documentNumber);
+
+        $convenios = $afiliado['convenios'] ?? [];
+        $convenio = $this->selectMostRecentConvenio($convenios);
+
+        $hospital = $convenio['cliente'] ?? 'SIN ASIGNAR';
+        $role = $convenio['proceso'] ?? null;
+        $status = strtoupper($afiliado['estado'] ?? '');
+
+        return [
+            'id' => $id,
+            'firstName' => trim($afiliado['nombres'] ?? ''),
+            'lastName' => trim($afiliado['apellidos'] ?? ''),
+            'documentType' => $documentType,
+            'documentNumber' => $documentNumber,
+            'hospital' => $hospital,
+            'role' => $role,
+            'active' => $status === 'ACTIVO',
+            'status' => $status,
+            'convenioStatus' => $convenio['estado'] ?? null,
+            'lastDeliveryAt' => $lastDeliveryIso,
+            'notes' => null,
+        ];
+    }
+
+    private function resolveLastDeliveryAtIso(string $documentType, string $documentNumber): ?string
+    {
+        $id = sprintf('%s-%s', strtoupper(trim($documentType)), trim($documentNumber));
+        $lastDeliveryAt = SstDeliveryRecord::query()
+            ->where('affiliate_id', $id)
+            ->max('delivered_at');
+
+        if ($lastDeliveryAt === null) {
+            return null;
+        }
+
+        return Carbon::parse($lastDeliveryAt)->setTimezone('America/Bogota')->toISOString();
     }
 
     /**

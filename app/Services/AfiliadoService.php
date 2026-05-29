@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\ProSanetApiException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -12,7 +13,14 @@ use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 
 class AfiliadoService
 {
+    public function __construct(
+        private readonly ProSanetApiService $proSanetApiService,
+        private readonly ProSanetAfiliadoMapper $proSanetAfiliadoMapper,
+    ) {}
+
     private const EXCEL_FILE_PATH = 'data/PROSANET_INFORMACION_AFILIADOS.xlsx';
+
+    private const PROSANET_LOG_PREFIX = '[PROSANET API]';
 
     /**
      * Bumped when the payload stored in auth cache changes (e.g. hospital enrichment) so stale entries are not reused.
@@ -241,13 +249,18 @@ class AfiliadoService
             return $cachedData;
         }
 
-        Log::info('[CACHE MISS] Consultando afiliado desde Excel', [
+        Log::info('[CACHE MISS] Consultando afiliado (API primero, Excel respaldo)', [
             'cache_key' => $cacheKey,
             'documento' => $documento,
             'tipo_documento' => $tipoDocumento,
         ]);
 
         $result = Cache::tags(['afiliados'])->remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
+            $fromApi = $this->tryAuthenticateAndGetAfiliadoFromApi($tipoDocumento, $documento, $fechaExpedicion);
+            if ($fromApi !== false) {
+                return $fromApi;
+            }
+
             return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
                 $originalMemoryLimit = ini_get('memory_limit');
                 $originalMaxExecutionTime = ini_get('max_execution_time');
@@ -372,7 +385,10 @@ class AfiliadoService
      * Returns array with:
      * - 'status': 'success' | 'affiliate_not_found' | 'affiliate_data_mismatch'
      * - 'afiliado': array|null (only when status is 'success')
-     * So the frontend can tell when the document number does not exist vs when it exists but tipo/fecha are wrong.
+     *
+     * Via API: una sola petición con filtros de servidor (tipo, documento, fecha).
+     * Sin items = affiliate_not_found (incluye fecha incorrecta). affiliate_data_mismatch
+     * aplica solo en fallback Excel.
      */
     public function authenticateAndGetAfiliadoDetailed(
         string $tipoDocumento,
@@ -392,6 +408,15 @@ class AfiliadoService
         $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
         if ($cachedData !== null) {
             return ['status' => 'success', 'afiliado' => $cachedData];
+        }
+
+        $fromApi = $this->tryAuthenticateAndGetAfiliadoDetailedFromApi($tipoDocumento, $documento, $fechaExpedicion);
+        if ($fromApi !== false) {
+            if ($fromApi['status'] === 'success' && ($fromApi['afiliado'] ?? null) !== null) {
+                Cache::tags(['afiliados'])->put($cacheKey, $fromApi['afiliado'], now()->addHours(24));
+            }
+
+            return $fromApi;
         }
 
         $result = $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion, $cacheKey) {
@@ -598,6 +623,11 @@ class AfiliadoService
         string $documento,
         string $fechaExpedicion,
     ): ?array {
+        $fromApi = $this->tryValidateCredentialsAndGetEmailFromApi($tipoDocumento, $documento, $fechaExpedicion);
+        if ($fromApi !== false) {
+            return $fromApi;
+        }
+
         return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
             $originalMemoryLimit = ini_get('memory_limit');
             $originalMaxExecutionTime = ini_get('max_execution_time');
@@ -755,6 +785,11 @@ class AfiliadoService
         ]);
 
         $result = Cache::tags(['afiliados'])->remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
+            $fromApi = $this->tryGetCompleteAfiliadoInfoFromApi($tipoDocumento, $documento, $fechaExpedicion);
+            if ($fromApi !== false) {
+                return $fromApi;
+            }
+
             return $this->withExcelFile(function (string $excelPath, string $disk) use ($tipoDocumento, $documento, $fechaExpedicion) {
                 $originalMemoryLimit = ini_get('memory_limit');
                 $originalMaxExecutionTime = ini_get('max_execution_time');
@@ -893,6 +928,15 @@ class AfiliadoService
             return $cachedData;
         }
 
+        $fromApi = $this->tryGetAfiliadoByDocumentoOnlyFromApi($documento);
+        if ($fromApi !== false) {
+            if ($fromApi !== null) {
+                Cache::tags(['afiliados'])->put($cacheKey, $fromApi, now()->addHour());
+            }
+
+            return $fromApi;
+        }
+
         $result = $this->withExcelFile(function (string $excelPath, string $disk) use ($normalizedDocumento) {
             try {
                 $reader = IOFactory::createReader('Xlsx');
@@ -978,9 +1022,29 @@ class AfiliadoService
     }
 
     /**
-     * Check if the Excel file exists and is readable.
+     * Check if affiliate data is available (ProSanet API and/or Excel fallback).
      */
     public function isFileAvailable(): bool
+    {
+        return $this->isDataSourceAvailable();
+    }
+
+    /**
+     * Whether any affiliate data source is configured and reachable.
+     */
+    public function isDataSourceAvailable(): bool
+    {
+        if ($this->proSanetApiService->isEnabled()) {
+            return true;
+        }
+
+        return $this->isExcelFileAvailable();
+    }
+
+    /**
+     * Check if the Excel file exists and is readable.
+     */
+    private function isExcelFileAvailable(): bool
     {
         if (Storage::disk(self::STORAGE_PRIMARY_DISK)->exists(self::EXCEL_FILE_PATH)) {
             return true;
@@ -999,7 +1063,12 @@ class AfiliadoService
     public function getAllAfiliadosBasic(): array
     {
         return Cache::tags(['afiliados'])->remember('afiliado_service.all_basic', now()->addMinutes(30), function () {
-            if (! $this->isFileAvailable()) {
+            $fromApi = $this->tryGetAllAfiliadosBasicFromApi();
+            if ($fromApi !== false) {
+                return $fromApi;
+            }
+
+            if (! $this->isExcelFileAvailable()) {
                 Log::error('AfiliadoService: no existe archivo de afiliados PROSANET en almacenamiento — listado básico y dotación vacíos hasta cargar data/PROSANET_INFORMACION_AFILIADOS.xlsx', [
                     'dotacion_epp' => true,
                     'afiliado_basic_list' => true,
@@ -1177,6 +1246,61 @@ class AfiliadoService
                 }
             }, []);
         });
+    }
+
+    /**
+     * Lookup a single affiliate with convenios via ProSanet detail API (for dotación individual search).
+     *
+     * @return array<string, mixed>|false|null array when found; null when not found; false when API unavailable (use Excel/list fallback)
+     */
+    public function getAfiliadoBasicWithConvenios(string $tipoDocumento, string $documento): array|false|null
+    {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $item = $this->fetchDetailItemFromApi($tipoDocumento, $documento);
+            if ($item === null) {
+                return null;
+            }
+
+            $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($item);
+            $conveniosFull = $this->proSanetAfiliadoMapper->mapDetailItemToConveniosFull(
+                $item,
+                $afiliadoFull['documento'] ?? $documento,
+            );
+
+            $convenios = [];
+            foreach ($conveniosFull as $convenio) {
+                $convenios[] = [
+                    'cliente' => $convenio['cliente'] ?? 'SIN ASIGNAR',
+                    'proceso' => $convenio['proceso'] ?? null,
+                    'estado' => $convenio['estado'] ?? null,
+                    'fecha_ingreso' => $convenio['fecha_ingreso'] ?? null,
+                    'fecha_fin' => $convenio['fecha_fin'] ?? null,
+                ];
+            }
+
+            Log::info(self::PROSANET_LOG_PREFIX.' Afiliado básico con convenios desde API detail', [
+                'documento' => $afiliadoFull['documento'] ?? $documento,
+                'tipo_documento' => $afiliadoFull['tipo_documento'] ?? $tipoDocumento,
+                'convenios_count' => count($convenios),
+            ]);
+
+            return [
+                'tipo_documento' => $afiliadoFull['tipo_documento'] ?? null,
+                'documento' => $afiliadoFull['documento'] ?? null,
+                'nombres' => $afiliadoFull['nombres'] ?? '',
+                'apellidos' => $afiliadoFull['apellidos'] ?? '',
+                'estado' => $afiliadoFull['estado'] ?? null,
+                'convenios' => $convenios,
+            ];
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('getAfiliadoBasicWithConvenios', $e);
+
+            return false;
+        }
     }
 
     /**
@@ -2740,5 +2864,366 @@ class AfiliadoService
         }
 
         return $summary;
+    }
+
+    /**
+     * @return array<string, mixed>|false|null false = usar Excel; null = no encontrado vía API
+     */
+    private function tryAuthenticateAndGetAfiliadoFromApi(
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion,
+    ): array|false|null {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $detailed = $this->tryAuthenticateAndGetAfiliadoDetailedFromApi($tipoDocumento, $documento, $fechaExpedicion);
+            if ($detailed === false) {
+                return false;
+            }
+
+            if (($detailed['status'] ?? '') !== 'success') {
+                return null;
+            }
+
+            return $detailed['afiliado'] ?? null;
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('authenticateAndGetAfiliado', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array{status: string, afiliado: array|null}|false
+     */
+    private function tryAuthenticateAndGetAfiliadoDetailedFromApi(
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion,
+    ): array|false {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $item = $this->fetchDetailItemFromApi($tipoDocumento, $documento, $fechaExpedicion);
+            if ($item !== null) {
+                Log::info(self::PROSANET_LOG_PREFIX.' Autenticación exitosa desde API', [
+                    'documento' => $documento,
+                    'tipo_documento' => $tipoDocumento,
+                ]);
+
+                return [
+                    'status' => 'success',
+                    'afiliado' => $this->mapApiDetailToAuthResponse($item),
+                ];
+            }
+
+            Log::info(self::PROSANET_LOG_PREFIX.' Afiliado no encontrado en API (filtros servidor)', [
+                'documento' => $documento,
+                'tipo_documento' => $tipoDocumento,
+                'fecha_expedicion' => $this->normalizeDate($fechaExpedicion),
+            ]);
+
+            return ['status' => 'affiliate_not_found', 'afiliado' => null];
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('authenticateAndGetAfiliadoDetailed', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array{correo: string, nombre: string, documento: string|null}|false|null
+     */
+    private function tryValidateCredentialsAndGetEmailFromApi(
+        string $tipoDocumento,
+        string $documento,
+        string $fechaExpedicion,
+    ): array|false|null {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $item = $this->fetchDetailItemFromApi($tipoDocumento, $documento, $fechaExpedicion);
+            if ($item === null) {
+                return null;
+            }
+
+            $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($item);
+            $correo = $afiliadoFull['correo_personal'] ?? null;
+            if ($correo === null || $correo === '') {
+                Log::warning(self::PROSANET_LOG_PREFIX.' Afiliado en API sin correo electrónico', [
+                    'documento' => $documento,
+                ]);
+
+                return null;
+            }
+
+            Log::info(self::PROSANET_LOG_PREFIX.' Credenciales validadas desde API', [
+                'documento' => $documento,
+            ]);
+
+            return [
+                'correo' => $correo,
+                'nombre' => trim(($afiliadoFull['nombres'] ?? '').' '.($afiliadoFull['apellidos'] ?? '')),
+                'documento' => $afiliadoFull['documento'] ?? $this->normalizeValue($documento),
+            ];
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('validateCredentialsAndGetEmail', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array{afiliado: array, convenios: array, beneficiarios: array}|false|null
+     */
+    private function tryGetCompleteAfiliadoInfoFromApi(
+        string $tipoDocumento,
+        string $documento,
+        ?string $fechaExpedicion,
+    ): array|false|null {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $item = $this->fetchDetailItemFromApi($tipoDocumento, $documento, $fechaExpedicion);
+            if ($item === null) {
+                return null;
+            }
+
+            Log::info(self::PROSANET_LOG_PREFIX.' Información completa obtenida desde API', [
+                'documento' => $documento,
+            ]);
+
+            return $this->mapApiDetailToCompleteInfo($item);
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('getCompleteAfiliadoInfo', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>|false|null
+     */
+    private function tryGetAfiliadoByDocumentoOnlyFromApi(string $documento): array|false|null
+    {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $items = $this->fetchDetailItemsByDocumentFromApi($documento);
+            if ($items === []) {
+                return null;
+            }
+
+            $item = $items[0];
+            $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($item);
+            $conveniosFull = $this->proSanetAfiliadoMapper->mapDetailItemToConveniosFull($item, $documento);
+            $selected = $this->selectMostRecentConvenio($conveniosFull);
+            $hospital = null;
+            if (! empty($selected)) {
+                $cliente = $selected[0]['cliente'] ?? '';
+                $clienteTrimmed = is_string($cliente) ? trim($cliente) : '';
+                if ($clienteTrimmed !== '' && strcasecmp($clienteTrimmed, 'SIN ASIGNAR') !== 0) {
+                    $mapped = $this->transformCliente($clienteTrimmed);
+                    $hospital = $mapped !== 'SIN ASIGNAR' ? $mapped : $clienteTrimmed;
+                }
+            }
+
+            Log::info(self::PROSANET_LOG_PREFIX.' Búsqueda por documento desde API', [
+                'documento' => $documento,
+            ]);
+
+            return [
+                'documento' => $afiliadoFull['documento'] ?? null,
+                'tipo_documento' => $afiliadoFull['tipo_documento'] ?? null,
+                'nombres' => $afiliadoFull['nombres'] ?? '',
+                'apellidos' => $afiliadoFull['apellidos'] ?? '',
+                'correo_personal' => $afiliadoFull['correo_personal'] ?? null,
+                'nombre_completo' => trim(($afiliadoFull['nombres'] ?? '').' '.($afiliadoFull['apellidos'] ?? '')),
+                'estado' => $afiliadoFull['estado'] ?? null,
+                'hospital' => $hospital,
+            ];
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('getAfiliadoByDocumentoOnly', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return list<array<string, mixed>>|false
+     */
+    private function tryGetAllAfiliadosBasicFromApi(): array|false
+    {
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $summaryItems = $this->proSanetApiService->fetchAllSummaryItems();
+            $affiliates = [];
+
+            foreach ($summaryItems as $summaryItem) {
+                if (! is_array($summaryItem)) {
+                    continue;
+                }
+
+                $documento = $this->normalizeValue($summaryItem['document_number'] ?? null);
+                if ($documento === null || $documento === '') {
+                    continue;
+                }
+
+                $affiliates[] = $this->proSanetAfiliadoMapper->mapSummaryItemToBasicAfiliado($summaryItem);
+            }
+
+            Log::info(self::PROSANET_LOG_PREFIX.' Listado básico de afiliados desde API', [
+                'count' => count($affiliates),
+            ]);
+
+            return $affiliates;
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('getAllAfiliadosBasic', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapApiDetailToAuthResponse(array $item): array
+    {
+        $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($item);
+        $conveniosFull = $this->proSanetAfiliadoMapper->mapDetailItemToConveniosFull($item);
+
+        return $this->filterAfiliadoResponse($afiliadoFull, $conveniosFull);
+    }
+
+    /**
+     * @return array{afiliado: array, convenios: array, beneficiarios: array}
+     */
+    private function mapApiDetailToCompleteInfo(array $item): array
+    {
+        $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($item);
+        $conveniosFull = $this->proSanetAfiliadoMapper->mapDetailItemToConveniosFull($item);
+        $beneficiarios = $this->proSanetAfiliadoMapper->mapDetailItemToBeneficiarios($item);
+
+        return [
+            'afiliado' => $this->filterAfiliadoCompleteInfo($afiliadoFull),
+            'convenios' => $this->selectMostRecentConvenio($conveniosFull),
+            'beneficiarios' => $this->filterBeneficiariosInfo($beneficiarios),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchDetailItemFromApi(
+        string $tipoDocumento,
+        string $documento,
+        ?string $fechaExpedicion = null,
+    ): ?array {
+        $filters = $this->buildProsanetDetailFilters($tipoDocumento, $documento, $fechaExpedicion);
+        $response = $this->proSanetApiService->getDetail(array_merge($filters, [
+            'page' => 1,
+            'per-page' => 10,
+        ]));
+
+        $items = $response['items'] ?? [];
+        if (! is_array($items) || $items === []) {
+            return null;
+        }
+
+        foreach ($items as $item) {
+            if (is_array($item)) {
+                return $item;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function fetchDetailItemsByDocumentFromApi(string $documento): array
+    {
+        $normalizedDocumento = $this->normalizeValue($documento) ?? '';
+        $response = $this->proSanetApiService->getDetail([
+            'document_number' => $normalizedDocumento,
+            'page' => 1,
+            'per-page' => 20,
+        ]);
+
+        $items = $response['items'] ?? [];
+        if (! is_array($items)) {
+            return [];
+        }
+
+        $matched = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $personal = $item['personal_information'] ?? $item;
+            if (! is_array($personal)) {
+                continue;
+            }
+
+            $rowDocumento = $this->normalizeValue($personal['document_number'] ?? $item['document_number'] ?? null);
+            if ($rowDocumento === $normalizedDocumento) {
+                $matched[] = $item;
+            }
+        }
+
+        return $matched;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildProsanetDetailFilters(
+        string $tipoDocumento,
+        string $documento,
+        ?string $fechaExpedicion = null,
+    ): array {
+        $filters = [
+            'document_number' => $this->normalizeValue($documento),
+            'document_type_label' => $this->normalizeValue($tipoDocumento),
+        ];
+
+        $documentTypeId = $this->proSanetApiService->resolveDocumentTypeId($tipoDocumento);
+        if ($documentTypeId !== null) {
+            $filters['document_type'] = $documentTypeId;
+        }
+
+        if ($fechaExpedicion !== null && trim($fechaExpedicion) !== '') {
+            $filters['expedition_date'] = $this->normalizeDate($fechaExpedicion);
+        }
+
+        return $filters;
+    }
+
+    private function logProsanetFallback(string $operation, ProSanetApiException $exception): void
+    {
+        Log::warning(self::PROSANET_LOG_PREFIX.' Fallback a Excel por fallo de API', array_merge(
+            [
+                'operation' => $operation,
+                'error' => $exception->getMessage(),
+                'source' => 'excel_fallback',
+            ],
+            $exception->contextForLog()
+        ));
     }
 }
