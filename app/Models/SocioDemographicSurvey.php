@@ -2,8 +2,9 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\{Builder, Model};
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * @property string $id
@@ -44,7 +45,9 @@ class SocioDemographicSurvey extends Model
     use HasFactory;
 
     public $timestamps = false;
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -134,7 +137,7 @@ class SocioDemographicSurvey extends Model
             $timestamp = time();
             $random = mt_rand(1000, 9999);
             // Combine: 1 digit (1-9) + 5 digits from timestamp + 4 digits from random = 10 digits
-            $idString = $firstDigit . substr($timestamp, -5) . str_pad((string)$random, 4, '0', STR_PAD_LEFT);
+            $idString = $firstDigit.substr($timestamp, -5).str_pad((string) $random, 4, '0', STR_PAD_LEFT);
         } while (static::where('id', $idString)->exists());
 
         return $idString;
@@ -146,7 +149,7 @@ class SocioDemographicSurvey extends Model
     public function scopeByDocument(Builder $query, string $tipoDocumento, string $numeroDocumento): Builder
     {
         return $query->where('tipo_documento', $tipoDocumento)
-                    ->where('numero_documento', $numeroDocumento);
+            ->where('numero_documento', $numeroDocumento);
     }
 
     /**
@@ -163,7 +166,7 @@ class SocioDemographicSurvey extends Model
             return $query;
         }
 
-        return $query->where('numero_documento', 'LIKE', '%' . $numeroDocumento . '%');
+        return $query->where('numero_documento', 'LIKE', '%'.$numeroDocumento.'%');
     }
 
     /**
@@ -175,7 +178,8 @@ class SocioDemographicSurvey extends Model
         if ($hospital === '') {
             return $query;
         }
-        return $query->where('hospital', 'LIKE', $hospital . '%');
+
+        return $query->where('hospital', 'LIKE', $hospital.'%');
     }
 
     /**
@@ -187,6 +191,7 @@ class SocioDemographicSurvey extends Model
         if (empty($hospitals)) {
             return $query;
         }
+
         return $query->whereIn('hospital', $hospitals);
     }
 
@@ -207,6 +212,32 @@ class SocioDemographicSurvey extends Model
     }
 
     /**
+     * Scope for surveys by labor restriction answer (si / no).
+     */
+    public function scopeByLaborRestriction(Builder $query, string $value): Builder
+    {
+        $value = strtolower(trim($value));
+
+        if ($value === 'si') {
+            return $query->whereRaw('LOWER(recomendacion_restriccion_laboral) = ?', ['si']);
+        }
+
+        if ($value === 'no') {
+            return $query->whereRaw('LOWER(recomendacion_restriccion_laboral) = ?', ['no']);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Whether the affiliate reported a labor recommendation or restriction.
+     */
+    public function hasLaborRestriction(): bool
+    {
+        return strtolower($this->recomendacion_restriccion_laboral ?? '') === 'si';
+    }
+
+    /**
      * Scope for surveys by name (searches in nombres, apellidos, or both).
      */
     public function scopeByName(Builder $query, string $name): Builder
@@ -220,9 +251,9 @@ class SocioDemographicSurvey extends Model
             // Search in nombres field
             $query->where('nombres', 'LIKE', "%{$name}%")
                   // Search in apellidos field
-                  ->orWhere('apellidos', 'LIKE', "%{$name}%")
+                ->orWhere('apellidos', 'LIKE', "%{$name}%")
                   // Search in concatenated full name (nombres + ' ' + apellidos)
-                  ->orWhereRaw("CONCAT(COALESCE(nombres, ''), ' ', COALESCE(apellidos, '')) LIKE ?", ["%{$name}%"]);
+                ->orWhereRaw("CONCAT(COALESCE(nombres, ''), ' ', COALESCE(apellidos, '')) LIKE ?", ["%{$name}%"]);
         });
     }
 
@@ -231,7 +262,7 @@ class SocioDemographicSurvey extends Model
      */
     public function getFormattedCreatedAtAttribute(): string
     {
-        if (!$this->created_at) {
+        if (! $this->created_at) {
             return '';
         }
 
@@ -258,6 +289,7 @@ class SocioDemographicSurvey extends Model
         ];
 
         $docType = strtoupper(trim($this->tipo_documento ?? ''));
+
         return $documentTypeLabels[$docType] ?? $this->tipo_documento;
     }
 }

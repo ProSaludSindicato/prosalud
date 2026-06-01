@@ -336,6 +336,11 @@ class SocioDemographicSurveyController extends Controller
             // Si es 'all' o cualquier otro valor, no se aplica filtro
         }
 
+        // Filtro por recomendación o restricción laboral (si / no)
+        if ($request->filled('recomendacion_restriccion_laboral')) {
+            $query->byLaborRestriction($request->input('recomendacion_restriccion_laboral'));
+        }
+
         // Paginación
         $perPage = min($request->input('per_page', 15), 100);
         $surveys = $query->orderBy('created_at', 'desc')->paginate($perPage);
@@ -354,6 +359,7 @@ class SocioDemographicSurveyController extends Controller
                 'profesion' => $survey->profesion,
                 'created_at' => $survey->created_at?->format('Y-m-d H:i:s'),
                 'formatted_created_at' => $survey->formatted_created_at,
+                'tiene_restriccion_laboral' => $survey->hasLaborRestriction(),
             ];
         });
 
@@ -409,6 +415,11 @@ class SocioDemographicSurveyController extends Controller
                 $baseQuery->where('survey_type', 'bulk_entry');
             }
             // Si es 'all' o cualquier otro valor, no se aplica filtro
+        }
+
+        // Aplicar filtro por recomendación o restricción laboral en métricas
+        if ($request->filled('recomendacion_restriccion_laboral')) {
+            $baseQuery->byLaborRestriction($request->input('recomendacion_restriccion_laboral'));
         }
 
         // Total de encuestas
