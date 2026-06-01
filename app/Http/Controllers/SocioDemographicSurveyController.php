@@ -3,23 +3,33 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\StringHelper;
-use App\Http\Requests\{ExportSocioDemographicSurveysExcelRequest, ExportSocioDemographicSurveysPdfRequest, StoreSocioDemographicSurveyRequest, UpdateSocioDemographicSurveyHospitalRequest};
+use App\Http\Requests\ExportSocioDemographicSurveysExcelRequest;
+use App\Http\Requests\ExportSocioDemographicSurveysPdfRequest;
+use App\Http\Requests\StoreSocioDemographicSurveyRequest;
+use App\Http\Requests\UpdateSocioDemographicSurveyHospitalRequest;
 use App\Jobs\GenerateBulkSurveyPdfJob;
 use App\Models\SocioDemographicSurvey;
-use App\Services\{AuditLogService, SocioDemographicSurveyExcelExportService};
+use App\Services\AuditLogService;
+use App\Services\SocioDemographicSurveyBulkPdfExportService;
+use App\Services\SocioDemographicSurveyExcelExportService;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Illuminate\Http\{JsonResponse, Request, Response};
-use Illuminate\Support\Facades\{DB, Log, Storage};
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Symfony\Component\HttpFoundation\{BinaryFileResponse, StreamedResponse};
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SocioDemographicSurveyController extends Controller
 {
     public function __construct(
         private AuditLogService $auditLogService,
         private SocioDemographicSurveyExcelExportService $excelExportService,
-    ) {
-    }
+        private SocioDemographicSurveyBulkPdfExportService $bulkPdfExportService,
+    ) {}
 
     /**
      * Store a new socio-demographic survey.
@@ -119,7 +129,7 @@ class SocioDemographicSurveyController extends Controller
             // Si el afiliado no existe o no está activo, es "new_entry" (nuevo ingreso)
             // Mantener compatibilidad con encuestas existentes que usaron "bulk_entry"
             $surveyType = 'new_entry'; // Por defecto, asumimos nuevo ingreso hasta verificar
-            
+
             // Intentar verificar si el afiliado existe en el sistema
             // Nota: fechaExpedicion es opcional, puede no estar disponible
             try {
@@ -128,20 +138,20 @@ class SocioDemographicSurveyController extends Controller
                     // Intentar autenticar con fechaExpedicion si está disponible
                     $fechaExpedicion = $validated['fechaExpedicion'] ?? '';
                     $afiliado = null;
-                    
-                    if (!empty($fechaExpedicion)) {
+
+                    if (! empty($fechaExpedicion)) {
                         $afiliado = $afiliadoService->authenticateAndGetAfiliado(
                             $validated['tipoDocumento'],
                             $validated['numeroDocumento'],
                             $fechaExpedicion
                         );
                     }
-                    
+
                     // Si el afiliado existe y está activo, es afiliado activo
-                    if (null !== $afiliado) {
+                    if ($afiliado !== null) {
                         $estado = strtoupper(trim($afiliado['estado'] ?? ''));
                         $isActivo = $estado === 'ACTIVO';
-                        
+
                         Log::info('Verificación de estado de afiliado para tipo de encuesta', [
                             'tipo_documento' => $validated['tipoDocumento'],
                             'numero_documento' => $validated['numeroDocumento'],
@@ -149,7 +159,7 @@ class SocioDemographicSurveyController extends Controller
                             'estado_normalizado' => $estado,
                             'es_activo' => $isActivo,
                         ]);
-                        
+
                         if ($isActivo) {
                             $surveyType = 'active_affiliate';
                         }
@@ -157,7 +167,7 @@ class SocioDemographicSurveyController extends Controller
                         Log::info('Afiliado no encontrado en autenticación, marcando como nuevo ingreso', [
                             'tipo_documento' => $validated['tipoDocumento'],
                             'numero_documento' => $validated['numeroDocumento'],
-                            'fecha_expedicion_provista' => !empty($fechaExpedicion),
+                            'fecha_expedicion_provista' => ! empty($fechaExpedicion),
                         ]);
                     }
                 } else {
@@ -315,7 +325,7 @@ class SocioDemographicSurveyController extends Controller
             if ($surveyType === 'active_affiliate') {
                 $query->where(function ($q) {
                     $q->where('survey_type', 'active_affiliate')
-                      ->orWhereNull('survey_type');
+                        ->orWhereNull('survey_type');
                 });
             } elseif ($surveyType === 'new_entry') {
                 $query->where('survey_type', 'new_entry');
@@ -390,7 +400,7 @@ class SocioDemographicSurveyController extends Controller
             if ($surveyType === 'active_affiliate') {
                 $baseQuery->where(function ($q) {
                     $q->where('survey_type', 'active_affiliate')
-                      ->orWhereNull('survey_type');
+                        ->orWhereNull('survey_type');
                 });
             } elseif ($surveyType === 'new_entry') {
                 $baseQuery->where('survey_type', 'new_entry');
@@ -560,17 +570,17 @@ class SocioDemographicSurveyController extends Controller
      */
     public function show(SocioDemographicSurvey $survey): JsonResponse
     {
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'id' => $survey->id,
-                    'survey_type' => $survey->survey_type,
-                    'correo' => $survey->correo,
-                    'tipo_documento' => $survey->tipo_documento,
-                    'numero_documento' => $survey->numero_documento,
-                    'nombres' => StringHelper::normalizeForApi($survey->nombres),
-                    'apellidos' => StringHelper::normalizeForApi($survey->apellidos),
-                    'hospital' => $survey->hospital,
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $survey->id,
+                'survey_type' => $survey->survey_type,
+                'correo' => $survey->correo,
+                'tipo_documento' => $survey->tipo_documento,
+                'numero_documento' => $survey->numero_documento,
+                'nombres' => StringHelper::normalizeForApi($survey->nombres),
+                'apellidos' => StringHelper::normalizeForApi($survey->apellidos),
+                'hospital' => $survey->hospital,
                 'profesion' => $survey->profesion,
                 'rh' => $survey->rh,
                 'fecha_expedicion' => $survey->fecha_expedicion?->format('Y-m-d'),
@@ -591,8 +601,8 @@ class SocioDemographicSurveyController extends Controller
                 'limitaciones_fisicas' => $survey->limitaciones_fisicas,
                 'recomendacion_restriccion_laboral' => $survey->recomendacion_restriccion_laboral,
                 'detalle_recomendacion_laboral' => $survey->detalle_recomendacion_laboral,
-                'tiene_firma' => !empty($survey->firma_path),
-                'firma_download_url' => !empty($survey->firma_path) ? url('/api/socio-demographic-surveys/' . $survey->id . '/signature') : null,
+                'tiene_firma' => ! empty($survey->firma_path),
+                'firma_download_url' => ! empty($survey->firma_path) ? url('/api/socio-demographic-surveys/'.$survey->id.'/signature') : null,
                 'numero_documento_firma' => $survey->numero_documento_firma,
                 'created_at' => $survey->formatted_created_at,
                 'updated_at' => $survey->updated_at?->format('d/m/Y H:i:s'),
@@ -657,17 +667,17 @@ class SocioDemographicSurveyController extends Controller
             // Procesar archivo subido
             $extension = $firmaFile->getClientOriginalExtension() ?: 'png';
             $filename = sprintf('firma-%s-%s.%s', $numeroDocumento, Str::uuid(), $extension);
-            $storagePath = 'socio-demographic-surveys/signatures/' . date('Y/m') . '/' . $filename;
+            $storagePath = 'socio-demographic-surveys/signatures/'.date('Y/m').'/'.$filename;
 
             $storedPath = Storage::disk($disk)->putFileAs(
-                'socio-demographic-surveys/signatures/' . date('Y/m'),
+                'socio-demographic-surveys/signatures/'.date('Y/m'),
                 $firmaFile,
                 $filename
             );
 
             if ($storedPath === false) {
                 $storedPath = Storage::disk($fallbackDisk)->putFileAs(
-                    'socio-demographic-surveys/signatures/' . date('Y/m'),
+                    'socio-demographic-surveys/signatures/'.date('Y/m'),
                     $firmaFile,
                     $filename
                 );
@@ -684,7 +694,7 @@ class SocioDemographicSurveyController extends Controller
 
             if ($fileContent !== false) {
                 $filename = sprintf('firma-%s-%s.png', $numeroDocumento, Str::uuid());
-                $storagePath = 'socio-demographic-surveys/signatures/' . date('Y/m') . '/' . $filename;
+                $storagePath = 'socio-demographic-surveys/signatures/'.date('Y/m').'/'.$filename;
 
                 $stored = Storage::disk($disk)->put($storagePath, $fileContent);
                 if ($stored === false) {
@@ -703,7 +713,7 @@ class SocioDemographicSurveyController extends Controller
      */
     public function downloadSignature(SocioDemographicSurvey $survey): Response|BinaryFileResponse|JsonResponse
     {
-        if (!$survey->firma_path) {
+        if (! $survey->firma_path) {
             return response()->json([
                 'success' => false,
                 'message' => 'No se encontró la firma digital para esta encuesta.',
@@ -719,7 +729,7 @@ class SocioDemographicSurveyController extends Controller
 
                 return response($fileContent, 200)
                     ->header('Content-Type', $mimeType)
-                    ->header('Content-Disposition', 'inline; filename="firma-' . $survey->numero_documento . '.png"');
+                    ->header('Content-Disposition', 'inline; filename="firma-'.$survey->numero_documento.'.png"');
             }
 
             // Fallback a local disk
@@ -730,7 +740,7 @@ class SocioDemographicSurveyController extends Controller
 
                 return response($fileContent, 200)
                     ->header('Content-Type', $mimeType)
-                    ->header('Content-Disposition', 'inline; filename="firma-' . $survey->numero_documento . '.png"');
+                    ->header('Content-Disposition', 'inline; filename="firma-'.$survey->numero_documento.'.png"');
             }
 
             return response()->json([
@@ -793,15 +803,15 @@ class SocioDemographicSurveyController extends Controller
                         // Generate report
                         $filePath = $excelExportService->generateReport($filters);
 
-                        if (!file_exists($filePath)) {
+                        if (! file_exists($filePath)) {
                             throw new \Exception('El archivo del reporte no fue creado');
                         }
 
                         // Generate file name
-                        $fileName = 'Reporte_Encuestas_Sociodemograficas_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+                        $fileName = 'Reporte_Encuestas_Sociodemograficas_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
 
                         // Store file in storage for later download
-                        $storagePath = 'reports/surveys/' . $jobId . '/' . $fileName;
+                        $storagePath = 'reports/surveys/'.$jobId.'/'.$fileName;
                         $disk = Storage::disk('local');
                         $disk->put($storagePath, file_get_contents($filePath));
 
@@ -874,7 +884,7 @@ class SocioDemographicSurveyController extends Controller
             // Generate report synchronously (without signatures)
             $filePath = $this->excelExportService->generateReport($filters);
 
-            if (!file_exists($filePath)) {
+            if (! file_exists($filePath)) {
                 Log::error('Error generando reporte Excel de encuestas: archivo no creado', [
                     'user_id' => $user?->id,
                     'filters' => $filters,
@@ -887,7 +897,7 @@ class SocioDemographicSurveyController extends Controller
             }
 
             // Nombre del archivo
-            $fileName = 'Reporte_Encuestas_Sociodemograficas_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
+            $fileName = 'Reporte_Encuestas_Sociodemograficas_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
 
             Log::info('Reporte Excel de encuestas sociodemográficas generado', [
                 'user_id' => $user?->id,
@@ -937,7 +947,7 @@ class SocioDemographicSurveyController extends Controller
         $cacheKey = "survey_report:{$jobId}";
         $status = cache()->get($cacheKey);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
@@ -969,7 +979,7 @@ class SocioDemographicSurveyController extends Controller
         $cacheKey = "survey_report:{$jobId}";
         $status = cache()->get($cacheKey);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
@@ -979,7 +989,7 @@ class SocioDemographicSurveyController extends Controller
         if ($status['status'] !== 'completed') {
             return response()->json([
                 'success' => false,
-                'message' => 'El reporte aún no está listo. Estado: ' . ($status['status'] ?? 'unknown'),
+                'message' => 'El reporte aún no está listo. Estado: '.($status['status'] ?? 'unknown'),
                 'status' => $status['status'],
             ], 400);
         }
@@ -987,7 +997,7 @@ class SocioDemographicSurveyController extends Controller
         $filePath = $status['file_path'] ?? null;
         $fileName = $status['file_name'] ?? 'Reporte_Encuestas_Sociodemograficas_ProSalud.xlsx';
 
-        if (!$filePath) {
+        if (! $filePath) {
             return response()->json([
                 'success' => false,
                 'message' => 'Ruta del archivo no encontrada',
@@ -996,7 +1006,7 @@ class SocioDemographicSurveyController extends Controller
 
         $disk = Storage::disk('local');
 
-        if (!$disk->exists($filePath)) {
+        if (! $disk->exists($filePath)) {
             return response()->json([
                 'success' => false,
                 'message' => 'El archivo no existe en el almacenamiento',
@@ -1024,7 +1034,7 @@ class SocioDemographicSurveyController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al descargar el archivo: ' . $e->getMessage(),
+                'message' => 'Error al descargar el archivo: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -1097,7 +1107,7 @@ class SocioDemographicSurveyController extends Controller
             Log::info('PDF de encuesta sociodemográfica generado', [
                 'survey_id' => $survey->id,
                 'file_name' => $fileName,
-                'has_signature' => !empty($signatureImageBase64),
+                'has_signature' => ! empty($signatureImageBase64),
             ]);
 
             // Register audit log
@@ -1121,7 +1131,7 @@ class SocioDemographicSurveyController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al generar el PDF: ' . $e->getMessage(),
+                'message' => 'Error al generar el PDF: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -1135,7 +1145,7 @@ class SocioDemographicSurveyController extends Controller
         try {
             $user = $request->user();
             $filters = $this->buildExportFilters($request);
-            
+
             // Generate unique job ID
             $jobId = Str::uuid()->toString();
 
@@ -1173,7 +1183,7 @@ class SocioDemographicSurveyController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al iniciar la generación del PDF masivo: ' . $e->getMessage(),
+                'message' => 'Error al iniciar la generación del PDF masivo: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -1183,14 +1193,28 @@ class SocioDemographicSurveyController extends Controller
      */
     public function checkPdfStatus(string $jobId): JsonResponse
     {
-        $cacheKey = "survey_report_pdf:{$jobId}";
-        $status = cache()->get($cacheKey);
+        $status = $this->bulkPdfExportService->getStatus($jobId);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
             ], 404);
+        }
+
+        if (
+            ($status['status'] ?? '') === 'processing'
+            && (int) ($status['completed_parts'] ?? 0) >= (int) ($status['total_parts'] ?? 0)
+            && (int) ($status['total_parts'] ?? 0) > 0
+        ) {
+            $this->bulkPdfExportService->recoverStuckFinalize($jobId);
+            $status = $this->bulkPdfExportService->getStatus($jobId) ?? $status;
+
+            if (! ($status['finalize_dispatched'] ?? false)) {
+                $filters = is_array($status['filters'] ?? null) ? $status['filters'] : [];
+                $this->bulkPdfExportService->maybeDispatchFinalize($jobId, $filters);
+                $status = $this->bulkPdfExportService->getStatus($jobId) ?? $status;
+            }
         }
 
         $response = [
@@ -1204,6 +1228,12 @@ class SocioDemographicSurveyController extends Controller
             $response['file_name'] = $status['file_name'] ?? null;
             $response['created_at'] = $status['created_at'] ?? null;
             $response['count'] = $status['count'] ?? null;
+            $response['completed_parts'] = $status['completed_parts'] ?? null;
+            $response['total_parts'] = $status['total_parts'] ?? null;
+        } elseif ($status['status'] === 'processing') {
+            $response['count'] = $status['count'] ?? null;
+            $response['completed_parts'] = $status['completed_parts'] ?? 0;
+            $response['total_parts'] = $status['total_parts'] ?? null;
         } elseif ($status['status'] === 'failed') {
             $response['error'] = $status['error'] ?? 'Error desconocido';
         }
@@ -1219,7 +1249,7 @@ class SocioDemographicSurveyController extends Controller
         $cacheKey = "survey_report_pdf:{$jobId}";
         $status = cache()->get($cacheKey);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
@@ -1229,7 +1259,7 @@ class SocioDemographicSurveyController extends Controller
         if ($status['status'] !== 'completed') {
             return response()->json([
                 'success' => false,
-                'message' => 'El PDF aún no está listo. Estado: ' . ($status['status'] ?? 'unknown'),
+                'message' => 'El PDF aún no está listo. Estado: '.($status['status'] ?? 'unknown'),
                 'status' => $status['status'],
             ], 400);
         }
@@ -1237,7 +1267,7 @@ class SocioDemographicSurveyController extends Controller
         $filePath = $status['file_path'] ?? null;
         $fileName = $status['file_name'] ?? 'Encuestas_Sociodemograficas.pdf';
 
-        if (!$filePath) {
+        if (! $filePath) {
             return response()->json([
                 'success' => false,
                 'message' => 'Ruta del archivo no encontrada',
@@ -1246,7 +1276,7 @@ class SocioDemographicSurveyController extends Controller
 
         $disk = Storage::disk(config('filesystems.survey_reports_disk', 'local'));
 
-        if (!$disk->exists($filePath)) {
+        if (! $disk->exists($filePath)) {
             return response()->json([
                 'success' => false,
                 'message' => 'El archivo no existe en el almacenamiento',
@@ -1271,9 +1301,8 @@ class SocioDemographicSurveyController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al descargar el archivo: ' . $e->getMessage(),
+                'message' => 'Error al descargar el archivo: '.$e->getMessage(),
             ], 500);
         }
     }
-
 }
