@@ -160,6 +160,36 @@ class RequestIndexPaginationTest extends TestCase
             ->assertJsonPath('data.pending', 1);
     }
 
+    public function test_filter_options_deduplicates_request_type_aliases(): void
+    {
+        RequestForm::factory()->create([
+            'request_type' => RequestTypes::INCAPACIDADES_LICENCIAS,
+        ]);
+
+        RequestForm::factory()->create([
+            'request_type' => 'incapacidad-licencia',
+        ]);
+
+        RequestForm::factory()->create([
+            'request_type' => RequestTypes::SOLICITUD_RETIRO_SINDICAL,
+        ]);
+
+        RequestForm::factory()->create([
+            'request_type' => 'retiro-sindical',
+        ]);
+
+        $response = $this->authenticatedGet('/api/requests/filter-options', $this->admin);
+
+        $response->assertOk();
+
+        $types = $response->json('data.request_types');
+        $this->assertCount(2, $types);
+        $this->assertEqualsCanonicalizing([
+            RequestTypes::INCAPACIDADES_LICENCIAS,
+            RequestTypes::SOLICITUD_RETIRO_SINDICAL,
+        ], $types);
+    }
+
     public function test_filter_options_respects_user_assignments(): void
     {
         RequestForm::factory()->create([

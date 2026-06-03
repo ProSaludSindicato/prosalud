@@ -152,6 +152,7 @@ class RequestListService
 
         $requestTypes = $requests
             ->pluck('request_type')
+            ->map(fn (string $type) => RequestTypes::normalize($type))
             ->unique()
             ->sort()
             ->values()
