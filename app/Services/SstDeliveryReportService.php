@@ -2,23 +2,34 @@
 
 namespace App\Services;
 
-use App\Models\{InventoryColor, InventoryCategory, SstDeliveryItem, SstDeliveryRecord, SstReturnItem, SstReturnRecord};
+use App\Models\InventoryColor;
+use App\Models\SstDeliveryRecord;
+use App\Models\SstReturnRecord;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\{Collection, Str};
-use Illuminate\Support\Facades\{DB, Log, Storage};
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Chart\Chart;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
+use PhpOffice\PhpSpreadsheet\Chart\Legend;
+use PhpOffice\PhpSpreadsheet\Chart\PlotArea;
+use PhpOffice\PhpSpreadsheet\Chart\Title;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
-use PhpOffice\PhpSpreadsheet\Chart\{Chart, DataSeries, DataSeriesValues, Legend, PlotArea, Title};
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class SstDeliveryReportService
 {
     private const SIGNATURE_DISK = 'prosalud-private';
+
     private const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
+
     private const IMAGE_TIMEOUT = 5; // 5 seconds
 
     /**
@@ -39,8 +50,7 @@ class SstDeliveryReportService
     public function __construct(
         private readonly SstDotacionService $dotacionService,
         private readonly AfiliadoService $afiliadoService
-    ) {
-    }
+    ) {}
 
     /**
      * Generate Excel report with delivery and return records.
@@ -57,16 +67,8 @@ class SstDeliveryReportService
             // Get all returns matching filters
             $returns = $this->getAllReturns($filters);
 
-            // Combine unique affiliate IDs from both deliveries and returns
-            $allAffiliateIds = $deliveries->pluck('affiliate_id')
-                ->merge($returns->pluck('affiliate_id'))
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            // Get affiliates map
-            $affiliatesMap = $this->getAffiliatesMap($allAffiliateIds, $filters);
+            // Get affiliates map from denormalized delivery/return data (no full affiliate catalog scan)
+            $affiliatesMap = $this->getAffiliatesMap($deliveries, $returns);
 
             // Get inventory map
             $inventoryMap = $this->getInventoryMap();
@@ -81,7 +83,7 @@ class SstDeliveryReportService
             $filteredReturns = $this->filterReturns($returns, $filters, $affiliatesMap);
 
             // Create spreadsheet
-            $spreadsheet = new Spreadsheet();
+            $spreadsheet = new Spreadsheet;
             $spreadsheet->removeSheetByIndex(0);
 
             // Create deliveries sheet
@@ -113,7 +115,7 @@ class SstDeliveryReportService
             $spreadsheet->setActiveSheetIndex(0);
 
             // Save to temporary file
-            $tempFile = tempnam(sys_get_temp_dir(), 'sst_delivery_report_') . '.xlsx';
+            $tempFile = tempnam(sys_get_temp_dir(), 'sst_delivery_report_').'.xlsx';
             $writer = new Xlsx($spreadsheet);
             $writer->setIncludeCharts(true);
             $writer->save($tempFile);
@@ -131,6 +133,14 @@ class SstDeliveryReportService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Validate filters before enqueueing or generating a report.
+     */
+    public function validateReportFilters(array $filters): void
+    {
+        $this->validateFilters($filters);
     }
 
     /**
@@ -158,8 +168,8 @@ class SstDeliveryReportService
             ->orderByDesc('delivered_at');
 
         // Apply filters
-        if (isset($filters['hospital']) && $filters['hospital'] !== 'all') {
-            $query->where('affiliate_hospital', 'like', '%' . $filters['hospital'] . '%');
+        if (! empty($filters['hospital']) && $filters['hospital'] !== 'all') {
+            $query->where('affiliate_hospital', $filters['hospital']);
         }
 
         if (isset($filters['startDate'])) {
@@ -181,13 +191,13 @@ class SstDeliveryReportService
         }
 
         if (isset($filters['documentNumber'])) {
-            $query->where('affiliate_document_number', 'like', '%' . $filters['documentNumber'] . '%');
+            $query->where('affiliate_document_number', 'like', '%'.$filters['documentNumber'].'%');
         }
 
         if (isset($filters['deliveredBy'])) {
             $query->where(function (Builder $builder) use ($filters) {
                 $builder->where('delivered_by_user_id', $filters['deliveredBy'])
-                    ->orWhere('delivered_by_name', 'like', '%' . $filters['deliveredBy'] . '%');
+                    ->orWhere('delivered_by_name', 'like', '%'.$filters['deliveredBy'].'%');
             });
         }
 
@@ -205,8 +215,8 @@ class SstDeliveryReportService
             ->orderByDesc('returned_at');
 
         // Apply filters
-        if (isset($filters['hospital']) && $filters['hospital'] !== 'all') {
-            $query->where('affiliate_hospital', 'like', '%' . $filters['hospital'] . '%');
+        if (! empty($filters['hospital']) && $filters['hospital'] !== 'all') {
+            $query->where('affiliate_hospital', $filters['hospital']);
         }
 
         if (isset($filters['startDate'])) {
@@ -228,14 +238,14 @@ class SstDeliveryReportService
         }
 
         if (isset($filters['documentNumber'])) {
-            $query->where('affiliate_document_number', 'like', '%' . $filters['documentNumber'] . '%');
+            $query->where('affiliate_document_number', 'like', '%'.$filters['documentNumber'].'%');
         }
 
         if (isset($filters['deliveredBy'])) {
             // For returns, this would be receivedBy
             $query->where(function (Builder $builder) use ($filters) {
                 $builder->where('received_by_user_id', $filters['deliveredBy'])
-                    ->orWhere('received_by_name', 'like', '%' . $filters['deliveredBy'] . '%');
+                    ->orWhere('received_by_name', 'like', '%'.$filters['deliveredBy'].'%');
             });
         }
 
@@ -244,46 +254,54 @@ class SstDeliveryReportService
     }
 
     /**
-     * Get affiliates map for all unique affiliate IDs.
+     * Build affiliates map from denormalized delivery/return fields.
+     * Only calls findAffiliate when snapshot data on the record is incomplete.
      */
-    private function getAffiliatesMap(array $affiliateIds, array $filters): array
+    private function getAffiliatesMap(Collection $deliveries, Collection $returns): array
     {
-        $uniqueAffiliateIds = array_unique(array_filter($affiliateIds));
-
         $affiliatesMap = [];
 
-        // Get all affiliates (in batches if needed)
-        $allAffiliates = [];
-        $page = 1;
-        $pageSize = 200; // Max allowed by service
-        do {
-            $result = $this->dotacionService->getAffiliates([
-                'page' => $page,
-                'pageSize' => $pageSize,
-                'hospital' => $filters['hospital'] ?? null,
-                'status' => 'all',
-            ]);
-            $allAffiliates = array_merge($allAffiliates, $result['items'] ?? []);
-            $page++;
-        } while (count($result['items'] ?? []) === $pageSize && $page <= 500); // Safety limit
+        foreach ($deliveries->merge($returns) as $record) {
+            $affiliateId = $record->affiliate_id;
 
-        foreach ($allAffiliates as $affiliate) {
-            $affiliatesMap[$affiliate['id']] = $affiliate;
+            if (! $affiliateId || isset($affiliatesMap[$affiliateId])) {
+                continue;
+            }
+
+            $docType = $record->affiliate_document_type ?: $this->parseDocumentTypeFromId($affiliateId);
+            $docNumber = $record->affiliate_document_number ?: $this->parseDocumentNumberFromId($affiliateId);
+
+            $affiliatesMap[$affiliateId] = [
+                'id' => $affiliateId,
+                'documentType' => $docType,
+                'documentNumber' => $docNumber,
+                'firstName' => $record->affiliate_first_name ?? '',
+                'lastName' => $record->affiliate_last_name ?? '',
+                'hospital' => $record->affiliate_hospital ?? '',
+                'role' => $record->affiliate_role ?? '',
+            ];
         }
 
-        // For affiliates not found in the map, try to get by document
-        foreach ($uniqueAffiliateIds as $affiliateId) {
-            if (!isset($affiliatesMap[$affiliateId])) {
-                // Try to parse affiliate ID (format: "TIPO-NUMERO")
-                $parts = explode('-', $affiliateId, 2);
-                if (count($parts) === 2) {
-                    $docType = $parts[0];
-                    $docNumber = $parts[1];
-                    $affiliate = $this->dotacionService->findAffiliate($docType, $docNumber);
-                    if ($affiliate) {
-                        $affiliatesMap[$affiliateId] = $affiliate;
-                    }
-                }
+        foreach ($affiliatesMap as $affiliateId => $affiliate) {
+            $hasSnapshot = ($affiliate['hospital'] ?? '') !== ''
+                || ($affiliate['firstName'] ?? '') !== ''
+                || ($affiliate['lastName'] ?? '') !== '';
+
+            if ($hasSnapshot) {
+                continue;
+            }
+
+            $docType = $affiliate['documentType'] ?? '';
+            $docNumber = $affiliate['documentNumber'] ?? '';
+
+            if ($docType === '' || $docNumber === '') {
+                continue;
+            }
+
+            $found = $this->dotacionService->findAffiliate($docType, $docNumber);
+
+            if ($found) {
+                $affiliatesMap[$affiliateId] = $found;
             }
         }
 
@@ -295,7 +313,7 @@ class SstDeliveryReportService
      */
     private function getInventoryMap(): array
     {
-        if (null !== $this->inventoryCache) {
+        if ($this->inventoryCache !== null) {
             return $this->inventoryCache;
         }
 
@@ -314,7 +332,7 @@ class SstDeliveryReportService
      */
     private function getColorsMap(): array
     {
-        if (null !== $this->colorCache) {
+        if ($this->colorCache !== null) {
             return $this->colorCache;
         }
 
@@ -333,7 +351,7 @@ class SstDeliveryReportService
      */
     private function resolveColorLabel(?string $colorId, array $colorsMap): string
     {
-        if (!$colorId) {
+        if (! $colorId) {
             return '';
         }
 
@@ -348,22 +366,22 @@ class SstDeliveryReportService
         return $deliveries->filter(function (SstDeliveryRecord $record) use ($filters, $affiliatesMap) {
             // Additional filtering can be done here if needed
             // Most filtering is already done in the query, but we can add normalization here
-            
+
             // Normalize hospital filter if needed
             if (isset($filters['hospital']) && $filters['hospital'] !== 'all') {
                 $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
                 $recordHospital = $record->affiliate_hospital
                     ?: ($affiliate['hospital'] ?? '');
-                
+
                 // Normalize for comparison (case-insensitive)
                 $filterHospital = mb_strtoupper(trim($filters['hospital']));
                 $recordHospitalNormalized = mb_strtoupper(trim($recordHospital));
-                
-                if ($filterHospital && !str_contains($recordHospitalNormalized, $filterHospital)) {
+
+                if ($filterHospital && ! str_contains($recordHospitalNormalized, $filterHospital)) {
                     return false;
                 }
             }
-            
+
             return true;
         });
     }
@@ -376,22 +394,22 @@ class SstDeliveryReportService
         return $returns->filter(function (SstReturnRecord $record) use ($filters, $affiliatesMap) {
             // Additional filtering can be done here if needed
             // Most filtering is already done in the query, but we can add normalization here
-            
+
             // Normalize hospital filter if needed
             if (isset($filters['hospital']) && $filters['hospital'] !== 'all') {
                 $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
                 $recordHospital = $record->affiliate_hospital
                     ?: ($affiliate['hospital'] ?? '');
-                
+
                 // Normalize for comparison (case-insensitive)
                 $filterHospital = mb_strtoupper(trim($filters['hospital']));
                 $recordHospitalNormalized = mb_strtoupper(trim($recordHospital));
-                
-                if ($filterHospital && !str_contains($recordHospitalNormalized, $filterHospital)) {
+
+                if ($filterHospital && ! str_contains($recordHospitalNormalized, $filterHospital)) {
                     return false;
                 }
             }
-            
+
             return true;
         });
     }
@@ -486,9 +504,9 @@ class SstDeliveryReportService
                 ?: ($affiliate['documentNumber'] ?? $this->parseDocumentNumberFromId($record->affiliate_id));
 
             $affiliateName = $record->affiliate_full_name
-                ?: ($affiliate ? trim(($affiliate['firstName'] ?? '') . ' ' . ($affiliate['lastName'] ?? '')) : '')
+                ?: ($affiliate ? trim(($affiliate['firstName'] ?? '').' '.($affiliate['lastName'] ?? '')) : '')
                 ?: ($record->affiliate_first_name && $record->affiliate_last_name
-                    ? trim($record->affiliate_first_name . ' ' . $record->affiliate_last_name)
+                    ? trim($record->affiliate_first_name.' '.$record->affiliate_last_name)
                     : '')
                 ?: 'Sin información';
 
@@ -547,6 +565,7 @@ class SstDeliveryReportService
                 $sheet->getRowDimension($row)->setRowHeight(max(60, $signatureHeight + 10));
 
                 $row++;
+
                 continue;
             }
 
@@ -600,7 +619,7 @@ class SstDeliveryReportService
 
         // Apply borders to all data rows
         if ($row > 2) {
-            $dataRange = "A1:P" . ($row - 1);
+            $dataRange = 'A1:P'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -611,7 +630,7 @@ class SstDeliveryReportService
 
         // Add autofilter (exclude column P - Firma imagen)
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:O" . ($row - 1));
+            $sheet->setAutoFilter('A1:O'.($row - 1));
         }
 
         // Freeze first row
@@ -708,9 +727,9 @@ class SstDeliveryReportService
                 ?: ($affiliate['documentNumber'] ?? $this->parseDocumentNumberFromId($record->affiliate_id));
 
             $affiliateName = $record->affiliate_full_name
-                ?: ($affiliate ? trim(($affiliate['firstName'] ?? '') . ' ' . ($affiliate['lastName'] ?? '')) : '')
+                ?: ($affiliate ? trim(($affiliate['firstName'] ?? '').' '.($affiliate['lastName'] ?? '')) : '')
                 ?: ($record->affiliate_first_name && $record->affiliate_last_name
-                    ? trim($record->affiliate_first_name . ' ' . $record->affiliate_last_name)
+                    ? trim($record->affiliate_first_name.' '.$record->affiliate_last_name)
                     : '')
                 ?: 'Sin información';
 
@@ -769,6 +788,7 @@ class SstDeliveryReportService
                 $sheet->getRowDimension($row)->setRowHeight(max(60, $signatureHeight + 10));
 
                 $row++;
+
                 continue;
             }
 
@@ -822,7 +842,7 @@ class SstDeliveryReportService
 
         // Apply borders to all data rows
         if ($row > 2) {
-            $dataRange = "A1:P" . ($row - 1);
+            $dataRange = 'A1:P'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -833,7 +853,7 @@ class SstDeliveryReportService
 
         // Add autofilter (exclude column P - Firma imagen)
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:O" . ($row - 1));
+            $sheet->setAutoFilter('A1:O'.($row - 1));
         }
 
         // Freeze first row
@@ -1086,7 +1106,7 @@ class SstDeliveryReportService
 
                 $category = $inventoryItem['category'] ?? $item->item_category ?? 'Sin categoría';
 
-                if (!isset($articleDeliveredTotals[$articleKey])) {
+                if (! isset($articleDeliveredTotals[$articleKey])) {
                     $articleDeliveredTotals[$articleKey] = 0;
                     $articleCategories[$articleKey] = $category;
                     $articleDeliveries[$articleKey] = [];
@@ -1094,7 +1114,7 @@ class SstDeliveryReportService
 
                 $articleDeliveredTotals[$articleKey] += $item->quantity ?? 0;
 
-                if (!in_array($record->id, $articleDeliveries[$articleKey])) {
+                if (! in_array($record->id, $articleDeliveries[$articleKey])) {
                     $articleDeliveries[$articleKey][] = $record->id;
                 }
             }
@@ -1123,18 +1143,18 @@ class SstDeliveryReportService
 
                 $category = $inventoryItem['category'] ?? $item->item_category ?? 'Sin categoría';
 
-                if (!isset($articleReturnedTotals[$articleKey])) {
+                if (! isset($articleReturnedTotals[$articleKey])) {
                     $articleReturnedTotals[$articleKey] = 0;
                     $articleReturns[$articleKey] = [];
                     // Ensure category is set if not already
-                    if (!isset($articleCategories[$articleKey])) {
+                    if (! isset($articleCategories[$articleKey])) {
                         $articleCategories[$articleKey] = $category;
                     }
                 }
 
                 $articleReturnedTotals[$articleKey] += $item->quantity ?? 0;
 
-                if (!in_array($record->id, $articleReturns[$articleKey])) {
+                if (! in_array($record->id, $articleReturns[$articleKey])) {
                     $articleReturns[$articleKey][] = $record->id;
                 }
             }
@@ -1192,7 +1212,7 @@ class SstDeliveryReportService
 
         // Apply borders
         if ($row > 2) {
-            $dataRange = "A1:G" . ($row - 1);
+            $dataRange = 'A1:G'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -1202,7 +1222,7 @@ class SstDeliveryReportService
 
         // Add autofilter
         if ($row > 2) {
-            $sheet->setAutoFilter("A1:G" . ($row - 1));
+            $sheet->setAutoFilter('A1:G'.($row - 1));
         }
 
         // Freeze first row
@@ -1250,7 +1270,7 @@ class SstDeliveryReportService
                 ?: ($affiliate['hospital'] ?? '')
                 ?: 'No especificado';
 
-            if (!isset($stats['deliveriesByHospital'][$hospital])) {
+            if (! isset($stats['deliveriesByHospital'][$hospital])) {
                 $stats['deliveriesByHospital'][$hospital] = [
                     'deliveries' => 0,
                     'units' => 0,
@@ -1285,12 +1305,12 @@ class SstDeliveryReportService
 
                 $category = $inventoryItem['category'] ?? $item->item_category ?? 'Sin categoría';
 
-                if (!isset($stats['topArticles'][$articleKey])) {
+                if (! isset($stats['topArticles'][$articleKey])) {
                     $stats['topArticles'][$articleKey] = 0;
                 }
                 $stats['topArticles'][$articleKey] += $quantity;
 
-                if (!isset($stats['articlesByCategory'][$category])) {
+                if (! isset($stats['articlesByCategory'][$category])) {
                     $stats['articlesByCategory'][$category] = 0;
                 }
                 $stats['articlesByCategory'][$category] += $quantity;
@@ -1318,7 +1338,7 @@ class SstDeliveryReportService
                 ?: ($affiliate['hospital'] ?? '')
                 ?: 'No especificado';
 
-            if (!isset($stats['returnsByHospital'][$hospital])) {
+            if (! isset($stats['returnsByHospital'][$hospital])) {
                 $stats['returnsByHospital'][$hospital] = [
                     'returns' => 0,
                     'units' => 0,
@@ -1375,11 +1395,12 @@ class SstDeliveryReportService
      */
     private function parseDocumentTypeFromId(?string $affiliateId): string
     {
-        if (!$affiliateId) {
+        if (! $affiliateId) {
             return '';
         }
 
         $parts = explode('-', $affiliateId, 2);
+
         return count($parts) > 1 ? $parts[0] : '';
     }
 
@@ -1388,11 +1409,12 @@ class SstDeliveryReportService
      */
     private function parseDocumentNumberFromId(?string $affiliateId): string
     {
-        if (!$affiliateId) {
+        if (! $affiliateId) {
             return '';
         }
 
         $parts = explode('-', $affiliateId, 2);
+
         return count($parts) > 1 ? $parts[1] : $affiliateId;
     }
 
@@ -1401,7 +1423,7 @@ class SstDeliveryReportService
      */
     private function getSignatureUrl(SstDeliveryRecord $record): string
     {
-        if (!$record->signature_path) {
+        if (! $record->signature_path) {
             return '';
         }
 
@@ -1410,12 +1432,14 @@ class SstDeliveryReportService
             if (method_exists($disk, 'temporaryUrl')) {
                 return $disk->temporaryUrl($record->signature_path, now()->addMinutes(10));
             }
+
             return $disk->url($record->signature_path);
         } catch (\Throwable $e) {
             Log::warning('No se pudo generar URL para la firma', [
                 'record_id' => $record->id,
                 'error' => $e->getMessage(),
             ]);
+
             return '';
         }
     }
@@ -1425,7 +1449,7 @@ class SstDeliveryReportService
      */
     private function getReturnSignatureUrl(SstReturnRecord $record): string
     {
-        if (!$record->signature_path) {
+        if (! $record->signature_path) {
             return '';
         }
 
@@ -1434,12 +1458,14 @@ class SstDeliveryReportService
             if (method_exists($disk, 'temporaryUrl')) {
                 return $disk->temporaryUrl($record->signature_path, now()->addMinutes(10));
             }
+
             return $disk->url($record->signature_path);
         } catch (\Throwable $e) {
             Log::warning('No se pudo generar URL para la firma de devolución', [
                 'record_id' => $record->id,
                 'error' => $e->getMessage(),
             ]);
+
             return '';
         }
     }
@@ -1454,13 +1480,13 @@ class SstDeliveryReportService
         int $width,
         int $height
     ): void {
-        if (!$record->signature_path) {
+        if (! $record->signature_path) {
             return;
         }
 
         $disk = Storage::disk(self::SIGNATURE_DISK);
 
-        if (!$disk->exists($record->signature_path)) {
+        if (! $disk->exists($record->signature_path)) {
             throw new \Exception('Firma no encontrada en almacenamiento');
         }
 
@@ -1474,7 +1500,7 @@ class SstDeliveryReportService
 
         // Detect image type
         $extension = strtolower(pathinfo($record->signature_path, PATHINFO_EXTENSION));
-        if (!in_array($extension, ['png', 'jpg', 'jpeg'])) {
+        if (! in_array($extension, ['png', 'jpg', 'jpeg'])) {
             $imageInfo = @getimagesizefromstring($imageContent);
             if ($imageInfo && isset($imageInfo['mime'])) {
                 $mime = $imageInfo['mime'];
@@ -1491,14 +1517,14 @@ class SstDeliveryReportService
         }
 
         // Create temporary file for image
-        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_') . '.' . $extension;
+        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_').'.'.$extension;
         file_put_contents($tempImageFile, $imageContent);
 
         // Track temp file for cleanup
         $this->tempImageFiles[] = $tempImageFile;
 
         // Create drawing object
-        $drawing = new Drawing();
+        $drawing = new Drawing;
         $drawing->setPath($tempImageFile);
         $drawing->setCoordinates($cell);
         $drawing->setWidth($width);
@@ -1518,13 +1544,13 @@ class SstDeliveryReportService
         int $width,
         int $height
     ): void {
-        if (!$record->signature_path) {
+        if (! $record->signature_path) {
             return;
         }
 
         $disk = Storage::disk(self::SIGNATURE_DISK);
 
-        if (!$disk->exists($record->signature_path)) {
+        if (! $disk->exists($record->signature_path)) {
             throw new \Exception('Firma no encontrada en almacenamiento');
         }
 
@@ -1538,7 +1564,7 @@ class SstDeliveryReportService
 
         // Detect image type
         $extension = strtolower(pathinfo($record->signature_path, PATHINFO_EXTENSION));
-        if (!in_array($extension, ['png', 'jpg', 'jpeg'])) {
+        if (! in_array($extension, ['png', 'jpg', 'jpeg'])) {
             $imageInfo = @getimagesizefromstring($imageContent);
             if ($imageInfo && isset($imageInfo['mime'])) {
                 $mime = $imageInfo['mime'];
@@ -1555,14 +1581,14 @@ class SstDeliveryReportService
         }
 
         // Create temporary file for image
-        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_return_') . '.' . $extension;
+        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_return_').'.'.$extension;
         file_put_contents($tempImageFile, $imageContent);
 
         // Track temp file for cleanup
         $this->tempImageFiles[] = $tempImageFile;
 
         // Create drawing object
-        $drawing = new Drawing();
+        $drawing = new Drawing;
         $drawing->setPath($tempImageFile);
         $drawing->setCoordinates($cell);
         $drawing->setWidth($width);
@@ -1654,6 +1680,7 @@ class SstDeliveryReportService
         }
 
         arsort($categoryTotals);
+
         return $categoryTotals;
     }
 
@@ -1687,6 +1714,7 @@ class SstDeliveryReportService
         }
 
         arsort($articleTotals);
+
         return array_slice($articleTotals, 0, $limit, true);
     }
 
@@ -1707,6 +1735,7 @@ class SstDeliveryReportService
         }
 
         arsort($hospitalTotals);
+
         return array_slice($hospitalTotals, 0, 10, true); // Top 10 hospitals
     }
 
@@ -1725,7 +1754,7 @@ class SstDeliveryReportService
         $returnsValues = [];
 
         foreach ($data as $item) {
-            $months[] = Carbon::parse($item['month'] . '-01')->format('M Y');
+            $months[] = Carbon::parse($item['month'].'-01')->format('M Y');
             $deliveriesValues[] = $item['deliveries'];
             $returnsValues[] = $item['returns'];
         }
@@ -1871,7 +1900,7 @@ class SstDeliveryReportService
         $articles = array_keys($data);
         // Truncate long article names for better display
         $articles = array_map(function ($name) {
-            return mb_strlen($name) > 30 ? mb_substr($name, 0, 27) . '...' : $name;
+            return mb_strlen($name) > 30 ? mb_substr($name, 0, 27).'...' : $name;
         }, $articles);
         $values = array_values($data);
 
@@ -1943,7 +1972,7 @@ class SstDeliveryReportService
         $hospitals = array_keys($data);
         // Truncate long hospital names for better display
         $hospitals = array_map(function ($name) {
-            return mb_strlen($name) > 25 ? mb_substr($name, 0, 22) . '...' : $name;
+            return mb_strlen($name) > 25 ? mb_substr($name, 0, 22).'...' : $name;
         }, $hospitals);
         $values = array_values($data);
 
@@ -2016,4 +2045,3 @@ class SstDeliveryReportService
         $this->tempImageFiles = [];
     }
 }
-
