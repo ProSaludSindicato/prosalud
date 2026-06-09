@@ -366,7 +366,7 @@
         </div>
 
         <!-- Datos Básicos Adicionales -->
-        @if($survey->correo || $survey->rh || $survey->fecha_expedicion || $survey->departamento || $survey->municipio || $survey->celular || $survey->direccion || $survey->talla_calzado || $survey->talla_vestimenta || $survey->pais_nacimiento)
+        @if($survey->correo || $survey->rh || $survey->fecha_expedicion || $survey->departamento || $survey->municipio || $survey->barrio || $survey->celular || $survey->direccion || $survey->talla_calzado || $survey->talla_vestimenta || $survey->pais_nacimiento)
         <div class="section">
             <div class="section-title">Datos Básicos Adicionales</div>
             <div class="grid">
@@ -398,7 +398,7 @@
                     </div>
                     @endif
                 </div>
-                @if($survey->pais_nacimiento || $survey->celular || $survey->direccion || $survey->talla_calzado || $survey->talla_vestimenta)
+                @if($survey->pais_nacimiento || $survey->celular || $survey->direccion_completa || $survey->talla_calzado || $survey->talla_vestimenta)
                 <div class="grid-row">
                     @if($survey->pais_nacimiento)
                     <div class="field field-4cols">
@@ -412,10 +412,10 @@
                         <div class="field-value">{{ $survey->celular }}</div>
                     </div>
                     @endif
-                    @if($survey->direccion)
+                    @if($survey->direccion_completa)
                     <div class="field field-4cols">
                         <div class="field-label">Dirección</div>
-                        <div class="field-value">{{ $survey->direccion }}</div>
+                        <div class="field-value">{{ $survey->direccion_completa }}</div>
                     </div>
                     @endif
                     @if($survey->talla_calzado || $survey->talla_vestimenta)

@@ -7,7 +7,8 @@ use App\Rules\RecaptchaRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Support\Facades\{Log, App as LaravelApp};
+use Illuminate\Support\Facades\App as LaravelApp;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class StoreSocioDemographicSurveyRequest extends FormRequest
@@ -57,7 +58,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
                     $convertedServicios[$servicio] = $this->parseBooleanValue($value);
                 }
             }
-            if (!empty($convertedServicios)) {
+            if (! empty($convertedServicios)) {
                 $this->merge(['serviciosPublicos' => array_merge($serviciosPublicos, $convertedServicios)]);
             }
         }
@@ -72,7 +73,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
                     $convertedTiempoLibre[$actividad] = $this->parseBooleanValue($value);
                 }
             }
-            if (!empty($convertedTiempoLibre)) {
+            if (! empty($convertedTiempoLibre)) {
                 $this->merge(['manejoTiempoLibre' => array_merge($manejoTiempoLibre, $convertedTiempoLibre)]);
             }
         }
@@ -154,13 +155,13 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
                     $normalizedHijos[$index] = $normalizedHijo;
                 }
             }
-            if (!empty($normalizedHijos)) {
+            if (! empty($normalizedHijos)) {
                 $normalized['hijos'] = $normalizedHijos;
             }
         }
 
         // Aplicar normalizaciones
-        if (!empty($normalized)) {
+        if (! empty($normalized)) {
             $this->merge($normalized);
         }
     }
@@ -176,11 +177,12 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
 
         if (is_string($value)) {
             $lowerValue = strtolower(trim($value));
+
             return in_array($lowerValue, ['true', '1', 'yes', 'si', 'sí', 'on'], true);
         }
 
         if (is_numeric($value)) {
-            return 0 !== (int) $value;
+            return (int) $value !== 0;
         }
 
         return false;
@@ -212,6 +214,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'celular' => 'nullable|string|max:20',
             'direccion' => 'nullable|string|max:500',
             'municipio' => 'nullable|string|max:255',
+            'barrio' => 'required|string|max:255',
             'tallaCalzado' => 'nullable|string|max:10',
             'tallaVestimenta' => ['nullable', 'string', Rule::in(SurveyOptions::TALLAS_VESTIMENTA)],
             'paisNacimiento' => 'nullable|string|max:255',
@@ -319,7 +322,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'files.firma' => 'nullable|file|mimes:png|max:2048', // PNG file
 
             // reCAPTCHA
-            'recaptcha_token' => ['required', new RecaptchaRule()],
+            'recaptcha_token' => ['required', new RecaptchaRule],
         ];
 
         return $rules;
@@ -409,6 +412,9 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'direccion.max' => 'La dirección no puede exceder 500 caracteres.',
             'municipio.string' => 'El municipio debe ser texto.',
             'municipio.max' => 'El municipio no puede exceder 255 caracteres.',
+            'barrio.required' => 'El barrio de residencia es obligatorio.',
+            'barrio.string' => 'El barrio de residencia debe ser texto.',
+            'barrio.max' => 'El barrio de residencia no puede exceder 255 caracteres.',
             'tallaCalzado.string' => 'La talla de calzado debe ser texto.',
             'tallaCalzado.max' => 'La talla de calzado no puede exceder 10 caracteres.',
             'tallaVestimenta.string' => 'La talla de vestimenta debe ser texto.',
@@ -678,6 +684,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'celular' => 'celular',
             'direccion' => 'dirección',
             'municipio' => 'municipio',
+            'barrio' => 'barrio de residencia',
             'tallaCalzado' => 'talla de calzado',
             'tallaVestimenta' => 'talla de vestimenta',
             'paisNacimiento' => 'país de nacimiento',

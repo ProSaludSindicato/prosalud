@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Helpers\SurveyFormatter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +24,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $celular
  * @property string|null $direccion
  * @property string|null $municipio
+ * @property string|null $barrio
  * @property string|null $talla_calzado
  * @property string|null $talla_vestimenta
  * @property string $pais_nacimiento
@@ -67,6 +69,7 @@ class SocioDemographicSurvey extends Model
         'celular',
         'direccion',
         'municipio',
+        'barrio',
         'talla_calzado',
         'talla_vestimenta',
         'pais_nacimiento',
@@ -94,6 +97,11 @@ class SocioDemographicSurvey extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    public function getDireccionCompletaAttribute(): string
+    {
+        return SurveyFormatter::formatDireccionConBarrio($this->direccion, $this->barrio);
+    }
 
     /**
      * Retrieve the model for route model binding.

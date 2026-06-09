@@ -7,6 +7,18 @@ use Carbon\Carbon;
 
 class SurveyFormatter
 {
+    public static function formatDireccionConBarrio(?string $direccion, ?string $barrio): string
+    {
+        $direccion = trim((string) ($direccion ?? ''));
+        $barrio = trim((string) ($barrio ?? ''));
+
+        if ($direccion !== '' && $barrio !== '') {
+            return $direccion.', '.$barrio;
+        }
+
+        return $direccion !== '' ? $direccion : $barrio;
+    }
+
     /**
      * Formatear valores Sí/No.
      */
