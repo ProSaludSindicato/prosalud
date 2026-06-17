@@ -11,7 +11,7 @@
     "keywords": ["prosalud", "health", "union", "backend", "laravel"],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
+        "php": "^8.3",
         "barryvdh/laravel-dompdf": "^3.1",
         "docusign/esign-client": "^8.6",
         "laravel/framework": "^12.0",
