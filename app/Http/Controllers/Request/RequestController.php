@@ -129,7 +129,7 @@ class RequestController extends Controller
         // Agregar CC para solicitudes de retiro sindical
         if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL ||
             $requestForm->request_type === 'retiro-sindical') {
-            $mail->cc('talentohumano@sindicatoprosalud.com');
+            $mail->cc('talentohumanosindicatoprosalud@gmail.com');
         }
 
         // Agregar CC para solicitudes de actualización de datos personales que incluyen información bancaria
@@ -1965,7 +1965,7 @@ class RequestController extends Controller
 
             // Agregar CC para solicitudes de retiro sindical
             if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                $mail->cc('talentohumano@sindicatoprosalud.com');
+                $mail->cc('talentohumanosindicatoprosalud@gmail.com');
             }
 
             $mail->send($mailable);
@@ -2525,7 +2525,7 @@ class RequestController extends Controller
 
                 // Agregar CC para solicitudes de retiro sindical
                 if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                    $mail->cc('talentohumano@sindicatoprosalud.com');
+                    $mail->cc('talentohumanosindicatoprosalud@gmail.com');
                 }
 
                 $mail->send($mailable);

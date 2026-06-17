@@ -14,7 +14,7 @@ class WellnessCoordinatorAssignmentSeeder extends Seeder
      * @var array<string, list<WellnessHospitalScope>>
      */
     private const COORDINATOR_ASSIGNMENTS = [
-        'CoordinadorHLM@sindicatoprosalud.com' => [
+        'coordinadorhlm.sprosalud@gmail.com' => [
             WellnessHospitalScope::LaMaria,
             WellnessHospitalScope::Carisma,
         ],
@@ -24,7 +24,7 @@ class WellnessCoordinatorAssignmentSeeder extends Seeder
         'coordinacionprosalud@hmfs.gov.co' => [
             WellnessHospitalScope::Bello,
         ],
-        'hmfs01@sindicatoprosalud.com' => [
+        'sprosalud.hmfs01@gmail.com' => [
             WellnessHospitalScope::Bello,
         ],
         'coordinacionsp@hospitalrionegro.gov.co' => [

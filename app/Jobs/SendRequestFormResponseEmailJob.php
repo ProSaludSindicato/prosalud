@@ -42,8 +42,7 @@ class SendRequestFormResponseEmailJob implements ShouldQueue
         public string $status,
         public array $attachmentData = [],
         public array $compressedFileUrls = [],
-    ) {
-    }
+    ) {}
 
     /**
      * Execute the job.
@@ -60,10 +59,11 @@ class SendRequestFormResponseEmailJob implements ShouldQueue
             // Load the request form
             $requestForm = RequestForm::find($this->requestFormId);
 
-            if (!$requestForm) {
+            if (! $requestForm) {
                 Log::warning('RequestForm no encontrado para envío de correo de respuesta', [
                     'request_id' => $this->requestFormId,
                 ]);
+
                 return;
             }
 
@@ -82,14 +82,14 @@ class SendRequestFormResponseEmailJob implements ShouldQueue
             );
 
             // Configurar Reply-To para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
                 $requestForm->request_type === 'solicitud-microcredito') {
                 $mailable->replyTo('ceiisas@hotmail.com');
             }
 
             // Agregar CC para solicitudes de retiro sindical
             if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                $mail->cc('talentohumano@sindicatoprosalud.com');
+                $mail->cc('talentohumanosindicatoprosalud@gmail.com');
             }
 
             $mail->send($mailable);
@@ -125,4 +125,3 @@ class SendRequestFormResponseEmailJob implements ShouldQueue
         ]);
     }
 }
-

@@ -26,7 +26,7 @@ class SendWellnessActivityReminderJob implements ShouldQueue
 
             // Obtener la fecha de ayer (día anterior a hoy)
             $yesterday = now()->subDay()->format('Y-m-d');
-            
+
             // Buscar solicitudes aprobadas (resolved) con fecha propuesta = ayer
             // que no tengan una actividad realizada registrada
             $approvedRequests = WellnessRequest::with(['requester'])
@@ -48,7 +48,7 @@ class SendWellnessActivityReminderJob implements ShouldQueue
                     // Enviar correo al solicitante
                     if ($request->requester && $request->requester->email) {
                         Mail::to($request->requester->email)
-                            ->cc('directoradmon@sindicatoprosalud.com')
+                            ->cc('directoradmon.sprosalud@gmail.com')
                             ->send(new WellnessActivityReminderMail($request));
 
                         $emailsSent++;
@@ -67,7 +67,7 @@ class SendWellnessActivityReminderJob implements ShouldQueue
                     }
                 } catch (\Exception $e) {
                     $emailsFailed++;
-                    
+
                     Log::error('Error al enviar recordatorio de actividad de bienestar', [
                         'request_id' => $request->id,
                         'activity_name' => $request->activity_name,

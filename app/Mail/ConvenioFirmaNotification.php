@@ -4,9 +4,9 @@ namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Envelope;
-use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Address;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 class ConvenioFirmaNotification extends Mailable
@@ -17,8 +17,7 @@ class ConvenioFirmaNotification extends Mailable
     public function __construct(
         public string $nombreAfiliado,
         public string $nombreArchivo,
-    ) {
-    }
+    ) {}
 
     /**
      * Get the message envelope.
@@ -27,18 +26,18 @@ class ConvenioFirmaNotification extends Mailable
     {
         return new Envelope(
             from: new Address(
-                'auxiliar.talento@sindicatoprosalud.com',
+                'sprosalud.auxiliar@gmail.com',
                 'Sindicato ProSalud'
             ),
             cc: [
                 new Address(
-                    'auxiliar.talento@sindicatoprosalud.com',
+                    'sprosalud.auxiliar@gmail.com',
                     'Sindicato ProSalud'
                 ),
             ],
             replyTo: [
                 new Address(
-                    'auxiliar.talento@sindicatoprosalud.com',
+                    'sprosalud.auxiliar@gmail.com',
                     'Sindicato ProSalud'
                 ),
             ],
@@ -65,4 +64,3 @@ class ConvenioFirmaNotification extends Mailable
         );
     }
 }
-

@@ -104,7 +104,7 @@
                                     <strong style="color:#00529B;">Escanear en formato PDF</strong>
                                 </li>
                                 <li style="margin-bottom:0; padding-left:8px;">
-                                    <strong style="color:#00529B;">Enviar al correo</strong> <a href="mailto:auxiliar.talento@sindicatoprosalud.com" style="color:#00529B; text-decoration:underline; font-weight:600;">auxiliar.talento@sindicatoprosalud.com</a> el archivo PDF y en el asunto escriba así: <strong style="color:#00529B;">Convenio {{ $documento }} ({{ $nombreConvenio }}) {{ preg_replace('/\s*-\s*' . preg_quote($documento, '/') . '$/', '', $nombreAfiliado) }}</strong>. <strong style="color:#d32f2f;">*El envío Digital del Convenio Sindical es de Carácter Obligatorio.*</strong>
+                                    <strong style="color:#00529B;">Enviar al correo</strong> <a href="mailto:sprosalud.auxiliar@gmail.com" style="color:#00529B; text-decoration:underline; font-weight:600;">sprosalud.auxiliar@gmail.com</a> el archivo PDF y en el asunto escriba así: <strong style="color:#00529B;">Convenio {{ $documento }} ({{ $nombreConvenio }}) {{ preg_replace('/\s*-\s*' . preg_quote($documento, '/') . '$/', '', $nombreAfiliado) }}</strong>. <strong style="color:#d32f2f;">*El envío Digital del Convenio Sindical es de Carácter Obligatorio.*</strong>
                                 </li>
                             </ol>
 

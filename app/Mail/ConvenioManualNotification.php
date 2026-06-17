@@ -40,8 +40,8 @@ class ConvenioManualNotification extends Mailable
 
         return $this
             ->subject($subject)
-            ->cc('auxiliar.talento@sindicatoprosalud.com')
-            ->replyTo('auxiliar.talento@sindicatoprosalud.com')
+            ->cc('sprosalud.auxiliar@gmail.com')
+            ->replyTo('sprosalud.auxiliar@gmail.com')
             ->view('emails.convenio_manual_notification')
             ->with([
                 'nombreAfiliado' => $this->nombreAfiliado,

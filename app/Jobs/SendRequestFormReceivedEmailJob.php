@@ -36,8 +36,7 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
      */
     public function __construct(
         public string $requestFormId,
-    ) {
-    }
+    ) {}
 
     /**
      * Execute the job.
@@ -52,10 +51,11 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
             // Load the request form
             $requestForm = RequestForm::find($this->requestFormId);
 
-            if (!$requestForm) {
+            if (! $requestForm) {
                 Log::warning('RequestForm no encontrado para envío de correo de confirmación', [
                     'request_id' => $this->requestFormId,
                 ]);
+
                 return;
             }
 
@@ -63,7 +63,7 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
             $mailable = new RequestFormReceived($requestForm);
 
             // Configurar Reply-To y CC para solicitudes de microcrédito
-            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO || 
+            if ($requestForm->request_type === RequestTypes::SOLICITUD_MICROCREDITO ||
                 $requestForm->request_type === 'solicitud-microcredito') {
                 $mailable->replyTo('ceiisas@hotmail.com');
                 $mail->cc('ceiisas@hotmail.com');
@@ -71,9 +71,9 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
 
             // Agregar CC para solicitudes de retiro sindical
             if ($requestForm->request_type === RequestTypes::SOLICITUD_RETIRO_SINDICAL || $requestForm->request_type === 'retiro-sindical') {
-                $mail->cc('talentohumano@sindicatoprosalud.com');
+                $mail->cc('talentohumanosindicatoprosalud@gmail.com');
             }
-            
+
             // Agregar CC para solicitudes de actualización de datos personales que incluyen información bancaria
             if ($requestForm->hasBankInfoUpdate()) {
                 $mail->cc('comunicaciones@sindicatoprosalud.com');
@@ -107,4 +107,3 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
         ]);
     }
 }
-
