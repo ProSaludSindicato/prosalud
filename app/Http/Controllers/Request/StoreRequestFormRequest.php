@@ -44,7 +44,7 @@ class StoreRequestFormRequest extends FormRequest
             'payload' => 'nullable|array',
             'files' => 'nullable|array',
             'files.*' => 'nullable|file|max:4096|mimes:pdf,doc,docx,jpeg,jpg,png,gif,webp',
-            'recaptcha_token' => ['required', new RecaptchaRule],
+            'recaptcha_token' => [new RecaptchaRule],
         ];
 
         // Validaciones específicas para actualizar-datos-personales

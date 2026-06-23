@@ -3,7 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\ConvenioGenerationService;
-use App\Services\DocxToPdfCloudConvertService;
+use App\Services\DocxToPdfService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -50,7 +50,7 @@ class GenerateConvenioJob implements ShouldQueue
      */
     public function handle(
         ConvenioGenerationService $convenioGenerationService,
-        DocxToPdfCloudConvertService $docxToPdfCloudConvertService,
+        DocxToPdfService $docxToPdfService,
     ): void {
         try {
             set_time_limit($this->timeout);
@@ -72,7 +72,7 @@ class GenerateConvenioJob implements ShouldQueue
 
             if ($this->sendEmail && $this->email) {
                 try {
-                    $pdfResult = $docxToPdfCloudConvertService->convert($resultado['ruta'], true);
+                    $pdfResult = $docxToPdfService->convert($resultado['ruta'], true);
                     $pdfAbsolute = storage_path('app/'.$pdfResult['path']);
                     $documento = preg_replace('/[^0-9]/', '', (string) ($this->convenioData['numero_documento'] ?? ''));
                     $nombrePdf = preg_replace('/\.docx$/i', '.pdf', $resultado['nombre']);

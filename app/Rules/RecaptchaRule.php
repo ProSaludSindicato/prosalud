@@ -8,6 +8,7 @@ use Illuminate\Contracts\Validation\Rule;
 class RecaptchaRule implements Rule
 {
     private RecaptchaService $recaptchaService;
+
     private ?string $errorMessage = null;
 
     public function __construct()
@@ -24,12 +25,22 @@ class RecaptchaRule implements Rule
      */
     public function passes($attribute, $value)
     {
+        if (! $this->recaptchaService->isEnabled()) {
+            return true;
+        }
+
+        if (empty($value)) {
+            $this->errorMessage = 'No se pudo verificar que no eres un bot. Por favor, intente nuevamente.';
+
+            return false;
+        }
+
         // Obtener expectedAction si se proporciona en el request
         $expectedAction = request()->input('recaptcha_action');
 
         $result = $this->recaptchaService->verify($value, $expectedAction, request()->ip());
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             $this->errorMessage = $this->getErrorMessage($result);
 
             return false;
@@ -50,9 +61,6 @@ class RecaptchaRule implements Rule
 
     /**
      * Obtiene un mensaje de error amigable basado en los códigos de error
-     *
-     * @param array $result
-     * @return string
      */
     private function getErrorMessage(array $result): string
     {
@@ -81,4 +89,3 @@ class RecaptchaRule implements Rule
         return 'La verificación de reCAPTCHA falló. Por favor, intente nuevamente.';
     }
 }
-

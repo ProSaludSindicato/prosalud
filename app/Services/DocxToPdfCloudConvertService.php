@@ -2,14 +2,19 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\{Log, Http};
+use App\Contracts\DocxToPdfConverter;
 use Exception;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
-class DocxToPdfCloudConvertService
+class DocxToPdfCloudConvertService implements DocxToPdfConverter
 {
     private string $apiKey;
+
     private string $baseUrl;
+
     private int $timeout;
+
     private int $maxFileSize;
 
     public function __construct()
@@ -43,15 +48,16 @@ class DocxToPdfCloudConvertService
     /**
      * Convierte un archivo .docx a .pdf usando CloudConvert API
      *
-     * @param string $docxPath Ruta local del archivo .docx
-     * @param bool $saveToStorage Si es true, guarda el PDF en storage y retorna la ruta. Si es false, retorna el contenido binario.
+     * @param  string  $docxPath  Ruta local del archivo .docx
+     * @param  bool  $saveToStorage  Si es true, guarda el PDF en storage y retorna la ruta. Si es false, retorna el contenido binario.
      * @return array ['path' => string, 'content' => string|null, 'size' => int] o ['content' => string, 'size' => int]
+     *
      * @throws Exception
      */
     public function convert(string $docxPath, bool $saveToStorage = true): array
     {
         // Validar que el archivo existe
-        if (!file_exists($docxPath)) {
+        if (! file_exists($docxPath)) {
             throw new Exception("El archivo .docx no existe en: {$docxPath}");
         }
 
@@ -63,9 +69,9 @@ class DocxToPdfCloudConvertService
 
         if ($fileSize > $this->maxFileSize) {
             throw new Exception(
-                "El archivo excede el tamaño máximo permitido. " .
-                "Tamaño: " . $this->formatBytes($fileSize) . ", " .
-                "Máximo: " . $this->formatBytes($this->maxFileSize)
+                'El archivo excede el tamaño máximo permitido. '.
+                'Tamaño: '.$this->formatBytes($fileSize).', '.
+                'Máximo: '.$this->formatBytes($this->maxFileSize)
             );
         }
 
@@ -121,7 +127,7 @@ class DocxToPdfCloudConvertService
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            throw new Exception("Error al convertir DOCX a PDF: " . $e->getMessage(), 0, $e);
+            throw new Exception('Error al convertir DOCX a PDF: '.$e->getMessage(), 0, $e);
         }
     }
 
@@ -129,6 +135,7 @@ class DocxToPdfCloudConvertService
      * Crea un Job en CloudConvert con las tareas necesarias
      *
      * @return array Datos del Job creado
+     *
      * @throws Exception
      */
     private function createJob(): array
@@ -187,7 +194,7 @@ class DocxToPdfCloudConvertService
 
                 Log::info('Opciones de seguridad PDF aplicadas', [
                     'encryption' => 'encrypt',
-                    'set_owner_password_set' => !empty($ownerPassword),
+                    'set_owner_password_set' => ! empty($ownerPassword),
                     'allow_print' => $permissions['allow_print'] ?? null,
                     'allow_extract' => $permissions['allow_extract'] ?? null,
                     'allow_modify' => $permissions['allow_modify'] ?? null,
@@ -215,13 +222,13 @@ class DocxToPdfCloudConvertService
             ]);
 
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
                 'Content-Type' => 'application/json',
             ])
-            ->timeout($this->timeout)
-            ->post($this->baseUrl . '/jobs', $payload);
+                ->timeout($this->timeout)
+                ->post($this->baseUrl.'/jobs', $payload);
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 $errorBody = $response->json();
                 $errorMessage = $errorBody['message'] ?? 'Error desconocido';
                 $errorCode = $errorBody['code'] ?? null;
@@ -235,9 +242,9 @@ class DocxToPdfCloudConvertService
 
                 if ($response->status() === 401) {
                     throw new Exception(
-                        "Error de autenticación con CloudConvert. " .
-                        "Verifica que tu API key sea correcta y esté activa. " .
-                        "Obtén tu API key desde: https://cloudconvert.com/dashboard/api-keys",
+                        'Error de autenticación con CloudConvert. '.
+                        'Verifica que tu API key sea correcta y esté activa. '.
+                        'Obtén tu API key desde: https://cloudconvert.com/dashboard/api-keys',
                         401
                     );
                 }
@@ -256,15 +263,16 @@ class DocxToPdfCloudConvertService
             if ($e->getCode() === 401) {
                 throw $e;
             }
-            throw new Exception("Error al crear Job en CloudConvert: " . $e->getMessage(), 0, $e);
+            throw new Exception('Error al crear Job en CloudConvert: '.$e->getMessage(), 0, $e);
         }
     }
 
     /**
      * Sube el archivo DOCX a CloudConvert
      *
-     * @param string $jobId ID del Job
-     * @param string $docxPath Ruta del archivo
+     * @param  string  $jobId  ID del Job
+     * @param  string  $docxPath  Ruta del archivo
+     *
      * @throws Exception
      */
     private function uploadFile(string $jobId, string $docxPath): void
@@ -272,13 +280,13 @@ class DocxToPdfCloudConvertService
         try {
             // Primero obtener el Job para encontrar la tarea de upload
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
             ])
-            ->timeout($this->timeout)
-            ->get($this->baseUrl . '/jobs/' . $jobId);
+                ->timeout($this->timeout)
+                ->get($this->baseUrl.'/jobs/'.$jobId);
 
-            if (!$response->successful()) {
-                throw new Exception("Error al obtener Job: " . $response->body());
+            if (! $response->successful()) {
+                throw new Exception('Error al obtener Job: '.$response->body());
             }
 
             $jobData = $response->json('data');
@@ -302,13 +310,13 @@ class DocxToPdfCloudConvertService
                 }
             }
 
-            if (!$uploadTask) {
-                throw new Exception("No se encontró la tarea de upload en el Job");
+            if (! $uploadTask) {
+                throw new Exception('No se encontró la tarea de upload en el Job');
             }
 
             $formData = $uploadTask['result']['form'] ?? null;
-            if (!$formData || !isset($formData['url'])) {
-                throw new Exception("No se encontró la información de upload en la tarea");
+            if (! $formData || ! isset($formData['url'])) {
+                throw new Exception('No se encontró la información de upload en la tarea');
             }
 
             $uploadUrl = $formData['url'];
@@ -333,21 +341,19 @@ class DocxToPdfCloudConvertService
             // Subir el archivo usando multipart/form-data
             $uploadResponse = $httpClient->post($uploadUrl);
 
-            if (!$uploadResponse->successful()) {
-                throw new Exception("Error al subir archivo: " . $uploadResponse->body());
+            if (! $uploadResponse->successful()) {
+                throw new Exception('Error al subir archivo: '.$uploadResponse->body());
             }
 
             Log::info('Archivo subido exitosamente a CloudConvert');
         } catch (Exception $e) {
-            throw new Exception("Error al subir archivo a CloudConvert: " . $e->getMessage(), 0, $e);
+            throw new Exception('Error al subir archivo a CloudConvert: '.$e->getMessage(), 0, $e);
         }
     }
 
     /**
      * Espera a que el Job se complete
      *
-     * @param string $jobId
-     * @return void
      * @throws Exception
      */
     private function waitForJobCompletion(string $jobId): void
@@ -363,13 +369,13 @@ class DocxToPdfCloudConvertService
 
             // Obtener estado actual del Job
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
             ])
-            ->timeout(10)
-            ->get($this->baseUrl . '/jobs/' . $jobId);
+                ->timeout(10)
+                ->get($this->baseUrl.'/jobs/'.$jobId);
 
-            if (!$response->successful()) {
-                throw new Exception("Error al obtener estado del Job: " . $response->body());
+            if (! $response->successful()) {
+                throw new Exception('Error al obtener estado del Job: '.$response->body());
             }
 
             $jobData = $response->json('data');
@@ -385,6 +391,7 @@ class DocxToPdfCloudConvertService
                 Log::info('Job de conversión completado exitosamente', [
                     'job_id' => $jobId,
                 ]);
+
                 return;
             }
 
@@ -398,7 +405,7 @@ class DocxToPdfCloudConvertService
                 $sandboxError = false;
 
                 // Las tareas pueden venir como objeto o array
-                if (is_array($tasks) && !empty($tasks)) {
+                if (is_array($tasks) && ! empty($tasks)) {
                     // Si es un objeto asociativo (clave = nombre de tarea)
                     if (isset($tasks['upload-file']) || isset($tasks['convert-docx-to-pdf']) || isset($tasks['export-pdf'])) {
                         foreach ($tasks as $taskName => $task) {
@@ -445,15 +452,15 @@ class DocxToPdfCloudConvertService
 
                 // Mensaje especial para errores de Sandbox
                 if ($sandboxError) {
-                    $message = "El archivo no está permitido en la API de Sandbox. ";
-                    $message .= "Para usar archivos reales, cambia CLOUDCONVERT_BASE_URL a la API de producción: ";
-                    $message .= "https://api.cloudconvert.com/v2";
+                    $message = 'El archivo no está permitido en la API de Sandbox. ';
+                    $message .= 'Para usar archivos reales, cambia CLOUDCONVERT_BASE_URL a la API de producción: ';
+                    $message .= 'https://api.cloudconvert.com/v2';
                     throw new Exception($message);
                 }
 
                 $detailedError = $errorMessage;
-                if (!empty($taskErrors)) {
-                    $detailedError .= ' | Errores en tareas: ' . json_encode($taskErrors);
+                if (! empty($taskErrors)) {
+                    $detailedError .= ' | Errores en tareas: '.json_encode($taskErrors);
                 }
 
                 throw new Exception("Error en CloudConvert: {$detailedError}");
@@ -467,8 +474,8 @@ class DocxToPdfCloudConvertService
     /**
      * Descarga el PDF convertido desde CloudConvert
      *
-     * @param string $jobId
      * @return string Contenido binario del PDF
+     *
      * @throws Exception
      */
     private function downloadConvertedPdf(string $jobId): string
@@ -476,13 +483,13 @@ class DocxToPdfCloudConvertService
         try {
             // Obtener el Job para encontrar la tarea de export
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
             ])
-            ->timeout(10)
-            ->get($this->baseUrl . '/jobs/' . $jobId);
+                ->timeout(10)
+                ->get($this->baseUrl.'/jobs/'.$jobId);
 
-            if (!$response->successful()) {
-                throw new Exception("Error al obtener Job: " . $response->body());
+            if (! $response->successful()) {
+                throw new Exception('Error al obtener Job: '.$response->body());
             }
 
             $jobData = $response->json('data');
@@ -506,18 +513,18 @@ class DocxToPdfCloudConvertService
                 }
             }
 
-            if (!$exportTask) {
-                throw new Exception("No se encontró la tarea de exportación en el Job");
+            if (! $exportTask) {
+                throw new Exception('No se encontró la tarea de exportación en el Job');
             }
 
             $result = $exportTask['result'] ?? null;
-            if (!$result || !isset($result['files']) || empty($result['files'])) {
-                throw new Exception("No se encontraron archivos en el resultado de exportación");
+            if (! $result || ! isset($result['files']) || empty($result['files'])) {
+                throw new Exception('No se encontraron archivos en el resultado de exportación');
             }
 
             $pdfUrl = $result['files'][0]['url'] ?? null;
-            if (!$pdfUrl) {
-                throw new Exception("No se encontró la URL del PDF en el resultado");
+            if (! $pdfUrl) {
+                throw new Exception('No se encontró la URL del PDF en el resultado');
             }
 
             Log::info('Descargando PDF desde CloudConvert', [
@@ -527,29 +534,28 @@ class DocxToPdfCloudConvertService
             // Descargar el PDF
             $pdfResponse = Http::timeout(30)->get($pdfUrl);
 
-            if (!$pdfResponse->successful()) {
-                throw new Exception("No se pudo descargar el PDF desde CloudConvert: " . $pdfResponse->body());
+            if (! $pdfResponse->successful()) {
+                throw new Exception('No se pudo descargar el PDF desde CloudConvert: '.$pdfResponse->body());
             }
 
             $pdfContent = $pdfResponse->body();
 
             // Validar que sea un PDF válido
             if (substr($pdfContent, 0, 4) !== '%PDF') {
-                throw new Exception("El archivo descargado no es un PDF válido");
+                throw new Exception('El archivo descargado no es un PDF válido');
             }
 
             return $pdfContent;
         } catch (Exception $e) {
-            throw new Exception("Error al descargar PDF desde CloudConvert: " . $e->getMessage(), 0, $e);
+            throw new Exception('Error al descargar PDF desde CloudConvert: '.$e->getMessage(), 0, $e);
         }
     }
 
     /**
      * Guarda el PDF en storage
      *
-     * @param string $pdfContent
-     * @param string $originalDocxPath
      * @return string Ruta relativa del PDF guardado
+     *
      * @throws Exception
      */
     private function savePdfToStorage(string $pdfContent, string $originalDocxPath): string
@@ -557,31 +563,28 @@ class DocxToPdfCloudConvertService
         try {
             // Crear directorio temporal si no existe
             $tempDir = config('cloudconvert.temp_storage_path', storage_path('app/tmp'));
-            if (!is_dir($tempDir)) {
+            if (! is_dir($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
 
             // Usar el nombre del archivo original (sin extensión) y cambiar a .pdf
             // Esto mantiene la misma fecha que se usó en el nombre del Word
             $originalName = pathinfo($originalDocxPath, PATHINFO_FILENAME);
-            $pdfFileName = $originalName . '.pdf';
-            $pdfPath = $tempDir . '/' . $pdfFileName;
+            $pdfFileName = $originalName.'.pdf';
+            $pdfPath = $tempDir.'/'.$pdfFileName;
 
             // Guardar PDF
             file_put_contents($pdfPath, $pdfContent);
 
             // Retornar ruta relativa desde storage/app
-            return 'tmp/' . $pdfFileName;
+            return 'tmp/'.$pdfFileName;
         } catch (Exception $e) {
-            throw new Exception("Error al guardar PDF en storage: " . $e->getMessage(), 0, $e);
+            throw new Exception('Error al guardar PDF en storage: '.$e->getMessage(), 0, $e);
         }
     }
 
     /**
      * Formatea bytes a formato legible
-     *
-     * @param int $bytes
-     * @return string
      */
     private function formatBytes(int $bytes): string
     {
@@ -591,7 +594,12 @@ class DocxToPdfCloudConvertService
         $pow = min($pow, count($units) - 1);
         $bytes /= pow(1024, $pow);
 
-        return round($bytes, 2) . ' ' . $units[$pow];
+        return round($bytes, 2).' '.$units[$pow];
+    }
+
+    public function isAvailable(): bool
+    {
+        return ! empty($this->apiKey);
     }
 
     /**

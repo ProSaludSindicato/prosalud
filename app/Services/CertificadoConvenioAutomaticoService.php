@@ -2,37 +2,164 @@
 
 namespace App\Services;
 
-use App\Constants\{RequestStatuses, RequestTypes};
+use App\Constants\RequestStatuses;
+use App\Constants\RequestTypes;
 use App\Domain\RequestForm\RequestFormDTO;
 // No usamos Jobs para correos en este servicio; todos los envíos son síncronos
-use App\Mail\{RequestFormReceived, RequestFormResponse};
-use App\Models\{RequestForm, RequestResponse, RequestResponseAttachment};
+use App\Mail\RequestFormReceived;
+use App\Mail\RequestFormResponse;
+use App\Models\RequestForm;
+use App\Models\RequestResponse;
+use App\Models\RequestResponseAttachment;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\{DB, Log, Mail, Storage};
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class CertificadoConvenioAutomaticoService
 {
     private const PRIVATE_DISK = 'prosalud-private';
+
     private const FALLBACK_DISK = 'local';
+
+    private const PROCESSING_TIME_LIMIT_SECONDS = 300;
 
     public function __construct(
         private readonly CertificadoConvenioService $certificadoService,
-    ) {
+        private readonly ExcelReaderService $excelReaderService,
+    ) {}
+
+    /**
+     * @return array{puede_procesar: bool, razon: string|null, compensaciones: array<string, int>|null}
+     */
+    public function evaluarElegibilidadCompensaciones(RequestForm $requestForm): array
+    {
+        $documento = $requestForm->document_number;
+
+        Log::info('evaluarElegibilidadCompensaciones: Iniciando verificación', [
+            'request_id' => $requestForm->id,
+            'documento' => $documento,
+        ]);
+
+        $payload = $requestForm->payload ?? [];
+        if (isset($payload['infoCertificado'])) {
+            $infoCertificado = $payload['infoCertificado'];
+            if (is_string($infoCertificado)) {
+                $infoCertificado = json_decode($infoCertificado, true);
+            }
+            if (is_array($infoCertificado)) {
+                $otros = $requestForm->parseBooleanValue($infoCertificado['otros'] ?? false);
+                if ($otros) {
+                    return [
+                        'puede_procesar' => false,
+                        'razon' => 'Opción "Otros" seleccionada - requiere revisión manual',
+                        'compensaciones' => null,
+                    ];
+                }
+            }
+        }
+
+        try {
+            $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($documento);
+
+            if (! $afiliadoData) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Afiliado no encontrado',
+                    'compensaciones' => null,
+                ];
+            }
+
+            $estadoOriginal = trim($afiliadoData['afiliado']['estado'] ?? '');
+            $estaActivo = strcasecmp($estadoOriginal, 'Activo') === 0
+                || strcasecmp($estadoOriginal, 'Active') === 0;
+
+            if (! $estaActivo) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Afiliado no está activo',
+                    'compensaciones' => null,
+                ];
+            }
+
+            $compensaciones = $this->excelReaderService->buscarCompensacionPorDocumento($documento);
+
+            if (! $compensaciones) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'No se encontró registro de compensaciones en el Excel',
+                    'compensaciones' => null,
+                ];
+            }
+
+            if (! isset($compensaciones['t_basicos'], $compensaciones['t_auxilios'], $compensaciones['t_ingresos'])) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Datos de compensaciones incompletos',
+                    'compensaciones' => null,
+                ];
+            }
+
+            if ($compensaciones['t_basicos'] == 0 && $compensaciones['t_auxilios'] == 0 && $compensaciones['t_ingresos'] == 0) {
+                return [
+                    'puede_procesar' => false,
+                    'razon' => 'Los valores de compensaciones están en cero',
+                    'compensaciones' => null,
+                ];
+            }
+
+            return [
+                'puede_procesar' => true,
+                'razon' => null,
+                'compensaciones' => $compensaciones,
+            ];
+        } catch (\Throwable $e) {
+            Log::error('evaluarElegibilidadCompensaciones: Error verificando compensaciones', [
+                'request_id' => $requestForm->id,
+                'documento' => $documento,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'puede_procesar' => false,
+                'razon' => 'Error al verificar compensaciones: '.$e->getMessage(),
+                'compensaciones' => null,
+            ];
+        }
+    }
+
+    public function intentarProcesarAutomaticoConCompensaciones(RequestForm $requestForm): void
+    {
+        $this->extenderLimiteDeEjecucion();
+
+        $evaluacion = $this->evaluarElegibilidadCompensaciones($requestForm);
+
+        if (! $evaluacion['puede_procesar'] || empty($evaluacion['compensaciones'])) {
+            Log::info('Certificado con compensaciones no procesado automáticamente en background', [
+                'request_id' => $requestForm->id,
+                'razon' => $evaluacion['razon'] ?? 'Compensaciones no disponibles',
+            ]);
+
+            return;
+        }
+
+        $this->procesarConRequestFormExistenteYCompensaciones($requestForm, $evaluacion['compensaciones']);
     }
 
     /**
      * Procesa una solicitud automática de certificado de convenio con un RequestForm existente y compensaciones
      * Genera el certificado, envía correos y cierra la solicitud
      *
-     * @param RequestForm $requestForm RequestForm ya creado
-     * @param array|null        $compensaciones    Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
-     * @param string|null       $emailSubject      Asunto del correo personalizado (opcional)
-     * @param string|null       $emailBody        Cuerpo del correo personalizado (opcional)
-     * @param string|null       $status           Estado final de la solicitud (opcional, por defecto COMPLETED)
-     * @param string|null       $rejectionReason  Razón de rechazo (opcional, requerida si status es REJECTED)
-     * @param array<\Illuminate\Http\UploadedFile>|null $extraAttachments Archivos adjuntos adicionales (no comprimidos) que deben ir en el correo
+     * @param  RequestForm  $requestForm  RequestForm ya creado
+     * @param  array|null  $compensaciones  Datos de compensaciones opcionales: ['t_basicos' => int, 't_auxilios' => int, 't_ingresos' => int]
+     * @param  string|null  $emailSubject  Asunto del correo personalizado (opcional)
+     * @param  string|null  $emailBody  Cuerpo del correo personalizado (opcional)
+     * @param  string|null  $status  Estado final de la solicitud (opcional, por defecto COMPLETED)
+     * @param  string|null  $rejectionReason  Razón de rechazo (opcional, requerida si status es REJECTED)
+     * @param  array<\Illuminate\Http\UploadedFile>|null  $extraAttachments  Archivos adjuntos adicionales (no comprimidos) que deben ir en el correo
      * @return array Resultado del proceso
      */
     public function procesarConRequestFormExistenteYCompensaciones(
@@ -43,15 +170,16 @@ class CertificadoConvenioAutomaticoService
         ?string $status = null,
         ?string $rejectionReason = null,
         ?array $extraAttachments = null
-    ): array
-    {
+    ): array {
+        $this->extenderLimiteDeEjecucion();
+
         DB::beginTransaction();
 
         try {
             Log::info('Iniciando procesamiento automático de certificado con compensaciones', [
                 'request_id' => $requestForm->id,
                 'documento' => $requestForm->document_number,
-                'tiene_compensaciones' => !empty($compensaciones),
+                'tiene_compensaciones' => ! empty($compensaciones),
                 'compensaciones' => $compensaciones,
             ]);
 
@@ -168,11 +296,13 @@ class CertificadoConvenioAutomaticoService
      * Procesa una solicitud automática de certificado de convenio con un RequestForm existente
      * Genera el certificado, envía correos y cierra la solicitud
      *
-     * @param RequestForm $requestForm RequestForm ya creado
+     * @param  RequestForm  $requestForm  RequestForm ya creado
      * @return array Resultado del proceso
      */
     public function procesarConRequestFormExistente(RequestForm $requestForm): array
     {
+        $this->extenderLimiteDeEjecucion();
+
         DB::beginTransaction();
 
         try {
@@ -268,11 +398,13 @@ class CertificadoConvenioAutomaticoService
      * Procesa una solicitud automática de certificado de convenio
      * Crea el RequestForm, genera el certificado, envía correos y cierra la solicitud
      *
-     * @param array $solicitudData Datos de la solicitud del afiliado
+     * @param  array  $solicitudData  Datos de la solicitud del afiliado
      * @return array Resultado del proceso
      */
     public function procesarSolicitudAutomatica(array $solicitudData): array
     {
+        $this->extenderLimiteDeEjecucion();
+
         DB::beginTransaction();
 
         try {
@@ -455,6 +587,7 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Guarda el certificado PDF en los archivos de la solicitud para trazabilidad
+     *
      * @deprecated Este método ya no se usa. Los certificados se guardan solo en los anexos de la respuesta.
      */
     private function guardarCertificadoEnSolicitud(string $requestId, string $rutaPdf, string $nombreArchivo): array
@@ -469,22 +602,22 @@ class CertificadoConvenioAutomaticoService
             // Crear un nombre único para el archivo
             $nombreSinExtension = pathinfo($nombreArchivo, PATHINFO_FILENAME);
             $extension = pathinfo($nombreArchivo, PATHINFO_EXTENSION) ?: 'pdf';
-            $nombreUnico = "certificado-convenio-{$requestId}-" . Str::random(8) . ".{$extension}";
+            $nombreUnico = "certificado-convenio-{$requestId}-".Str::random(8).".{$extension}";
 
             // Guardar en el bucket privado
             $disk = self::PRIVATE_DISK;
-            $directorio = 'request-forms/' . date('Y/m');
+            $directorio = 'request-forms/'.date('Y/m');
             $rutaStorage = "{$directorio}/{$nombreUnico}";
 
             $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
 
-            if (!$guardado) {
+            if (! $guardado) {
                 // Intentar con disco de fallback
                 $disk = self::FALLBACK_DISK;
                 $guardado = Storage::disk($disk)->put($rutaStorage, $contenidoPDF);
 
-                if (!$guardado) {
-                    throw new \Exception("No se pudo guardar el certificado en storage");
+                if (! $guardado) {
+                    throw new \Exception('No se pudo guardar el certificado en storage');
                 }
             }
 
@@ -509,17 +642,16 @@ class CertificadoConvenioAutomaticoService
     /**
      * Crea y envía la respuesta automática con el certificado adjunto
      *
-     * @param RequestForm                              $requestForm
-     * @param string                                   $rutaPdf           Ruta temporal del PDF para adjuntar al correo
-     * @param string                                   $nombreArchivo     Nombre del archivo
-     * @param string                                   $consecutivo       Consecutivo del certificado
-     * @param string|null                              $bucketPath        Ruta del archivo en el bucket (ya guardado, no se duplica)
-     * @param string|null                              $emailSubject      Asunto del correo personalizado (opcional)
-     * @param string|null                              $emailBody        Cuerpo del correo personalizado (opcional)
-     * @param string|null                              $status           Estado final de la solicitud (opcional, por defecto COMPLETED)
-     * @param string|null                              $rejectionReason  Razón de rechazo (opcional, requerida si status es REJECTED)
-     * @param array|null                               $compensaciones   Datos de compensaciones (solo para referencia, ya se usaron en generarCertificadoPDF)
-     * @param array<\Illuminate\Http\UploadedFile>|null $extraAttachments Archivos adjuntos adicionales (no comprimidos) que deben ir en el correo
+     * @param  string  $rutaPdf  Ruta temporal del PDF para adjuntar al correo
+     * @param  string  $nombreArchivo  Nombre del archivo
+     * @param  string  $consecutivo  Consecutivo del certificado
+     * @param  string|null  $bucketPath  Ruta del archivo en el bucket (ya guardado, no se duplica)
+     * @param  string|null  $emailSubject  Asunto del correo personalizado (opcional)
+     * @param  string|null  $emailBody  Cuerpo del correo personalizado (opcional)
+     * @param  string|null  $status  Estado final de la solicitud (opcional, por defecto COMPLETED)
+     * @param  string|null  $rejectionReason  Razón de rechazo (opcional, requerida si status es REJECTED)
+     * @param  array|null  $compensaciones  Datos de compensaciones (solo para referencia, ya se usaron en generarCertificadoPDF)
+     * @param  array<\Illuminate\Http\UploadedFile>|null  $extraAttachments  Archivos adjuntos adicionales (no comprimidos) que deben ir en el correo
      */
     private function crearYEnviarRespuestaAutomatica(
         RequestForm $requestForm,
@@ -536,7 +668,7 @@ class CertificadoConvenioAutomaticoService
     ): void {
         // Preparar contenido del correo (usar valores personalizados si se proporcionan, sino generar automáticamente)
         $documentRef = trim(
-            trim((string) ($requestForm->document_type ?? '')) . ' ' . trim((string) ($requestForm->document_number ?? ''))
+            trim((string) ($requestForm->document_type ?? '')).' '.trim((string) ($requestForm->document_number ?? ''))
         );
 
         $defaultSubject = "Certificado de Convenio - Consecutivo {$consecutivo}";
@@ -593,7 +725,7 @@ class CertificadoConvenioAutomaticoService
         }
 
         // Adjuntar también los archivos adicionales proporcionados manualmente (no comprimidos)
-        if (!empty($extraAttachments)) {
+        if (! empty($extraAttachments)) {
             foreach ($extraAttachments as $file) {
                 if ($file && $file->isValid()) {
                     $content = file_get_contents($file->getRealPath());
@@ -627,13 +759,13 @@ class CertificadoConvenioAutomaticoService
                 'request_id' => $requestForm->id,
                 'consecutivo' => $consecutivo,
                 'status' => $finalStatus,
-                'email_subject_custom' => !empty($emailSubject),
-                'email_body_custom' => !empty($emailBody),
+                'email_subject_custom' => ! empty($emailSubject),
+                'email_body_custom' => ! empty($emailBody),
             ]);
 
             // Actualizar estado de la solicitud
             $requestForm->status = $finalStatus;
-            if (RequestStatuses::COMPLETED === $finalStatus || RequestStatuses::REJECTED === $finalStatus) {
+            if ($finalStatus === RequestStatuses::COMPLETED || $finalStatus === RequestStatuses::REJECTED) {
                 $requestForm->processed_at = now();
             } else {
                 $requestForm->processed_at = null;
@@ -641,9 +773,9 @@ class CertificadoConvenioAutomaticoService
             }
 
             // Si el estado es REJECTED, guardar la razón de rechazo
-            if (RequestStatuses::REJECTED === $finalStatus && $rejectionReason !== null) {
+            if ($finalStatus === RequestStatuses::REJECTED && $rejectionReason !== null) {
                 $requestForm->rejection_reason = $rejectionReason;
-            } elseif (RequestStatuses::REJECTED !== $finalStatus) {
+            } elseif ($finalStatus !== RequestStatuses::REJECTED) {
                 // Si cambia de REJECTED a otro estado, limpiar la razón de rechazo
                 $requestForm->rejection_reason = null;
             }
@@ -718,7 +850,6 @@ class CertificadoConvenioAutomaticoService
         }
     }
 
-
     /**
      * Genera el cuerpo del correo de respuesta automática
      * Texto simple sin HTML ya que el template del correo escapa el HTML
@@ -737,6 +868,7 @@ class CertificadoConvenioAutomaticoService
     private function generarNombreArchivoAdjunto(string $documento, string $consecutivo): string
     {
         $documentoNormalizado = preg_replace('/[^0-9]/', '', $documento);
+
         return "Certificado_Sindicato_ProSalud_{$documentoNormalizado}_{$consecutivo}.pdf";
     }
 
@@ -752,7 +884,7 @@ class CertificadoConvenioAutomaticoService
         }
 
         // Crear un archivo temporal
-        $tempPath = tempnam(sys_get_temp_dir(), 'certificado_') . '.pdf';
+        $tempPath = tempnam(sys_get_temp_dir(), 'certificado_').'.pdf';
         file_put_contents($tempPath, $contenido);
 
         // Crear un UploadedFile simulado desde el archivo temporal
@@ -768,7 +900,6 @@ class CertificadoConvenioAutomaticoService
     /**
      * Extrae el valor de dirigidoAQuien del payload del RequestForm
      *
-     * @param RequestForm $requestForm
      * @return string|null Nombre de la entidad destinataria o null si no existe
      */
     private function extraerDirigidoAEntidad(RequestForm $requestForm): ?string
@@ -777,12 +908,12 @@ class CertificadoConvenioAutomaticoService
 
         // Primero buscar dirigidoAQuien en el nivel superior del payload
         // (es donde el frontend lo envía cuando dirigidoAEntidad está activo)
-        if (isset($payload['dirigidoAQuien']) && !empty(trim($payload['dirigidoAQuien']))) {
+        if (isset($payload['dirigidoAQuien']) && ! empty(trim($payload['dirigidoAQuien']))) {
             return trim($payload['dirigidoAQuien']);
         }
 
         // Si no está en el nivel superior, verificar dentro de infoCertificado
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             return null;
         }
 
@@ -792,7 +923,7 @@ class CertificadoConvenioAutomaticoService
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             return null;
         }
 
@@ -803,7 +934,7 @@ class CertificadoConvenioAutomaticoService
             // Buscar dirigidoAQuien dentro de infoCertificado (fallback)
             $dirigidoAQuien = $infoCertificado['dirigidoAQuien'] ?? null;
 
-            if (!empty($dirigidoAQuien)) {
+            if (! empty($dirigidoAQuien)) {
                 return trim($dirigidoAQuien);
             }
         }
@@ -813,19 +944,17 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Verifica si el certificado es para apertura de cuenta en Bancolombia
-     *
-     * @param RequestForm $requestForm
-     * @return bool
      */
     private function esParaBancolombia(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
 
         // Verificar si tiene infoCertificado en el payload
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             Log::debug('esParaBancolombia: No tiene infoCertificado en payload', [
                 'request_id' => $requestForm->id,
             ]);
+
             return false;
         }
 
@@ -835,11 +964,12 @@ class CertificadoConvenioAutomaticoService
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             Log::debug('esParaBancolombia: infoCertificado no es un array', [
                 'request_id' => $requestForm->id,
                 'infoCertificado_type' => gettype($payload['infoCertificado']),
             ]);
+
             return false;
         }
 
@@ -859,19 +989,17 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Verifica si el certificado es para subsidio de vivienda
-     *
-     * @param RequestForm $requestForm
-     * @return bool
      */
     private function esParaSubsidioVivienda(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
 
         // Verificar si tiene infoCertificado en el payload
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             Log::debug('esParaSubsidioVivienda: No tiene infoCertificado en payload', [
                 'request_id' => $requestForm->id,
             ]);
+
             return false;
         }
 
@@ -881,11 +1009,12 @@ class CertificadoConvenioAutomaticoService
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             Log::debug('esParaSubsidioVivienda: infoCertificado no es un array', [
                 'request_id' => $requestForm->id,
                 'infoCertificado_type' => gettype($payload['infoCertificado']),
             ]);
+
             return false;
         }
 
@@ -905,19 +1034,17 @@ class CertificadoConvenioAutomaticoService
 
     /**
      * Verifica si el certificado es para subsidio de desempleo
-     *
-     * @param RequestForm $requestForm
-     * @return bool
      */
     private function esParaSubsidioDesempleo(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
 
         // Verificar si tiene infoCertificado en el payload
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             Log::debug('esParaSubsidioDesempleo: No tiene infoCertificado en payload', [
                 'request_id' => $requestForm->id,
             ]);
+
             return false;
         }
 
@@ -927,11 +1054,12 @@ class CertificadoConvenioAutomaticoService
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             Log::debug('esParaSubsidioDesempleo: infoCertificado no es un array', [
                 'request_id' => $requestForm->id,
                 'infoCertificado_type' => gettype($payload['infoCertificado']),
             ]);
+
             return false;
         }
 
@@ -952,15 +1080,21 @@ class CertificadoConvenioAutomaticoService
     /**
      * Verifica si el certificado es tipo "otros" (necesidad específica descrita por el usuario)
      *
-     * @param RequestForm $requestForm
+     * @param  RequestForm  $requestForm
      * @return bool
      */
+    private function extenderLimiteDeEjecucion(): void
+    {
+        set_time_limit(self::PROCESSING_TIME_LIMIT_SECONDS);
+        ini_set('max_execution_time', (string) self::PROCESSING_TIME_LIMIT_SECONDS);
+    }
+
     private function esOtros(RequestForm $requestForm): bool
     {
         $payload = $requestForm->payload ?? [];
 
         // Verificar si tiene infoCertificado en el payload
-        if (!isset($payload['infoCertificado'])) {
+        if (! isset($payload['infoCertificado'])) {
             return false;
         }
 
@@ -970,7 +1104,7 @@ class CertificadoConvenioAutomaticoService
             $infoCertificado = json_decode($infoCertificado, true);
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             return false;
         }
 
@@ -987,6 +1121,4 @@ class CertificadoConvenioAutomaticoService
 
         return $otros;
     }
-
 }
-

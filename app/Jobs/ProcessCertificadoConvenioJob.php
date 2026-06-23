@@ -15,44 +15,52 @@ class ProcessCertificadoConvenioJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * The number of times the job may be attempted.
-     *
-     * @var int
-     */
-    public $tries = 3;
+    public int $tries = 2;
 
-    /**
-     * The number of seconds to wait before retrying the job.
-     *
-     * @var int
-     */
-    public $backoff = 60;
+    public int $backoff = 60;
 
-    /**
-     * Create a new job instance.
-     */
+    public int $timeout = 300;
+
     public function __construct(
-        public string $requestFormId
-    ) {
-    }
+        public string $requestFormId,
+        public ?array $compensaciones = null,
+        public bool $resolverCompensaciones = false,
+    ) {}
 
-    /**
-     * Execute the job.
-     */
     public function handle(CertificadoConvenioAutomaticoService $certificadoService): void
     {
+        set_time_limit($this->timeout);
+        ini_set('max_execution_time', (string) $this->timeout);
+
         try {
             Log::info('Iniciando procesamiento automático de certificado desde Job', [
                 'request_id' => $this->requestFormId,
+                'resolver_compensaciones' => $this->resolverCompensaciones,
+                'tiene_compensaciones' => $this->compensaciones !== null,
             ]);
 
             $requestForm = RequestForm::find($this->requestFormId);
-            
-            if (!$requestForm) {
+
+            if (! $requestForm) {
                 Log::warning('RequestForm no encontrado para procesamiento automático', [
                     'request_id' => $this->requestFormId,
                 ]);
+
+                return;
+            }
+
+            if ($this->resolverCompensaciones) {
+                $certificadoService->intentarProcesarAutomaticoConCompensaciones($requestForm);
+
+                return;
+            }
+
+            if ($this->compensaciones !== null) {
+                $certificadoService->procesarConRequestFormExistenteYCompensaciones(
+                    $requestForm,
+                    $this->compensaciones
+                );
+
                 return;
             }
 
@@ -67,13 +75,11 @@ class ProcessCertificadoConvenioJob implements ShouldQueue
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            throw $e; // Re-lanzar para que Laravel lo marque como fallido y pueda reintentar
+
+            throw $e;
         }
     }
 
-    /**
-     * Handle a job failure.
-     */
     public function failed(\Throwable $exception): void
     {
         Log::error('Job de procesamiento automático de certificado falló después de todos los intentos', [

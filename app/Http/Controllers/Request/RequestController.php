@@ -11,10 +11,11 @@ use App\Http\Requests\BulkRequestResponseRequest;
 use App\Http\Requests\ExportRequestsExcelRequest;
 use App\Http\Requests\ProcessBulkResponseRequest;
 use App\Http\Requests\RedirectSubtypeRequest;
-// Import only Mailables, no Jobs – all emails se envían de forma síncrona
+// Import Mailables and Jobs – correo de recepción síncrono; certificado en background
 use App\Http\Requests\RespondToCertificadoConCompensacionesRequest;
 use App\Http\Requests\RespondToRequestRequest;
 use App\Http\Resources\RequestStatusLogResource;
+use App\Jobs\ProcessCertificadoConvenioJob;
 use App\Mail\RequestFormReceived;
 use App\Mail\RequestFormResponse;
 use App\Models\RequestForm;
@@ -183,133 +184,34 @@ class RequestController extends Controller
                 'esParaSubsidioVivienda' => $esParaSubsidioVivienda,
             ]);
 
-            // Si es para subsidio de vivienda, intentar obtener compensaciones automáticamente del Excel
-            // ya que el certificado de subsidio de vivienda requiere compensaciones
             if ($esParaSubsidioVivienda) {
-                // Intentar obtener compensaciones automáticamente del Excel
-                $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
-
-                if ($puedeProcesarConCompensaciones['puede_procesar'] && ! empty($puedeProcesarConCompensaciones['compensaciones'])) {
-                    Log::info('Certificado de subsidio de vivienda con compensaciones detectado, iniciando procesamiento automático', [
-                        'request_id' => $requestForm->id,
-                        'documento' => $requestForm->document_number,
-                    ]);
-
-                    $certificadoService = $this->certificadoAutomaticoService;
-                    $requestFormId = $requestForm->id;
-                    $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
-
-                    dispatch(function () use ($certificadoService, $requestFormId, $compensaciones) {
-                        try {
-                            Log::info('Ejecutando procesamiento automático de certificado de subsidio de vivienda con compensaciones (background)', [
-                                'request_id' => $requestFormId,
-                                'compensaciones_recibidas' => $compensaciones,
-                            ]);
-
-                            $requestFormActualizado = RequestForm::find($requestFormId);
-                            if ($requestFormActualizado) {
-                                $certificadoService->procesarConRequestFormExistenteYCompensaciones($requestFormActualizado, $compensaciones);
-                            } else {
-                                Log::error('RequestForm no encontrado en background job', [
-                                    'request_id' => $requestFormId,
-                                ]);
-                            }
-                        } catch (\Throwable $e) {
-                            Log::error('Error en procesamiento automático de certificado de subsidio de vivienda con compensaciones (background)', [
-                                'request_id' => $requestFormId,
-                                'compensaciones' => $compensaciones,
-                                'error' => $e->getMessage(),
-                                'trace' => $e->getTraceAsString(),
-                            ]);
-                        }
-                    })->afterResponse();
-
-                    // Salir temprano para evitar procesamiento duplicado
-                    return response()->json($response, 201);
-                } else {
-                    // Si no hay compensaciones disponibles, procesar sin ellas (los campos quedarán vacíos)
-                    Log::info('Certificado de subsidio de vivienda sin compensaciones disponibles, procesando sin compensaciones', [
-                        'request_id' => $requestForm->id,
-                        'documento' => $requestForm->document_number,
-                        'razon' => $puedeProcesarConCompensaciones['razon'] ?? 'Compensaciones no disponibles',
-                    ]);
-                }
-            }
-
-            if ($tieneValorCompensaciones) {
-                // Verificar si se puede procesar automáticamente con compensaciones
-                $puedeProcesarConCompensaciones = $this->puedeProcesarCertificadoConCompensaciones($requestForm);
-
-                if ($puedeProcesarConCompensaciones['puede_procesar']) {
-                    Log::info('Certificado de convenio con compensaciones detectado, iniciando procesamiento automático', [
-                        'request_id' => $requestForm->id,
-                        'documento' => $requestForm->document_number,
-                    ]);
-
-                    // Procesar de forma asíncrona después de enviar la respuesta HTTP
-                    $certificadoService = $this->certificadoAutomaticoService;
-                    $requestFormId = $requestForm->id;
-                    $compensaciones = $puedeProcesarConCompensaciones['compensaciones'];
-
-                    dispatch(function () use ($certificadoService, $requestFormId, $compensaciones) {
-                        try {
-                            Log::info('Ejecutando procesamiento automático de certificado con compensaciones (background)', [
-                                'request_id' => $requestFormId,
-                                'compensaciones_recibidas' => $compensaciones,
-                            ]);
-
-                            // Recargar el RequestForm desde la BD para asegurar que tenemos la versión más reciente
-                            $requestFormActualizado = RequestForm::find($requestFormId);
-                            if ($requestFormActualizado) {
-                                $certificadoService->procesarConRequestFormExistenteYCompensaciones($requestFormActualizado, $compensaciones);
-                            } else {
-                                Log::error('RequestForm no encontrado en background job', [
-                                    'request_id' => $requestFormId,
-                                ]);
-                            }
-                        } catch (\Throwable $e) {
-                            Log::error('Error en procesamiento automático de certificado con compensaciones (background)', [
-                                'request_id' => $requestFormId,
-                                'compensaciones' => $compensaciones,
-                                'error' => $e->getMessage(),
-                                'trace' => $e->getTraceAsString(),
-                            ]);
-                        }
-                    })->afterResponse();
-                } else {
-                    // No se puede procesar automáticamente, dejar pendiente
-                    Log::info('Certificado de convenio con compensaciones no puede procesarse automáticamente, quedará pendiente', [
-                        'request_id' => $requestForm->id,
-                        'documento' => $requestForm->document_number,
-                        'razon' => $puedeProcesarConCompensaciones['razon'] ?? 'desconocida',
-                    ]);
-                }
-            } elseif ($debeProcesarAutomatico) {
-                Log::info('Certificado de convenio simple detectado, iniciando procesamiento automático', [
+                Log::info('Certificado de subsidio de vivienda detectado, encolando procesamiento automático en background', [
                     'request_id' => $requestForm->id,
                     'documento' => $requestForm->document_number,
                 ]);
 
-                // Procesar de forma asíncrona después de enviar la respuesta HTTP
-                // Esto no requiere workers independientes
-                $certificadoService = $this->certificadoAutomaticoService;
-                $requestFormId = $requestForm->id;
+                ProcessCertificadoConvenioJob::dispatch($requestForm->id, resolverCompensaciones: true)
+                    ->afterResponse();
 
-                dispatch(function () use ($certificadoService, $requestFormId) {
-                    try {
-                        // Recargar el RequestForm desde la BD para asegurar que tenemos la versión más reciente
-                        $requestFormActualizado = RequestForm::find($requestFormId);
-                        if ($requestFormActualizado) {
-                            $certificadoService->procesarConRequestFormExistente($requestFormActualizado);
-                        }
-                    } catch (\Throwable $e) {
-                        Log::error('Error en procesamiento automático de certificado (background)', [
-                            'request_id' => $requestFormId,
-                            'error' => $e->getMessage(),
-                            'trace' => $e->getTraceAsString(),
-                        ]);
-                    }
-                })->afterResponse();
+                return response()->json($response, 201);
+            }
+
+            if ($tieneValorCompensaciones) {
+                Log::info('Certificado de convenio con compensaciones detectado, encolando verificación y procesamiento en background', [
+                    'request_id' => $requestForm->id,
+                    'documento' => $requestForm->document_number,
+                ]);
+
+                ProcessCertificadoConvenioJob::dispatch($requestForm->id, resolverCompensaciones: true)
+                    ->afterResponse();
+            } elseif ($debeProcesarAutomatico) {
+                Log::info('Certificado de convenio simple detectado, encolando procesamiento automático en background', [
+                    'request_id' => $requestForm->id,
+                    'documento' => $requestForm->document_number,
+                ]);
+
+                ProcessCertificadoConvenioJob::dispatch($requestForm->id)
+                    ->afterResponse();
             }
         }
 
@@ -3689,178 +3591,7 @@ class RequestController extends Controller
      */
     private function puedeProcesarCertificadoConCompensaciones(RequestForm $requestForm): array
     {
-        $documento = $requestForm->document_number;
-
-        Log::info('puedeProcesarCertificadoConCompensaciones: Iniciando verificación', [
-            'request_id' => $requestForm->id,
-            'documento' => $documento,
-        ]);
-
-        // 0. Verificar primero si tiene "otros" activo - si lo tiene, NO procesar automáticamente
-        // Esto requiere revisión manual o creación manual por alguna particularidad
-        $payload = $requestForm->payload ?? [];
-        if (isset($payload['infoCertificado'])) {
-            $infoCertificado = $payload['infoCertificado'];
-            if (is_string($infoCertificado)) {
-                $infoCertificado = json_decode($infoCertificado, true);
-            }
-            if (is_array($infoCertificado)) {
-                $otros = $requestForm->parseBooleanValue($infoCertificado['otros'] ?? false);
-                if ($otros) {
-                    Log::info('puedeProcesarCertificadoConCompensaciones: Opción "Otros" detectada - NO procesando automáticamente (requiere revisión manual)', [
-                        'request_id' => $requestForm->id,
-                        'documento' => $documento,
-                        'otros' => $otros,
-                    ]);
-
-                    return [
-                        'puede_procesar' => false,
-                        'razon' => 'Opción "Otros" seleccionada - requiere revisión manual',
-                        'compensaciones' => null,
-                    ];
-                }
-            }
-        }
-
-        // 1. Verificar que el afiliado esté activo
-        try {
-            Log::info('puedeProcesarCertificadoConCompensaciones: Obteniendo datos del afiliado', [
-                'request_id' => $requestForm->id,
-                'documento' => $documento,
-            ]);
-
-            $afiliadoData = $this->certificadoService->obtenerDatosAfiliado($documento);
-
-            if (! $afiliadoData) {
-                Log::warning('puedeProcesarCertificadoConCompensaciones: Afiliado no encontrado', [
-                    'request_id' => $requestForm->id,
-                    'documento' => $documento,
-                ]);
-
-                return [
-                    'puede_procesar' => false,
-                    'razon' => 'Afiliado no encontrado',
-                    'compensaciones' => null,
-                ];
-            }
-
-            // Obtener estado original para diagnóstico
-            $estadoOriginal = trim($afiliadoData['afiliado']['estado'] ?? '');
-
-            // Usar strcasecmp para comparación flexible sin importar mayúsculas/minúsculas
-            // Esto es consistente con otros lugares del código (AfiliadoService, CertificadoConvenioService)
-            // y maneja mejor casos como "Activo", "ACTIVO", "activo", "Active", "ACTIVE", etc.
-            $estaActivo = (
-                strcasecmp($estadoOriginal, 'Activo') === 0 ||
-                strcasecmp($estadoOriginal, 'Active') === 0
-            );
-
-            Log::info('puedeProcesarCertificadoConCompensaciones: Estado del afiliado verificado', [
-                'request_id' => $requestForm->id,
-                'documento' => $documento,
-                'estado_original' => $estadoOriginal,
-                'esta_activo' => $estaActivo,
-            ]);
-
-            if (! $estaActivo) {
-                Log::warning('puedeProcesarCertificadoConCompensaciones: Afiliado no está activo', [
-                    'request_id' => $requestForm->id,
-                    'documento' => $documento,
-                    'estado_original' => $estadoOriginal,
-                ]);
-
-                return [
-                    'puede_procesar' => false,
-                    'razon' => 'Afiliado no está activo',
-                    'compensaciones' => null,
-                ];
-            }
-
-            // 2. Buscar compensaciones en el Excel
-            Log::info('puedeProcesarCertificadoConCompensaciones: Buscando compensaciones en Excel para documento', [
-                'request_id' => $requestForm->id,
-                'documento' => $documento,
-            ]);
-
-            $compensaciones = $this->excelReaderService->buscarCompensacionPorDocumento($documento);
-
-            Log::info('puedeProcesarCertificadoConCompensaciones: Resultado de búsqueda de compensaciones', [
-                'request_id' => $requestForm->id,
-                'documento' => $documento,
-                'compensaciones_encontradas' => ! empty($compensaciones),
-                'compensaciones' => $compensaciones,
-            ]);
-
-            if (! $compensaciones) {
-                Log::warning('puedeProcesarCertificadoConCompensaciones: No se encontró registro de compensaciones en el Excel', [
-                    'request_id' => $requestForm->id,
-                    'documento' => $documento,
-                ]);
-
-                return [
-                    'puede_procesar' => false,
-                    'razon' => 'No se encontró registro de compensaciones en el Excel',
-                    'compensaciones' => null,
-                ];
-            }
-
-            // 3. Verificar que los valores sean válidos
-            if (! isset($compensaciones['t_basicos']) || ! isset($compensaciones['t_auxilios']) || ! isset($compensaciones['t_ingresos'])) {
-                Log::warning('puedeProcesarCertificadoConCompensaciones: Datos de compensaciones incompletos', [
-                    'request_id' => $requestForm->id,
-                    'documento' => $documento,
-                    'compensaciones' => $compensaciones,
-                ]);
-
-                return [
-                    'puede_procesar' => false,
-                    'razon' => 'Datos de compensaciones incompletos',
-                    'compensaciones' => null,
-                ];
-            }
-
-            // 4. Verificar que los valores no sean cero
-            if ($compensaciones['t_basicos'] == 0 && $compensaciones['t_auxilios'] == 0 && $compensaciones['t_ingresos'] == 0) {
-                Log::warning('puedeProcesarCertificadoConCompensaciones: Datos de compensaciones están en cero', [
-                    'request_id' => $requestForm->id,
-                    'documento' => $documento,
-                    'compensaciones' => $compensaciones,
-                ]);
-
-                return [
-                    'puede_procesar' => false,
-                    'razon' => 'Los valores de compensaciones están en cero',
-                    'compensaciones' => null,
-                ];
-            }
-
-            Log::info('puedeProcesarCertificadoConCompensaciones: Compensaciones válidas encontradas, se puede procesar automáticamente', [
-                'request_id' => $requestForm->id,
-                'documento' => $documento,
-                't_basicos' => $compensaciones['t_basicos'],
-                't_auxilios' => $compensaciones['t_auxilios'],
-                't_ingresos' => $compensaciones['t_ingresos'],
-            ]);
-
-            return [
-                'puede_procesar' => true,
-                'razon' => null,
-                'compensaciones' => $compensaciones,
-            ];
-        } catch (\Throwable $e) {
-            Log::error('puedeProcesarCertificadoConCompensaciones: Error verificando compensaciones para certificado', [
-                'request_id' => $requestForm->id,
-                'documento' => $documento,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return [
-                'puede_procesar' => false,
-                'razon' => 'Error al verificar compensaciones: '.$e->getMessage(),
-                'compensaciones' => null,
-            ];
-        }
+        return $this->certificadoAutomaticoService->evaluarElegibilidadCompensaciones($requestForm);
     }
 
     /**

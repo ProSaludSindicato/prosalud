@@ -14,9 +14,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Registrar el servicio de conversión DOCX a PDF
+        $this->app->singleton(\App\Services\WordToPdfApiService::class);
+
         $this->app->singleton(\App\Services\DocxToPdfCloudConvertService::class, function ($app) {
             return new \App\Services\DocxToPdfCloudConvertService;
+        });
+
+        $this->app->singleton(\App\Services\DocxToPdfService::class, function ($app) {
+            return new \App\Services\DocxToPdfService(
+                $app->make(\App\Services\WordToPdfApiService::class),
+                $app->make(\App\Services\DocxToPdfCloudConvertService::class),
+            );
         });
 
         // Registrar el servicio de firma de documentos según configuración

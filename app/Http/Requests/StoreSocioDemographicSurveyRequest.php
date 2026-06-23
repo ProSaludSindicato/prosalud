@@ -322,7 +322,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'files.firma' => 'nullable|file|mimes:png|max:2048', // PNG file
 
             // reCAPTCHA
-            'recaptcha_token' => ['required', new RecaptchaRule],
+            'recaptcha_token' => [new RecaptchaRule],
         ];
 
         return $rules;

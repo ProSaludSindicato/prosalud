@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpWord\TemplateProcessor;
+use ZipArchive;
 
 class CertificadoConvenioService
 {
@@ -26,6 +27,16 @@ class CertificadoConvenioService
     private const TEMPLATE_PATH_AFP = 'resources/templates/certificado_convenio_dirigido_afp_template.docx';
 
     private const TEMP_DIR = 'temp';
+
+    private const WORD_NAMESPACE = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+    /** Espaciado máximo entre párrafos (twips). 720 ≈ 36pt. */
+    private const MAX_PARAGRAPH_SPACING_TWIPS = 720;
+
+    /** Desplazamiento vertical del ancla de firma (EMU). Negativo sube la imagen respecto al nombre. */
+    private const SIGNATURE_ANCHOR_V_OFFSET_EMU = -280000;
+
+    private const CERTIFICATE_BODY_FONT = 'Calibri';
 
     public function __construct(
         private AfiliadoService $afiliadoService,
@@ -64,7 +75,7 @@ class CertificadoConvenioService
 
         try {
             // Convertir Word a PDF usando CloudConvert
-            $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
+            $converterService = app(\App\Services\DocxToPdfService::class);
             $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
 
             // Limpiar archivo Word temporal
@@ -209,6 +220,7 @@ class CertificadoConvenioService
 
         // Guardar documento
         $templateProcessor->saveAs($rutaSalida);
+        $this->limpiarCamposLegacyWord($rutaSalida);
 
         return [
             'ruta' => $rutaSalida,
@@ -271,6 +283,7 @@ class CertificadoConvenioService
 
         // Guardar documento
         $templateProcessor->saveAs($rutaSalida);
+        $this->limpiarCamposLegacyWord($rutaSalida);
 
         return [
             'ruta' => $rutaSalida,
@@ -309,7 +322,7 @@ class CertificadoConvenioService
 
         try {
             // Convertir Word a PDF usando CloudConvert
-            $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
+            $converterService = app(\App\Services\DocxToPdfService::class);
             $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
 
             // Limpiar archivo Word temporal
@@ -425,6 +438,7 @@ class CertificadoConvenioService
 
         // Guardar documento
         $templateProcessor->saveAs($rutaSalida);
+        $this->limpiarCamposLegacyWord($rutaSalida);
 
         return [
             'ruta' => $rutaSalida,
@@ -462,7 +476,7 @@ class CertificadoConvenioService
 
         try {
             // Convertir Word a PDF usando CloudConvert
-            $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
+            $converterService = app(\App\Services\DocxToPdfService::class);
             $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
 
             // Limpiar archivo Word temporal
@@ -678,11 +692,22 @@ class CertificadoConvenioService
                         ]);
                     }
                 } catch (\Throwable $e) {
-                    Log::error('Error al acceder al archivo Excel para certificado', [
-                        'documento' => $documento,
-                        'disk' => $disk,
-                        'error' => $e->getMessage(),
-                    ]);
+                    $isPrivateDiskUnavailable = $disk === 'prosalud-private'
+                        && str_contains($e->getMessage(), 'Unable to check existence');
+
+                    if ($isPrivateDiskUnavailable) {
+                        Log::warning('Disco privado no disponible al buscar Excel de afiliados para certificado', [
+                            'documento' => $documento,
+                            'disk' => $disk,
+                            'error' => $e->getMessage(),
+                        ]);
+                    } else {
+                        Log::error('Error al acceder al archivo Excel para certificado', [
+                            'documento' => $documento,
+                            'disk' => $disk,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
                 }
             }
 
@@ -1778,9 +1803,14 @@ class CertificadoConvenioService
         $esConvenioActualActivo = strcasecmp($convenioActualEstado ?? '', 'Activo') === 0;
 
         foreach ($todosLosConvenios as $convenio) {
-            $clienteRaw = $convenio['cliente'] ?? '';
+            $clienteRaw = trim((string) ($convenio['cliente'] ?? ''));
+            $fechaIngreso = trim((string) ($convenio['fecha_ingreso'] ?? ''));
+
+            if ($clienteRaw === '' && $fechaIngreso === '') {
+                continue;
+            }
+
             $cliente = $this->transformarCliente($clienteRaw);
-            $fechaIngreso = $convenio['fecha_ingreso'] ?? '';
             $fechaFin = $convenio['fecha_fin'] ?? '';
             $estado = $convenio['estado'] ?? '';
 
@@ -1931,6 +1961,490 @@ class CertificadoConvenioService
         } else {
             return base_path(self::TEMPLATE_PATH);
         }
+    }
+
+    /**
+     * Elimina campos legacy de Word (MERGEFIELD, IF, fldSimple) del documento generado.
+     * PhpWord TemplateProcessor solo reemplaza placeholders ${...}; los campos legacy
+     * quedan con valores en caché que ensucian el PDF final.
+     */
+    public function limpiarCamposLegacyWord(string $docxPath): void
+    {
+        $zip = new ZipArchive;
+        if ($zip->open($docxPath) !== true) {
+            throw new \RuntimeException("No se pudo abrir el documento Word: {$docxPath}");
+        }
+
+        $documentXml = $zip->getFromName('word/document.xml');
+        if ($documentXml === false) {
+            $zip->close();
+
+            throw new \RuntimeException('No se encontró word/document.xml en el documento Word');
+        }
+
+        $cleanedXml = $this->stripLegacyWordFieldsFromDocumentXml($documentXml);
+        $cleanedXml = $this->compactDocumentXml($cleanedXml);
+        $cleanedXml = $this->adjustSignatureBlockLayout($cleanedXml);
+        $cleanedXml = $this->normalizarTipografiaDocumentXml($cleanedXml);
+
+        $zip->addFromString('word/document.xml', $cleanedXml);
+
+        $stylesXml = $zip->getFromName('word/styles.xml');
+        if ($stylesXml !== false) {
+            $zip->addFromString('word/styles.xml', $this->normalizarTipografiaDocumentXml($stylesXml));
+        }
+
+        $zip->close();
+    }
+
+    /**
+     * @return string XML limpio de word/document.xml
+     */
+    private function stripLegacyWordFieldsFromDocumentXml(string $documentXml): string
+    {
+        $dom = new \DOMDocument;
+        $dom->preserveWhiteSpace = true;
+        $dom->formatOutput = false;
+        $dom->loadXML($documentXml);
+
+        $wordNamespace = self::WORD_NAMESPACE;
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('w', $wordNamespace);
+
+        $fldSimpleNodes = $xpath->query('//w:fldSimple');
+        if ($fldSimpleNodes !== false) {
+            $nodesToRemove = [];
+            foreach ($fldSimpleNodes as $node) {
+                $nodesToRemove[] = $node;
+            }
+            foreach ($nodesToRemove as $node) {
+                $node->parentNode?->removeChild($node);
+            }
+        }
+
+        $runs = $xpath->query('//w:r');
+        if ($runs === false) {
+            return $dom->saveXML() ?: $documentXml;
+        }
+
+        $depth = 0;
+        $runsToRemove = [];
+
+        foreach ($runs as $run) {
+            $shouldRemove = $depth > 0;
+
+            $fldChars = $xpath->query('.//w:fldChar', $run);
+            if ($fldChars !== false) {
+                foreach ($fldChars as $fldChar) {
+                    $shouldRemove = true;
+                    $fldCharType = $fldChar->getAttributeNS($wordNamespace, 'fldCharType');
+
+                    if ($fldCharType === 'begin') {
+                        $depth++;
+                    } elseif ($fldCharType === 'end') {
+                        $depth = max(0, $depth - 1);
+                    }
+                }
+            }
+
+            $instrTexts = $xpath->query('.//w:instrText', $run);
+            if ($instrTexts !== false && $instrTexts->length > 0) {
+                $shouldRemove = true;
+            }
+
+            if ($shouldRemove) {
+                $runsToRemove[] = $run;
+            }
+        }
+
+        foreach ($runsToRemove as $run) {
+            $run->parentNode?->removeChild($run);
+        }
+
+        return $dom->saveXML() ?: $documentXml;
+    }
+
+    /**
+     * Compacta el documento eliminando párrafos vacíos legacy y normalizando
+     * el espaciado entre párrafos con márgenes moderados y consistentes.
+     *
+     * @return string XML compactado de word/document.xml
+     */
+    private function compactDocumentXml(string $documentXml): string
+    {
+        $dom = new \DOMDocument;
+        $dom->preserveWhiteSpace = true;
+        $dom->formatOutput = false;
+        $dom->loadXML($documentXml);
+
+        $wordNamespace = self::WORD_NAMESPACE;
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('w', $wordNamespace);
+
+        $paragraphs = $xpath->query('//w:body/w:p');
+        if ($paragraphs !== false) {
+            $paragraphsToRemove = [];
+
+            foreach ($paragraphs as $paragraph) {
+                if (! $this->paragraphHasVisibleContent($paragraph, $xpath)) {
+                    $paragraphsToRemove[] = $paragraph;
+                }
+            }
+
+            foreach ($paragraphsToRemove as $paragraph) {
+                $paragraph->parentNode?->removeChild($paragraph);
+            }
+        }
+
+        $paragraphs = $xpath->query('//w:body/w:p');
+        if ($paragraphs !== false) {
+            foreach ($paragraphs as $paragraph) {
+                if (! $paragraph instanceof \DOMElement) {
+                    continue;
+                }
+
+                if (! $this->paragraphHasVisibleContent($paragraph, $xpath)) {
+                    continue;
+                }
+
+                $text = $this->extractParagraphPlainText($paragraph, $xpath);
+                $hasDrawing = $xpath->query('.//w:drawing | .//w:pict | .//w:object', $paragraph)->length > 0;
+                $profile = $this->resolveParagraphSpacingProfile($text, $hasDrawing);
+
+                $this->applyParagraphSpacing($paragraph, $dom, $wordNamespace, $profile);
+            }
+        }
+
+        return $dom->saveXML() ?: $documentXml;
+    }
+
+    /**
+     * @return array{before: int, after: int}
+     */
+    private function resolveParagraphSpacingProfile(string $text, bool $hasDrawing): array
+    {
+        if ($hasDrawing && $text === '') {
+            return ['before' => 0, 'after' => 0];
+        }
+
+        $normalized = mb_strtoupper(trim($text));
+
+        if (str_contains($normalized, 'CERTIFICADO CONVENIO DE EJECUCION')) {
+            return ['before' => 280, 'after' => 280];
+        }
+
+        if ($normalized === 'CONVENIOS') {
+            return ['before' => 520, 'after' => 80];
+        }
+
+        if (str_starts_with($normalized, 'HA PARTICIPADO EN LOS SIGUIENTES')) {
+            return ['before' => 0, 'after' => 80];
+        }
+
+        if (str_starts_with($text, '❖')) {
+            return ['before' => 0, 'after' => 240];
+        }
+
+        if ($normalized === 'ATENTAMENTE,' || $normalized === 'ATENTAMENTE') {
+            return ['before' => 640, 'after' => 80];
+        }
+
+        if ($normalized === 'JORGE IVAN ALVAREZ SOTO') {
+            return ['before' => 80, 'after' => 0];
+        }
+
+        if ($normalized === 'PRESIDENTE') {
+            return ['before' => 0, 'after' => 0];
+        }
+
+        if (str_starts_with($normalized, 'CONSECUTIVO') || str_starts_with($normalized, 'REALIZADO POR')) {
+            return ['before' => 0, 'after' => 0];
+        }
+
+        if (preg_match('/^CALDAS,/i', $text)) {
+            return ['before' => 0, 'after' => 160];
+        }
+
+        if ($normalized === 'A QUIEN CORRESPONDA.' || $normalized === 'A QUIEN CORRESPONDA' || str_starts_with($normalized, 'SEÑORES')) {
+            return ['before' => 0, 'after' => 400];
+        }
+
+        if (str_contains($normalized, 'SE EXPIDE POR SOLICITUD')) {
+            return ['before' => 240, 'after' => 200];
+        }
+
+        if (str_contains($normalized, 'VERIFICACIÓN O CONFIRMACIÓN') || str_contains($normalized, 'VERIFICACION O CONFIRMACION')) {
+            return ['before' => 0, 'after' => 400];
+        }
+
+        return ['before' => 0, 'after' => 240];
+    }
+
+    /**
+     * @param  array{before: int, after: int}  $profile
+     */
+    private function applyParagraphSpacing(\DOMElement $paragraph, \DOMDocument $dom, string $wordNamespace, array $profile): void
+    {
+        $before = min($profile['before'], self::MAX_PARAGRAPH_SPACING_TWIPS);
+        $after = min($profile['after'], self::MAX_PARAGRAPH_SPACING_TWIPS);
+
+        $pPr = null;
+        foreach ($paragraph->childNodes as $child) {
+            if ($child instanceof \DOMElement && $child->localName === 'pPr') {
+                $pPr = $child;
+                break;
+            }
+        }
+
+        if ($pPr === null) {
+            $pPr = $dom->createElementNS($wordNamespace, 'w:pPr');
+            $paragraph->insertBefore($pPr, $paragraph->firstChild);
+        }
+
+        $spacing = null;
+        foreach ($pPr->childNodes as $child) {
+            if ($child instanceof \DOMElement && $child->localName === 'spacing') {
+                $spacing = $child;
+                break;
+            }
+        }
+
+        if ($spacing === null) {
+            $spacing = $dom->createElementNS($wordNamespace, 'w:spacing');
+            $pPr->appendChild($spacing);
+        }
+
+        if ($spacing->hasAttributeNS($wordNamespace, 'afterLines')) {
+            $spacing->removeAttributeNS($wordNamespace, 'afterLines');
+        }
+
+        if ($spacing->hasAttributeNS($wordNamespace, 'beforeLines')) {
+            $spacing->removeAttributeNS($wordNamespace, 'beforeLines');
+        }
+
+        $spacing->setAttributeNS($wordNamespace, 'before', (string) $before);
+        $spacing->setAttributeNS($wordNamespace, 'after', (string) $after);
+        $spacing->setAttributeNS($wordNamespace, 'line', '240');
+        $spacing->setAttributeNS($wordNamespace, 'lineRule', 'auto');
+    }
+
+    private function extractParagraphPlainText(\DOMNode $paragraph, \DOMXPath $xpath): string
+    {
+        $textNodes = $xpath->query('.//w:t', $paragraph);
+        if ($textNodes === false) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($textNodes as $textNode) {
+            $parts[] = $textNode->textContent ?? '';
+        }
+
+        return trim(implode('', $parts));
+    }
+
+    /**
+     * Reubica la imagen de firma junto al nombre del presidente y ajusta alineación vertical.
+     *
+     * @return string XML ajustado de word/document.xml
+     */
+    private function adjustSignatureBlockLayout(string $documentXml): string
+    {
+        $dom = new \DOMDocument;
+        $dom->preserveWhiteSpace = true;
+        $dom->formatOutput = false;
+        $dom->loadXML($documentXml);
+
+        $wordNamespace = self::WORD_NAMESPACE;
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('w', $wordNamespace);
+        $xpath->registerNamespace('wp', 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing');
+
+        $paragraphs = $xpath->query('//w:body/w:p');
+        if ($paragraphs === false) {
+            return $documentXml;
+        }
+
+        $paragraphList = [];
+        $nameParagraph = null;
+
+        foreach ($paragraphs as $paragraph) {
+            $paragraphList[] = $paragraph;
+            $text = mb_strtoupper($this->extractParagraphPlainText($paragraph, $xpath));
+
+            if ($text === 'JORGE IVAN ALVAREZ SOTO') {
+                $nameParagraph = $paragraph;
+            }
+        }
+
+        if (! $nameParagraph instanceof \DOMElement) {
+            return $dom->saveXML() ?: $documentXml;
+        }
+
+        $nameIndex = array_search($nameParagraph, $paragraphList, true);
+
+        if ($nameIndex === false) {
+            return $dom->saveXML() ?: $documentXml;
+        }
+
+        $this->setParagraphAlignment($nameParagraph, $dom, $wordNamespace, 'start');
+        $this->applyParagraphSpacing($nameParagraph, $dom, $wordNamespace, ['before' => 80, 'after' => 0]);
+
+        for ($index = $nameIndex + 1; $index < count($paragraphList); $index++) {
+            $text = mb_strtoupper($this->extractParagraphPlainText($paragraphList[$index], $xpath));
+
+            if ($text === 'PRESIDENTE') {
+                $this->setParagraphAlignment($paragraphList[$index], $dom, $wordNamespace, 'start');
+                break;
+            }
+        }
+
+        if ($xpath->query('.//wp:anchor', $nameParagraph)->length > 0) {
+            $this->tuneSignatureAnchor($nameParagraph, $xpath);
+
+            return $dom->saveXML() ?: $documentXml;
+        }
+
+        $drawingRun = null;
+        $drawingParagraph = null;
+
+        for ($index = $nameIndex - 1; $index >= max(0, $nameIndex - 3); $index--) {
+            $candidateParagraph = $paragraphList[$index];
+            $runs = $xpath->query('.//w:r[.//wp:anchor]', $candidateParagraph);
+
+            if ($runs !== false && $runs->length > 0) {
+                $drawingRun = $runs->item(0);
+                $drawingParagraph = $candidateParagraph;
+                break;
+            }
+        }
+
+        if (! $drawingRun instanceof \DOMElement) {
+            return $dom->saveXML() ?: $documentXml;
+        }
+
+        $insertBefore = $xpath->query('./w:r', $nameParagraph)->item(0);
+        if ($insertBefore instanceof \DOMNode) {
+            $nameParagraph->insertBefore($drawingRun, $insertBefore);
+        } else {
+            $nameParagraph->appendChild($drawingRun);
+        }
+
+        if ($drawingParagraph instanceof \DOMElement && ! $this->paragraphHasVisibleContent($drawingParagraph, $xpath)) {
+            $drawingParagraph->parentNode?->removeChild($drawingParagraph);
+        }
+
+        $this->tuneSignatureAnchor($nameParagraph, $xpath);
+
+        return $dom->saveXML() ?: $documentXml;
+    }
+
+    private function tuneSignatureAnchor(\DOMElement $paragraph, \DOMXPath $xpath): void
+    {
+        $posOffsets = $xpath->query('.//wp:positionV/wp:posOffset', $paragraph);
+
+        if ($posOffsets !== false) {
+            foreach ($posOffsets as $posOffset) {
+                $posOffset->nodeValue = (string) self::SIGNATURE_ANCHOR_V_OFFSET_EMU;
+            }
+        }
+    }
+
+    private function setParagraphAlignment(\DOMElement $paragraph, \DOMDocument $dom, string $wordNamespace, string $alignment): void
+    {
+        $pPr = null;
+
+        foreach ($paragraph->childNodes as $child) {
+            if ($child instanceof \DOMElement && $child->localName === 'pPr') {
+                $pPr = $child;
+                break;
+            }
+        }
+
+        if ($pPr === null) {
+            $pPr = $dom->createElementNS($wordNamespace, 'w:pPr');
+            $paragraph->insertBefore($pPr, $paragraph->firstChild);
+        }
+
+        $jc = null;
+
+        foreach ($pPr->childNodes as $child) {
+            if ($child instanceof \DOMElement && $child->localName === 'jc') {
+                $jc = $child;
+                break;
+            }
+        }
+
+        if ($jc === null) {
+            $jc = $dom->createElementNS($wordNamespace, 'w:jc');
+            $pPr->appendChild($jc);
+        }
+
+        $jc->setAttributeNS($wordNamespace, 'val', $alignment);
+    }
+
+    /**
+     * Fuerza Calibri explícita en lugar de referencias a tema (minorHAnsi),
+     * que algunos convertidores PDF no resuelven correctamente.
+     *
+     * @return string XML con tipografía normalizada
+     */
+    private function normalizarTipografiaDocumentXml(string $documentXml): string
+    {
+        $dom = new \DOMDocument;
+        $dom->preserveWhiteSpace = true;
+        $dom->formatOutput = false;
+        $dom->loadXML($documentXml);
+
+        $wordNamespace = self::WORD_NAMESPACE;
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('w', $wordNamespace);
+
+        $rFontsNodes = $xpath->query('//w:rFonts');
+        if ($rFontsNodes === false) {
+            return $documentXml;
+        }
+
+        $themeAttributes = ['asciiTheme', 'hAnsiTheme', 'eastAsiaTheme', 'csTheme', 'cstheme'];
+
+        foreach ($rFontsNodes as $rFonts) {
+            if (! $rFonts instanceof \DOMElement) {
+                continue;
+            }
+
+            foreach ($themeAttributes as $attribute) {
+                if ($rFonts->hasAttributeNS($wordNamespace, $attribute)) {
+                    $rFonts->removeAttributeNS($wordNamespace, $attribute);
+                }
+            }
+
+            $rFonts->setAttributeNS($wordNamespace, 'ascii', self::CERTIFICATE_BODY_FONT);
+            $rFonts->setAttributeNS($wordNamespace, 'hAnsi', self::CERTIFICATE_BODY_FONT);
+            $rFonts->setAttributeNS($wordNamespace, 'cs', self::CERTIFICATE_BODY_FONT);
+        }
+
+        return $dom->saveXML() ?: $documentXml;
+    }
+
+    private function paragraphHasVisibleContent(\DOMNode $paragraph, \DOMXPath $xpath): bool
+    {
+        $drawings = $xpath->query('.//w:drawing | .//w:pict | .//w:object', $paragraph);
+        if ($drawings !== false && $drawings->length > 0) {
+            return true;
+        }
+
+        $textNodes = $xpath->query('.//w:t', $paragraph);
+        if ($textNodes === false) {
+            return false;
+        }
+
+        foreach ($textNodes as $textNode) {
+            if (trim($textNode->textContent ?? '') !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

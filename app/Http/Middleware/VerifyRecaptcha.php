@@ -12,8 +12,7 @@ class VerifyRecaptcha
 {
     public function __construct(
         private readonly RecaptchaService $recaptchaService
-    ) {
-    }
+    ) {}
 
     /**
      * Handle an incoming request.
@@ -23,8 +22,23 @@ class VerifyRecaptcha
      */
     public function handle(Request $request, Closure $next, ?string $action = null): Response
     {
+        if (! $this->recaptchaService->isEnabled()) {
+            Log::warning('reCAPTCHA deshabilitado: middleware omitido', [
+                'endpoint' => $request->path(),
+                'action' => $action,
+            ]);
+
+            $request->merge([
+                'recaptcha_verified' => true,
+                'recaptcha_score' => null,
+                'recaptcha_bypassed' => true,
+            ]);
+
+            return $next($request);
+        }
+
         // Obtener el token de reCAPTCHA del request
-        $token = $request->input('recaptcha_token') 
+        $token = $request->input('recaptcha_token')
               ?? $request->header('X-Recaptcha-Token');
 
         // Si no hay token, rechazar la solicitud
@@ -51,7 +65,7 @@ class VerifyRecaptcha
         );
 
         // Si la verificación falla, rechazar la solicitud
-        if (!$result['success']) {
+        if (! $result['success']) {
             // Log estructurado usando el servicio de alertas
             \App\Services\SecurityAlertService::logRecaptchaFailure(
                 $request->path(),
@@ -84,4 +98,3 @@ class VerifyRecaptcha
         return $next($request);
     }
 }
-

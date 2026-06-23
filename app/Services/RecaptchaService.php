@@ -8,8 +8,11 @@ use Illuminate\Support\Facades\Log;
 class RecaptchaService
 {
     private ?string $apiKey;
+
     private ?string $siteKey;
+
     private ?string $projectId;
+
     private ?string $verifyUrl;
 
     public function __construct()
@@ -18,23 +21,38 @@ class RecaptchaService
         $this->siteKey = config('services.recaptcha.site_key');
         $this->projectId = config('services.recaptcha.project_id');
 
-        if (!empty($this->projectId) && !empty($this->apiKey)) {
+        if (! empty($this->projectId) && ! empty($this->apiKey)) {
             $this->verifyUrl = "https://recaptchaenterprise.googleapis.com/v1/projects/{$this->projectId}/assessments?key={$this->apiKey}";
         } else {
             $this->verifyUrl = null;
         }
     }
 
+    public function isEnabled(): bool
+    {
+        return (bool) config('services.recaptcha.enabled', true);
+    }
+
     /**
      * Verifica el token de reCAPTCHA Enterprise con Google
      *
-     * @param string|null $token
-     * @param string|null $expectedAction Acción esperada (opcional)
-     * @param string|null $remoteIp
-     * @return array
+     * @param  string|null  $expectedAction  Acción esperada (opcional)
      */
     public function verify(?string $token, ?string $expectedAction = null, ?string $remoteIp = null): array
     {
+        if (! $this->isEnabled()) {
+            Log::warning('reCAPTCHA deshabilitado: verificación omitida', [
+                'expected_action' => $expectedAction,
+            ]);
+
+            return [
+                'success' => true,
+                'score' => null,
+                'disabled' => true,
+                'error_codes' => [],
+            ];
+        }
+
         // Si no hay token, retornar fallo
         if (empty($token)) {
             return [
@@ -47,9 +65,9 @@ class RecaptchaService
         // Validar configuración
         if (empty($this->apiKey) || empty($this->projectId) || empty($this->siteKey)) {
             Log::error('Configuración de reCAPTCHA incompleta', [
-                'has_api_key' => !empty($this->apiKey),
-                'has_project_id' => !empty($this->projectId),
-                'has_site_key' => !empty($this->siteKey),
+                'has_api_key' => ! empty($this->apiKey),
+                'has_project_id' => ! empty($this->projectId),
+                'has_site_key' => ! empty($this->siteKey),
             ]);
 
             return [
@@ -61,6 +79,7 @@ class RecaptchaService
 
         if (empty($this->verifyUrl)) {
             Log::error('URL de verificación de reCAPTCHA no configurada');
+
             return [
                 'success' => false,
                 'error' => 'Error de configuración del servidor. Contacte al administrador.',
@@ -78,19 +97,19 @@ class RecaptchaService
             ];
 
             // Agregar expectedAction si se proporciona
-            if (!empty($expectedAction)) {
+            if (! empty($expectedAction)) {
                 $payload['event']['expectedAction'] = $expectedAction;
             }
 
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
             ])
-            ->timeout(30)
-            ->post($this->verifyUrl, $payload);
+                ->timeout(30)
+                ->post($this->verifyUrl, $payload);
 
             $result = $response->json();
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning('Error al verificar reCAPTCHA Enterprise', [
                     'status' => $response->status(),
                     'body' => $response->body(),
@@ -115,7 +134,7 @@ class RecaptchaService
             $actionMatches = true;
 
             // Si se proporcionó expectedAction, verificar que coincida
-            if (!empty($expectedAction) && isset($tokenProperties['action'])) {
+            if (! empty($expectedAction) && isset($tokenProperties['action'])) {
                 $actionMatches = $tokenProperties['action'] === $expectedAction;
             }
 
@@ -154,11 +173,6 @@ class RecaptchaService
 
     /**
      * Verifica si el token es válido (método de conveniencia)
-     *
-     * @param string|null $token
-     * @param string|null $expectedAction
-     * @param string|null $remoteIp
-     * @return bool
      */
     public function isValid(?string $token, ?string $expectedAction = null, ?string $remoteIp = null): bool
     {
@@ -167,4 +181,3 @@ class RecaptchaService
         return $result['success'] === true;
     }
 }
-
