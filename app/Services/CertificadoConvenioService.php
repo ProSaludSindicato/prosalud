@@ -74,7 +74,7 @@ class CertificadoConvenioService
         $resultadoWord = $this->generarCertificadoWord($documento, $consecutivo, $dirigidoAEntidad, $compensaciones, $esParaBancolombia, $esParaSubsidioVivienda, $esParaSubsidioDesempleo);
 
         try {
-            // Convertir Word a PDF usando CloudConvert
+            // Convertir Word a PDF (WordToPdf API primario, CloudConvert como fallback)
             $converterService = app(\App\Services\DocxToPdfService::class);
             $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
 
@@ -321,7 +321,7 @@ class CertificadoConvenioService
         $resultadoWord = $this->generarCertificadoWordConActividades($documento, $actividades, $consecutivo, $dirigidoAEntidad);
 
         try {
-            // Convertir Word a PDF usando CloudConvert
+            // Convertir Word a PDF (WordToPdf API primario, CloudConvert como fallback)
             $converterService = app(\App\Services\DocxToPdfService::class);
             $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
 
@@ -475,7 +475,7 @@ class CertificadoConvenioService
         $resultadoWord = $this->generarCertificadoWordDirigidoAFP($documento, $afp, $consecutivo);
 
         try {
-            // Convertir Word a PDF usando CloudConvert
+            // Convertir Word a PDF (WordToPdf API primario, CloudConvert como fallback)
             $converterService = app(\App\Services\DocxToPdfService::class);
             $resultadoPDF = $converterService->convert($resultadoWord['ruta'], true);
 

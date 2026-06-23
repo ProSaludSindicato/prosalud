@@ -24,6 +24,15 @@ class WordToPdfApiService implements DocxToPdfConverter
 
     private ?string $apiKey;
 
+    /** Resultado del último health check, null si nunca se ha comprobado. */
+    private ?bool $cachedAvailability = null;
+
+    /** Timestamp en microsegundos del último health check. */
+    private float $availabilityCachedAt = 0.0;
+
+    /** Tiempo en segundos que se reutiliza el resultado del health check. */
+    private const AVAILABILITY_CACHE_TTL = 30;
+
     public function __construct()
     {
         $this->baseUrl = rtrim((string) config('wordtopdf.base_url', 'http://localhost:5001'), '/');
@@ -102,7 +111,12 @@ class WordToPdfApiService implements DocxToPdfConverter
             return false;
         }
 
+        if ($this->cachedAvailability !== null && (microtime(true) - $this->availabilityCachedAt) < self::AVAILABILITY_CACHE_TTL) {
+            return $this->cachedAvailability;
+        }
+
         try {
+            $healthCheckStart = microtime(true);
             $response = $this->buildHttpClient(5, 5)
                 ->get($this->baseUrl.'/health');
 
@@ -111,11 +125,12 @@ class WordToPdfApiService implements DocxToPdfConverter
                     'status' => $response->status(),
                 ]);
 
-                return false;
+                return $this->cacheAndReturnAvailability(false);
             }
 
             $data = $response->json();
             $isHealthy = ($data['status'] ?? '') === 'ok' && ($data['libreoffice'] ?? false) === true;
+            $healthCheckMs = (int) round((microtime(true) - $healthCheckStart) * 1000);
 
             if (! $isHealthy) {
                 Log::warning('WordToPdf API reporta estado degradado', [
@@ -124,20 +139,28 @@ class WordToPdfApiService implements DocxToPdfConverter
                 ]);
             }
 
-            return $isHealthy;
+            return $this->cacheAndReturnAvailability($isHealthy);
         } catch (ConnectionException $e) {
             Log::warning('WordToPdf API no disponible (conexión)', [
                 'error' => $e->getMessage(),
             ]);
 
-            return false;
+            return $this->cacheAndReturnAvailability(false);
         } catch (Exception $e) {
             Log::warning('WordToPdf API no disponible', [
                 'error' => $e->getMessage(),
             ]);
 
-            return false;
+            return $this->cacheAndReturnAvailability(false);
         }
+    }
+
+    private function cacheAndReturnAvailability(bool $available): bool
+    {
+        $this->cachedAvailability = $available;
+        $this->availabilityCachedAt = microtime(true);
+
+        return $available;
     }
 
     private function requestConversion(string $docxPath): string

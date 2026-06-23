@@ -52,6 +52,11 @@ class ProcessCertificadoConvenioJob implements ShouldQueue
             if ($this->resolverCompensaciones) {
                 $certificadoService->intentarProcesarAutomaticoConCompensaciones($requestForm);
 
+                Log::info('Procesamiento automático de certificado completado exitosamente desde Job', [
+                    'request_id' => $this->requestFormId,
+                    'path' => 'resolverCompensaciones',
+                ]);
+
                 return;
             }
 
@@ -60,6 +65,11 @@ class ProcessCertificadoConvenioJob implements ShouldQueue
                     $requestForm,
                     $this->compensaciones
                 );
+
+                Log::info('Procesamiento automático de certificado completado exitosamente desde Job', [
+                    'request_id' => $this->requestFormId,
+                    'path' => 'compensaciones',
+                ]);
 
                 return;
             }

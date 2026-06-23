@@ -22,11 +22,15 @@ class DocxToPdfCloudConvertService implements DocxToPdfConverter
         $apiKey = config('cloudconvert.api_key');
 
         if (empty($apiKey)) {
-            Log::error('CLOUDCONVERT_API_KEY no está configurada', [
-                'config_value' => config('cloudconvert.api_key'),
-                'env_value' => env('CLOUDCONVERT_API_KEY'),
+            Log::warning('CLOUDCONVERT_API_KEY no configurada — servicio CloudConvert no disponible (fallback deshabilitado)', [
+                'config_key' => 'cloudconvert.api_key',
             ]);
-            throw new Exception('CLOUDCONVERT_API_KEY no está configurada en .env. Por favor, agrega CLOUDCONVERT_API_KEY=tu_api_key en tu archivo .env');
+            $this->apiKey = '';
+            $this->baseUrl = '';
+            $this->timeout = 60;
+            $this->maxFileSize = 25 * 1024 * 1024;
+
+            return;
         }
 
         // Limpiar espacios en blanco

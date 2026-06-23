@@ -141,4 +141,22 @@ class DocxToPdfServiceTest extends TestCase
 
         $this->assertTrue($service->isAvailable());
     }
+
+    public function test_cloudconvert_instantiates_without_throwing_when_api_key_missing(): void
+    {
+        config(['cloudconvert.api_key' => '']);
+
+        $service = new DocxToPdfCloudConvertService;
+
+        $this->assertFalse($service->isAvailable());
+    }
+
+    public function test_cloudconvert_is_available_when_api_key_configured(): void
+    {
+        config(['cloudconvert.api_key' => 'test-api-key-123']);
+
+        $service = new DocxToPdfCloudConvertService;
+
+        $this->assertTrue($service->isAvailable());
+    }
 }

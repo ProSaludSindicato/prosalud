@@ -144,4 +144,22 @@ class WordToPdfApiServiceTest extends TestCase
 
         $this->assertFalse($service->isAvailable());
     }
+
+    public function test_is_available_caches_result_and_avoids_repeated_http_calls(): void
+    {
+        Http::fake([
+            'http://wordtopdf.test/health' => Http::response([
+                'status' => 'ok',
+                'libreoffice' => true,
+            ]),
+        ]);
+
+        $service = new WordToPdfApiService;
+
+        $this->assertTrue($service->isAvailable());
+        $this->assertTrue($service->isAvailable());
+        $this->assertTrue($service->isAvailable());
+
+        Http::assertSentCount(1);
+    }
 }
