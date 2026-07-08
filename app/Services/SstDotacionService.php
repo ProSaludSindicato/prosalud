@@ -209,19 +209,13 @@ class SstDotacionService
      */
     public function createDelivery(array $data): array
     {
-        $collection = $this->buildAffiliatesCollection();
-        $affiliate = $this->matchAffiliateInCollection(
-            $collection,
-            $data['affiliateDocumentType'],
-            $data['affiliateDocumentNumber'],
-        );
+        $documentType = strtoupper(trim((string) $data['affiliateDocumentType']));
+        $documentNumber = trim((string) $data['affiliateDocumentNumber']);
+
+        $affiliate = $this->findAffiliate($documentType, $documentNumber);
 
         if (! $affiliate) {
-            $this->logFindAffiliateMiss(
-                $collection,
-                strtoupper(trim((string) $data['affiliateDocumentType'])),
-                trim((string) $data['affiliateDocumentNumber']),
-            );
+            $this->logAffiliateMissDiagnostics($documentType, $documentNumber);
 
             throw new \RuntimeException('No se encontró el afiliado solicitado.');
         }
@@ -241,73 +235,78 @@ class SstDotacionService
         $user = User::find($userId);
 
         $recordId = (string) Str::uuid();
-
-        $record = SstDeliveryRecord::create([
-            'id' => $recordId,
-            'affiliate_id' => $affiliate['id'],
-            'affiliate_document_type' => $affiliate['documentType'],
-            'affiliate_document_number' => $affiliate['documentNumber'],
-            'affiliate_first_name' => $affiliate['firstName'],
-            'affiliate_last_name' => $affiliate['lastName'],
-            'affiliate_hospital' => $affiliate['hospital'],
-            'affiliate_role' => $affiliate['role'],
-            'affiliate_status' => $affiliate['status'],
-            'delivered_by_user_id' => $user?->id,
-            'delivered_by_name' => $user?->name ?? ($data['deliveredByName'] ?? ($user?->email ?? 'Usuario Sistema')),
-            'delivered_at' => Carbon::now('America/Bogota'),
-            'signature_path' => $signatureMeta['path'] ?? null,
-            'signature_mime_type' => $signatureMeta['mime_type'] ?? null,
-            'signed_document_type' => strtoupper($data['signedDocumentType']),
-            'signed_document_number' => $data['signedDocumentNumber'],
-            'notes' => $data['notes'] ?? null,
-            'delivery_type' => $data['deliveryType'],
-        ]);
-
         $itemsPayload = $data['items'] ?? [];
 
-        foreach ($itemsPayload as $itemPayload) {
-            $itemId = $itemPayload['itemId'];
+        $record = DB::transaction(function () use ($data, $affiliate, $signatureMeta, $user, $recordId, $itemsPayload, $documentType, $documentNumber) {
+            $record = SstDeliveryRecord::create([
+                'id' => $recordId,
+                'affiliate_id' => $affiliate['id'],
+                'affiliate_document_type' => $affiliate['documentType'],
+                'affiliate_document_number' => $affiliate['documentNumber'],
+                'affiliate_first_name' => $affiliate['firstName'],
+                'affiliate_last_name' => $affiliate['lastName'],
+                'affiliate_hospital' => $affiliate['hospital'],
+                'affiliate_role' => $affiliate['role'],
+                'affiliate_status' => $affiliate['status'],
+                'delivered_by_user_id' => $user?->id,
+                'delivered_by_name' => $user?->name ?? ($data['deliveredByName'] ?? ($user?->email ?? 'Usuario Sistema')),
+                'delivered_at' => Carbon::now('America/Bogota'),
+                'signature_path' => $signatureMeta['path'] ?? null,
+                'signature_mime_type' => $signatureMeta['mime_type'] ?? null,
+                'signed_document_type' => strtoupper($data['signedDocumentType']),
+                'signed_document_number' => $data['signedDocumentNumber'],
+                'notes' => $data['notes'] ?? null,
+                'delivery_type' => $data['deliveryType'],
+            ]);
 
-            // Carnet es un ítem especial que no requiere validación de inventario
-            $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
+            foreach ($itemsPayload as $itemPayload) {
+                $itemId = $itemPayload['itemId'];
 
-            if ($isCarnet) {
-                // Crear registro para Carnet sin validación de inventario
-                SstDeliveryItem::create([
-                    'id' => (string) Str::uuid(),
-                    'delivery_id' => $record->id,
-                    'item_id' => '__carnet__',
-                    'item_name' => 'Carnet',
-                    'item_category' => 'Documentación',
-                    'item_gender' => null,
-                    'unit' => 'unidad',
-                    'variant_color' => null,
-                    'variant_size' => null,
-                    'variant_payload' => null,
-                    'quantity' => (int) ($itemPayload['quantity'] ?? 1),
-                ]);
-            } else {
-                // Validar y crear registro para ítems de inventario normales
-                $inventoryItem = $this->findInventoryItem($itemId);
-                if (! $inventoryItem) {
-                    throw new \RuntimeException('Ítem de inventario no reconocido: '.$itemId);
+                // Carnet es un ítem especial que no requiere validación de inventario
+                $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
+
+                if ($isCarnet) {
+                    SstDeliveryItem::create([
+                        'id' => (string) Str::uuid(),
+                        'delivery_id' => $record->id,
+                        'item_id' => '__carnet__',
+                        'item_name' => 'Carnet',
+                        'item_category' => 'Documentación',
+                        'item_gender' => null,
+                        'unit' => 'unidad',
+                        'variant_color' => null,
+                        'variant_size' => null,
+                        'variant_payload' => null,
+                        'quantity' => (int) ($itemPayload['quantity'] ?? 1),
+                    ]);
+                } else {
+                    $inventoryItem = $this->findInventoryItem($itemId);
+                    if (! $inventoryItem) {
+                        $this->logDeliveryInventoryItemMiss($documentType, $documentNumber, (string) $itemId);
+
+                        throw new \RuntimeException('Ítem de inventario no reconocido: '.$itemId);
+                    }
+
+                    SstDeliveryItem::create([
+                        'id' => (string) Str::uuid(),
+                        'delivery_id' => $record->id,
+                        'item_id' => $inventoryItem['id'],
+                        'item_name' => $inventoryItem['name'],
+                        'item_category' => $inventoryItem['category'],
+                        'item_gender' => $inventoryItem['gender'] ?? null,
+                        'unit' => $inventoryItem['unit'] ?? 'unidad',
+                        'variant_color' => $itemPayload['variant']['color'] ?? null,
+                        'variant_size' => $itemPayload['variant']['size'] ?? null,
+                        'variant_payload' => $itemPayload['variant'] ?? null,
+                        'quantity' => (int) $itemPayload['quantity'],
+                    ]);
                 }
-
-                SstDeliveryItem::create([
-                    'id' => (string) Str::uuid(),
-                    'delivery_id' => $record->id,
-                    'item_id' => $inventoryItem['id'],
-                    'item_name' => $inventoryItem['name'],
-                    'item_category' => $inventoryItem['category'],
-                    'item_gender' => $inventoryItem['gender'] ?? null,
-                    'unit' => $inventoryItem['unit'] ?? 'unidad',
-                    'variant_color' => $itemPayload['variant']['color'] ?? null,
-                    'variant_size' => $itemPayload['variant']['size'] ?? null,
-                    'variant_payload' => $itemPayload['variant'] ?? null,
-                    'quantity' => (int) $itemPayload['quantity'],
-                ]);
             }
-        }
+
+            return $record;
+        });
+
+        $this->logDeliveryCreated($record, $itemsPayload);
 
         return $this->transformDeliveryRecord($record->load('items', 'deliveredBy'));
     }
@@ -357,19 +356,13 @@ class SstDotacionService
      */
     public function createReturn(array $data): array
     {
-        $collection = $this->buildAffiliatesCollection();
-        $affiliate = $this->matchAffiliateInCollection(
-            $collection,
-            $data['affiliateDocumentType'],
-            $data['affiliateDocumentNumber'],
-        );
+        $documentType = strtoupper(trim((string) $data['affiliateDocumentType']));
+        $documentNumber = trim((string) $data['affiliateDocumentNumber']);
+
+        $affiliate = $this->findAffiliate($documentType, $documentNumber);
 
         if (! $affiliate) {
-            $this->logFindAffiliateMiss(
-                $collection,
-                strtoupper(trim((string) $data['affiliateDocumentType'])),
-                trim((string) $data['affiliateDocumentNumber']),
-            );
+            $this->logAffiliateMissDiagnostics($documentType, $documentNumber);
 
             throw new \RuntimeException('No se encontró el afiliado solicitado.');
         }
@@ -389,72 +382,77 @@ class SstDotacionService
         $user = User::find($userId);
 
         $recordId = (string) Str::uuid();
-
-        $record = SstReturnRecord::create([
-            'id' => $recordId,
-            'affiliate_id' => $affiliate['id'],
-            'affiliate_document_type' => $affiliate['documentType'],
-            'affiliate_document_number' => $affiliate['documentNumber'],
-            'affiliate_first_name' => $affiliate['firstName'],
-            'affiliate_last_name' => $affiliate['lastName'],
-            'affiliate_hospital' => $affiliate['hospital'],
-            'affiliate_role' => $affiliate['role'],
-            'received_by_user_id' => $user?->id,
-            'received_by_name' => $data['receivedByName'] ?? ($user?->name ?? ($user?->email ?? 'Usuario Sistema')),
-            'returned_at' => Carbon::now('America/Bogota'),
-            'signature_path' => $signatureMeta['path'] ?? null,
-            'signature_mime_type' => $signatureMeta['mime_type'] ?? null,
-            'signed_document_type' => strtoupper($data['signedDocumentType']),
-            'signed_document_number' => $data['signedDocumentNumber'],
-            'reason' => $data['reason'] ?? 'replacement',
-            'notes' => $data['notes'] ?? null,
-        ]);
-
         $itemsPayload = $data['items'] ?? [];
 
-        foreach ($itemsPayload as $itemPayload) {
-            $itemId = $itemPayload['itemId'];
+        $record = DB::transaction(function () use ($data, $affiliate, $signatureMeta, $user, $recordId, $itemsPayload, $documentType, $documentNumber) {
+            $record = SstReturnRecord::create([
+                'id' => $recordId,
+                'affiliate_id' => $affiliate['id'],
+                'affiliate_document_type' => $affiliate['documentType'],
+                'affiliate_document_number' => $affiliate['documentNumber'],
+                'affiliate_first_name' => $affiliate['firstName'],
+                'affiliate_last_name' => $affiliate['lastName'],
+                'affiliate_hospital' => $affiliate['hospital'],
+                'affiliate_role' => $affiliate['role'],
+                'received_by_user_id' => $user?->id,
+                'received_by_name' => $data['receivedByName'] ?? ($user?->name ?? ($user?->email ?? 'Usuario Sistema')),
+                'returned_at' => Carbon::now('America/Bogota'),
+                'signature_path' => $signatureMeta['path'] ?? null,
+                'signature_mime_type' => $signatureMeta['mime_type'] ?? null,
+                'signed_document_type' => strtoupper($data['signedDocumentType']),
+                'signed_document_number' => $data['signedDocumentNumber'],
+                'reason' => $data['reason'] ?? 'replacement',
+                'notes' => $data['notes'] ?? null,
+            ]);
 
-            // Carnet es un ítem especial que no requiere validación de inventario
-            $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
+            foreach ($itemsPayload as $itemPayload) {
+                $itemId = $itemPayload['itemId'];
 
-            if ($isCarnet) {
-                // Crear registro para Carnet sin validación de inventario
-                SstReturnItem::create([
-                    'id' => (string) Str::uuid(),
-                    'return_id' => $record->id,
-                    'item_id' => '__carnet__',
-                    'item_name' => 'Carnet',
-                    'item_category' => 'Documentación',
-                    'item_gender' => null,
-                    'unit' => 'unidad',
-                    'variant_color' => null,
-                    'variant_size' => null,
-                    'variant_payload' => null,
-                    'quantity' => (int) ($itemPayload['quantity'] ?? 1),
-                ]);
-            } else {
-                // Validar y crear registro para ítems de inventario normales
-                $inventoryItem = $this->findInventoryItem($itemId);
-                if (! $inventoryItem) {
-                    throw new \RuntimeException('Ítem de inventario no reconocido: '.$itemId);
+                // Carnet es un ítem especial que no requiere validación de inventario
+                $isCarnet = in_array(strtolower($itemId), ['__carnet__', 'carnet'], true);
+
+                if ($isCarnet) {
+                    SstReturnItem::create([
+                        'id' => (string) Str::uuid(),
+                        'return_id' => $record->id,
+                        'item_id' => '__carnet__',
+                        'item_name' => 'Carnet',
+                        'item_category' => 'Documentación',
+                        'item_gender' => null,
+                        'unit' => 'unidad',
+                        'variant_color' => null,
+                        'variant_size' => null,
+                        'variant_payload' => null,
+                        'quantity' => (int) ($itemPayload['quantity'] ?? 1),
+                    ]);
+                } else {
+                    $inventoryItem = $this->findInventoryItem($itemId);
+                    if (! $inventoryItem) {
+                        $this->logReturnInventoryItemMiss($documentType, $documentNumber, (string) $itemId);
+
+                        throw new \RuntimeException('Ítem de inventario no reconocido: '.$itemId);
+                    }
+
+                    SstReturnItem::create([
+                        'id' => (string) Str::uuid(),
+                        'return_id' => $record->id,
+                        'item_id' => $inventoryItem['id'],
+                        'item_name' => $inventoryItem['name'],
+                        'item_category' => $inventoryItem['category'],
+                        'item_gender' => $inventoryItem['gender'] ?? null,
+                        'unit' => $inventoryItem['unit'] ?? 'unidad',
+                        'variant_color' => $itemPayload['variant']['color'] ?? null,
+                        'variant_size' => $itemPayload['variant']['size'] ?? null,
+                        'variant_payload' => $itemPayload['variant'] ?? null,
+                        'quantity' => (int) $itemPayload['quantity'],
+                    ]);
                 }
-
-                SstReturnItem::create([
-                    'id' => (string) Str::uuid(),
-                    'return_id' => $record->id,
-                    'item_id' => $inventoryItem['id'],
-                    'item_name' => $inventoryItem['name'],
-                    'item_category' => $inventoryItem['category'],
-                    'item_gender' => $inventoryItem['gender'] ?? null,
-                    'unit' => $inventoryItem['unit'] ?? 'unidad',
-                    'variant_color' => $itemPayload['variant']['color'] ?? null,
-                    'variant_size' => $itemPayload['variant']['size'] ?? null,
-                    'variant_payload' => $itemPayload['variant'] ?? null,
-                    'quantity' => (int) $itemPayload['quantity'],
-                ]);
             }
-        }
+
+            return $record;
+        });
+
+        $this->logReturnCreated($record, $itemsPayload);
 
         return $this->transformReturnRecord($record->load('items', 'receivedBy'));
     }
@@ -1131,6 +1129,12 @@ class SstDotacionService
     private function storeSignature(string $dataUrl): array
     {
         if (! preg_match('/^data:(image\/(png|jpe?g));base64,/', $dataUrl, $matches)) {
+            Log::warning('Dotación/EPP: formato de firma inválido al almacenar', [
+                'dotacion_epp' => true,
+                'action' => 'signature_store_failed',
+                'cause' => 'invalid_format',
+            ]);
+
             throw new \InvalidArgumentException('Formato de firma inválido.');
         }
 
@@ -1140,11 +1144,24 @@ class SstDotacionService
         $binary = base64_decode($base64, true);
 
         if ($binary === false) {
+            Log::warning('Dotación/EPP: firma no se pudo decodificar', [
+                'dotacion_epp' => true,
+                'action' => 'signature_store_failed',
+                'cause' => 'decode_failed',
+            ]);
+
             throw new \InvalidArgumentException('La firma no se pudo decodificar correctamente.');
         }
 
         $size = strlen($binary);
         if ($size > 1024 * 1024) {
+            Log::warning('Dotación/EPP: firma excede tamaño máximo permitido', [
+                'dotacion_epp' => true,
+                'action' => 'signature_store_failed',
+                'cause' => 'size_exceeded',
+                'size_bytes' => $size,
+            ]);
+
             throw new \InvalidArgumentException('La firma excede el tamaño máximo permitido de 1MB.');
         }
 
@@ -1157,5 +1174,89 @@ class SstDotacionService
             'path' => $path,
             'mime_type' => $mimeType,
         ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $itemsPayload
+     */
+    private function logDeliveryCreated(SstDeliveryRecord $record, array $itemsPayload): void
+    {
+        Log::info('Dotación/EPP: entrega registrada exitosamente', [
+            'dotacion_epp' => true,
+            'action' => 'delivery_created',
+            'record_id' => $record->id,
+            'affiliate_id' => $record->affiliate_id,
+            'affiliate_document_type' => $record->affiliate_document_type,
+            'affiliate_document_number' => $record->affiliate_document_number,
+            'affiliate_hospital' => $record->affiliate_hospital,
+            'delivery_type' => $record->delivery_type,
+            'delivered_by_user_id' => $record->delivered_by_user_id,
+            'delivered_by_name' => $record->delivered_by_name,
+            'items_count' => count($itemsPayload),
+            'items' => $this->summarizeItemsForLog($itemsPayload),
+            'signature_path' => $record->signature_path,
+            'has_notes' => filled($record->notes),
+        ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $itemsPayload
+     */
+    private function logReturnCreated(SstReturnRecord $record, array $itemsPayload): void
+    {
+        Log::info('Dotación/EPP: devolución registrada exitosamente', [
+            'dotacion_epp' => true,
+            'action' => 'return_created',
+            'record_id' => $record->id,
+            'affiliate_id' => $record->affiliate_id,
+            'affiliate_document_type' => $record->affiliate_document_type,
+            'affiliate_document_number' => $record->affiliate_document_number,
+            'affiliate_hospital' => $record->affiliate_hospital,
+            'reason' => $record->reason,
+            'received_by_user_id' => $record->received_by_user_id,
+            'received_by_name' => $record->received_by_name,
+            'items_count' => count($itemsPayload),
+            'items' => $this->summarizeItemsForLog($itemsPayload),
+            'signature_path' => $record->signature_path,
+            'has_notes' => filled($record->notes),
+        ]);
+    }
+
+    private function logDeliveryInventoryItemMiss(string $documentType, string $documentNumber, string $itemId): void
+    {
+        Log::warning('Dotación/EPP: ítem de inventario no reconocido al registrar entrega', [
+            'dotacion_epp' => true,
+            'action' => 'delivery_failed',
+            'cause' => 'inventory_item_not_found',
+            'affiliate_document_type' => $documentType,
+            'affiliate_document_number' => $documentNumber,
+            'item_id' => $itemId,
+        ]);
+    }
+
+    private function logReturnInventoryItemMiss(string $documentType, string $documentNumber, string $itemId): void
+    {
+        Log::warning('Dotación/EPP: ítem de inventario no reconocido al registrar devolución', [
+            'dotacion_epp' => true,
+            'action' => 'return_failed',
+            'cause' => 'inventory_item_not_found',
+            'affiliate_document_type' => $documentType,
+            'affiliate_document_number' => $documentNumber,
+            'item_id' => $itemId,
+        ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $itemsPayload
+     * @return array<int, array{item_id: string|null, quantity: int}>
+     */
+    private function summarizeItemsForLog(array $itemsPayload): array
+    {
+        return array_map(static function (array $item): array {
+            return [
+                'item_id' => isset($item['itemId']) ? (string) $item['itemId'] : null,
+                'quantity' => (int) ($item['quantity'] ?? 1),
+            ];
+        }, $itemsPayload);
     }
 }

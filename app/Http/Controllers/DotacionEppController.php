@@ -118,6 +118,16 @@ class DotacionEppController extends Controller
         $expectedId = sprintf('%s-%s', strtoupper($data['affiliateDocumentType']), $data['affiliateDocumentNumber']);
 
         if ($expectedId !== $data['affiliateId']) {
+            Log::warning('Dotación/EPP: datos de afiliado no coinciden con el identificador al registrar entrega', [
+                'dotacion_epp' => true,
+                'action' => 'delivery_failed',
+                'cause' => 'affiliate_id_mismatch',
+                'affiliate_id_provided' => $data['affiliateId'],
+                'affiliate_id_expected' => $expectedId,
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+            ]);
+
             return response()->json([
                 'message' => 'Los datos del afiliado no coinciden con el identificador proporcionado.',
             ], 422);
@@ -131,15 +141,43 @@ class DotacionEppController extends Controller
                 'record' => $record,
             ], 201);
         } catch (\InvalidArgumentException $e) {
+            Log::warning('Dotación/EPP: validación fallida al registrar entrega', [
+                'dotacion_epp' => true,
+                'action' => 'delivery_failed',
+                'cause' => 'validation_error',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);
         } catch (\RuntimeException $e) {
+            Log::warning('Dotación/EPP: regla de negocio fallida al registrar entrega', [
+                'dotacion_epp' => true,
+                'action' => 'delivery_failed',
+                'cause' => 'business_rule_violation',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'message' => $e->getMessage(),
             ], 404);
         } catch (\Throwable $e) {
-            Log::error('Error al registrar entrega de dotación/EPP', [
+            Log::error('Dotación/EPP: error interno al registrar entrega', [
+                'dotacion_epp' => true,
+                'action' => 'delivery_failed',
+                'cause' => 'internal_error',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'delivery_type' => $data['deliveryType'] ?? null,
+                'items_count' => count($data['items'] ?? []),
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -185,6 +223,16 @@ class DotacionEppController extends Controller
         $expectedId = sprintf('%s-%s', strtoupper($data['affiliateDocumentType']), $data['affiliateDocumentNumber']);
 
         if ($expectedId !== $data['affiliateId']) {
+            Log::warning('Dotación/EPP: datos de afiliado no coinciden con el identificador al registrar devolución', [
+                'dotacion_epp' => true,
+                'action' => 'return_failed',
+                'cause' => 'affiliate_id_mismatch',
+                'affiliate_id_provided' => $data['affiliateId'],
+                'affiliate_id_expected' => $expectedId,
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+            ]);
+
             return response()->json([
                 'message' => 'Los datos del afiliado no coinciden con el identificador proporcionado.',
             ], 422);
@@ -198,15 +246,43 @@ class DotacionEppController extends Controller
                 'record' => $record,
             ], 200);
         } catch (\InvalidArgumentException $e) {
+            Log::warning('Dotación/EPP: validación fallida al registrar devolución', [
+                'dotacion_epp' => true,
+                'action' => 'return_failed',
+                'cause' => 'validation_error',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);
         } catch (\RuntimeException $e) {
+            Log::warning('Dotación/EPP: regla de negocio fallida al registrar devolución', [
+                'dotacion_epp' => true,
+                'action' => 'return_failed',
+                'cause' => 'business_rule_violation',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'message' => $e->getMessage(),
             ], 404);
         } catch (\Throwable $e) {
-            Log::error('Error al registrar devolución de dotación/EPP', [
+            Log::error('Dotación/EPP: error interno al registrar devolución', [
+                'dotacion_epp' => true,
+                'action' => 'return_failed',
+                'cause' => 'internal_error',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'reason' => $data['reason'] ?? null,
+                'items_count' => count($data['items'] ?? []),
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
