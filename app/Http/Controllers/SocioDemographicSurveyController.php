@@ -701,12 +701,13 @@ class SocioDemographicSurveyController extends Controller
 
         // Intentar obtener la firma como base64
         $firmaBase64 = $request->input('firma');
-        if ($firmaBase64 && preg_match('/^data:image\/png;base64,/', $firmaBase64)) {
+        if ($firmaBase64 && preg_match('/^data:image\/(png|jpe?g);base64,/', $firmaBase64, $matches)) {
             $base64Data = substr($firmaBase64, strpos($firmaBase64, ',') + 1);
             $fileContent = base64_decode($base64Data, true);
 
             if ($fileContent !== false) {
-                $filename = sprintf('firma-%s-%s.png', $numeroDocumento, Str::uuid());
+                $extension = $matches[1] === 'jpeg' ? 'jpg' : $matches[1];
+                $filename = sprintf('firma-%s-%s.%s', $numeroDocumento, Str::uuid(), $extension);
                 $storagePath = 'socio-demographic-surveys/signatures/'.date('Y/m').'/'.$filename;
 
                 $stored = Storage::disk($disk)->put($storagePath, $fileContent);

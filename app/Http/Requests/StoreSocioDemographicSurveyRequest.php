@@ -319,7 +319,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             // Firma Digital
             'firma' => 'nullable|string', // Base64 string
             'numeroDocumentoFirma' => 'required|string|max:255',
-            'files.firma' => 'nullable|file|mimes:png|max:2048', // PNG file
+            'files.firma' => 'nullable|file|mimes:png,jpg,jpeg|max:2048',
 
             // reCAPTCHA
             'recaptcha_token' => [new RecaptchaRule],
@@ -655,7 +655,7 @@ class StoreSocioDemographicSurveyRequest extends FormRequest
             'numeroDocumentoFirma.string' => 'El número de documento de la firma debe ser texto.',
             'numeroDocumentoFirma.max' => 'El número de documento de la firma no puede exceder 255 caracteres.',
             'files.firma.file' => 'El archivo de firma debe ser un archivo válido.',
-            'files.firma.mimes' => 'El archivo de firma debe ser una imagen PNG.',
+            'files.firma.mimes' => 'El archivo de firma debe ser una imagen PNG o JPEG.',
             'files.firma.max' => 'El archivo de firma no puede exceder 2MB.',
 
             // reCAPTCHA
