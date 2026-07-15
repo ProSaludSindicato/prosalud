@@ -440,11 +440,13 @@ class WellnessActivityRealizedController extends Controller
             }
 
             // Create wellness event images from selected evidences in the correct order
-            foreach ($sortedEvidences as $item) {
+            foreach ($sortedEvidences as $index => $item) {
                 $evidence = $item['evidence'];
+                $galleryImageUrl = $this->copyEvidenceToGalleryAsWebp($evidence, $galleryEvent->id, $index);
+
                 WellnessEventImage::create([
                     'event_id' => $galleryEvent->id,
-                    'image_url' => $evidence->image_url,
+                    'image_url' => $galleryImageUrl,
                     'is_main' => $evidence->id == $imagenPrincipalId,
                 ]);
             }
@@ -805,5 +807,88 @@ class WellnessActivityRealizedController extends Controller
         ];
 
         return $mimeToExt[$mimeType] ?? 'bin';
+    }
+
+    private function copyEvidenceToGalleryAsWebp(WellnessActivityEvidence $evidence, int $eventId, int $index): string
+    {
+        [$path, $disk] = $this->resolveEvidenceStoragePath($evidence->image_url);
+
+        if (! $path || ! Storage::disk($disk)->exists($path)) {
+            throw new \Exception('No se encontró la evidencia en almacenamiento');
+        }
+
+        $content = Storage::disk($disk)->get($path);
+        $image = @imagecreatefromstring($content);
+
+        if ($image === false) {
+            throw new \Exception('No se pudo procesar la imagen de evidencia');
+        }
+
+        ob_start();
+        imagewebp($image, null, 85);
+        $webpContent = ob_get_clean();
+        imagedestroy($image);
+
+        if (! is_string($webpContent) || $webpContent === '') {
+            throw new \Exception('No se pudo convertir la evidencia a WebP');
+        }
+
+        $filename = sprintf(
+            'Evento%d-%s-%d.webp',
+            $eventId,
+            substr(Str::uuid()->toString(), 0, 6),
+            $index + 1,
+        );
+        $storagePath = 'wellness-events/'.$eventId.'/'.$filename;
+
+        $targetDisk = 'prosalud-public';
+        $fallbackDisk = 'public';
+        $stored = Storage::disk($targetDisk)->put($storagePath, $webpContent);
+        $finalDisk = $targetDisk;
+
+        if (! $stored) {
+            $stored = Storage::disk($fallbackDisk)->put($storagePath, $webpContent);
+            $finalDisk = $fallbackDisk;
+        }
+
+        if (! $stored) {
+            throw new \Exception('No se pudo guardar la imagen de galería');
+        }
+
+        if ($finalDisk === 'prosalud-public') {
+            $baseUrl = config('filesystems.disks.prosalud-public.url');
+
+            return rtrim($baseUrl, '/').'/'.ltrim($storagePath, '/');
+        }
+
+        $baseUrl = config('filesystems.disks.public.url');
+
+        return rtrim($baseUrl, '/').'/'.ltrim($storagePath, '/');
+    }
+
+    /**
+     * @return array{0: ?string, 1: string}
+     */
+    private function resolveEvidenceStoragePath(string $imageUrl): array
+    {
+        $publicBaseUrl = config('filesystems.disks.prosalud-public.url');
+        if ($publicBaseUrl && str_starts_with($imageUrl, $publicBaseUrl)) {
+            return [str_replace($publicBaseUrl.'/', '', $imageUrl), 'prosalud-public'];
+        }
+
+        $baseUrl = config('filesystems.disks.public.url');
+        if ($baseUrl && str_starts_with($imageUrl, $baseUrl)) {
+            return [str_replace($baseUrl.'/', '', $imageUrl), 'public'];
+        }
+
+        $parsed = parse_url($imageUrl);
+        if ($parsed && isset($parsed['path'])) {
+            $path = ltrim($parsed['path'], '/');
+            $path = preg_replace('#^storage/#', '', $path);
+
+            return [$path, 'public'];
+        }
+
+        return [null, 'prosalud-public'];
     }
 }

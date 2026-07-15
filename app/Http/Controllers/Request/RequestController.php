@@ -22,6 +22,7 @@ use App\Models\RequestForm;
 use App\Models\RequestResponse;
 use App\Models\RequestResponseAttachment;
 use App\Models\RequestStatusLog;
+use App\Services\AttachmentDeliveryService;
 use App\Services\AuditLogService;
 use App\Services\BulkRequestResponseService;
 use App\Services\CertificadoConvenioAutomaticoService;
@@ -30,6 +31,7 @@ use App\Services\ConvenioGenerationService;
 use App\Services\ExcelReaderService;
 use App\Services\RequestAssignmentService;
 use App\Services\RequestExcelExportService;
+use App\Services\RequestFileNamingService;
 use App\Services\RequestListService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -47,6 +49,7 @@ class RequestController extends Controller
     private const PREFIJO_COMPENSACION_CONVENIO_SINDICAL = 'Acorde al Convenio de Ejecución Sindical, la compensación básica a recibir en el desarrollo de actividades de este proceso sería de: ';
 
     public function __construct(
+        private AttachmentDeliveryService $attachmentDeliveryService,
         private AuditLogService $auditLogService,
         private RequestAssignmentService $assignmentService,
         private RequestExcelExportService $excelExportService,
@@ -56,6 +59,7 @@ class RequestController extends Controller
         private CertificadoConvenioService $certificadoService,
         private BulkRequestResponseService $bulkResponseService,
         private RequestListService $requestListService,
+        private RequestFileNamingService $requestFileNamingService,
     ) {}
 
     public function store(StoreRequestFormRequest $request): JsonResponse
@@ -514,7 +518,7 @@ class RequestController extends Controller
     /**
      * Download a file from a request form.
      */
-    public function downloadFile(RequestForm $request, string $fileKey): \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
+    public function downloadFile(RequestForm $request, string $fileKey): \Illuminate\Http\Response|JsonResponse
     {
         $user = request()->user();
 
@@ -558,19 +562,25 @@ class RequestController extends Controller
             $fileContent = Storage::disk($disk)->get($path);
             $originalName = $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? 'file';
             $mimeType = $fileMetadata['mime_type'] ?? 'application/octet-stream';
+            $disposition = request()->query('disposition', 'attachment') === 'inline' ? 'inline' : 'attachment';
+
+            $delivery = $this->attachmentDeliveryService->prepareForDelivery(
+                $fileContent,
+                $mimeType,
+                $originalName,
+                $disposition,
+            );
 
             Log::info('Archivo descargado de solicitud', [
                 'request_id' => $request->id,
                 'file_key' => $fileKey,
                 'path' => $path,
                 'disk' => $disk,
+                'delivered_mime_type' => $delivery['mime_type'],
+                'delivered_filename' => $delivery['filename'],
             ]);
 
-            return response()->streamDownload(function () use ($fileContent) {
-                echo $fileContent;
-            }, $originalName, [
-                'Content-Type' => $mimeType,
-            ]);
+            return response($delivery['content'], 200, $this->attachmentDeliveryService->buildDownloadResponseHeaders($delivery));
         } catch (\Exception $e) {
             Log::error('Error al descargar archivo de solicitud', [
                 'request_id' => $request->id,
@@ -2576,6 +2586,10 @@ class RequestController extends Controller
         $disk = 'prosalud-private';
         $fallbackDisk = 'local';
         $filesMetadata = [];
+        $namingContext = [
+            'request_type' => $request->input('request_type'),
+            'document_number' => $request->input('id_number'),
+        ];
 
         $allFiles = $request->allFiles();
 
@@ -2588,7 +2602,7 @@ class RequestController extends Controller
             if (is_array($file)) {
                 foreach ($file as $fileKey => $singleFile) {
                     if ($singleFile instanceof \Illuminate\Http\UploadedFile && $singleFile->isValid()) {
-                        $metadata = $this->storeUploadedFile($singleFile, $fileKey, $disk, $fallbackDisk);
+                        $metadata = $this->storeUploadedFile($singleFile, $fileKey, $disk, $fallbackDisk, $namingContext);
                         if ($metadata) {
                             $filesMetadata[$fileKey] = $metadata;
                         }
@@ -2598,14 +2612,14 @@ class RequestController extends Controller
             // Handle files with dot notation (files.certificacionBancaria)
             elseif ($key === 'files' && $file instanceof \Illuminate\Http\UploadedFile) {
                 // This shouldn't happen, but handle it just in case
-                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
+                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk, $namingContext);
                 if ($metadata) {
                     $filesMetadata[$key] = $metadata;
                 }
             }
             // Handle direct file keys (certificacionBancaria directly)
             elseif ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
-                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk);
+                $metadata = $this->storeUploadedFile($file, $key, $disk, $fallbackDisk, $namingContext);
                 if ($metadata) {
                     $filesMetadata[$key] = $metadata;
                 }
@@ -2627,7 +2641,7 @@ class RequestController extends Controller
         // Process dot notation files
         foreach ($dotNotationFiles as $fileKey => $file) {
             if (! isset($filesMetadata[$fileKey])) {
-                $metadata = $this->storeUploadedFile($file, $fileKey, $disk, $fallbackDisk);
+                $metadata = $this->storeUploadedFile($file, $fileKey, $disk, $fallbackDisk, $namingContext);
                 if ($metadata) {
                     $filesMetadata[$fileKey] = $metadata;
                 }
@@ -2661,7 +2675,7 @@ class RequestController extends Controller
 
                         // Determine file extension from mime type
                         $extension = $this->getExtensionFromMimeType($mimeType);
-                        $filename = $this->generateDescriptiveFilenameForBase64($key, $extension);
+                        $filename = $this->requestFileNamingService->getStorageFilename($key, $extension, $namingContext);
                         $storagePath = 'request-forms/'.date('Y/m').'/'.$filename;
 
                         // Store file
@@ -2684,6 +2698,7 @@ class RequestController extends Controller
                                 'disk' => $disk,
                                 'mime_type' => $mimeType,
                                 'size' => strlen($fileContent),
+                                'original_name' => $this->requestFileNamingService->getDisplayFilename($key, $extension, $namingContext),
                                 'original_key' => $key,
                             ];
                         }
@@ -2712,7 +2727,7 @@ class RequestController extends Controller
                         }
 
                         $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: $this->getExtensionFromMimeType($mimeType);
-                        $filename = Str::uuid().($extension ? '.'.$extension : '');
+                        $filename = $this->requestFileNamingService->getStorageFilename($key, $extension, $namingContext);
                         $storagePath = 'request-forms/'.date('Y/m').'/'.$filename;
 
                         // Store file
@@ -2733,7 +2748,7 @@ class RequestController extends Controller
                             $filesMetadata[$key] = [
                                 'path' => $storagePath,
                                 'disk' => $disk,
-                                'original_name' => $fileName,
+                                'original_name' => $this->requestFileNamingService->getDisplayFilename($key, $extension, $namingContext),
                                 'mime_type' => $mimeType,
                                 'size' => strlen($fileContent),
                                 'original_key' => $key,
@@ -2762,10 +2777,11 @@ class RequestController extends Controller
         string $key,
         string &$disk,
         string $fallbackDisk,
+        array $namingContext = [],
     ): ?array {
         try {
             $extension = $file->getClientOriginalExtension() ?: $this->getExtensionFromMimeType($file->getMimeType());
-            $filename = $this->generateDescriptiveFilenameForUpload($file, $key, $extension);
+            $filename = $this->requestFileNamingService->getStorageFilename($key, $extension, $namingContext);
             $storagePath = 'request-forms/'.date('Y/m').'/'.$filename;
 
             // Store file
@@ -2796,7 +2812,7 @@ class RequestController extends Controller
             return [
                 'path' => $storedPath,
                 'disk' => $finalDisk,
-                'original_name' => $file->getClientOriginalName(),
+                'original_name' => $this->requestFileNamingService->getDisplayFilename($key, $extension, $namingContext),
                 'mime_type' => $file->getMimeType(),
                 'size' => $file->getSize(),
                 'original_key' => $key,
@@ -2809,54 +2825,6 @@ class RequestController extends Controller
 
             return null;
         }
-    }
-
-    /**
-     * Generate a simple but descriptive filename for uploaded files
-     * Format: [Key]-[UniqueId].[ext]
-     * Example: CertBanc-abc123.pdf.
-     */
-    private function generateDescriptiveFilenameForUpload(
-        \Illuminate\Http\UploadedFile $file,
-        string $key,
-        string $extension,
-    ): string {
-        // Map common keys to short abbreviations
-        $keyAbbreviations = [
-            'certificacionBancaria' => 'CertBanc',
-            'diplomaEducativo' => 'Diploma',
-            'actaGrado' => 'ActaGrado',
-            'certificadoEps' => 'CertEPS',
-            'certificadoAfp' => 'CertAFP',
-            'cedula' => 'Cedula',
-            'carnet' => 'Carnet',
-            'foto' => 'Foto',
-            'documento' => 'Doc',
-        ];
-
-        // Get short name from key
-        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
-
-        // Generate short unique identifier
-        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
-
-        // Build simple filename: [ShortName]-[UniqueId].[ext]
-        return sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
-    }
-
-    /**
-     * Format key name to readable format.
-     */
-    private function formatKeyName(string $key): string
-    {
-        // Convert camelCase to PascalCase with spaces, then remove spaces
-        $formatted = preg_replace('/([a-z])([A-Z])/', '$1$2', $key);
-        $formatted = ucfirst($formatted);
-
-        // Remove special characters
-        $formatted = preg_replace('/[^a-zA-Z0-9]/', '', $formatted);
-
-        return $formatted ?: 'Archivo';
     }
 
     /**
@@ -3046,35 +3014,6 @@ class RequestController extends Controller
     }
 
     /**
-     * Generate a simple but descriptive filename for base64 encoded files
-     * Format: [Key]-[UniqueId].[ext].
-     */
-    private function generateDescriptiveFilenameForBase64(string $key, string $extension): string
-    {
-        // Map common keys to short abbreviations
-        $keyAbbreviations = [
-            'certificacionBancaria' => 'CertBanc',
-            'diplomaEducativo' => 'Diploma',
-            'actaGrado' => 'ActaGrado',
-            'certificadoEps' => 'CertEPS',
-            'certificadoAfp' => 'CertAFP',
-            'cedula' => 'Cedula',
-            'carnet' => 'Carnet',
-            'foto' => 'Foto',
-            'documento' => 'Doc',
-        ];
-
-        // Get short name from key
-        $shortName = $keyAbbreviations[$key] ?? $this->formatKeyName($key);
-
-        // Generate short unique identifier
-        $uniqueId = substr(Str::uuid()->toString(), 0, 6);
-
-        // Build simple filename: [ShortName]-[UniqueId].[ext]
-        return sprintf('%s-%s.%s', $shortName, $uniqueId, $extension);
-    }
-
-    /**
      * Get a summary of payload data for logging.
      */
     private function getPayloadSummary(array $payload): array
@@ -3214,7 +3153,7 @@ class RequestController extends Controller
     /**
      * Download a response attachment file.
      */
-    public function downloadResponseAttachment(int $responseId, int $attachmentId): \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
+    public function downloadResponseAttachment(int $responseId, int $attachmentId): \Illuminate\Http\Response|JsonResponse
     {
         $attachment = RequestResponseAttachment::where('request_response_id', $responseId)
             ->where('id', $attachmentId)
@@ -3244,19 +3183,25 @@ class RequestController extends Controller
         try {
             $fileContent = Storage::disk($disk)->get($path);
             $mimeType = Storage::disk($disk)->mimeType($path) ?? 'application/octet-stream';
+            $disposition = request()->query('disposition', 'attachment') === 'inline' ? 'inline' : 'attachment';
+
+            $delivery = $this->attachmentDeliveryService->prepareForDelivery(
+                $fileContent,
+                $mimeType,
+                $attachment->original_name,
+                $disposition,
+            );
 
             Log::info('Anexo de respuesta descargado', [
                 'response_id' => $responseId,
                 'attachment_id' => $attachmentId,
                 'path' => $path,
                 'disk' => $disk,
+                'delivered_mime_type' => $delivery['mime_type'],
+                'delivered_filename' => $delivery['filename'],
             ]);
 
-            return response()->streamDownload(function () use ($fileContent) {
-                echo $fileContent;
-            }, $attachment->original_name, [
-                'Content-Type' => $mimeType,
-            ]);
+            return response($delivery['content'], 200, $this->attachmentDeliveryService->buildDownloadResponseHeaders($delivery));
         } catch (\Exception $e) {
             Log::error('Error al descargar anexo de respuesta', [
                 'response_id' => $responseId,

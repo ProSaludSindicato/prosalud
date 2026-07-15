@@ -21,7 +21,7 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    'exposed_headers' => ['Content-Disposition', 'X-Download-Filename'],
 
     'max_age' => 86400, // 24 hours
 
