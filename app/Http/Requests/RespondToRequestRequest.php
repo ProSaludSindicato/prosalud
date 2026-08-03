@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Log;
 
 class RespondToRequestRequest extends FormRequest
 {
+    public const MAX_ACTIVIDAD_CHARS = 5000;
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -41,11 +43,11 @@ class RespondToRequestRequest extends FormRequest
         // Las actividades solo se requieren cuando se va a generar el certificado
         if ($this->input('status') === 'COMPLETED' && $this->has('actividades')) {
             $rules['actividades'] = 'required|array|min:1';
-            $rules['actividades.*'] = 'required|string|min:1|max:1200';
+            $rules['actividades.*'] = 'required|string|min:1|max:'.self::MAX_ACTIVIDAD_CHARS;
         } elseif ($this->has('actividades')) {
             // Si viene actividades pero el status no es COMPLETED, es opcional
             $rules['actividades'] = 'nullable|array';
-            $rules['actividades.*'] = 'nullable|string|max:1200';
+            $rules['actividades.*'] = 'nullable|string|max:'.self::MAX_ACTIVIDAD_CHARS;
         }
 
         // Validar compensaciones si vienen en el request (opcionales, solo si están presentes)
@@ -85,7 +87,7 @@ class RespondToRequestRequest extends FormRequest
             'actividades.*.required' => 'Cada actividad es obligatoria.',
             'actividades.*.string' => 'Cada actividad debe ser texto.',
             'actividades.*.min' => 'Cada actividad debe tener al menos 1 carácter.',
-            'actividades.*.max' => 'Cada actividad no puede exceder 1200 caracteres.',
+            'actividades.*.max' => 'Cada actividad no puede exceder '.self::MAX_ACTIVIDAD_CHARS.' caracteres.',
             't_basicos.integer' => 'El valor de T. Basicos debe ser un número entero.',
             't_basicos.min' => 'El valor de T. Basicos no puede ser negativo.',
             't_auxilios.integer' => 'El valor de T. Auxilios debe ser un número entero.',

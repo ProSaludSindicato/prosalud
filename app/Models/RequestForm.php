@@ -846,6 +846,21 @@ class RequestForm extends Model
             $result[$key] = $value;
         }
 
+        if ($this->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
+            foreach (['infoCertificado', 'dirigidoAQuien', 'otrosDescripcion'] as $key) {
+                if (! array_key_exists($key, $payload)) {
+                    continue;
+                }
+
+                $value = $payload[$key];
+                if ($value === null || $value === '') {
+                    continue;
+                }
+
+                $result[$key] = $value;
+            }
+        }
+
         return $result;
     }
 

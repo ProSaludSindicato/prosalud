@@ -205,6 +205,11 @@
                             </table>
                             @endif
 
+                            @php $notices = \App\Support\RequestFormEmailNotices::noticesFor($requestForm); @endphp
+                            @if(!empty($notices))
+                                @include('emails.partials.request_form_notices', ['notices' => $notices])
+                            @endif
+
                             <!-- Next Steps -->
                             @if($requestForm->esCertificadoConvenioSimple())
                             <p style="margin:0 0 24px; font-size:15px; color:#4b5563; line-height:1.7;">
