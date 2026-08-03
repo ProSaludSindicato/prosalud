@@ -18,6 +18,8 @@ class ConvenioEmailTracking extends Model
 
     public const SIGNING_RECHAZADO = 'rechazado';
 
+    public const ESTADO_VERIFICACION = 'verificacion';
+
     protected $table = 'convenio_email_tracking';
 
     protected $fillable = [
@@ -44,9 +46,12 @@ class ConvenioEmailTracking extends Model
         'rechazado_at',
         'motivo_rechazo',
         'sede',
+        'generated_by_user_id',
+        'convenio_data',
     ];
 
     protected $casts = [
+        'convenio_data' => 'array',
         'enviado_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -149,6 +154,18 @@ class ConvenioEmailTracking extends Model
         ]);
     }
 
+    public function marcarComoDisponibleVerificacion(): void
+    {
+        $this->update([
+            'estado' => self::ESTADO_VERIFICACION,
+        ]);
+    }
+
+    public function generatedBy()
+    {
+        return $this->belongsTo(User::class, 'generated_by_user_id');
+    }
+
     /**
      * Incrementar intentos en este registro y en todos los registros relacionados
      */
@@ -170,6 +187,46 @@ class ConvenioEmailTracking extends Model
                 $parentTracking->resends()->update(['intentos' => $nuevoNumeroIntentos]);
             }
         }
+    }
+
+    /**
+     * @return array{resend: bool, download_original: bool, download_final: bool}
+     */
+    public function resolveAvailableActions(bool $digitalSigningEnabled): array
+    {
+        $hasOriginal = $this->resolveOriginalPdfAbsolutePath() !== null;
+
+        $canResend = in_array($this->estado, ['enviado', 'fallido', self::ESTADO_VERIFICACION], true);
+
+        $canDownloadFinal = false;
+        if ($digitalSigningEnabled) {
+            $canDownloadFinal = in_array($this->signing_estado, [
+                self::SIGNING_FIRMADO_AFILIADO,
+                self::SIGNING_COMPLETADO,
+            ], true);
+        }
+
+        return [
+            'resend' => $canResend && $hasOriginal,
+            'download_original' => $hasOriginal,
+            'download_final' => $canDownloadFinal,
+        ];
+    }
+
+    public function resolveOriginalPdfAbsolutePath(): ?string
+    {
+        if ($this->pdf_original_path) {
+            $stored = storage_path('app/'.$this->pdf_original_path);
+            if (is_file($stored)) {
+                return $stored;
+            }
+        }
+
+        if (is_string($this->ruta_archivo_pdf) && $this->ruta_archivo_pdf !== '' && is_file($this->ruta_archivo_pdf)) {
+            return $this->ruta_archivo_pdf;
+        }
+
+        return null;
     }
 
     /**

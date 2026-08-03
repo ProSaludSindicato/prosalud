@@ -252,16 +252,19 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::get('/export-template', [ConvenioManualController::class, 'exportTemplate'])
         ->middleware('permission:document_signing.manage');
 
-    // Import and generate convenios from Excel (bulk)
+    // Import and generate convenios from Excel (bulk; optional send_email per row)
     Route::post('/import-bulk', [ConvenioManualController::class, 'importAndGenerateBulk'])
         ->middleware('permission:document_signing.manage');
 
-    // Bulk email sending
+    // @deprecated Use import-bulk or resend-emails from history (returns 410)
     Route::post('/send-bulk-emails', [ConvenioManualController::class, 'sendBulkEmails'])
         ->middleware('permission:document_signing.manage');
 
-    // Email history and tracking
+    // Email history, bulk resend, and tracking
     Route::get('/email-history', [ConvenioManualController::class, 'listEmailHistory'])
+        ->middleware('permission:document_signing.view');
+
+    Route::get('/tracking/{tracking}', [ConvenioManualController::class, 'showTracking'])
         ->middleware('permission:document_signing.view');
 
     // Resend emails

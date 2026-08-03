@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill, Font};
-use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
-use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class ConvenioExcelTemplateExportService
 {
@@ -20,7 +22,7 @@ class ConvenioExcelTemplateExportService
     {
         Log::info('[CONVENIO TEMPLATE EXPORT] Generando plantilla Excel para importación masiva');
 
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Convenios');
 
@@ -30,15 +32,15 @@ class ConvenioExcelTemplateExportService
         // Establecer encabezados
         $headerRow = 1;
         $colIndex = 1;
-        
+
         foreach ($columns as $column) {
             $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex);
-            $sheet->setCellValue($colLetter . $headerRow, $column['header']);
+            $sheet->setCellValue($colLetter.$headerRow, $column['header']);
             $colIndex++;
         }
 
         // Aplicar formato a los encabezados
-        $headerRange = 'A1:' . \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($columns)) . '1';
+        $headerRange = 'A1:'.\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($columns)).'1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => [
                 'bold' => true,
@@ -65,8 +67,8 @@ class ConvenioExcelTemplateExportService
         $colIndex = 1;
         foreach ($columns as $column) {
             $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex);
-            if (!empty($column['description'])) {
-                $sheet->getComment($colLetter . $headerRow)->getText()->createTextRun($column['description']);
+            if (! empty($column['description'])) {
+                $sheet->getComment($colLetter.$headerRow)->getText()->createTextRun($column['description']);
             }
             $colIndex++;
         }
@@ -84,7 +86,7 @@ class ConvenioExcelTemplateExportService
         $this->addCheckboxValidation($sheet, $columns);
 
         // Guardar en archivo temporal
-        $tempPath = tempnam(sys_get_temp_dir(), 'convenio_template_') . '.xlsx';
+        $tempPath = tempnam(sys_get_temp_dir(), 'convenio_template_').'.xlsx';
         $writer = new Xlsx($spreadsheet);
         $writer->save($tempPath);
 
@@ -98,8 +100,6 @@ class ConvenioExcelTemplateExportService
 
     /**
      * Define las columnas de la plantilla con sus metadatos
-     *
-     * @return array
      */
     private function getColumnDefinitions(): array
     {
@@ -140,7 +140,7 @@ class ConvenioExcelTemplateExportService
                 'example' => 'MEDELLÍN',
                 'required' => true,
             ],
-            
+
             // Campos requeridos del afiliado y convenio
             [
                 'header' => 'Proceso',
@@ -190,7 +190,7 @@ class ConvenioExcelTemplateExportService
                 'example' => '3001234567',
                 'required' => true,
             ],
-            
+
             // Compensación básica redactada (requerido O valores individuales)
             [
                 'header' => 'Compensacion Basica Redactada',
@@ -198,7 +198,7 @@ class ConvenioExcelTemplateExportService
                 'description' => 'Texto completo de la compensación básica. REQUERIDO si no se proporcionan valores individuales de compensación. NO se puede usar junto con valores individuales.',
                 'example' => '',
             ],
-            
+
             // Campos de compensación
             [
                 'header' => 'Basico',
@@ -314,7 +314,7 @@ class ConvenioExcelTemplateExportService
                 'description' => 'Valor del auxilio con recargo festivo nocturno',
                 'example' => '8552',
             ],
-            
+
             // Opciones de procesamiento
             [
                 'header' => 'Email',
@@ -334,9 +334,6 @@ class ConvenioExcelTemplateExportService
     /**
      * Agrega validación tipo checkbox a la columna "Enviar Email"
      * Usa una lista desplegable con opciones "true" y "false"
-     *
-     * @param Worksheet $sheet
-     * @param array $columns
      */
     private function addCheckboxValidation(Worksheet $sheet, array $columns): void
     {
@@ -349,43 +346,32 @@ class ConvenioExcelTemplateExportService
             }
         }
 
-        if (!$columnaEnviarEmail) {
+        if (! $columnaEnviarEmail) {
             return; // No se encontró la columna
         }
 
         $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnaEnviarEmail);
-        $highestRow = $sheet->getHighestRow();
-
-        // Aplicar validación de datos tipo lista a todas las filas de datos (desde fila 2)
-        // Usar un rango grande para cubrir futuras filas (hasta fila 1000)
+        $highestRow = max(2, $sheet->getHighestRow());
         $maxDataRow = max(1000, $highestRow + 100);
-        
-        // Establecer valor por defecto "Si" en todas las filas de datos
-        for ($row = 2; $row <= $maxDataRow; $row++) {
-            $cell = $colLetter . $row;
-            // Establecer valor por defecto "Si"
-            $sheet->setCellValue($cell, 'Si');
-            
-            // Aplicar validación
-            $validation = $sheet->getCell($cell)->getDataValidation();
-            
-            $validation->setType(DataValidation::TYPE_LIST);
-            $validation->setErrorStyle(DataValidation::STYLE_STOP);
-            $validation->setAllowBlank(false); // No permitir valores vacíos, siempre debe ser Si o No
-            $validation->setShowInputMessage(true);
-            $validation->setShowErrorMessage(true);
-            $validation->setShowDropDown(true);
-            $validation->setErrorTitle('Valor inválido');
-            $validation->setError('Por favor seleccione "Si" o "No"');
-            $validation->setPromptTitle('Enviar Email');
-            $validation->setPrompt('Seleccione "Si" para enviar el convenio por correo o "No" para no enviar');
-            $validation->setFormula1('"Si,No"'); // Lista de opciones separadas por coma
-        }
+        $validationRange = $colLetter.'2:'.$colLetter.$maxDataRow;
+
+        $validation = $sheet->getCell($colLetter.'2')->getDataValidation();
+        $validation->setType(DataValidation::TYPE_LIST);
+        $validation->setErrorStyle(DataValidation::STYLE_STOP);
+        $validation->setAllowBlank(true);
+        $validation->setShowInputMessage(true);
+        $validation->setShowErrorMessage(true);
+        $validation->setShowDropDown(true);
+        $validation->setErrorTitle('Valor inválido');
+        $validation->setError('Por favor seleccione "Si" o "No", o deje la celda vacía para no enviar correo');
+        $validation->setPromptTitle('Enviar Email');
+        $validation->setPrompt('Seleccione "Si" para enviar el convenio por correo, "No" o vacío para no enviar');
+        $validation->setFormula1('"Si,No"');
+        $validation->setSqref($validationRange);
 
         Log::debug('[CONVENIO TEMPLATE EXPORT] Validación tipo checkbox aplicada a columna Enviar Email', [
             'columna' => $colLetter,
-            'filas' => $maxDataRow - 1,
+            'rango' => $validationRange,
         ]);
     }
 }
-

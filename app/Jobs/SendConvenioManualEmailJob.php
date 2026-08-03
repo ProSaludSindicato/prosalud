@@ -7,6 +7,7 @@ use App\Models\ConvenioEmailTracking;
 use App\Services\AfiliadoService;
 use App\Services\ConvenioDigitalSigningService;
 use App\Services\ConvenioPdfStorageService;
+use App\Support\ConvenioDelivery;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -44,6 +45,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
         public ?int $parentTrackingId = null,
         public ?string $optionalEmail = null,
         public ?string $sede = null,
+        public ?array $convenioData = null,
     ) {}
 
     /**
@@ -140,24 +142,11 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 ]);
             }
 
-            // Get full name: from affiliate if available, otherwise from filename
-            $nombreCompleto = '';
-            if ($afiliado) {
-                $nombreCompleto = $afiliado['nombre_completo'] ?? '';
-                if (empty($nombreCompleto)) {
-                    $nombreCompleto = trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''));
-                }
-            }
-
-            // If still empty, use name from filename
-            if (empty($nombreCompleto)) {
-                $nombreCompleto = $nombreCompletoFromFile;
-            }
-
-            // Fallback if still empty
-            if (empty($nombreCompleto)) {
-                $nombreCompleto = 'Estimado afiliado';
-            }
+            $nombreCompleto = $this->resolveAffiliateDisplayName(
+                $afiliado,
+                $nombreCompletoFromFile,
+                $this->convenioData,
+            );
 
             // Create tracking record before sending
             $tracking = $this->createTrackingRecord($afiliado, null, $nombreCompletoFromFile);
@@ -187,7 +176,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             }
 
             $signingUrl = null;
-            if (config('convenio_signing.enabled', true)) {
+            if (config('convenio_signing.enabled', true) && ConvenioDelivery::isProductionMode()) {
                 try {
                     $plainToken = ConvenioDigitalSigningService::generatePlainToken();
                     $relativeStored = $convenioPdfStorageService->storeOriginalFromAbsolutePath($tracking, $this->rutaArchivoPdf);
@@ -208,7 +197,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             }
 
             $mailable = new ConvenioManualNotification(
-                $nombreCompleto,
+                $nombreCompleto ?? '',
                 $this->documento,
                 $this->nombreConvenio,
                 $signingUrl,
@@ -290,6 +279,32 @@ class SendConvenioManualEmailJob implements ShouldQueue
     }
 
     /**
+     * @param  array<string, mixed>|null  $afiliado
+     * @param  array<string, mixed>|null  $convenioData
+     */
+    private function resolveAffiliateDisplayName(?array $afiliado, string $nombreFromFile, ?array $convenioData): ?string
+    {
+        $nombreCompleto = '';
+
+        if ($afiliado) {
+            $nombreCompleto = trim((string) ($afiliado['nombre_completo'] ?? ''));
+            if ($nombreCompleto === '') {
+                $nombreCompleto = trim(trim((string) ($afiliado['nombres'] ?? '')).' '.trim((string) ($afiliado['apellidos'] ?? '')));
+            }
+        }
+
+        if ($nombreCompleto === '' && is_array($convenioData)) {
+            $nombreCompleto = trim(trim((string) ($convenioData['nombres'] ?? '')).' '.trim((string) ($convenioData['apellidos'] ?? '')));
+        }
+
+        if ($nombreCompleto === '' && $nombreFromFile !== '') {
+            $nombreCompleto = trim($nombreFromFile);
+        }
+
+        return $nombreCompleto !== '' ? $nombreCompleto : null;
+    }
+
+    /**
      * Extract name from filename
      * Format: "HLM-ASIS - RESTREPO RAMIREZ MARIANA - 1000757150.pdf"
      * Returns the middle part (name) or empty string
@@ -324,24 +339,17 @@ class SendConvenioManualEmailJob implements ShouldQueue
         // Use provided email if available, otherwise use affiliate email
         $emailToStore = ! empty($this->optionalEmail) ? $this->optionalEmail : $emailAfiliado;
 
-        $nombreAfiliado = '';
-
-        if ($afiliado) {
-            $nombreAfiliado = $afiliado['nombre_completo'] ?? '';
-            if (empty($nombreAfiliado)) {
-                $nombreAfiliado = trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? ''));
-            }
+        $convenioData = $this->convenioData;
+        if (($convenioData === null || $convenioData === []) && $this->parentTrackingId) {
+            $parentTracking = ConvenioEmailTracking::find($this->parentTrackingId);
+            $convenioData = $parentTracking?->convenio_data;
         }
 
-        // If no name from affiliate, use name from filename
-        if (empty($nombreAfiliado)) {
-            $nombreAfiliado = $nombreFromFile;
-        }
-
-        // Final fallback
-        if (empty($nombreAfiliado)) {
-            $nombreAfiliado = 'No disponible';
-        }
+        $nombreAfiliado = $this->resolveAffiliateDisplayName(
+            $afiliado,
+            $nombreFromFile,
+            $convenioData,
+        ) ?? 'No disponible';
 
         // Si es un reenvío, obtener el número de intentos del tracking padre
         $intentos = 0;
@@ -370,6 +378,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             'intentos' => $intentos,
             'parent_tracking_id' => $this->parentTrackingId,
             'sede' => $sedeParaTracking,
+            'convenio_data' => $convenioData,
         ]);
     }
 

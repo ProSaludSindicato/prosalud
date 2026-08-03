@@ -1016,24 +1016,53 @@ class ConvenioGenerationService
     }
 
     /**
-     * Convierte un convenio Word a PDF (comentado para implementación futura)
-     *
-     * @param  string  $rutaWord  Ruta del archivo Word
-     * @return array Resultado con ruta del PDF
+     * @return array{ruta: string, nombre: string, tipo: string}
      */
-    /*
-    public function convertirConvenioAPDF(string $rutaWord): array
+    public function finalizeConvenioPdf(string $rutaWord): array
     {
-        // TODO: Implementar conversión a PDF usando CloudConvert
-        // Similar a como se hace en CertificadoConvenioService
-        //
-        // Ejemplo:
-        // $converterService = app(\App\Services\DocxToPdfCloudConvertService::class);
-        // $resultadoPDF = $converterService->convert($rutaWord, true);
-        //
-        // return $resultadoPDF;
+        if (! file_exists($rutaWord)) {
+            throw new \Exception("Archivo Word no encontrado: {$rutaWord}");
+        }
 
-        throw new \Exception('Conversión a PDF no implementada aún');
+        $converterService = app(DocxToPdfService::class);
+        $resultadoPdf = $converterService->convert($rutaWord, true);
+        $pdfTmpPath = storage_path('app/'.$resultadoPdf['path']);
+
+        if (! file_exists($pdfTmpPath)) {
+            throw new \Exception('No se generó el archivo PDF tras la conversión.');
+        }
+
+        $nombrePdf = preg_replace('/\.docx$/i', '.pdf', basename($rutaWord));
+        $outputDir = storage_path('app/'.self::OUTPUT_DIR);
+
+        if (! is_dir($outputDir)) {
+            mkdir($outputDir, 0755, true);
+        }
+
+        $rutaFinal = $outputDir.'/'.$nombrePdf;
+
+        if (! copy($pdfTmpPath, $rutaFinal)) {
+            throw new \Exception("No se pudo copiar el PDF a: {$rutaFinal}");
+        }
+
+        if (file_exists($rutaWord)) {
+            @unlink($rutaWord);
+        }
+
+        if ($pdfTmpPath !== $rutaFinal && file_exists($pdfTmpPath)) {
+            @unlink($pdfTmpPath);
+        }
+
+        Log::info('[CONVENIO GENERATION] Convenio convertido a PDF', [
+            'nombre_archivo' => $nombrePdf,
+            'ruta' => $rutaFinal,
+            'tamaño_bytes' => filesize($rutaFinal),
+        ]);
+
+        return [
+            'ruta' => $rutaFinal,
+            'nombre' => $nombrePdf,
+            'tipo' => 'pdf',
+        ];
     }
-    */
 }

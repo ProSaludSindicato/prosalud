@@ -8,6 +8,9 @@ use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioExcelTemplateExportService;
 use App\Services\ConvenioGenerationService;
 use App\Services\ConvenioPdfStorageService;
+use App\Support\ConvenioDataLabels;
+use App\Support\ConvenioDelivery;
+use App\Support\ConvenioHistoryUi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -25,163 +28,38 @@ class ConvenioManualController extends Controller
     ) {}
 
     /**
-     * Send bulk emails with PDF attachments to multiple affiliates.
+     * @deprecated Use import-bulk with send_email=true or resend-emails from history.
      */
     public function sendBulkEmails(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'document_numbers' => 'required|array',
-            'document_numbers.*' => 'required|string|max:50',
-            'emails' => 'nullable|array',
-            'emails.*' => 'nullable|email|max:255',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $documentNumbers = $request->input('document_numbers');
-        $emails = $request->input('emails', []);
-        $conveniosPath = resource_path('convenios');
-
-        if (! is_dir($conveniosPath)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Directorio de convenios no encontrado',
-            ], 404);
-        }
-
-        // Get all PDF files
-        $pdfFiles = glob($conveniosPath.'/*.pdf');
-        $filesToProcess = [];
-
-        // Find PDFs for the requested document numbers
-        foreach ($documentNumbers as $documento) {
-            foreach ($pdfFiles as $file) {
-                $filename = basename($file);
-                $filenameWithoutExt = basename($file, '.pdf');
-
-                // Extract document number from filename
-                $parts = explode(' - ', $filenameWithoutExt);
-                if (count($parts) >= 2) {
-                    $fileDocumento = preg_replace('/[^0-9]/', '', end($parts));
-
-                    if ($fileDocumento === $documento) {
-                        $nombreConvenio = trim($parts[0]);
-                        $filesToProcess[] = [
-                            'documento' => $documento,
-                            'filename' => $filename,
-                            'ruta_archivo_pdf' => $file,
-                            'nombre_convenio' => $nombreConvenio,
-                        ];
-                        break; // Found PDF for this document number
-                    }
-                }
-            }
-        }
-
-        if (empty($filesToProcess)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se encontraron archivos PDF para los números de documento proporcionados',
-            ], 404);
-        }
-
-        // Rate limit: 6 emails per second = 1 email every 166.67 milliseconds
-        $emailsPerSecond = 6;
-        $delayMs = 1000 / $emailsPerSecond;
-
-        // Build email map: documento => email (optional)
-        // If emails array is provided, map it to document_numbers
-        // It can be an associative array (document_number => email) or indexed array
-        $emailMap = [];
-        if (! empty($emails)) {
-            // Check if emails is associative (keys are document numbers) or indexed
-            $keys = array_keys($emails);
-            $isAssociative = array_keys($keys) !== $keys;
-
-            if ($isAssociative) {
-                // Associative array: document_number => email
-                $emailMap = array_filter($emails, function ($email) {
-                    return ! empty($email);
-                });
-            } else {
-                // Indexed array: map by position
-                foreach ($documentNumbers as $index => $documentNumber) {
-                    if (isset($emails[$index]) && ! empty($emails[$index])) {
-                        $emailMap[$documentNumber] = $emails[$index];
-                    }
-                }
-            }
-        }
-
-        // Dispatch jobs with rate limiting
-        $enqueued = 0;
-        $errors = 0;
-
-        foreach ($filesToProcess as $index => $item) {
-            try {
-                if (! file_exists($item['ruta_archivo_pdf'])) {
-                    $errors++;
-                    Log::warning('Archivo PDF no encontrado al encolar job', [
-                        'archivo' => $item['filename'],
-                        'ruta' => $item['ruta_archivo_pdf'],
-                    ]);
-
-                    continue;
-                }
-
-                // Calculate delay: each job should be delayed by (index * delay_ms) milliseconds
-                $delaySeconds = ($index * $delayMs) / 1000;
-
-                // Get optional email for this document if provided
-                $optionalEmail = $emailMap[$item['documento']] ?? null;
-
-                // Dispatch job with delay
-                SendConvenioManualEmailJob::dispatch(
-                    $item['documento'],
-                    $item['filename'],
-                    $item['ruta_archivo_pdf'],
-                    $item['nombre_convenio'],
-                    null, // parent_tracking_id
-                    $optionalEmail, // optional email
-                    null,
-                )->delay(now()->addSeconds($delaySeconds));
-
-                $enqueued++;
-            } catch (\Exception $e) {
-                $errors++;
-                Log::error('Error al encolar job de correo de convenio manual', [
-                    'archivo' => $item['filename'],
-                    'documento' => $item['documento'],
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        Log::info('Bulk convenio manual emails queued', [
-            'total_requested' => count($documentNumbers),
-            'files_found' => count($filesToProcess),
-            'enqueued' => $enqueued,
-            'errors' => $errors,
+        Log::warning('[CONVENIO API] Endpoint deprecado send-bulk-emails invocado', [
+            'user_id' => $request->user()?->id,
         ]);
 
         return response()->json([
-            'success' => true,
-            'message' => 'El proceso de envío masivo ha sido iniciado. Los correos se enviarán de forma asíncrona.',
-            'data' => [
-                'total_requested' => count($documentNumbers),
-                'files_found' => count($filesToProcess),
-                'enqueued' => $enqueued,
-                'errors' => $errors,
-                'status' => 'queued',
-                'note' => 'Puedes consultar el estado de los envíos en el historial de correos.',
+            'success' => false,
+            'message' => 'El envío masivo desde PDFs preexistentes fue reemplazado. Use importación masiva para generar y enviar convenios, o seleccione registros en el historial y reenvíe con resend-emails.',
+            'deprecated' => true,
+            'delivery_mode' => config('convenios.delivery_mode'),
+            'alternatives' => [
+                'import_bulk' => [
+                    'endpoint' => '/api/convenios-manual/import-bulk',
+                    'description' => 'Suba un Excel para generar PDFs y opcionalmente enviar correos al procesar.',
+                ],
+                'history_resend' => [
+                    'endpoint' => '/api/convenios-manual/resend-emails',
+                    'description' => 'Seleccione uno o más registros del historial y reenvíe con tracking_ids.',
+                ],
+                'history' => [
+                    'endpoint' => '/api/convenios-manual/email-history',
+                    'description' => 'Consulte el historial, filtre por estado y use acciones masivas.',
+                ],
+                'cli_legacy' => [
+                    'command' => 'convenios:send-manual-emails',
+                    'description' => 'Solo operaciones de TI con PDFs en resources/convenios/.',
+                ],
             ],
-        ]);
+        ], 410);
     }
 
     /**
@@ -194,9 +72,9 @@ class ConvenioManualController extends Controller
         $validator = Validator::make($request->all(), [
             'q' => 'nullable|string|max:200',
             'documento' => 'nullable|string|max:50',
-            'estado' => 'nullable|string|in:pendiente,enviado,fallido',
+            'estado' => 'nullable|string|in:pendiente,enviado,fallido,verificacion',
             'signing_estado' => 'nullable|string|in:pendiente_firma,firmado_afiliado,completado,rechazado',
-            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,firma_pendiente_firma,firma_firmado_afiliado,firma_completado',
+            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,verificacion,firma_pendiente_firma,firma_firmado_afiliado,firma_completado',
             'sede' => 'nullable|string|max:255',
             'nombre_convenio' => 'nullable|string|max:255',
             'fecha_desde' => 'nullable|date',
@@ -241,7 +119,7 @@ class ConvenioManualController extends Controller
                 // Signing filters are ignored when the feature is disabled
             } else {
                 match ($estadoFiltro) {
-                    'pendiente', 'enviado', 'fallido' => $query->byEstado($estadoFiltro),
+                    'pendiente', 'enviado', 'fallido', 'verificacion' => $query->byEstado($estadoFiltro),
                     'firma_pendiente_firma' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA),
                     'firma_firmado_afiliado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO),
                     'firma_completado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_COMPLETADO),
@@ -275,18 +153,63 @@ class ConvenioManualController extends Controller
         $perPage = $request->input('per_page', 15);
         $trackings = $query->paginate($perPage);
 
-        if (! $digitalSigningEnabled) {
-            $trackings->through(function (ConvenioEmailTracking $tracking): ConvenioEmailTracking {
+        $trackings->through(function (ConvenioEmailTracking $tracking) use ($digitalSigningEnabled): ConvenioEmailTracking {
+            if (! $digitalSigningEnabled) {
                 $tracking->signing_estado = null;
+            }
 
-                return $tracking;
-            });
-        }
+            $tracking->setAttribute(
+                'available_actions',
+                $tracking->resolveAvailableActions($digitalSigningEnabled),
+            );
+
+            return $tracking;
+        });
 
         return response()->json([
             'success' => true,
+            'delivery_mode' => config('convenios.delivery_mode'),
             'digital_signing_enabled' => $digitalSigningEnabled,
+            'ui' => ConvenioHistoryUi::metadata($digitalSigningEnabled),
             'data' => $trackings,
+        ]);
+    }
+
+    /**
+     * Detalle de un registro del historial, incluyendo los datos usados para generar el convenio.
+     */
+    public function showTracking(Request $request, ConvenioEmailTracking $tracking): JsonResponse
+    {
+        $digitalSigningEnabled = (bool) config('convenio_signing.enabled', true);
+
+        if (! $digitalSigningEnabled) {
+            $tracking->signing_estado = null;
+        }
+
+        $convenioData = $tracking->convenio_data;
+        if (($convenioData === null || $convenioData === []) && $tracking->parent_tracking_id) {
+            $tracking->loadMissing('parentTracking');
+            $convenioData = $tracking->parentTracking?->convenio_data;
+        }
+
+        $tracking->loadMissing('generatedBy:id,name,email');
+
+        return response()->json([
+            'success' => true,
+            'delivery_mode' => config('convenios.delivery_mode'),
+            'digital_signing_enabled' => $digitalSigningEnabled,
+            'data' => [
+                'tracking' => array_merge($tracking->toArray(), [
+                    'available_actions' => $tracking->resolveAvailableActions($digitalSigningEnabled),
+                ]),
+                'convenio_data' => $convenioData,
+                'convenio_data_fields' => ConvenioDataLabels::present(is_array($convenioData) ? $convenioData : null),
+                'generated_by' => $tracking->generatedBy ? [
+                    'id' => $tracking->generatedBy->id,
+                    'name' => $tracking->generatedBy->name,
+                    'email' => $tracking->generatedBy->email,
+                ] : null,
+            ],
         ]);
     }
 
@@ -312,6 +235,8 @@ class ConvenioManualController extends Controller
 
         $trackingIds = $request->input('tracking_ids');
         $emails = $request->input('emails', []);
+        $testMode = ConvenioDelivery::isTestMode();
+        $testRecipientEmail = $testMode ? $request->user()?->email : null;
 
         // Build email map: tracking_id => email (optional)
         // If emails array is provided, map it to tracking_ids
@@ -372,7 +297,7 @@ class ConvenioManualController extends Controller
                 $tracking->incrementarIntentos();
 
                 // Get optional email for this tracking if provided
-                $optionalEmail = $emailMap[$trackingId] ?? null;
+                $optionalEmail = $testRecipientEmail ?? ($emailMap[$trackingId] ?? null);
 
                 // Dispatch job to resend email with parent tracking ID
                 SendConvenioManualEmailJob::dispatch(
@@ -413,6 +338,12 @@ class ConvenioManualController extends Controller
 
         return response()->json([
             'success' => true,
+            'delivery_mode' => config('convenios.delivery_mode'),
+            'message' => count($trackingIds) > 1
+                ? 'Se encolaron '.count($results['success']).' reenvíos. '.(ConvenioDelivery::isTestMode()
+                    ? 'En modo test los correos llegarán al usuario que realiza la solicitud.'
+                    : 'Consulte el historial para ver el estado.')
+                : 'Reenvío encolado correctamente.',
             'data' => [
                 'total' => count($trackingIds),
                 'success_count' => count($results['success']),
@@ -528,6 +459,7 @@ class ConvenioManualController extends Controller
 
         return response()->json([
             'success' => true,
+            'delivery_mode' => config('convenios.delivery_mode'),
             'data' => $stats,
         ]);
     }
@@ -594,24 +526,11 @@ class ConvenioManualController extends Controller
     {
         $tracking = ConvenioEmailTracking::findOrFail($tracking);
 
-        $pdfStorage = app(ConvenioPdfStorageService::class);
-
-        if ($tracking->pdf_original_path) {
-            $abs = $pdfStorage->absolutePathForRelative($tracking->pdf_original_path);
-            if ($abs !== null && is_file($abs)) {
-                $downloadName = 'Convenio_'.$tracking->documento.'_original.pdf';
-
-                return response()->download($abs, $downloadName, [
-                    'Content-Type' => 'application/pdf',
-                ]);
-            }
-        }
-
-        $ruta = $tracking->ruta_archivo_pdf;
-        if (is_string($ruta) && $ruta !== '' && is_file($ruta)) {
+        $abs = $tracking->resolveOriginalPdfAbsolutePath();
+        if ($abs !== null) {
             $downloadName = 'Convenio_'.$tracking->documento.'_original.pdf';
 
-            return response()->download($ruta, $downloadName, [
+            return response()->download($abs, $downloadName, [
                 'Content-Type' => 'application/pdf',
             ]);
         }
@@ -788,8 +707,9 @@ class ConvenioManualController extends Controller
                     'documento' => $request->input('numero_documento'),
                 ]);
 
-                // Generar convenio Word (se guarda en resources/templates/convenios)
-                $resultado = $this->convenioGenerationService->generarConvenio($convenioData);
+                // Generar convenio Word y convertir a PDF
+                $resultadoWord = $this->convenioGenerationService->generarConvenio($convenioData);
+                $resultado = $this->convenioGenerationService->finalizeConvenioPdf($resultadoWord['ruta']);
 
                 if (! file_exists($resultado['ruta'])) {
                     Log::error('Archivo de convenio no encontrado para descarga', [
@@ -808,7 +728,7 @@ class ConvenioManualController extends Controller
                 return response()->download(
                     $resultado['ruta'],
                     $resultado['nombre'],
-                    ['Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+                    ['Content-Type' => 'application/pdf']
                 )->deleteFileAfterSend(true);
             }
 
@@ -820,12 +740,19 @@ class ConvenioManualController extends Controller
             GenerateConvenioJob::dispatch(
                 $convenioData,
                 $request->input('email'),
-                $sendEmail
+                $sendEmail,
+                $request->user()?->id,
             );
+
+            $message = ConvenioDelivery::isTestMode() && $sendEmail
+                ? 'La generación del convenio ha sido encolada. En modo test recibirás el PDF en tu correo y podrás revisar los datos en el historial.'
+                : 'La generación del convenio ha sido encolada y se procesará de forma asíncrona. El archivo estará disponible en breve.';
 
             return response()->json([
                 'success' => true,
-                'message' => 'La generación del convenio ha sido encolada y se procesará de forma asíncrona. El archivo estará disponible en breve.',
+                'message' => $message,
+                'delivery_mode' => config('convenios.delivery_mode'),
+                'next_step' => $sendEmail ? 'email-history' : 'download-generated',
                 'data' => [
                     'documento' => $request->input('numero_documento'),
                     'procesando' => true,
@@ -901,9 +828,30 @@ class ConvenioManualController extends Controller
             }
         }
 
-        // Buscar el archivo más reciente para ese documento
-        $pattern = sprintf('%s/Convenio_%s_*.docx', $outputDir, $numeroDocumentoNormalizado);
+        // Buscar el archivo PDF más reciente para ese documento
+        $pattern = sprintf('%s/Convenio_%s_*.pdf', $outputDir, $numeroDocumentoNormalizado);
         $files = glob($pattern);
+
+        if (empty($files) && ConvenioDelivery::isTestMode() && $request->user()) {
+            $tracking = ConvenioEmailTracking::query()
+                ->where('documento', $numeroDocumentoNormalizado)
+                ->where('generated_by_user_id', $request->user()->id)
+                ->where('estado', ConvenioEmailTracking::ESTADO_VERIFICACION)
+                ->whereNotNull('ruta_archivo_pdf')
+                ->orderByDesc('created_at')
+                ->first();
+
+            if ($tracking && is_file($tracking->ruta_archivo_pdf)) {
+                $filePath = $tracking->ruta_archivo_pdf;
+                $fileName = basename($filePath);
+
+                return response()->download(
+                    $filePath,
+                    $fileName,
+                    ['Content-Type' => 'application/pdf']
+                );
+            }
+        }
 
         if (empty($files)) {
             Log::info('[CONVENIO API] Convenio no encontrado aún para descarga', [
@@ -942,6 +890,30 @@ class ConvenioManualController extends Controller
             ], 404);
         }
 
+        if (ConvenioDelivery::isTestMode() && $request->user()) {
+            $hasVerificationAccess = ConvenioEmailTracking::query()
+                ->where('documento', $numeroDocumentoNormalizado)
+                ->where('generated_by_user_id', $request->user()->id)
+                ->where('estado', ConvenioEmailTracking::ESTADO_VERIFICACION)
+                ->exists();
+
+            if ($hasVerificationAccess) {
+                $trackingForFile = ConvenioEmailTracking::query()
+                    ->where('documento', $numeroDocumentoNormalizado)
+                    ->where('generated_by_user_id', $request->user()->id)
+                    ->where('estado', ConvenioEmailTracking::ESTADO_VERIFICACION)
+                    ->where('ruta_archivo_pdf', $filePath)
+                    ->exists();
+
+                if (! $trackingForFile) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No tiene permiso para descargar este convenio de verificación.',
+                    ], 403);
+                }
+            }
+        }
+
         Log::info('[CONVENIO API] Descargando convenio generado', [
             'numero_documento_normalizado' => $numeroDocumentoNormalizado,
             'file_path' => $filePath,
@@ -953,7 +925,7 @@ class ConvenioManualController extends Controller
         return response()->download(
             $filePath,
             $fileName,
-            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+            ['Content-Type' => 'application/pdf']
         )->deleteFileAfterSend(true);
     }
 
@@ -1062,17 +1034,11 @@ class ConvenioManualController extends Controller
                 'mime' => $file->getMimeType(),
             ]);
 
-            // Asegurar que el directorio temp existe
-            $tempDir = storage_path('app/temp');
-            if (! file_exists($tempDir)) {
-                mkdir($tempDir, 0755, true);
-                Log::info('[CONVENIO API] Directorio temp creado', ['path' => $tempDir]);
-            }
-
-            // Usar storeAs de Laravel que es más confiable
+            // Usar storeAs en el disco local (storage/app/private); resolver ruta con Storage::path()
             try {
                 $tempPath = $file->storeAs('temp', 'convenio_import_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension());
-                $fullTempPath = storage_path('app/'.$tempPath);
+                $fullTempPath = Storage::path($tempPath);
+                $tempDir = dirname($fullTempPath);
 
                 Log::info('[CONVENIO API] Archivo guardado temporalmente', [
                     'temp_path' => $tempPath,
@@ -1088,13 +1054,12 @@ class ConvenioManualController extends Controller
                         'full_path' => $fullTempPath,
                         'temp_dir_exists' => file_exists($tempDir),
                         'temp_dir_writable' => is_writable($tempDir),
-                        'storage_app_exists' => file_exists(storage_path('app')),
-                        'storage_app_writable' => is_writable(storage_path('app')),
+                        'storage_disk_root' => Storage::path(''),
                     ]);
 
                     return response()->json([
                         'success' => false,
-                        'message' => 'Error al guardar el archivo temporalmente. Verifique los permisos del directorio storage/app/temp',
+                        'message' => 'Error al guardar el archivo temporalmente. Verifique los permisos del directorio '.Storage::path('temp'),
                     ], 500);
                 }
             } catch (\Exception $e) {
@@ -1301,7 +1266,12 @@ class ConvenioManualController extends Controller
                     ]);
 
                     // Encolar job para generar convenio
-                    GenerateConvenioJob::dispatch($convenioData, $email, $rowSendEmail);
+                    GenerateConvenioJob::dispatch(
+                        $convenioData,
+                        $email,
+                        $rowSendEmail,
+                        $request->user()?->id,
+                    );
                     $exitosos++;
 
                     Log::debug('[CONVENIO API] Job encolado exitosamente', [
@@ -1334,7 +1304,10 @@ class ConvenioManualController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'La importación masiva ha sido procesada. Los convenios se generarán de forma asíncrona.',
+                'message' => $this->buildImportBulkMessage($sendEmail, $exitosos),
+                'delivery_mode' => config('convenios.delivery_mode'),
+                'next_step' => 'email-history',
+                'ui' => ConvenioHistoryUi::metadata((bool) config('convenio_signing.enabled', true)),
                 'data' => [
                     'procesados' => $procesados,
                     'exitosos' => $exitosos,
@@ -1481,24 +1454,20 @@ class ConvenioManualController extends Controller
                 }
 
                 // Procesar booleanos (acepta "Si"/"No" en español o "true"/"false" en inglés)
-                // Por defecto es "Si" (true) si está vacío o no se puede determinar
-                // IMPORTANTE: El valor final siempre debe ser booleano (true/false), no string
+                // Por defecto es false si la celda está vacía
                 if ($internalName === 'send_email') {
-                    // Si ya es booleano, mantenerlo
                     if (is_bool($value)) {
                         // Ya es booleano, no hacer nada
                     } else {
-                        // Convertir string a booleano
                         $valueStr = is_string($value) ? trim($value) : (string) $value;
                         $valueNormalizado = mb_strtolower($valueStr, 'UTF-8');
 
                         if ($valueNormalizado === 'no' || $valueNormalizado === 'false' || $valueNormalizado === '0') {
-                            $value = false; // Booleano false
+                            $value = false;
                         } elseif ($valueNormalizado === 'si' || $valueNormalizado === 'sí' || $valueNormalizado === 'true' || $valueNormalizado === '1' || $valueNormalizado === 'yes') {
-                            $value = true; // Booleano true
+                            $value = true;
                         } else {
-                            // Por defecto "Si" (true) si está vacío o no se puede determinar
-                            $value = true; // Booleano true
+                            $value = false;
                         }
                     }
                 }
@@ -1647,5 +1616,22 @@ class ConvenioManualController extends Controller
         }
 
         return false;
+    }
+
+    private function buildImportBulkMessage(bool $sendEmail, int $exitosos): string
+    {
+        if ($exitosos === 0) {
+            return 'No se encolaron convenios. Revise los errores de validación en la respuesta.';
+        }
+
+        if ($sendEmail && ConvenioDelivery::isTestMode()) {
+            return "Se encolaron {$exitosos} convenios. En modo test recibirás los PDFs en tu correo y podrás revisar los datos en el historial.";
+        }
+
+        if ($sendEmail) {
+            return "Se encolaron {$exitosos} convenios. Se generarán PDFs y se enviarán correos de forma asíncrona. Consulte el historial.";
+        }
+
+        return "Se encolaron {$exitosos} convenios para generación en PDF. Consulte el historial o descargue cuando estén listos.";
     }
 }

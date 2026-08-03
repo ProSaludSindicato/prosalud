@@ -44,7 +44,11 @@
                     <tr>
                         <td class="content" style="padding:32px;">
                             <p style="margin:0 0 20px; font-size:16px; color:#1f2937; line-height:1.6;">
-                                Hola <strong style="color:#00529B;">{{ $nombreAfiliado }}</strong>,
+                                @if(!empty($nombreAfiliado))
+                                    Hola <strong style="color:#00529B;">{{ $nombreAfiliado }}</strong>,
+                                @else
+                                    Hola <strong style="color:#00529B;">estimado afiliado</strong>,
+                                @endif
                             </p>
 
                             @if(!empty($signingUrl))
@@ -104,7 +108,7 @@
                                     <strong style="color:#00529B;">Escanear en formato PDF</strong>
                                 </li>
                                 <li style="margin-bottom:0; padding-left:8px;">
-                                    <strong style="color:#00529B;">Enviar al correo</strong> <a href="mailto:sprosalud.auxiliar@gmail.com" style="color:#00529B; text-decoration:underline; font-weight:600;">sprosalud.auxiliar@gmail.com</a> el archivo PDF y en el asunto escriba así: <strong style="color:#00529B;">Convenio {{ $documento }} ({{ $nombreConvenio }}) {{ preg_replace('/\s*-\s*' . preg_quote($documento, '/') . '$/', '', $nombreAfiliado) }}</strong>. <strong style="color:#d32f2f;">*El envío Digital del Convenio Sindical es de Carácter Obligatorio.*</strong>
+                                    <strong style="color:#00529B;">Enviar al correo</strong> <a href="mailto:sprosalud.auxiliar@gmail.com" style="color:#00529B; text-decoration:underline; font-weight:600;">sprosalud.auxiliar@gmail.com</a> el archivo PDF y en el asunto escriba así: <strong style="color:#00529B;">Convenio {{ $documento }} ({{ $nombreConvenio }})@if(!empty($nombreAfiliado)) {{ preg_replace('/\s*-\s*' . preg_quote($documento, '/') . '$/', '', $nombreAfiliado) }}@endif</strong>. <strong style="color:#d32f2f;">*El envío Digital del Convenio Sindical es de Carácter Obligatorio.*</strong>
                                 </li>
                             </ol>
 
