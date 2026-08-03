@@ -200,6 +200,13 @@
                                 .email-body-container b {
                                     font-weight: bold !important;
                                 }
+
+                                .email-body-container a,
+                                .email-body-content a {
+                                    color: #00529B !important;
+                                    text-decoration: underline !important;
+                                    word-break: break-all !important;
+                                }
                             </style>
 
                             <!-- Request Reference (subtle, not in a card) -->

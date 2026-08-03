@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\RequestForm;
+use App\Support\EmailBodyFormatter;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
@@ -37,7 +38,7 @@ class RequestFormResponse extends Mailable
     ) {
         $fileIndex = 0;
         $compressedExtensions = ['zip', 'rar'];
-        
+
         foreach ($uploadedFiles as $file) {
             // Check if it's already serialized data (from Job)
             if (is_array($file) && isset($file['content']) && isset($file['name']) && isset($file['mime'])) {
@@ -55,32 +56,33 @@ class RequestFormResponse extends Mailable
                     'name' => $file['name'],
                     'mime' => $file['mime'],
                 ];
-                ++$fileIndex;
+                $fileIndex++;
+
                 continue;
             }
-            
+
             // Otherwise, it's an UploadedFile object
             if ($file && $file->isValid()) {
                 $extension = strtolower($file->getClientOriginalExtension() ?? '');
-                
+
                 // Skip compressed files - they are handled separately via URLs
                 if (in_array($extension, $compressedExtensions)) {
                     continue;
                 }
-                
+
                 // Usar siempre el nombre original del archivo
                 $originalName = $file->getClientOriginalName();
                 $filename = $originalName;
-                
+
                 $this->attachmentData[] = [
                     'content' => file_get_contents($file->getRealPath()),
                     'name' => $filename,
                     'mime' => $file->getMimeType(),
                 ];
-                ++$fileIndex;
+                $fileIndex++;
             }
         }
-        
+
         // Store compressed file URLs
         $this->compressedFileUrls = $compressedFileUrls;
     }
@@ -90,6 +92,8 @@ class RequestFormResponse extends Mailable
      */
     public function build(): self
     {
+        $this->emailBody = EmailBodyFormatter::linkifyUrls($this->emailBody);
+
         $logoPath = public_path('logo.png');
         $logoCid = file_exists($logoPath) ? $this->embed($logoPath) : '';
 
@@ -109,7 +113,7 @@ class RequestFormResponse extends Mailable
             // Si el contenido viene codificado en base64 (para compatibilidad con la cola JSON),
             // decodificarlo antes de adjuntarlo. Mantener compatibilidad con contenido sin codificar.
             $content = $attachment['content'] ?? '';
-            if (!empty($attachment['encoded'])) {
+            if (! empty($attachment['encoded'])) {
                 $decoded = base64_decode($content, true);
                 if ($decoded !== false) {
                     $content = $decoded;
