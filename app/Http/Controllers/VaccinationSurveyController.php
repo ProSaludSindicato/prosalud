@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{ExportVaccinationSurveysExcelRequest, StoreVaccinationSurveyRequest};
+use App\Http\Requests\ExportVaccinationSurveysExcelRequest;
+use App\Http\Requests\StoreVaccinationSurveyRequest;
 use App\Models\VaccinationSurvey;
 use App\Services\VaccinationSurveyExcelExportService;
 use Illuminate\Http\JsonResponse;
@@ -15,8 +16,7 @@ class VaccinationSurveyController extends Controller
 {
     public function __construct(
         private VaccinationSurveyExcelExportService $excelExportService
-    ) {
-    }
+    ) {}
 
     /**
      * Store a new vaccination survey submitted by an affiliate.
@@ -46,7 +46,7 @@ class VaccinationSurveyController extends Controller
                 $validated['numero_documento']
             );
 
-            if (null === $firmaPath) {
+            if ($firmaPath === null) {
                 Log::error('[Encuesta vacunación] Error al procesar la firma digital', array_merge($logContext, [
                     'step' => 'signature_storage_failed',
                     'tipo_documento' => $validated['tipo_documento'],
@@ -113,36 +113,38 @@ class VaccinationSurveyController extends Controller
     }
 
     /**
-     * Store base64 PNG signature in private storage.
+     * Store base64 PNG or JPEG signature in private storage.
      */
     private function storeSignature(string $firmaBase64, string $tipoDocumento, string $numeroDocumento): ?string
     {
         $disk = 'prosalud-private';
         $fallbackDisk = 'local';
 
-        if (!preg_match('/^data:image\/png;base64,/', $firmaBase64)) {
+        if (! preg_match('/^data:image\/(png|jpe?g);base64,/', $firmaBase64, $matches)) {
             return null;
         }
 
         $base64Data = substr($firmaBase64, strpos($firmaBase64, ',') + 1);
         $fileContent = base64_decode($base64Data, true);
 
-        if (false === $fileContent) {
+        if ($fileContent === false) {
             return null;
         }
 
+        $extension = str_contains($matches[1], 'jp') ? 'jpg' : 'png';
         $filename = sprintf(
-            'firma-%s-%s-%s.png',
+            'firma-%s-%s-%s.%s',
             strtoupper(trim($tipoDocumento)),
             trim($numeroDocumento),
-            Str::uuid()
+            Str::uuid(),
+            $extension
         );
 
-        $storagePath = 'vaccination-surveys/signatures/' . date('Y/m') . '/' . $filename;
+        $storagePath = 'vaccination-surveys/signatures/'.date('Y/m').'/'.$filename;
 
         $stored = Storage::disk($disk)->put($storagePath, $fileContent);
 
-        if (false === $stored) {
+        if ($stored === false) {
             $stored = Storage::disk($fallbackDisk)->put($storagePath, $fileContent);
         }
 
@@ -188,12 +190,12 @@ class VaccinationSurveyController extends Controller
 
                     $filePath = $excelExportService->generateReport($filters);
 
-                    if (!file_exists($filePath)) {
+                    if (! file_exists($filePath)) {
                         throw new \Exception('El archivo del reporte no fue creado');
                     }
 
-                    $fileName = 'Reporte_Encuesta_Vacunacion_ProSalud_' . now()->setTimezone('America/Bogota')->format('Y-m-d_His') . '.xlsx';
-                    $storagePath = 'reports/vaccination-surveys/' . $jobId . '/' . $fileName;
+                    $fileName = 'Reporte_Encuesta_Vacunacion_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
+                    $storagePath = 'reports/vaccination-surveys/'.$jobId.'/'.$fileName;
                     $disk = Storage::disk('local');
                     $disk->put($storagePath, file_get_contents($filePath));
 
@@ -253,6 +255,7 @@ class VaccinationSurveyController extends Controller
                 'error' => $e->getMessage(),
                 'user_id' => $request->user()?->id,
             ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -263,6 +266,7 @@ class VaccinationSurveyController extends Controller
                 'trace' => $e->getTraceAsString(),
                 'user_id' => $request->user()?->id,
             ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al encolar el reporte. Por favor, intente nuevamente.',
@@ -278,7 +282,7 @@ class VaccinationSurveyController extends Controller
         $cacheKey = "vaccination_survey_report:{$jobId}";
         $status = cache()->get($cacheKey);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
@@ -310,7 +314,7 @@ class VaccinationSurveyController extends Controller
         $cacheKey = "vaccination_survey_report:{$jobId}";
         $status = cache()->get($cacheKey);
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'success' => false,
                 'message' => 'Job no encontrado o expirado',
@@ -320,7 +324,7 @@ class VaccinationSurveyController extends Controller
         if ($status['status'] !== 'completed') {
             return response()->json([
                 'success' => false,
-                'message' => 'El reporte aún no está listo. Estado: ' . ($status['status'] ?? 'unknown'),
+                'message' => 'El reporte aún no está listo. Estado: '.($status['status'] ?? 'unknown'),
                 'status' => $status['status'],
             ], 400);
         }
@@ -328,7 +332,7 @@ class VaccinationSurveyController extends Controller
         $filePath = $status['file_path'] ?? null;
         $fileName = $status['file_name'] ?? 'Reporte_Encuesta_Vacunacion_ProSalud.xlsx';
 
-        if (!$filePath) {
+        if (! $filePath) {
             return response()->json([
                 'success' => false,
                 'message' => 'Ruta del archivo no encontrada',
@@ -337,7 +341,7 @@ class VaccinationSurveyController extends Controller
 
         $disk = Storage::disk('local');
 
-        if (!$disk->exists($filePath)) {
+        if (! $disk->exists($filePath)) {
             return response()->json([
                 'success' => false,
                 'message' => 'El archivo no existe en el almacenamiento',
@@ -365,9 +369,8 @@ class VaccinationSurveyController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al descargar el archivo: ' . $e->getMessage(),
+                'message' => 'Error al descargar el archivo: '.$e->getMessage(),
             ], 500);
         }
     }
 }
-

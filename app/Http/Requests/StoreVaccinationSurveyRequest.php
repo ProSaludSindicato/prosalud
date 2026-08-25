@@ -51,7 +51,7 @@ class StoreVaccinationSurveyRequest extends FormRequest
             }
         }
 
-        if (!empty($normalized)) {
+        if (! empty($normalized)) {
             $this->merge($normalized);
         }
     }
@@ -81,8 +81,8 @@ class StoreVaccinationSurveyRequest extends FormRequest
             'fecha_aplicacion_sr' => 'nullable|date|date_format:Y-m-d',
             'fecha_aplicacion_fiebre_amarilla' => 'nullable|date|date_format:Y-m-d',
 
-            // Firma digital
-            'firma' => ['required', 'string', 'regex:/^data:image\/png;base64,/'],
+            // Firma digital (PNG o JPEG: el pad de firma del portal envía JPEG por defecto)
+            'firma' => ['required', 'string', 'regex:/^data:image\/(png|jpe?g);base64,/'],
         ];
     }
 
