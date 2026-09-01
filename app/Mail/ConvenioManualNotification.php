@@ -16,6 +16,7 @@ class ConvenioManualNotification extends Mailable
         public string $documento,
         public string $nombreConvenio,
         public ?string $signingUrl = null,
+        public bool $isTest = false,
     ) {}
 
     /**
@@ -26,7 +27,6 @@ class ConvenioManualNotification extends Mailable
         $logoPath = public_path('assets/logo.png');
         $logoCid = '';
 
-        // Try to embed logo if it exists
         if (file_exists($logoPath)) {
             try {
                 $logoContent = file_get_contents($logoPath);
@@ -37,10 +37,12 @@ class ConvenioManualNotification extends Mailable
         }
 
         $subject = "Convenio {$this->documento} ({$this->nombreConvenio}) - ProSalud";
+        if ($this->isTest) {
+            $subject = '[TEST] '.$subject;
+        }
 
-        return $this
+        $mail = $this
             ->subject($subject)
-            ->cc('sprosalud.auxiliar@gmail.com')
             ->replyTo('sprosalud.auxiliar@gmail.com')
             ->view('emails.convenio_manual_notification')
             ->with([
@@ -49,7 +51,14 @@ class ConvenioManualNotification extends Mailable
                 'nombreConvenio' => $this->nombreConvenio,
                 'logoCid' => $logoCid,
                 'signingUrl' => $this->signingUrl,
+                'isTest' => $this->isTest,
             ]);
+
+        if (! $this->isTest) {
+            $mail->cc('sprosalud.auxiliar@gmail.com');
+        }
+
+        return $mail;
     }
 
     /**

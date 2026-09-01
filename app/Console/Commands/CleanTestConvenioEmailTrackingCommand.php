@@ -2,113 +2,44 @@
 
 namespace App\Console\Commands;
 
-// ============================================================================
-// CÓDIGO TEMPORAL PARA PRUEBAS - ELIMINAR DESPUÉS DE VERIFICAR FUNCIONAMIENTO
-// ============================================================================
-// Este comando elimina los registros de prueba de la tabla convenio_email_tracking
-// que fueron creados durante las pruebas (email: juanpapabon@gmail.com)
-// ============================================================================
-
 use App\Models\ConvenioEmailTracking;
+use App\Services\ConvenioPdfStorageService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CleanTestConvenioEmailTrackingCommand extends Command
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
-    protected $signature = 'test:clean-convenio-email-tracking
-                            {--email= : Email address to filter records (default: juanpapabon@gmail.com)}
-                            {--documento= : Document number to filter records}
-                            {--force : Skip confirmation prompt}
-                            {--dry-run : Show what would be deleted without actually deleting}';
+    protected $signature = 'convenios:clean-test-tracking
+                            {--force : Omitir confirmación}
+                            {--dry-run : Mostrar lo que se eliminaría sin borrar}';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'TEMPORAL: Clean test data from convenio_email_tracking table. DELETE AFTER TESTING.';
+    protected $description = 'Elimina registros de convenio marcados como TEST (CONVENIO_DELIVERY_MODE distinto de production) y sus archivos asociados.';
 
-    /**
-     * Default test email used in test commands
-     */
-    private const DEFAULT_TEST_EMAIL = 'juanpapabon@gmail.com';
-
-    /**
-     * Execute the console command.
-     */
-    public function handle(): int
+    public function handle(ConvenioPdfStorageService $convenioPdfStorageService): int
     {
-        $this->warn('⚠️  CÓDIGO TEMPORAL PARA PRUEBAS - ELIMINAR DESPUÉS DE VERIFICAR');
-        $this->line('');
-        $this->info('🧹 Limpieza de Datos de Prueba - Convenio Email Tracking');
-        $this->line('==========================================================');
+        $this->info('Limpieza de registros TEST de convenios');
         $this->line('');
 
-        // Get filter options
-        $emailToClean = $this->option('email');
-        $documentoToClean = $this->option('documento');
-
-        // Validate that only one filter is provided
-        if ($emailToClean && $documentoToClean) {
-            $this->error('❌ Error: No puedes usar --email y --documento al mismo tiempo. Usa solo uno.');
-            return 1;
-        }
-
-        // Build query based on filter
-        $query = ConvenioEmailTracking::query();
-        $filterType = '';
-        $filterValue = '';
-
-        if ($documentoToClean) {
-            $query->where('documento', $documentoToClean);
-            $filterType = 'documento';
-            $filterValue = $documentoToClean;
-            $this->info("🔍 Buscando registros para el documento: {$documentoToClean}");
-        } elseif ($emailToClean) {
-            $query->where('email_afiliado', $emailToClean);
-            $filterType = 'email';
-            $filterValue = $emailToClean;
-            $this->info("🔍 Buscando registros para el correo: {$emailToClean}");
-        } else {
-            // Default to email if no filter provided
-            $emailToClean = self::DEFAULT_TEST_EMAIL;
-            $query->where('email_afiliado', $emailToClean);
-            $filterType = 'email';
-            $filterValue = $emailToClean;
-            $this->info("🔍 Buscando registros para el correo (por defecto): {$emailToClean}");
-        }
-        
-        $this->line('');
-
-        // Find all matching records
-        $testRecords = $query->get();
+        $testRecords = ConvenioEmailTracking::query()
+            ->test()
+            ->orderBy('id')
+            ->get();
 
         if ($testRecords->isEmpty()) {
-            $this->info('✅ No se encontraron registros para eliminar.');
-            $this->line("   Filtro aplicado ({$filterType}): {$filterValue}");
-            return 0;
+            $this->info('No hay registros TEST para eliminar.');
+
+            return self::SUCCESS;
         }
 
         $totalRecords = $testRecords->count();
-        $this->info("📊 Registros de prueba encontrados: {$totalRecords}");
+        $this->info("Registros TEST encontrados: {$totalRecords}");
         $this->line('');
 
-        // Show summary by status
         $byStatus = $testRecords->groupBy('estado')->map->count();
-        $this->info('📈 Resumen por estado:');
+        $this->info('Resumen por estado:');
         foreach ($byStatus as $estado => $count) {
-            $this->line("   • {$estado}: {$count}");
+            $this->line("  • {$estado}: {$count}");
         }
-        $this->line('');
-
-        // Show sample records
-        $this->info('📋 Muestra de registros a eliminar (primeros 5):');
         $this->line('');
 
         $tableData = [];
@@ -119,101 +50,79 @@ class CleanTestConvenioEmailTrackingCommand extends Command
                 'Nombre' => $record->nombre_afiliado,
                 'Convenio' => $record->nombre_convenio,
                 'Estado' => $record->estado,
-                'Fecha' => $record->created_at->format('Y-m-d H:i:s'),
+                'Fecha' => $record->created_at?->format('Y-m-d H:i:s'),
             ];
         }
 
         $this->table(['ID', 'Documento', 'Nombre', 'Convenio', 'Estado', 'Fecha'], $tableData);
 
         if ($totalRecords > 5) {
-            $this->line("   ... y " . ($totalRecords - 5) . " registros más");
+            $this->line('  ... y '.($totalRecords - 5).' registros más');
             $this->line('');
         }
 
-        // Dry run mode
         if ($this->option('dry-run')) {
-            $this->warn('🔍 DRY RUN MODE - No se eliminarán registros');
-            $this->line('');
-            $this->info("Se eliminarían {$totalRecords} registros de prueba.");
-            return 0;
+            $this->warn('DRY RUN: no se eliminó ningún registro.');
+            $this->info("Se eliminarían {$totalRecords} registros TEST.");
+
+            return self::SUCCESS;
         }
 
-        // Confirmation
-        if (!$this->option('force')) {
-            $this->warn("⚠️  Se eliminarán {$totalRecords} registros de prueba de la tabla convenio_email_tracking");
-            $this->line('');
-            
-            if (!$this->confirm('¿Deseas continuar con la eliminación?')) {
-                $this->info('❌ Operación cancelada por el usuario.');
-                return 0;
-            }
-        } else {
-            $this->info('✅ Modo --force activado, saltando confirmación...');
-            $this->line('');
+        if (! $this->option('force') && ! $this->confirm("¿Eliminar {$totalRecords} registros TEST y sus archivos?")) {
+            $this->info('Operación cancelada.');
+
+            return self::SUCCESS;
         }
-
-        // Delete records
-        $this->info('🗑️  Eliminando registros...');
-        $this->line('');
-
-        $progressBar = $this->output->createProgressBar($totalRecords);
-        $progressBar->setFormat(' %current%/%max% [%bar%] %percent:3s%%');
-        $progressBar->start();
 
         $deleted = 0;
         $errors = 0;
 
-        try {
-            DB::beginTransaction();
-
-            foreach ($testRecords as $record) {
-                try {
-                    $record->delete();
-                    $deleted++;
-                } catch (\Exception $e) {
-                    $errors++;
-                    Log::error('Error al eliminar registro de prueba', [
-                        'record_id' => $record->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-                $progressBar->advance();
+        foreach ($testRecords as $record) {
+            try {
+                $this->deleteOwnedTempPdf($record->ruta_archivo_pdf);
+                $convenioPdfStorageService->deleteStoredDirectory($record);
+                $record->delete();
+                $deleted++;
+            } catch (\Throwable $e) {
+                $errors++;
+                Log::error('Error al eliminar registro TEST de convenio', [
+                    'record_id' => $record->id,
+                    'error' => $e->getMessage(),
+                ]);
             }
-
-            DB::commit();
-        } catch (\Exception $e) {
-            DB::rollBack();
-            $this->error('❌ Error durante la eliminación: ' . $e->getMessage());
-            Log::error('Error al eliminar registros de prueba', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            return 1;
         }
 
-        $progressBar->finish();
-        $this->line('');
-        $this->line('');
-
-        // Summary
-        $this->info('✅ Limpieza completada');
-        $this->line('');
-        $this->info("📊 Resumen:");
-        $this->line("  • Registros eliminados: {$deleted}");
+        $this->info("Registros eliminados: {$deleted}");
         if ($errors > 0) {
-            $this->warn("  • Errores: {$errors}");
+            $this->warn("Errores: {$errors}");
         }
-        $this->line('');
-        $this->warn('⚠️  RECUERDA: Este código es TEMPORAL y debe ser ELIMINADO después de las pruebas.');
 
         Log::info('Test convenio email tracking records cleaned', [
             'total_found' => $totalRecords,
             'deleted' => $deleted,
             'errors' => $errors,
-            'filter_type' => $filterType,
-            'filter_value' => $filterValue,
         ]);
 
-        return 0;
+        return $errors > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    private function deleteOwnedTempPdf(?string $path): void
+    {
+        if (! is_string($path) || $path === '' || ! is_file($path)) {
+            return;
+        }
+
+        $tempDir = realpath(storage_path('app/temp/convenios'));
+        $realPath = realpath($path);
+
+        if ($tempDir === false || $realPath === false) {
+            return;
+        }
+
+        if (! str_starts_with($realPath, $tempDir.DIRECTORY_SEPARATOR) && $realPath !== $tempDir) {
+            return;
+        }
+
+        @unlink($realPath);
     }
 }

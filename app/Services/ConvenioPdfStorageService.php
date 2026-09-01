@@ -2,68 +2,236 @@
 
 namespace App\Services;
 
+use App\Enums\ConvenioPdfStage;
 use App\Models\ConvenioEmailTracking;
+use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class ConvenioPdfStorageService
 {
-    public function relativeDirectory(ConvenioEmailTracking $tracking): string
+    public function diskName(): string
     {
-        return 'convenios-digital/'.$tracking->id;
+        $configured = (string) config('convenios.storage_disk', 'prosalud-private');
+        $disks = config('filesystems.disks', []);
+
+        if (isset($disks[$configured])) {
+            return $configured;
+        }
+
+        return 'local';
     }
 
-    /**
-     * Copy an existing PDF from disk into private storage for digital signing.
-     *
-     * @return string Relative path from storage/app (disk "local")
-     */
-    public function storeOriginalFromAbsolutePath(ConvenioEmailTracking $tracking, string $absolutePdfPath): string
+    public function disk(): Filesystem
+    {
+        return Storage::disk($this->diskName());
+    }
+
+    public function relativeDirectory(ConvenioEmailTracking $tracking): string
+    {
+        $scope = $tracking->is_test ? 'test' : 'production';
+        $created = $tracking->created_at ?? now();
+        $documento = preg_replace('/[^0-9]/', '', (string) $tracking->documento) ?: 'sin-documento';
+
+        return sprintf(
+            'convenios/%s/%s/%s/%s/%d',
+            $scope,
+            $created->format('Y'),
+            $created->format('m'),
+            $documento,
+            $tracking->id,
+        );
+    }
+
+    public function relativePath(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage): string
+    {
+        return $this->relativeDirectory($tracking).'/'.$stage->fileName();
+    }
+
+    public function storeFromAbsolutePath(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage, string $absolutePdfPath): string
     {
         if (! is_file($absolutePdfPath)) {
             throw new \InvalidArgumentException('El archivo PDF de origen no existe.');
         }
 
-        $relativeDir = $this->relativeDirectory($tracking);
-        $relativePath = $relativeDir.'/original.pdf';
-        $targetDir = storage_path('app/'.$relativeDir);
-
-        if (! is_dir($targetDir)) {
-            File::makeDirectory($targetDir, 0755, true);
+        $contents = file_get_contents($absolutePdfPath);
+        if ($contents === false || $contents === '') {
+            throw new \RuntimeException('No se pudo leer el PDF de origen.');
         }
 
-        $targetPath = storage_path('app/'.$relativePath);
-        if (! @copy($absolutePdfPath, $targetPath)) {
-            throw new \RuntimeException('No se pudo copiar el PDF al almacenamiento interno.');
+        $relativePath = $this->relativePath($tracking, $stage);
+        $stored = $this->disk()->put($relativePath, $contents, [
+            'visibility' => 'private',
+            'ContentType' => 'application/pdf',
+        ]);
+
+        if ($stored === false) {
+            throw new \RuntimeException('No se pudo guardar el PDF en el almacenamiento privado.');
         }
 
-        Log::info('[CONVENIO DIGITAL] PDF original almacenado', [
+        Log::info('[CONVENIO STORAGE] PDF almacenado', [
             'tracking_id' => $tracking->id,
+            'stage' => $stage->value,
+            'disk' => $this->diskName(),
             'relative_path' => $relativePath,
         ]);
 
         return $relativePath;
     }
 
-    public function absolutePathForRelative(?string $relativePath): ?string
+    public function storeOriginalFromAbsolutePath(ConvenioEmailTracking $tracking, string $absolutePdfPath): string
+    {
+        return $this->storeFromAbsolutePath($tracking, ConvenioPdfStage::Original, $absolutePdfPath);
+    }
+
+    public function exists(?string $relativePath): bool
+    {
+        if ($relativePath === null || $relativePath === '') {
+            return false;
+        }
+
+        if ($this->disk()->exists($relativePath)) {
+            return true;
+        }
+
+        return is_file($this->legacyAbsolutePath($relativePath));
+    }
+
+    public function get(?string $relativePath): ?string
     {
         if ($relativePath === null || $relativePath === '') {
             return null;
         }
 
-        return storage_path('app/'.$relativePath);
-    }
+        if ($this->disk()->exists($relativePath)) {
+            $contents = $this->disk()->get($relativePath);
 
-    /**
-     * @return resource|false
-     */
-    public function readRelativeToStream(string $relativePath)
-    {
-        $abs = $this->absolutePathForRelative($relativePath);
-        if ($abs === null || ! is_file($abs)) {
-            return false;
+            return is_string($contents) && $contents !== '' ? $contents : null;
         }
 
-        return fopen($abs, 'rb');
+        $legacy = $this->legacyAbsolutePath($relativePath);
+        if (! is_file($legacy)) {
+            return null;
+        }
+
+        $contents = file_get_contents($legacy);
+
+        return $contents === false || $contents === '' ? null : $contents;
+    }
+
+    public function hasOriginal(ConvenioEmailTracking $tracking): bool
+    {
+        if ($this->exists($tracking->pdf_original_path)) {
+            return true;
+        }
+
+        return is_string($tracking->ruta_archivo_pdf)
+            && $tracking->ruta_archivo_pdf !== ''
+            && is_file($tracking->ruta_archivo_pdf);
+    }
+
+    public function hasStage(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage): bool
+    {
+        $path = match ($stage) {
+            ConvenioPdfStage::Original => $tracking->pdf_original_path,
+            ConvenioPdfStage::FirmadoAfiliado => $tracking->pdf_firmado_afiliado_path,
+            ConvenioPdfStage::Final => $tracking->pdf_final_path,
+        };
+
+        return $this->exists($path);
+    }
+
+    public function originalContents(ConvenioEmailTracking $tracking): ?string
+    {
+        $fromStorage = $this->get($tracking->pdf_original_path);
+        if ($fromStorage !== null) {
+            return $fromStorage;
+        }
+
+        if (is_string($tracking->ruta_archivo_pdf) && is_file($tracking->ruta_archivo_pdf)) {
+            $contents = file_get_contents($tracking->ruta_archivo_pdf);
+
+            return $contents === false || $contents === '' ? null : $contents;
+        }
+
+        return null;
+    }
+
+    public function materializeOriginalToTemp(ConvenioEmailTracking $tracking): ?string
+    {
+        $contents = $this->originalContents($tracking);
+        if ($contents === null) {
+            return null;
+        }
+
+        if (is_string($tracking->ruta_archivo_pdf) && is_file($tracking->ruta_archivo_pdf)) {
+            return $tracking->ruta_archivo_pdf;
+        }
+
+        $outputDir = storage_path('app/temp/convenios');
+        if (! is_dir($outputDir)) {
+            File::makeDirectory($outputDir, 0755, true);
+        }
+
+        $tempPath = $outputDir.'/s3-'.$tracking->id.'-'.uniqid('', true).'.pdf';
+        if (file_put_contents($tempPath, $contents) === false) {
+            return null;
+        }
+
+        return $tempPath;
+    }
+
+    public function downloadResponse(string $contents, string $downloadName, string $disposition = 'attachment'): Response
+    {
+        $dispositionHeader = $disposition === 'inline'
+            ? 'inline; filename="'.$downloadName.'"'
+            : 'attachment; filename="'.$downloadName.'"';
+
+        return response($contents, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => $dispositionHeader,
+            'Content-Length' => (string) strlen($contents),
+        ]);
+    }
+
+    public function deleteStoredDirectory(ConvenioEmailTracking $tracking): void
+    {
+        $paths = array_filter([
+            $tracking->pdf_original_path,
+            $tracking->pdf_firmado_afiliado_path,
+            $tracking->pdf_final_path,
+        ], fn ($path): bool => is_string($path) && $path !== '');
+
+        foreach ($paths as $path) {
+            if ($this->disk()->exists($path)) {
+                $this->disk()->delete($path);
+            }
+
+            $legacy = $this->legacyAbsolutePath($path);
+            if (is_file($legacy)) {
+                @unlink($legacy);
+            }
+        }
+
+        $directories = array_unique(array_filter(array_map(
+            fn (string $path): string => dirname($path),
+            $paths,
+        ), fn (string $dir): bool => $dir !== '.' && $dir !== ''));
+
+        foreach ($directories as $directory) {
+            $this->disk()->deleteDirectory($directory);
+        }
+
+        $legacyDir = storage_path('app/convenios-digital/'.$tracking->id);
+        if (is_dir($legacyDir)) {
+            File::deleteDirectory($legacyDir);
+        }
+    }
+
+    private function legacyAbsolutePath(string $relativePath): string
+    {
+        return storage_path('app/'.$relativePath);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ConvenioPdfStage;
 use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioDigitalSigningService;
 use App\Services\ConvenioPdfStorageService;
@@ -11,7 +12,6 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ConvenioPublicSigningController extends Controller
 {
@@ -55,7 +55,7 @@ class ConvenioPublicSigningController extends Controller
         ]);
     }
 
-    public function documentPdf(string $token): JsonResponse|Response|BinaryFileResponse
+    public function documentPdf(string $token): JsonResponse|Response
     {
         $tracking = $this->signingService->findByPlainToken($token);
         if (! $tracking instanceof ConvenioEmailTracking) {
@@ -72,19 +72,15 @@ class ConvenioPublicSigningController extends Controller
             ], 403);
         }
 
-        $path = $tracking->pdf_original_path;
-        $abs = $this->pdfStorageService->absolutePathForRelative($path);
-        if ($abs === null || ! is_file($abs)) {
+        $contents = $this->pdfStorageService->get($tracking->pdf_original_path);
+        if ($contents === null) {
             return response()->json([
                 'success' => false,
                 'message' => 'El documento no está disponible en este momento.',
             ], 404);
         }
 
-        return response()->file($abs, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="convenio.pdf"',
-        ]);
+        return $this->pdfStorageService->downloadResponse($contents, 'convenio.pdf', 'inline');
     }
 
     public function submitAffiliateSignature(Request $request, string $token): JsonResponse
@@ -162,18 +158,11 @@ class ConvenioPublicSigningController extends Controller
                     throw new \RuntimeException('Token expirado.');
                 }
 
-                $relativeDir = 'convenios-digital/'.$locked->id;
-                $relativePath = $relativeDir.'/firmado-afiliado.pdf';
-                $targetAbs = storage_path('app/'.$relativePath);
-
-                $dir = dirname($targetAbs);
-                if (! is_dir($dir)) {
-                    mkdir($dir, 0755, true);
-                }
-
-                if (! @copy((string) $uploaded->getRealPath(), $targetAbs)) {
-                    throw new \RuntimeException('No se pudo guardar el PDF firmado.');
-                }
+                $relativePath = $this->pdfStorageService->storeFromAbsolutePath(
+                    $locked,
+                    ConvenioPdfStage::FirmadoAfiliado,
+                    (string) $uploaded->getRealPath(),
+                );
 
                 $locked->update([
                     'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,

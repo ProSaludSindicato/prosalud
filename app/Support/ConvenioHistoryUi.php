@@ -14,7 +14,7 @@ class ConvenioHistoryUi
             ['value' => 'pendiente', 'label' => 'Pendiente'],
             ['value' => 'enviado', 'label' => 'Enviado'],
             ['value' => 'fallido', 'label' => 'Fallido'],
-            ['value' => 'verificacion', 'label' => 'Verificación (modo test)'],
+            ['value' => 'test', 'label' => 'TEST'],
         ];
 
         if ($digitalSigningEnabled) {

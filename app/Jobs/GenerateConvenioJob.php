@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Models\ConvenioEmailTracking;
 use App\Models\User;
 use App\Services\ConvenioGenerationService;
 use App\Support\ConvenioDelivery;
@@ -56,47 +55,24 @@ class GenerateConvenioJob implements ShouldQueue
                 $documento = preg_replace('/[^0-9]/', '', (string) ($this->convenioData['numero_documento'] ?? ''));
                 $nombreConvenio = (string) ($this->convenioData['proceso'] ?? 'CONVENIO');
                 $sede = isset($this->convenioData['sede']) ? (string) $this->convenioData['sede'] : null;
+                $emailForJob = $this->email;
 
                 if (ConvenioDelivery::isTestMode()) {
-                    $tracking = $this->createVerificationTracking(
-                        $documento,
-                        $resultado['nombre'],
-                        $resultado['ruta'],
-                        $nombreConvenio,
-                        $sede,
-                    );
-
                     $creatorEmail = $this->resolveCreatorEmail();
 
-                    if ($creatorEmail !== null) {
-                        SendConvenioManualEmailJob::dispatch(
-                            $documento,
-                            $resultado['nombre'],
-                            $resultado['ruta'],
-                            $nombreConvenio,
-                            $tracking->id,
-                            $creatorEmail,
-                            $sede,
-                            $this->convenioData,
-                        );
+                    if ($creatorEmail === null) {
+                        Log::warning('[CONVENIO JOB] Modo test: no se pudo determinar el correo del usuario creador; no se envía al afiliado', [
+                            'documento' => $documento,
+                            'generated_by_user_id' => $this->generatedByUserId,
+                        ]);
 
-                        Log::info('[CONVENIO JOB] Modo test: PDF disponible y correo encolado al usuario creador', [
-                            'documento' => $documento,
-                            'generated_by_user_id' => $this->generatedByUserId,
-                            'creator_email' => $creatorEmail,
-                            'tracking_id' => $tracking->id,
-                        ]);
-                    } else {
-                        Log::warning('[CONVENIO JOB] Modo test: PDF disponible pero no se pudo determinar el correo del usuario creador', [
-                            'documento' => $documento,
-                            'generated_by_user_id' => $this->generatedByUserId,
-                        ]);
+                        return;
                     }
 
-                    return;
+                    $emailForJob = $creatorEmail;
                 }
 
-                if (empty($this->email)) {
+                if (empty($emailForJob)) {
                     Log::warning('[CONVENIO JOB] send_email activado pero no se proporcionó correo del afiliado', [
                         'documento' => $documento,
                     ]);
@@ -110,14 +86,17 @@ class GenerateConvenioJob implements ShouldQueue
                     $resultado['ruta'],
                     $nombreConvenio,
                     null,
-                    $this->email,
+                    $emailForJob,
                     $sede,
                     $this->convenioData,
+                    $this->generatedByUserId,
                 );
 
                 Log::info('[CONVENIO JOB] PDF generado y correo encolado', [
                     'documento' => $documento,
-                    'email' => $this->email,
+                    'email' => $emailForJob,
+                    'delivery_mode' => ConvenioDelivery::mode(),
+                    'generated_by_user_id' => $this->generatedByUserId,
                 ]);
             }
         } catch (\Throwable $e) {
@@ -145,38 +124,12 @@ class GenerateConvenioJob implements ShouldQueue
             return null;
         }
 
-        $email = User::query()->whereKey($this->generatedByUserId)->value('email');
+        $email = User::query()->where('id', $this->generatedByUserId)->value('email');
 
         if (! is_string($email) || trim($email) === '') {
             return null;
         }
 
         return trim($email);
-    }
-
-    private function createVerificationTracking(
-        string $documento,
-        string $nombreArchivo,
-        string $rutaPdf,
-        string $nombreConvenio,
-        ?string $sede,
-    ): ConvenioEmailTracking {
-        $apellidos = trim((string) ($this->convenioData['apellidos'] ?? ''));
-        $nombres = trim((string) ($this->convenioData['nombres'] ?? ''));
-        $nombreAfiliado = trim($apellidos.' '.$nombres);
-
-        return ConvenioEmailTracking::create([
-            'documento' => $documento,
-            'nombre_afiliado' => $nombreAfiliado !== '' ? $nombreAfiliado : 'No disponible',
-            'email_afiliado' => $this->email ?? 'No disponible',
-            'nombre_convenio' => $nombreConvenio,
-            'nombre_archivo' => $nombreArchivo,
-            'ruta_archivo_pdf' => $rutaPdf,
-            'estado' => ConvenioEmailTracking::ESTADO_VERIFICACION,
-            'intentos' => 0,
-            'sede' => $sede,
-            'generated_by_user_id' => $this->generatedByUserId,
-            'convenio_data' => $this->convenioData,
-        ]);
     }
 }

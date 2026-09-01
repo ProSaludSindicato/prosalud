@@ -13,6 +13,7 @@ use App\Support\ConvenioDelivery;
 use App\Support\ConvenioHistoryUi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -74,7 +75,8 @@ class ConvenioManualController extends Controller
             'documento' => 'nullable|string|max:50',
             'estado' => 'nullable|string|in:pendiente,enviado,fallido,verificacion',
             'signing_estado' => 'nullable|string|in:pendiente_firma,firmado_afiliado,completado,rechazado',
-            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,verificacion,firma_pendiente_firma,firma_firmado_afiliado,firma_completado',
+            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,verificacion,test,firma_pendiente_firma,firma_firmado_afiliado,firma_completado',
+            'is_test' => 'nullable|boolean',
             'sede' => 'nullable|string|max:255',
             'nombre_convenio' => 'nullable|string|max:255',
             'fecha_desde' => 'nullable|date',
@@ -119,7 +121,8 @@ class ConvenioManualController extends Controller
                 // Signing filters are ignored when the feature is disabled
             } else {
                 match ($estadoFiltro) {
-                    'pendiente', 'enviado', 'fallido', 'verificacion' => $query->byEstado($estadoFiltro),
+                    'pendiente', 'enviado', 'fallido' => $query->byEstado($estadoFiltro),
+                    'verificacion', 'test' => $query->test(),
                     'firma_pendiente_firma' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA),
                     'firma_firmado_afiliado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO),
                     'firma_completado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_COMPLETADO),
@@ -138,6 +141,10 @@ class ConvenioManualController extends Controller
 
         if ($request->filled('sede')) {
             $query->bySede((string) $request->input('sede'));
+        }
+
+        if ($request->has('is_test')) {
+            $query->where('is_test', $request->boolean('is_test'));
         }
 
         if ($request->has('fecha_desde') || $request->has('fecha_hasta')) {
@@ -270,13 +277,14 @@ class ConvenioManualController extends Controller
         foreach ($trackingIds as $trackingId) {
             try {
                 $tracking = ConvenioEmailTracking::findOrFail($trackingId);
+                $pdfStorage = app(ConvenioPdfStorageService::class);
 
                 $rutaParaEnvio = $tracking->ruta_archivo_pdf;
-                if (! is_file($rutaParaEnvio) && $tracking->pdf_original_path) {
-                    $rutaParaEnvio = storage_path('app/'.$tracking->pdf_original_path);
+                if (! is_file((string) $rutaParaEnvio)) {
+                    $rutaParaEnvio = $pdfStorage->materializeOriginalToTemp($tracking);
                 }
 
-                if (! is_file($rutaParaEnvio)) {
+                if ($rutaParaEnvio === null || ! is_file($rutaParaEnvio)) {
                     $results['failed'][] = [
                         'tracking_id' => $trackingId,
                         'error' => 'Archivo PDF no encontrado para este registro.',
@@ -305,9 +313,11 @@ class ConvenioManualController extends Controller
                     $tracking->nombre_archivo,
                     $rutaParaEnvio,
                     $tracking->nombre_convenio,
-                    $trackingId, // parent_tracking_id
-                    $optionalEmail, // optional email
+                    $trackingId,
+                    $optionalEmail,
                     $tracking->sede,
+                    $tracking->convenio_data,
+                    $request->user()?->id ?? $tracking->generated_by_user_id,
                 );
 
                 $results['success'][] = [
@@ -341,7 +351,7 @@ class ConvenioManualController extends Controller
             'delivery_mode' => config('convenios.delivery_mode'),
             'message' => count($trackingIds) > 1
                 ? 'Se encolaron '.count($results['success']).' reenvíos. '.(ConvenioDelivery::isTestMode()
-                    ? 'En modo test los correos llegarán al usuario que realiza la solicitud.'
+                    ? 'En modo TEST los correos llegarán al usuario que realiza la solicitud y quedarán marcados como TEST.'
                     : 'Consulte el historial para ver el estado.')
                 : 'Reenvío encolado correctamente.',
             'data' => [
@@ -373,7 +383,7 @@ class ConvenioManualController extends Controller
 
         $digitalSigningEnabled = (bool) config('convenio_signing.enabled', true);
 
-        $baseQuery = ConvenioEmailTracking::query();
+        $baseQuery = ConvenioEmailTracking::query()->real();
 
         if ($request->has('fecha_desde') || $request->has('fecha_hasta')) {
             $fechaInicio = $request->input('fecha_desde') ?: '1970-01-01';
@@ -467,7 +477,7 @@ class ConvenioManualController extends Controller
     /**
      * Descarga el PDF firmado por el afiliado, o el PDF final histórico (estado completado) si existía.
      */
-    public function downloadConvenioFinal(int $tracking): BinaryFileResponse|JsonResponse
+    public function downloadConvenioFinal(int $tracking): Response|JsonResponse
     {
         if (! config('convenio_signing.enabled', true)) {
             return response()->json([
@@ -477,39 +487,36 @@ class ConvenioManualController extends Controller
         }
 
         $tracking = ConvenioEmailTracking::findOrFail($tracking);
-
         $pdfStorage = app(ConvenioPdfStorageService::class);
 
         if ($tracking->signing_estado === ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO) {
-            $abs = $pdfStorage->absolutePathForRelative($tracking->pdf_firmado_afiliado_path);
-            if ($abs === null || ! is_file($abs)) {
+            $contents = $pdfStorage->get($tracking->pdf_firmado_afiliado_path);
+            if ($contents === null) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No se encontró el PDF firmado por el afiliado.',
                 ], 404);
             }
 
-            $downloadName = 'Convenio_'.$tracking->documento.'_firmado_afiliado.pdf';
-
-            return response()->download($abs, $downloadName, [
-                'Content-Type' => 'application/pdf',
-            ]);
+            return $pdfStorage->downloadResponse(
+                $contents,
+                'Convenio_'.$tracking->documento.'_firmado_afiliado.pdf',
+            );
         }
 
         if ($tracking->signing_estado === ConvenioEmailTracking::SIGNING_COMPLETADO && $tracking->pdf_final_path) {
-            $abs = $pdfStorage->absolutePathForRelative($tracking->pdf_final_path);
-            if ($abs === null || ! is_file($abs)) {
+            $contents = $pdfStorage->get($tracking->pdf_final_path);
+            if ($contents === null) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Archivo final no encontrado.',
                 ], 404);
             }
 
-            $downloadName = 'Convenio_'.$tracking->documento.'_final.pdf';
-
-            return response()->download($abs, $downloadName, [
-                'Content-Type' => 'application/pdf',
-            ]);
+            return $pdfStorage->downloadResponse(
+                $contents,
+                'Convenio_'.$tracking->documento.'_final.pdf',
+            );
         }
 
         return response()->json([
@@ -519,20 +526,20 @@ class ConvenioManualController extends Controller
     }
 
     /**
-     * Descarga el PDF tal como se generó o almacenó para el envío (copia en firma digital o archivo en disco),
+     * Descarga el PDF tal como se generó o almacenó para el envío (copia persistente o archivo en disco),
      * útil para auditoría antes de que el afiliado firme.
      */
-    public function downloadConvenioOriginal(int $tracking): BinaryFileResponse|JsonResponse
+    public function downloadConvenioOriginal(int $tracking): Response|JsonResponse
     {
         $tracking = ConvenioEmailTracking::findOrFail($tracking);
+        $pdfStorage = app(ConvenioPdfStorageService::class);
+        $contents = $pdfStorage->originalContents($tracking);
 
-        $abs = $tracking->resolveOriginalPdfAbsolutePath();
-        if ($abs !== null) {
-            $downloadName = 'Convenio_'.$tracking->documento.'_original.pdf';
-
-            return response()->download($abs, $downloadName, [
-                'Content-Type' => 'application/pdf',
-            ]);
+        if ($contents !== null) {
+            return $pdfStorage->downloadResponse(
+                $contents,
+                'Convenio_'.$tracking->documento.'_original.pdf',
+            );
         }
 
         return response()->json([
@@ -745,7 +752,7 @@ class ConvenioManualController extends Controller
             );
 
             $message = ConvenioDelivery::isTestMode() && $sendEmail
-                ? 'La generación del convenio ha sido encolada. En modo test recibirás el PDF en tu correo y podrás revisar los datos en el historial.'
+                ? 'La generación del convenio ha sido encolada. En modo TEST el correo (con enlace de firma o PDF adjunto) llegará a tu usuario y el registro quedará marcado como TEST en el historial.'
                 : 'La generación del convenio ha sido encolada y se procesará de forma asíncrona. El archivo estará disponible en breve.';
 
             return response()->json([
@@ -836,7 +843,7 @@ class ConvenioManualController extends Controller
             $tracking = ConvenioEmailTracking::query()
                 ->where('documento', $numeroDocumentoNormalizado)
                 ->where('generated_by_user_id', $request->user()->id)
-                ->where('estado', ConvenioEmailTracking::ESTADO_VERIFICACION)
+                ->test()
                 ->whereNotNull('ruta_archivo_pdf')
                 ->orderByDesc('created_at')
                 ->first();
@@ -891,17 +898,17 @@ class ConvenioManualController extends Controller
         }
 
         if (ConvenioDelivery::isTestMode() && $request->user()) {
-            $hasVerificationAccess = ConvenioEmailTracking::query()
+            $hasTestAccess = ConvenioEmailTracking::query()
                 ->where('documento', $numeroDocumentoNormalizado)
                 ->where('generated_by_user_id', $request->user()->id)
-                ->where('estado', ConvenioEmailTracking::ESTADO_VERIFICACION)
+                ->test()
                 ->exists();
 
-            if ($hasVerificationAccess) {
+            if ($hasTestAccess) {
                 $trackingForFile = ConvenioEmailTracking::query()
                     ->where('documento', $numeroDocumentoNormalizado)
                     ->where('generated_by_user_id', $request->user()->id)
-                    ->where('estado', ConvenioEmailTracking::ESTADO_VERIFICACION)
+                    ->test()
                     ->where('ruta_archivo_pdf', $filePath)
                     ->exists();
 
@@ -1629,7 +1636,7 @@ class ConvenioManualController extends Controller
         }
 
         if ($sendEmail && ConvenioDelivery::isTestMode()) {
-            return "Se encolaron {$exitosos} convenios. En modo test recibirás los PDFs en tu correo y podrás revisar los datos en el historial.";
+            return "Se encolaron {$exitosos} convenios. En modo TEST los correos (con enlace de firma o PDF adjunto) llegarán a tu usuario y los registros quedarán marcados como TEST en el historial.";
         }
 
         if ($sendEmail) {

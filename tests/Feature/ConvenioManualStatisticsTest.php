@@ -78,4 +78,28 @@ class ConvenioManualStatisticsTest extends TestCase
         $this->assertNotNull($sinSede);
         $this->assertSame(1, $sinSede['rechazado']);
     }
+
+    public function test_statistics_exclude_test_records(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'enviado',
+            'is_test' => false,
+        ]);
+        ConvenioEmailTracking::factory()->test()->create([
+            'estado' => 'enviado',
+        ]);
+
+        $response = $this->call('GET', '/api/convenios-manual/statistics', [], [
+            'prosalud_auth_token' => $this->apiCookieForUser($user),
+        ], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        $response->assertOk()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.sent', 1);
+    }
 }

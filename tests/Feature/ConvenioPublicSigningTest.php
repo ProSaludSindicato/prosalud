@@ -5,14 +5,23 @@ namespace Tests\Feature;
 use App\Models\ApiToken;
 use App\Models\ConvenioEmailTracking;
 use App\Models\User;
+use App\Services\ConvenioPdfStorageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class ConvenioPublicSigningTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Storage::fake('prosalud-private');
+    }
 
     private function createOnePagePdf(): string
     {
@@ -61,12 +70,7 @@ PDF;
             'ruta_archivo_pdf' => $sourcePdf,
         ]);
 
-        $relative = 'convenios-digital/'.$tracking->id.'/original.pdf';
-        $dir = storage_path('app/convenios-digital/'.$tracking->id);
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-        copy($sourcePdf, storage_path('app/'.$relative));
+        $relative = app(ConvenioPdfStorageService::class)->storeOriginalFromAbsolutePath($tracking, $sourcePdf);
 
         $tracking->update([
             'signing_token_hash' => hash('sha256', $plainToken),
@@ -159,6 +163,9 @@ PDF;
 
         $tracking->refresh();
         $this->assertSame(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO, $tracking->signing_estado);
+        $this->assertNotNull($tracking->pdf_firmado_afiliado_path);
+        $this->assertStringEndsWith('/firmado-afiliado.pdf', $tracking->pdf_firmado_afiliado_path);
+        Storage::disk('prosalud-private')->assertExists($tracking->pdf_firmado_afiliado_path);
 
         $user = User::factory()->create();
         $user->givePermissionTo('document_signing.view');
@@ -191,12 +198,7 @@ PDF;
             'ruta_archivo_pdf' => $sourcePdf,
         ]);
 
-        $relative = 'convenios-digital/'.$tracking->id.'/original.pdf';
-        $dir = storage_path('app/convenios-digital/'.$tracking->id);
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-        copy($sourcePdf, storage_path('app/'.$relative));
+        $relative = app(ConvenioPdfStorageService::class)->storeOriginalFromAbsolutePath($tracking, $sourcePdf);
         $tracking->update(['pdf_original_path' => $relative]);
 
         $user = User::factory()->create();

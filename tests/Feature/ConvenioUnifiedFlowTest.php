@@ -83,15 +83,46 @@ class ConvenioUnifiedFlowTest extends TestCase
             ->assertJsonPath('data.data.0.available_actions.download_original', true);
     }
 
-    public function test_email_history_filters_verificacion_estado(): void
+    public function test_email_history_filters_test_records(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        ConvenioEmailTracking::factory()->test()->create([
+            'estado' => 'enviado',
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'enviado',
+            'is_test' => false,
+        ]);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/email-history',
+            ['estado_filtro' => 'test'],
+            ['prosalud_auth_token' => $this->apiCookieForUser($user)],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertOk();
+        $this->assertSame(1, $response->json('data.total'));
+        $this->assertTrue($response->json('data.data.0.is_test'));
+    }
+
+    public function test_email_history_filters_legacy_verificacion_as_test(): void
     {
         $this->seed(RolePermissionSeeder::class);
 
         ConvenioEmailTracking::factory()->create([
             'estado' => ConvenioEmailTracking::ESTADO_VERIFICACION,
+            'is_test' => true,
         ]);
         ConvenioEmailTracking::factory()->create([
             'estado' => 'enviado',
+            'is_test' => false,
         ]);
 
         $user = User::factory()->create();
@@ -108,6 +139,6 @@ class ConvenioUnifiedFlowTest extends TestCase
 
         $response->assertOk();
         $this->assertSame(1, $response->json('data.total'));
-        $this->assertSame(ConvenioEmailTracking::ESTADO_VERIFICACION, $response->json('data.data.0.estado'));
+        $this->assertTrue($response->json('data.data.0.is_test'));
     }
 }

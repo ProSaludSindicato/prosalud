@@ -46,6 +46,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
         public ?string $optionalEmail = null,
         public ?string $sede = null,
         public ?array $convenioData = null,
+        public ?int $generatedByUserId = null,
     ) {}
 
     /**
@@ -167,7 +168,6 @@ class SendConvenioManualEmailJob implements ShouldQueue
 
                 $tracking->marcarComoFallido($errorMessage);
 
-                // Si es un reenvío, asegurar que los intentos estén sincronizados
                 if ($this->parentTrackingId) {
                     $this->sincronizarIntentos($tracking);
                 }
@@ -175,17 +175,25 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 return;
             }
 
+            $isTest = $tracking->is_test;
+            $relativeStored = $convenioPdfStorageService->storeOriginalFromAbsolutePath($tracking, $this->rutaArchivoPdf);
+            $tracking->update([
+                'pdf_original_path' => $relativeStored,
+            ]);
+
             $signingUrl = null;
-            if (config('convenio_signing.enabled', true) && ConvenioDelivery::isProductionMode()) {
+            if (config('convenio_signing.enabled', true)) {
                 try {
                     $plainToken = ConvenioDigitalSigningService::generatePlainToken();
-                    $relativeStored = $convenioPdfStorageService->storeOriginalFromAbsolutePath($tracking, $this->rutaArchivoPdf);
-                    $tracking->update([
+                    $trackingUpdate = [
                         'signing_token_hash' => ConvenioDigitalSigningService::hashPlainToken($plainToken),
                         'token_expires_at' => $convenioDigitalSigningService->tokenExpiresAt(),
                         'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA,
-                        'pdf_original_path' => $relativeStored,
-                    ]);
+                    ];
+                    if ($isTest) {
+                        $trackingUpdate['viewer_header_title'] = '[TEST] '.(string) config('convenio_signing.viewer_header_title');
+                    }
+                    $tracking->update($trackingUpdate);
                     $signingUrl = $convenioDigitalSigningService->buildSigningUrl($plainToken);
                 } catch (\Throwable $e) {
                     Log::error('[CONVENIO DIGITAL] No se pudo preparar enlace de firma; se enviará PDF adjunto', [
@@ -201,6 +209,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 $this->documento,
                 $this->nombreConvenio,
                 $signingUrl,
+                $isTest,
             );
 
             if ($signingUrl === null) {
@@ -336,13 +345,15 @@ class SendConvenioManualEmailJob implements ShouldQueue
     private function createTrackingRecord(?array $afiliado, ?string $errorMessage, string $nombreFromFile = ''): ConvenioEmailTracking
     {
         $emailAfiliado = $afiliado['correo_personal'] ?? null;
-        // Use provided email if available, otherwise use affiliate email
         $emailToStore = ! empty($this->optionalEmail) ? $this->optionalEmail : $emailAfiliado;
 
+        $parentTracking = $this->parentTrackingId
+            ? ConvenioEmailTracking::find($this->parentTrackingId)
+            : null;
+
         $convenioData = $this->convenioData;
-        if (($convenioData === null || $convenioData === []) && $this->parentTrackingId) {
-            $parentTracking = ConvenioEmailTracking::find($this->parentTrackingId);
-            $convenioData = $parentTracking?->convenio_data;
+        if (($convenioData === null || $convenioData === []) && $parentTracking) {
+            $convenioData = $parentTracking->convenio_data;
         }
 
         $nombreAfiliado = $this->resolveAffiliateDisplayName(
@@ -351,20 +362,15 @@ class SendConvenioManualEmailJob implements ShouldQueue
             $convenioData,
         ) ?? 'No disponible';
 
-        // Si es un reenvío, obtener el número de intentos del tracking padre
-        $intentos = 0;
-        if ($this->parentTrackingId) {
-            $parentTracking = ConvenioEmailTracking::find($this->parentTrackingId);
-            if ($parentTracking) {
-                $intentos = $parentTracking->intentos;
-            }
-        }
+        $intentos = $parentTracking?->intentos ?? 0;
 
         $sedeParaTracking = $this->sede !== null && $this->sede !== '' ? $this->sede : null;
         if ($sedeParaTracking === null && $afiliado !== null) {
             $hospital = $afiliado['hospital'] ?? null;
             $sedeParaTracking = is_string($hospital) && trim($hospital) !== '' ? trim($hospital) : null;
         }
+
+        $generatedByUserId = $this->generatedByUserId ?? $parentTracking?->generated_by_user_id;
 
         return ConvenioEmailTracking::create([
             'documento' => $this->documento,
@@ -379,6 +385,8 @@ class SendConvenioManualEmailJob implements ShouldQueue
             'parent_tracking_id' => $this->parentTrackingId,
             'sede' => $sedeParaTracking,
             'convenio_data' => $convenioData,
+            'generated_by_user_id' => $generatedByUserId,
+            'is_test' => ConvenioDelivery::isTestMode() || (bool) $parentTracking?->is_test,
         ]);
     }
 

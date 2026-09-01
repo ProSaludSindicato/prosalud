@@ -14,6 +14,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
@@ -26,6 +27,7 @@ class ConvenioDeliveryModeTest extends TestCase
     {
         parent::setUp();
 
+        Storage::fake('prosalud-private');
         config(['convenio_signing.enabled' => false]);
     }
 
@@ -163,11 +165,14 @@ class ConvenioDeliveryModeTest extends TestCase
         ]);
     }
 
-    public function test_generate_job_in_test_mode_creates_verification_tracking_and_emails_creator(): void
+    public function test_generate_job_in_test_mode_marks_tracking_as_test_and_emails_creator_with_pdf(): void
     {
-        config(['convenios.delivery_mode' => 'test']);
+        config([
+            'convenios.delivery_mode' => 'test',
+            'convenio_signing.enabled' => false,
+        ]);
 
-        Bus::fake([SendConvenioManualEmailJob::class]);
+        Mail::fake();
 
         $pdfPath = storage_path('app/temp/convenios/test-verificacion.pdf');
         if (! is_dir(dirname($pdfPath))) {
@@ -192,6 +197,10 @@ class ConvenioDeliveryModeTest extends TestCase
                 ]);
         });
 
+        $this->mock(AfiliadoService::class, function ($mock): void {
+            $mock->shouldReceive('getAfiliadoByDocumentoOnly')->andReturn(null);
+        });
+
         $user = User::factory()->create([
             'email' => 'creator-test@example.com',
         ]);
@@ -205,16 +214,100 @@ class ConvenioDeliveryModeTest extends TestCase
 
         app()->call([$job, 'handle']);
 
-        Bus::assertDispatched(SendConvenioManualEmailJob::class, function (SendConvenioManualEmailJob $job) use ($user): bool {
-            return $job->optionalEmail === $user->email;
+        Mail::assertSent(ConvenioManualNotification::class, function (ConvenioManualNotification $mail) use ($user): bool {
+            $mail->build();
+
+            return $mail->hasTo($user->email)
+                && $mail->isTest
+                && $mail->signingUrl === null
+                && str_contains((string) $mail->subject, '[TEST]')
+                && count($mail->rawAttachments) === 1
+                && ! $mail->hasCc('sprosalud.auxiliar@gmail.com');
         });
 
-        $this->assertDatabaseHas('convenio_email_tracking', [
-            'documento' => '1234567890',
-            'estado' => ConvenioEmailTracking::ESTADO_VERIFICACION,
-            'generated_by_user_id' => $user->id,
-            'ruta_archivo_pdf' => $pdfPath,
+        Mail::assertSent(ConvenioManualNotification::class, function (ConvenioManualNotification $mail): bool {
+            return ! $mail->hasTo('afiliado@example.com');
+        });
+
+        $tracking = ConvenioEmailTracking::query()->where('documento', '1234567890')->first();
+        $this->assertNotNull($tracking);
+        $this->assertTrue($tracking->is_test);
+        $this->assertSame('enviado', $tracking->estado);
+        $this->assertSame($user->id, $tracking->generated_by_user_id);
+        $this->assertNotSame(ConvenioEmailTracking::ESTADO_VERIFICACION, $tracking->estado);
+        $this->assertNotNull($tracking->pdf_original_path);
+        $this->assertStringStartsWith('convenios/test/', $tracking->pdf_original_path);
+        $this->assertStringEndsWith('/original.pdf', $tracking->pdf_original_path);
+        Storage::disk('prosalud-private')->assertExists($tracking->pdf_original_path);
+    }
+
+    public function test_test_mode_with_digital_signing_sends_signing_link(): void
+    {
+        config([
+            'convenios.delivery_mode' => 'test',
+            'convenio_signing.enabled' => true,
+            'services.firma_digital.app_url' => 'https://firma.test',
+            'services.firma_digital.sign_path' => '/sign',
         ]);
+
+        Mail::fake();
+
+        $pdfPath = storage_path('app/temp/convenios/test-signing.pdf');
+        if (! is_dir(dirname($pdfPath))) {
+            mkdir(dirname($pdfPath), 0755, true);
+        }
+        file_put_contents($pdfPath, '%PDF-1.4 signing test');
+
+        $this->mock(AfiliadoService::class, function ($mock): void {
+            $mock->shouldReceive('getAfiliadoByDocumentoOnly')->andReturn(null);
+        });
+
+        $user = User::factory()->create([
+            'email' => 'tester@example.com',
+        ]);
+
+        $job = new SendConvenioManualEmailJob(
+            '1234567890',
+            'Convenio_1234567890_Perez_Juan.pdf',
+            $pdfPath,
+            'TEST CONVENIO',
+            null,
+            'tester@example.com',
+            'BELLO',
+            $this->convenioPayload(),
+            $user->id,
+        );
+
+        app()->call([$job, 'handle']);
+
+        Mail::assertSent(ConvenioManualNotification::class, function (ConvenioManualNotification $mail): bool {
+            $mail->build();
+
+            return $mail->hasTo('tester@example.com')
+                && $mail->isTest
+                && is_string($mail->signingUrl)
+                && str_contains($mail->signingUrl, 'https://firma.test/sign/')
+                && $mail->rawAttachments === []
+                && str_contains((string) $mail->subject, '[TEST]');
+        });
+
+        $tracking = ConvenioEmailTracking::query()->where('documento', '1234567890')->first();
+        $this->assertNotNull($tracking);
+        $this->assertTrue($tracking->is_test);
+        $this->assertSame(ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA, $tracking->signing_estado);
+        $this->assertNotNull($tracking->signing_token_hash);
+        $this->assertStringStartsWith('[TEST] ', (string) $tracking->viewer_header_title);
+        $this->assertNotNull($tracking->pdf_original_path);
+        $this->assertStringStartsWith('convenios/test/', $tracking->pdf_original_path);
+        Storage::disk('prosalud-private')->assertExists($tracking->pdf_original_path);
+    }
+
+    public function test_non_production_delivery_mode_is_treated_as_test(): void
+    {
+        config(['convenios.delivery_mode' => 'staging']);
+
+        $this->assertTrue(\App\Support\ConvenioDelivery::isTestMode());
+        $this->assertFalse(\App\Support\ConvenioDelivery::isProductionMode());
     }
 
     public function test_tracking_detail_includes_convenio_data(): void

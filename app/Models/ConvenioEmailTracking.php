@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\ConvenioPdfStage;
+use App\Services\ConvenioPdfStorageService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -48,10 +50,12 @@ class ConvenioEmailTracking extends Model
         'sede',
         'generated_by_user_id',
         'convenio_data',
+        'is_test',
     ];
 
     protected $casts = [
         'convenio_data' => 'array',
+        'is_test' => 'boolean',
         'enviado_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -84,6 +88,29 @@ class ConvenioEmailTracking extends Model
     public function scopeByEstado($query, string $estado)
     {
         return $query->where('estado', $estado);
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
+     */
+    public function scopeReal($query)
+    {
+        return $query->where('is_test', false);
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
+     */
+    public function scopeTest($query)
+    {
+        return $query->where('is_test', true);
+    }
+
+    public function isTestRecord(): bool
+    {
+        return $this->is_test || $this->estado === self::ESTADO_VERIFICACION;
     }
 
     /**
@@ -194,7 +221,8 @@ class ConvenioEmailTracking extends Model
      */
     public function resolveAvailableActions(bool $digitalSigningEnabled): array
     {
-        $hasOriginal = $this->resolveOriginalPdfAbsolutePath() !== null;
+        $storage = app(ConvenioPdfStorageService::class);
+        $hasOriginal = $storage->hasOriginal($this);
 
         $canResend = in_array($this->estado, ['enviado', 'fallido', self::ESTADO_VERIFICACION], true);
 
@@ -203,7 +231,10 @@ class ConvenioEmailTracking extends Model
             $canDownloadFinal = in_array($this->signing_estado, [
                 self::SIGNING_FIRMADO_AFILIADO,
                 self::SIGNING_COMPLETADO,
-            ], true);
+            ], true) && (
+                $storage->hasStage($this, ConvenioPdfStage::FirmadoAfiliado)
+                || $storage->hasStage($this, ConvenioPdfStage::Final)
+            );
         }
 
         return [
@@ -215,18 +246,7 @@ class ConvenioEmailTracking extends Model
 
     public function resolveOriginalPdfAbsolutePath(): ?string
     {
-        if ($this->pdf_original_path) {
-            $stored = storage_path('app/'.$this->pdf_original_path);
-            if (is_file($stored)) {
-                return $stored;
-            }
-        }
-
-        if (is_string($this->ruta_archivo_pdf) && $this->ruta_archivo_pdf !== '' && is_file($this->ruta_archivo_pdf)) {
-            return $this->ruta_archivo_pdf;
-        }
-
-        return null;
+        return app(ConvenioPdfStorageService::class)->materializeOriginalToTemp($this);
     }
 
     /**

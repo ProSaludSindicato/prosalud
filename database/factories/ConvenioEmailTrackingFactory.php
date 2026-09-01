@@ -26,6 +26,14 @@ class ConvenioEmailTrackingFactory extends Factory
             'ruta_archivo_pdf' => '/tmp/missing.pdf',
             'estado' => 'pendiente',
             'intentos' => 0,
+            'is_test' => false,
         ];
+    }
+
+    public function test(): static
+    {
+        return $this->state(fn (): array => [
+            'is_test' => true,
+        ]);
     }
 }

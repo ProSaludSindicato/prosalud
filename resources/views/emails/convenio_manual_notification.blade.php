@@ -51,6 +51,14 @@
                                 @endif
                             </p>
 
+                            @if(!empty($isTest))
+                            <div style="margin:0 0 24px; padding:14px 16px; background:#fff7ed; border-radius:8px; border-left:4px solid #c2410c;">
+                                <p style="margin:0; font-size:14px; color:#9a3412; line-height:1.6;">
+                                    <strong>Este es un envío de prueba (TEST).</strong> No corresponde a un convenio real. El documento o enlace se envía con el mismo formato de producción para validar el flujo.
+                                </p>
+                            </div>
+                            @endif
+
                             @if(!empty($signingUrl))
                             <p style="margin:0 0 24px; font-size:15px; color:#4b5563; line-height:1.75;">
                                 Tienes un convenio pendiente de <strong style="color:#1f2937;">firma digital</strong>: para revisarlo y firmarlo, haz clic en el siguiente botón. No necesitas instalar ningún programa y puedes hacerlo desde tu celular o computador en pocos minutos.
