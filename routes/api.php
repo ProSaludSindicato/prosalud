@@ -252,7 +252,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::get('/export-template', [ConvenioManualController::class, 'exportTemplate'])
         ->middleware('permission:document_signing.manage');
 
-    // Import and generate convenios from Excel (bulk; optional send_email per row)
+    // Import and generate convenios from Excel (bulk; send_email controlled via request toggle)
     Route::post('/import-bulk', [ConvenioManualController::class, 'importAndGenerateBulk'])
         ->middleware('permission:document_signing.manage');
 

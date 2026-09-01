@@ -1004,7 +1004,7 @@ class ConvenioManualController extends Controller
 
         // Usar los datos normalizados
         $request->merge($requestData);
-        $sendEmail = $request->boolean('send_email', false);
+        $sendEmail = $request->boolean('send_email', true);
 
         Log::debug('[CONVENIO API] send_email normalizado', [
             'original' => $request->input('send_email'),
@@ -1162,6 +1162,21 @@ class ConvenioManualController extends Controller
 
             // Procesar filas
             $highestRow = $sheet->getHighestRow();
+
+            if ($highestRow <= 1) {
+                Log::warning('[CONVENIO API] El Excel no contiene filas de datos', [
+                    'highest_row' => $highestRow,
+                ]);
+                \Storage::delete($tempPath);
+                $spreadsheet->disconnectWorksheets();
+                unset($spreadsheet);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El archivo Excel no contiene filas de datos. Complete al menos una fila debajo de los encabezados (a partir de la fila 2) e intente nuevamente.',
+                ], 422);
+            }
+
             Log::info('[CONVENIO API] Iniciando procesamiento de filas', [
                 'total_filas' => $highestRow,
                 'filas_a_procesar' => $highestRow - 1, // Excluyendo encabezado
@@ -1248,28 +1263,24 @@ class ConvenioManualController extends Controller
                         continue;
                     }
 
-                    // Preparar datos para generación (eliminar hospital y nombre_archivo si existen)
+                    // Preparar datos para generación (eliminar campos que no van a la plantilla Word)
                     $convenioData = $rowData;
-                    unset($convenioData['hospital'], $convenioData['nombre_archivo']);
+                    unset($convenioData['hospital'], $convenioData['nombre_archivo'], $convenioData['email'], $convenioData['send_email']);
 
                     $email = $rowData['email'] ?? null;
-                    // send_email ya es booleano después de readRowDataFromExcel, pero asegurarnos
-                    $rowSendEmail = isset($rowData['send_email'])
-                        ? (is_bool($rowData['send_email']) ? $rowData['send_email'] : (bool) $rowData['send_email'])
-                        : $sendEmail;
 
                     Log::debug('[CONVENIO API] Preparando job para fila', [
                         'fila' => $rowIndex,
                         'documento' => $convenioData['numero_documento'] ?? 'N/A',
                         'email' => $email,
-                        'send_email' => $rowSendEmail,
+                        'send_email' => $sendEmail,
                     ]);
 
                     // Encolar job para generar convenio
                     GenerateConvenioJob::dispatch(
                         $convenioData,
                         $email,
-                        $rowSendEmail,
+                        $sendEmail,
                         $request->user()?->id,
                     );
                     $exitosos++;
@@ -1303,8 +1314,8 @@ class ConvenioManualController extends Controller
             ]);
 
             return response()->json([
-                'success' => true,
-                'message' => $this->buildImportBulkMessage($sendEmail, $exitosos),
+                'success' => $exitosos > 0,
+                'message' => $this->buildImportBulkMessage($sendEmail, $exitosos, $errores, $filasVacias, $procesados),
                 'delivery_mode' => config('convenios.delivery_mode'),
                 'next_step' => 'email-history',
                 'ui' => ConvenioHistoryUi::metadata((bool) config('convenio_signing.enabled', true)),
@@ -1316,7 +1327,7 @@ class ConvenioManualController extends Controller
                     'send_email' => $sendEmail,
                     'errors' => $errors,
                 ],
-            ], 202);
+            ], $exitosos > 0 ? 202 : 422);
 
         } catch (\Exception $e) {
             Log::error('[CONVENIO API] Error en importación masiva', [
@@ -1402,7 +1413,6 @@ class ConvenioManualController extends Controller
             'valor_auxilio_recargo_festivo' => ['valor auxilio recargo festivo', 'valor_auxilio_recargo_festivo'],
             'valor_auxilio_recargo_festivo_nocturno' => ['valor auxilio recargo festivo nocturno', 'valor_auxilio_recargo_festivo_nocturno'],
             'email' => ['email'],
-            'send_email' => ['enviar email', 'send_email', 'enviar_email'],
         ];
 
         // Leer fila de encabezados (fila 1)
@@ -1451,25 +1461,6 @@ class ConvenioManualController extends Controller
                 // Procesar fechas si es necesario
                 if (in_array($internalName, ['fecha_inicio', 'fecha_finalizacion', 'fecha_nacimiento'])) {
                     $value = $this->normalizeDate($value);
-                }
-
-                // Procesar booleanos (acepta "Si"/"No" en español o "true"/"false" en inglés)
-                // Por defecto es false si la celda está vacía
-                if ($internalName === 'send_email') {
-                    if (is_bool($value)) {
-                        // Ya es booleano, no hacer nada
-                    } else {
-                        $valueStr = is_string($value) ? trim($value) : (string) $value;
-                        $valueNormalizado = mb_strtolower($valueStr, 'UTF-8');
-
-                        if ($valueNormalizado === 'no' || $valueNormalizado === 'false' || $valueNormalizado === '0') {
-                            $value = false;
-                        } elseif ($valueNormalizado === 'si' || $valueNormalizado === 'sí' || $valueNormalizado === 'true' || $valueNormalizado === '1' || $valueNormalizado === 'yes') {
-                            $value = true;
-                        } else {
-                            $value = false;
-                        }
-                    }
                 }
 
                 $data[$internalName] = $value;
@@ -1618,10 +1609,23 @@ class ConvenioManualController extends Controller
         return false;
     }
 
-    private function buildImportBulkMessage(bool $sendEmail, int $exitosos): string
-    {
+    private function buildImportBulkMessage(
+        bool $sendEmail,
+        int $exitosos,
+        int $errores = 0,
+        int $filasVacias = 0,
+        int $procesados = 0,
+    ): string {
         if ($exitosos === 0) {
-            return 'No se encolaron convenios. Revise los errores de validación en la respuesta.';
+            if ($errores > 0) {
+                return 'No se encolaron convenios. Revise los errores de validación por fila en la respuesta.';
+            }
+
+            if ($filasVacias > 0 && $filasVacias === $procesados) {
+                return 'No se encolaron convenios porque todas las filas del archivo están vacías.';
+            }
+
+            return 'No se encolaron convenios. Verifique que el archivo tenga filas con datos debajo de los encabezados.';
         }
 
         if ($sendEmail && ConvenioDelivery::isTestMode()) {

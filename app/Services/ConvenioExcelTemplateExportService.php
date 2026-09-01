@@ -3,12 +3,10 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
-use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class ConvenioExcelTemplateExportService
@@ -81,9 +79,6 @@ class ConvenioExcelTemplateExportService
 
         // Congelar primera fila (encabezados)
         $sheet->freezePane('A2');
-
-        // Aplicar validación tipo checkbox a la columna "Enviar Email"
-        $this->addCheckboxValidation($sheet, $columns);
 
         // Guardar en archivo temporal
         $tempPath = tempnam(sys_get_temp_dir(), 'convenio_template_').'.xlsx';
@@ -315,63 +310,13 @@ class ConvenioExcelTemplateExportService
                 'example' => '8552',
             ],
 
-            // Opciones de procesamiento
+            // Contacto del afiliado (requerido si se activa "Enviar correos al procesar" en la interfaz)
             [
                 'header' => 'Email',
                 'field' => 'email',
-                'description' => 'Email del afiliado para envío del convenio (opcional)',
+                'description' => 'Email del afiliado. Requerido si activa el envío de correos al importar desde la interfaz.',
                 'example' => 'afiliado@example.com',
             ],
-            [
-                'header' => 'Enviar Email',
-                'field' => 'send_email',
-                'description' => 'Seleccione "Si" para enviar el convenio por correo o "No" para no enviar',
-                'example' => 'Si',
-            ],
         ];
-    }
-
-    /**
-     * Agrega validación tipo checkbox a la columna "Enviar Email"
-     * Usa una lista desplegable con opciones "true" y "false"
-     */
-    private function addCheckboxValidation(Worksheet $sheet, array $columns): void
-    {
-        // Encontrar el índice de la columna "Enviar Email"
-        $columnaEnviarEmail = null;
-        foreach ($columns as $index => $column) {
-            if ($column['field'] === 'send_email') {
-                $columnaEnviarEmail = $index + 1; // 1-based index
-                break;
-            }
-        }
-
-        if (! $columnaEnviarEmail) {
-            return; // No se encontró la columna
-        }
-
-        $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnaEnviarEmail);
-        $highestRow = max(2, $sheet->getHighestRow());
-        $maxDataRow = max(1000, $highestRow + 100);
-        $validationRange = $colLetter.'2:'.$colLetter.$maxDataRow;
-
-        $validation = $sheet->getCell($colLetter.'2')->getDataValidation();
-        $validation->setType(DataValidation::TYPE_LIST);
-        $validation->setErrorStyle(DataValidation::STYLE_STOP);
-        $validation->setAllowBlank(true);
-        $validation->setShowInputMessage(true);
-        $validation->setShowErrorMessage(true);
-        $validation->setShowDropDown(true);
-        $validation->setErrorTitle('Valor inválido');
-        $validation->setError('Por favor seleccione "Si" o "No", o deje la celda vacía para no enviar correo');
-        $validation->setPromptTitle('Enviar Email');
-        $validation->setPrompt('Seleccione "Si" para enviar el convenio por correo, "No" o vacío para no enviar');
-        $validation->setFormula1('"Si,No"');
-        $validation->setSqref($validationRange);
-
-        Log::debug('[CONVENIO TEMPLATE EXPORT] Validación tipo checkbox aplicada a columna Enviar Email', [
-            'columna' => $colLetter,
-            'rango' => $validationRange,
-        ]);
     }
 }
