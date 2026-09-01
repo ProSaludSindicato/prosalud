@@ -9,6 +9,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -196,5 +197,59 @@ class ImportBulkConveniosTest extends TestCase
             ]);
 
         Bus::assertNothingDispatched();
+    }
+
+    public function test_import_bulk_reads_excel_when_default_disk_is_prosalud_private(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+        Bus::fake([GenerateConvenioJob::class]);
+        Storage::fake('prosalud-private');
+        config(['filesystems.default' => 'prosalud-private']);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.manage');
+
+        $file = $this->createConveniosXlsxUpload([
+            [
+                'Numero Documento',
+                'Apellidos',
+                'Nombres',
+                'Fecha Nacimiento',
+                'Lugar Nacimiento',
+                'Proceso',
+                'Ciudad',
+                'Sede',
+                'Fecha Inicio',
+                'Direccion',
+                'Celular',
+                'Compensacion Basica Redactada',
+            ],
+            [
+                '5555555555',
+                'Gomez',
+                'Ana',
+                '1991-03-15',
+                'Medellin',
+                'TEST CONVENIO',
+                'Medellin',
+                'BELLO',
+                '2026-01-01',
+                'Calle 3',
+                '3005555555',
+                'Compensacion basica de prueba.',
+            ],
+        ]);
+
+        $response = $this->withUnencryptedCookie('prosalud_auth_token', $this->apiCookieForUser($user))
+            ->post('/api/convenios-manual/import-bulk', [
+                'file' => $file,
+                'send_email' => true,
+            ], ['Accept' => 'application/json']);
+
+        $response->assertAccepted()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.exitosos', 1);
+
+        Bus::assertDispatched(GenerateConvenioJob::class);
     }
 }

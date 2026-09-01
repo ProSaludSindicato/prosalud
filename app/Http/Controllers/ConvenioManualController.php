@@ -14,6 +14,7 @@ use App\Support\ConvenioHistoryUi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -1034,41 +1035,33 @@ class ConvenioManualController extends Controller
                 'send_email' => $sendEmail,
             ]);
 
-            // Guardar archivo temporalmente
-            Log::debug('[CONVENIO API] Guardando archivo temporalmente', [
+            // Leer desde el upload de PHP o, si hace falta, copiar al disco local explícito (no al default, que en prod puede ser S3).
+            Log::debug('[CONVENIO API] Resolviendo archivo temporal de importación', [
                 'original_name' => $file->getClientOriginalName(),
                 'size' => $file->getSize(),
                 'mime' => $file->getMimeType(),
+                'default_disk' => config('filesystems.default'),
             ]);
 
-            // Usar storeAs en el disco local (storage/app/private); resolver ruta con Storage::path()
             try {
-                $tempPath = $file->storeAs('temp', 'convenio_import_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension());
-                $fullTempPath = Storage::path($tempPath);
-                $tempDir = dirname($fullTempPath);
+                ['path' => $fullTempPath, 'storage_path' => $tempPath] = $this->resolveBulkImportExcelPath($file);
 
-                Log::info('[CONVENIO API] Archivo guardado temporalmente', [
-                    'temp_path' => $tempPath,
+                Log::info('[CONVENIO API] Archivo temporal listo para lectura', [
+                    'temp_storage_path' => $tempPath,
                     'full_path' => $fullTempPath,
                     'exists' => file_exists($fullTempPath),
                     'readable' => is_readable($fullTempPath),
                     'size' => file_exists($fullTempPath) ? filesize($fullTempPath) : 0,
                 ]);
+            } catch (\RuntimeException $e) {
+                Log::error('[CONVENIO API] Error al resolver archivo temporal de importación', [
+                    'error' => $e->getMessage(),
+                ]);
 
-                if (! file_exists($fullTempPath)) {
-                    Log::error('[CONVENIO API] El archivo no se guardó correctamente', [
-                        'temp_path' => $tempPath,
-                        'full_path' => $fullTempPath,
-                        'temp_dir_exists' => file_exists($tempDir),
-                        'temp_dir_writable' => is_writable($tempDir),
-                        'storage_disk_root' => Storage::path(''),
-                    ]);
-
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Error al guardar el archivo temporalmente. Verifique los permisos del directorio '.Storage::path('temp'),
-                    ], 500);
-                }
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                ], 500);
             } catch (\Exception $e) {
                 Log::error('[CONVENIO API] Error al guardar archivo temporal', [
                     'error' => $e->getMessage(),
@@ -1106,7 +1099,7 @@ class ConvenioManualController extends Controller
                     'trace' => $e->getTraceAsString(),
                     'file_path' => $fullTempPath,
                 ]);
-                \Storage::delete($tempPath);
+                $this->deleteBulkImportExcelTemp($tempPath);
                 throw $e;
             }
 
@@ -1121,7 +1114,7 @@ class ConvenioManualController extends Controller
 
             if (empty($columnMapping)) {
                 Log::error('[CONVENIO API] No se encontraron columnas válidas en el Excel');
-                \Storage::delete($tempPath);
+                $this->deleteBulkImportExcelTemp($tempPath);
 
                 return response()->json([
                     'success' => false,
@@ -1156,7 +1149,7 @@ class ConvenioManualController extends Controller
                     'missing_columns' => $missingColumns,
                     'available_columns' => array_keys($columnMapping),
                 ]);
-                \Storage::delete($tempPath);
+                $this->deleteBulkImportExcelTemp($tempPath);
 
                 return response()->json([
                     'success' => false,
@@ -1174,7 +1167,7 @@ class ConvenioManualController extends Controller
                 Log::warning('[CONVENIO API] El Excel no contiene filas de datos', [
                     'highest_row' => $highestRow,
                 ]);
-                \Storage::delete($tempPath);
+                $this->deleteBulkImportExcelTemp($tempPath);
                 $spreadsheet->disconnectWorksheets();
                 unset($spreadsheet);
 
@@ -1308,7 +1301,7 @@ class ConvenioManualController extends Controller
             }
 
             // Limpiar archivo temporal
-            \Storage::delete($tempPath);
+            $this->deleteBulkImportExcelTemp($tempPath);
             $spreadsheet->disconnectWorksheets();
             unset($spreadsheet);
 
@@ -1352,7 +1345,7 @@ class ConvenioManualController extends Controller
             // Limpiar archivo temporal si existe
             if (isset($tempPath)) {
                 try {
-                    \Storage::delete($tempPath);
+                    $this->deleteBulkImportExcelTemp($tempPath);
                 } catch (\Exception $cleanupException) {
                     Log::warning('[CONVENIO API] Error limpiando archivo temporal', [
                         'error' => $cleanupException->getMessage(),
@@ -1644,5 +1637,45 @@ class ConvenioManualController extends Controller
         }
 
         return "Se encolaron {$exitosos} convenios para generación en PDF. Consulte el historial o descargue cuando estén listos.";
+    }
+
+    /**
+     * @return array{path: string, storage_path: string|null}
+     */
+    private function resolveBulkImportExcelPath(UploadedFile $file): array
+    {
+        $realPath = $file->getRealPath();
+        if (is_string($realPath) && $realPath !== '' && is_readable($realPath)) {
+            return [
+                'path' => $realPath,
+                'storage_path' => null,
+            ];
+        }
+
+        $localDisk = Storage::disk('local');
+        $localDisk->makeDirectory('temp');
+
+        $filename = 'convenio_import_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
+        $storagePath = $file->storeAs('temp', $filename, 'local');
+
+        if ($storagePath === false || ! $localDisk->exists($storagePath)) {
+            throw new \RuntimeException(
+                'Error al guardar el archivo temporalmente. Verifique los permisos del directorio '.$localDisk->path('temp')
+            );
+        }
+
+        return [
+            'path' => $localDisk->path($storagePath),
+            'storage_path' => $storagePath,
+        ];
+    }
+
+    private function deleteBulkImportExcelTemp(?string $storagePath): void
+    {
+        if ($storagePath === null || $storagePath === '') {
+            return;
+        }
+
+        Storage::disk('local')->delete($storagePath);
     }
 }
