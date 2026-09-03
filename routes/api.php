@@ -83,6 +83,7 @@ Route::middleware('throttle:public-endpoints')->group(function () {
 // Firma digital de convenios (público, token en URL; sin autenticación de panel)
 if (config('convenio_signing.enabled', true)) {
     Route::prefix('public/convenio-firma')->middleware(['throttle:convenio-signing-public'])->group(function () {
+        Route::post('report-error', [ConvenioPublicSigningController::class, 'reportClientError']);
         Route::get('{token}/metadata', [ConvenioPublicSigningController::class, 'metadata'])
             ->where('token', '[A-Za-z0-9]{32,128}');
         Route::get('{token}/document.pdf', [ConvenioPublicSigningController::class, 'documentPdf'])

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ConvenioPdfStage;
+use App\Http\Requests\ReportConvenioSigningClientErrorRequest;
 use App\Http\Requests\SubmitAffiliateConvenioSignatureRequest;
 use App\Http\Requests\SubmitConvenioSigningSatisfactionRequest;
 use App\Models\ConvenioEmailTracking;
@@ -322,5 +323,23 @@ class ConvenioPublicSigningController extends Controller
                 'satisfaction_score' => $score,
             ],
         ]);
+    }
+
+    public function reportClientError(ReportConvenioSigningClientErrorRequest $request): JsonResponse
+    {
+        Log::error('[CONVENIO DIGITAL][FRONTEND] Error no controlado en visor de firma', [
+            'message' => $request->validated('message'),
+            'url' => $request->validated('url'),
+            'token' => $request->validated('token'),
+            'stack' => $request->validated('stack'),
+            'component_stack' => $request->validated('component_stack'),
+            'context' => $request->validated('context'),
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+        ], 202);
     }
 }
