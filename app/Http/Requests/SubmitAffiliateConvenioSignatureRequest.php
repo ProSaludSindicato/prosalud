@@ -38,8 +38,8 @@ class SubmitAffiliateConvenioSignatureRequest extends FormRequest
             'pdf.max' => 'El PDF excede el tamaño máximo permitido.',
             'audit_log.required' => 'La bitácora de firma es obligatoria.',
             'audit_log.json' => 'La bitácora de firma no tiene un formato válido.',
-            'terms_accepted.required' => 'Debe aceptar los términos y condiciones y la política de tratamiento de datos.',
-            'terms_accepted.accepted' => 'Debe aceptar los términos y condiciones y la política de tratamiento de datos.',
+            'terms_accepted.required' => 'Debe autorizar el tratamiento de sus datos personales conforme a la política publicada.',
+            'terms_accepted.accepted' => 'Debe autorizar el tratamiento de sus datos personales conforme a la política publicada.',
         ];
     }
 

@@ -55,7 +55,7 @@ class ConvenioSigningAuditLog
             'signature_uploaded' => 'Subió una imagen de firma',
             'signature_positioned' => 'Colocó la firma en el documento',
             'signature_cleared' => 'Borró la firma',
-            'terms_accepted' => 'Aceptó términos y condiciones',
+            'terms_accepted' => 'Autorizó tratamiento de datos personales',
             'document_submitted' => 'Envió el convenio firmado',
             'document_confirmed' => 'Confirmó el envío',
             'document_downloaded' => 'Descargó el documento firmado',
