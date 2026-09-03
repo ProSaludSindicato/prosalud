@@ -194,17 +194,6 @@ class SendConvenioManualEmailJob implements ShouldQueue
 
             $isTest = $tracking->is_test;
 
-            if ($tracking->pdf_original_path === null || $tracking->pdf_original_path === '') {
-                $relativeStored = $convenioPdfStorageService->storeOriginalFromAbsolutePath($tracking, $pdfPathForSend);
-                $originalContents = file_get_contents($pdfPathForSend);
-                $tracking->update([
-                    'pdf_original_path' => $relativeStored,
-                    'pdf_original_sha256' => is_string($originalContents) && $originalContents !== ''
-                        ? hash('sha256', $originalContents)
-                        : null,
-                ]);
-            }
-
             if (ConvenioRateLimiter::tooManyEmailAttempts()) {
                 $this->release(ConvenioRateLimiter::emailAvailableIn());
 
@@ -250,6 +239,31 @@ class SendConvenioManualEmailJob implements ShouldQueue
             ConvenioRateLimiter::hitEmail();
 
             $tracking->marcarComoEnviado();
+            $tracking->refresh();
+
+            $originalContents = file_get_contents($pdfPathForSend);
+            $originalSha256 = is_string($originalContents) && $originalContents !== ''
+                ? hash('sha256', $originalContents)
+                : null;
+
+            if ($tracking->pdf_original_path === null || $tracking->pdf_original_path === '') {
+                $relativeStored = $convenioPdfStorageService->storeOriginalFromAbsolutePath($tracking, $pdfPathForSend);
+                $tracking->update([
+                    'pdf_original_path' => $relativeStored,
+                    'pdf_original_sha256' => $originalSha256,
+                ]);
+            } else {
+                $migratedPath = $convenioPdfStorageService->migrateToMnemonicPath(
+                    $tracking,
+                    \App\Enums\ConvenioPdfStage::Original,
+                );
+                if ($migratedPath !== null) {
+                    $tracking->update([
+                        'pdf_original_path' => $migratedPath,
+                        'pdf_original_sha256' => $originalSha256 ?? $tracking->pdf_original_sha256,
+                    ]);
+                }
+            }
 
             if ($this->parentTrackingId) {
                 $this->sincronizarIntentos($tracking);

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ConvenioPdfStage;
 use App\Enums\ConvenioTextIntegrityStatus;
 use App\Services\ConvenioPdfStorageService;
+use App\Support\ConvenioDisplayFilename;
 use App\Support\ConvenioSigningAuditLog;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -53,6 +54,8 @@ class ConvenioEmailTracking extends Model
         'signed_user_agent',
         'signing_audit_log',
         'terms_accepted_at',
+        'signing_satisfaction_score',
+        'signing_satisfaction_rated_at',
         'firmado_presidente_at',
         'rechazado_at',
         'motivo_rechazo',
@@ -80,6 +83,8 @@ class ConvenioEmailTracking extends Model
         'firmado_presidente_at' => 'datetime',
         'rechazado_at' => 'datetime',
         'terms_accepted_at' => 'datetime',
+        'signing_satisfaction_score' => 'integer',
+        'signing_satisfaction_rated_at' => 'datetime',
     ];
 
     /**
@@ -127,6 +132,23 @@ class ConvenioEmailTracking extends Model
     public function isTestRecord(): bool
     {
         return $this->is_test || $this->estado === self::ESTADO_VERIFICACION;
+    }
+
+    public function hasSigningSatisfactionRating(): bool
+    {
+        return $this->signing_satisfaction_score !== null;
+    }
+
+    public function canReceiveSigningSatisfactionRating(): bool
+    {
+        if ($this->hasSigningSatisfactionRating()) {
+            return false;
+        }
+
+        return in_array($this->signing_estado, [
+            self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_COMPLETADO,
+        ], true);
     }
 
     /**
@@ -237,6 +259,11 @@ class ConvenioEmailTracking extends Model
                 $parentTracking->resends()->update(['intentos' => $nuevoNumeroIntentos]);
             }
         }
+    }
+
+    public function resolveDownloadFilename(): string
+    {
+        return ConvenioDisplayFilename::fromTracking($this);
     }
 
     /**

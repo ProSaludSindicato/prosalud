@@ -59,4 +59,9 @@ class ConvenioDigitalSigningService
 
         return true;
     }
+
+    public function affiliateCanRateSatisfaction(ConvenioEmailTracking $tracking): bool
+    {
+        return $tracking->canReceiveSigningSatisfactionRating();
+    }
 }

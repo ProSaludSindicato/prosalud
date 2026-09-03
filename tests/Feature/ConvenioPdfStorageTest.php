@@ -28,6 +28,8 @@ class ConvenioPdfStorageTest extends TestCase
     {
         $tracking = ConvenioEmailTracking::factory()->create([
             'documento' => '1234567890',
+            'nombre_afiliado' => 'USUARIO PRUEBA',
+            'nombre_convenio' => 'TEST',
             'is_test' => false,
         ]);
 
@@ -37,7 +39,7 @@ class ConvenioPdfStorageTest extends TestCase
         $year = now()->format('Y');
         $month = now()->format('m');
         $this->assertSame(
-            "convenios/production/{$year}/{$month}/1234567890/{$tracking->id}/original.pdf",
+            "convenios/production/{$year}/{$month}/1234567890/{$tracking->id}/TEST - USUARIO PRUEBA - 1234567890.pdf",
             $path,
         );
         Storage::disk('prosalud-private')->assertExists($path);
@@ -66,6 +68,8 @@ class ConvenioPdfStorageTest extends TestCase
     {
         $tracking = ConvenioEmailTracking::factory()->create([
             'documento' => '1234567890',
+            'nombre_afiliado' => 'USUARIO PRUEBA',
+            'nombre_convenio' => 'TEST',
             'is_test' => false,
         ]);
 
@@ -81,7 +85,10 @@ class ConvenioPdfStorageTest extends TestCase
             $this->writeTempPdf('%PDF-1.4 firmado'),
         );
 
-        $this->assertSame(dirname($originalPath).'/firmado-afiliado.pdf', $firmadoPath);
+        $this->assertStringEndsWith(
+            '/TEST - USUARIO PRUEBA - 1234567890 - firmado-afiliado.pdf',
+            $firmadoPath,
+        );
         Storage::disk('prosalud-private')->assertExists($originalPath);
         Storage::disk('prosalud-private')->assertExists($firmadoPath);
     }
@@ -146,6 +153,38 @@ class ConvenioPdfStorageTest extends TestCase
         $storage->deleteStoredDirectory($tracking->fresh());
 
         Storage::disk('prosalud-private')->assertMissing($path);
+    }
+
+    public function test_migrates_legacy_storage_path_to_mnemonic_name_after_send(): void
+    {
+        $tracking = ConvenioEmailTracking::factory()->create([
+            'documento' => '1234567890',
+            'nombre_afiliado' => 'USUARIO PRUEBA',
+            'sede' => 'TEST',
+            'is_test' => false,
+        ]);
+
+        $legacyPath = $this->relativeDirectory($tracking).'/original.pdf';
+        Storage::disk('prosalud-private')->put($legacyPath, '%PDF-1.4 legacy');
+        $tracking->update([
+            'pdf_original_path' => $legacyPath,
+            'enviado_at' => now(),
+        ]);
+
+        $migrated = app(ConvenioPdfStorageService::class)->migrateToMnemonicPath(
+            $tracking->fresh(),
+            ConvenioPdfStage::Original,
+        );
+
+        $this->assertNotNull($migrated);
+        $this->assertStringContainsString('TEST - USUARIO PRUEBA - 1234567890', $migrated);
+        Storage::disk('prosalud-private')->assertExists($migrated);
+        Storage::disk('prosalud-private')->assertMissing($legacyPath);
+    }
+
+    private function relativeDirectory(ConvenioEmailTracking $tracking): string
+    {
+        return app(ConvenioPdfStorageService::class)->relativeDirectory($tracking);
     }
 
     private function writeTempPdf(string $contents): string

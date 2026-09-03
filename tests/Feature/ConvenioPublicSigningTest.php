@@ -196,7 +196,7 @@ PDF;
         $tracking->refresh();
         $this->assertSame(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO, $tracking->signing_estado);
         $this->assertNotNull($tracking->pdf_firmado_afiliado_path);
-        $this->assertStringEndsWith('/firmado-afiliado.pdf', $tracking->pdf_firmado_afiliado_path);
+        $this->assertStringContainsString(' - firmado-afiliado.pdf', $tracking->pdf_firmado_afiliado_path);
         Storage::disk('prosalud-private')->assertExists($tracking->pdf_firmado_afiliado_path);
 
         $user = User::factory()->create();
@@ -218,6 +218,69 @@ PDF;
             [],
             ['HTTP_ACCEPT' => 'application/pdf'],
         )->assertOk();
+    }
+
+    public function test_download_final_uses_mnemonic_filename_from_tracking(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $tracking = ConvenioEmailTracking::factory()->create([
+            'documento' => '1234567890',
+            'nombre_afiliado' => 'USUARIO PRUEBA',
+            'nombre_convenio' => 'PROCESO',
+            'sede' => 'TEST',
+            'enviado_at' => '2026-09-01 10:00:00',
+            'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+        ]);
+
+        $sourcePdf = $this->createOnePagePdf();
+        $relative = app(ConvenioPdfStorageService::class)->storeFromAbsolutePath(
+            $tracking,
+            \App\Enums\ConvenioPdfStage::FirmadoAfiliado,
+            $sourcePdf,
+        );
+        $tracking->update(['pdf_firmado_afiliado_path' => $relative]);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        $plainApi = 'test-plain-'.Str::random(48);
+        ApiToken::query()->create([
+            'user_id' => $user->id,
+            'name' => 'phpunit',
+            'token' => hash('sha256', $plainApi),
+            'expires_at' => now()->addDay(),
+        ]);
+
+        $this->call(
+            'GET',
+            '/api/convenios-manual/tracking/'.$tracking->id.'/download-final',
+            [],
+            ['prosalud_auth_token' => $plainApi],
+            [],
+            ['HTTP_ACCEPT' => 'application/pdf'],
+        )
+            ->assertOk()
+            ->assertHeader('X-Download-Filename', rawurlencode('TEST - USUARIO PRUEBA - 1234567890 - 20262.pdf'));
+    }
+
+    public function test_metadata_includes_download_filename(): void
+    {
+        $plainToken = str_repeat('e', 64);
+        $tracking = $this->trackingWithDigitalSigning($plainToken);
+        $tracking->update([
+            'documento' => '1035228093',
+            'nombre_afiliado' => 'ACEVEDO MONTOYA LUISA FERNANDA',
+            'sede' => 'BELLO',
+            'enviado_at' => '2026-09-01 10:00:00',
+        ]);
+
+        $this->getJson('/api/public/convenio-firma/'.$plainToken.'/metadata')
+            ->assertOk()
+            ->assertJsonPath(
+                'data.download_filename',
+                'BELLO - ACEVEDO MONTOYA LUISA FERNANDA - 1035228093 - 20262.pdf',
+            );
     }
 
     public function test_download_original_returns_pdf_when_stored_copy_exists(): void

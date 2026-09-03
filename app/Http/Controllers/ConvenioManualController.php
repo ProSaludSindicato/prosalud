@@ -13,6 +13,7 @@ use App\Services\ConvenioPdfStorageService;
 use App\Services\ConvenioPdfZipImportService;
 use App\Support\ConvenioDataLabels;
 use App\Support\ConvenioDelivery;
+use App\Support\ConvenioDisplayFilename;
 use App\Support\ConvenioHistoryUi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -192,6 +193,11 @@ class ConvenioManualController extends Controller
                 );
             }
 
+            $tracking->setAttribute(
+                'download_filename',
+                $tracking->resolveDownloadFilename(),
+            );
+
             return $tracking;
         });
 
@@ -234,6 +240,7 @@ class ConvenioManualController extends Controller
                     'signed_user_agent',
                 ])->toArray(), [
                     'available_actions' => $tracking->resolveAvailableActions($digitalSigningEnabled),
+                    'download_filename' => $tracking->resolveDownloadFilename(),
                     'integrity_badge_label' => $digitalSigningEnabled
                         ? $tracking->resolveIntegrityBadgeLabel()
                         : null,
@@ -446,6 +453,36 @@ class ConvenioManualController extends Controller
             ];
         }
 
+        $satisfactionStats = null;
+        if ($digitalSigningEnabled) {
+            $eligibleForSatisfaction = (clone $baseQuery)->whereIn('signing_estado', [
+                ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+                ConvenioEmailTracking::SIGNING_COMPLETADO,
+            ])->count();
+            $ratingsCount = (clone $baseQuery)->whereNotNull('signing_satisfaction_score')->count();
+            $averageRaw = (clone $baseQuery)->whereNotNull('signing_satisfaction_score')->avg('signing_satisfaction_score');
+            $distributionRows = (clone $baseQuery)
+                ->whereNotNull('signing_satisfaction_score')
+                ->selectRaw('signing_satisfaction_score as score, COUNT(*) as count')
+                ->groupBy('signing_satisfaction_score')
+                ->pluck('count', 'score');
+
+            $distribution = [];
+            foreach ([1, 2, 3, 4, 5] as $score) {
+                $distribution[$score] = (int) ($distributionRows[$score] ?? 0);
+            }
+
+            $satisfactionStats = [
+                'ratings_count' => $ratingsCount,
+                'eligible_count' => $eligibleForSatisfaction,
+                'response_rate' => $eligibleForSatisfaction > 0
+                    ? round(($ratingsCount / $eligibleForSatisfaction) * 100, 1)
+                    : null,
+                'average' => $ratingsCount > 0 ? round((float) $averageRaw, 2) : null,
+                'distribution' => $distribution,
+            ];
+        }
+
         $bySedeQuery = (clone $baseQuery)
             ->selectRaw("{$sedeKeySql} as sede_label")
             ->selectRaw('COUNT(*) as total');
@@ -455,7 +492,9 @@ class ConvenioManualController extends Controller
                 ->selectRaw('SUM(CASE WHEN signing_estado = ? THEN 1 ELSE 0 END) as pendiente_firma', [ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA])
                 ->selectRaw('SUM(CASE WHEN signing_estado = ? THEN 1 ELSE 0 END) as firmado_afiliado', [ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO])
                 ->selectRaw('SUM(CASE WHEN signing_estado = ? THEN 1 ELSE 0 END) as completado', [ConvenioEmailTracking::SIGNING_COMPLETADO])
-                ->selectRaw('SUM(CASE WHEN signing_estado = ? THEN 1 ELSE 0 END) as rechazado', [ConvenioEmailTracking::SIGNING_RECHAZADO]);
+                ->selectRaw('SUM(CASE WHEN signing_estado = ? THEN 1 ELSE 0 END) as rechazado', [ConvenioEmailTracking::SIGNING_RECHAZADO])
+                ->selectRaw('AVG(signing_satisfaction_score) as satisfaction_average')
+                ->selectRaw('SUM(CASE WHEN signing_satisfaction_score IS NOT NULL THEN 1 ELSE 0 END) as satisfaction_count');
         }
 
         $bySede = $bySedeQuery
@@ -474,6 +513,10 @@ class ConvenioManualController extends Controller
                     $entry['firmado_afiliado'] = (int) $row->firmado_afiliado;
                     $entry['completado'] = (int) $row->completado;
                     $entry['rechazado'] = (int) $row->rechazado;
+                    $entry['satisfaction_count'] = (int) $row->satisfaction_count;
+                    $entry['satisfaction_average'] = (int) $row->satisfaction_count > 0
+                        ? round((float) $row->satisfaction_average, 2)
+                        : null;
                 }
 
                 return $entry;
@@ -494,6 +537,7 @@ class ConvenioManualController extends Controller
             'failed' => (clone $baseQuery)->where('estado', 'fallido')->count(),
             'signing' => $signingStats,
             'signing_derived' => $signingDerived,
+            'satisfaction' => $satisfactionStats,
             'by_sede' => $bySede,
         ];
 
@@ -530,7 +574,7 @@ class ConvenioManualController extends Controller
 
             return $pdfStorage->downloadResponse(
                 $contents,
-                'Convenio_'.$tracking->documento.'_firmado_afiliado.pdf',
+                ConvenioDisplayFilename::fromTracking($tracking),
             );
         }
 
@@ -545,7 +589,7 @@ class ConvenioManualController extends Controller
 
             return $pdfStorage->downloadResponse(
                 $contents,
-                'Convenio_'.$tracking->documento.'_final.pdf',
+                ConvenioDisplayFilename::fromTracking($tracking),
             );
         }
 
@@ -568,7 +612,7 @@ class ConvenioManualController extends Controller
         if ($contents !== null) {
             return $pdfStorage->downloadResponse(
                 $contents,
-                'Convenio_'.$tracking->documento.'_original.pdf',
+                ConvenioDisplayFilename::fromTracking($tracking),
             );
         }
 
@@ -865,9 +909,18 @@ class ConvenioManualController extends Controller
             }
         }
 
-        // Buscar el archivo PDF más reciente para ese documento
-        $pattern = sprintf('%s/Convenio_%s_*.pdf', $outputDir, $numeroDocumentoNormalizado);
-        $files = glob($pattern);
+        // Buscar el archivo PDF más reciente para ese documento (formato nemotécnico o legado)
+        $legacyPattern = sprintf('%s/Convenio_%s_*.pdf', $outputDir, $numeroDocumentoNormalizado);
+        $files = glob($legacyPattern) ?: [];
+
+        if ($files === []) {
+            $allPdfs = glob($outputDir.'/*.pdf') ?: [];
+            $documentPattern = '/ - '.preg_quote($numeroDocumentoNormalizado, '/').'( - \d{4}[12])?\.pdf$/i';
+            $files = array_values(array_filter(
+                $allPdfs,
+                static fn (string $file): bool => preg_match($documentPattern, basename($file)) === 1,
+            ));
+        }
 
         if (empty($files) && ConvenioDelivery::isTestMode() && $request->user()) {
             $tracking = ConvenioEmailTracking::query()
@@ -893,7 +946,7 @@ class ConvenioManualController extends Controller
         if (empty($files)) {
             Log::info('[CONVENIO API] Convenio no encontrado aún para descarga', [
                 'numero_documento_normalizado' => $numeroDocumentoNormalizado,
-                'pattern' => $pattern,
+                'legacy_pattern' => $legacyPattern,
                 'output_dir' => $outputDir,
                 'directorio_existe' => is_dir($outputDir),
                 'directorio_escribible' => is_dir($outputDir) ? is_writable($outputDir) : false,

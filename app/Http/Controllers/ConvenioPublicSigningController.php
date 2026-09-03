@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Enums\ConvenioPdfStage;
 use App\Http\Requests\SubmitAffiliateConvenioSignatureRequest;
+use App\Http\Requests\SubmitConvenioSigningSatisfactionRequest;
 use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioDigitalSigningService;
 use App\Services\ConvenioPdfIntegrityService;
 use App\Services\ConvenioPdfStorageService;
+use App\Support\ConvenioDisplayFilename;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +46,8 @@ class ConvenioPublicSigningController extends Controller
                 'can_sign' => $canSign,
                 'nombre_afiliado' => $tracking->nombre_afiliado,
                 'nombre_convenio' => $tracking->nombre_convenio,
+                'documento' => $tracking->documento,
+                'download_filename' => ConvenioDisplayFilename::fromTracking($tracking),
                 'header_title' => $headerTitle,
                 'expires_at' => $tracking->token_expires_at?->toIso8601String(),
                 'firmado_afiliado_at' => $tracking->firmado_afiliado_at?->toIso8601String(),
@@ -52,6 +56,8 @@ class ConvenioPublicSigningController extends Controller
                 'motivo_rechazo' => $tracking->signing_estado === ConvenioEmailTracking::SIGNING_RECHAZADO
                     ? $tracking->motivo_rechazo
                     : null,
+                'can_rate_satisfaction' => $this->signingService->affiliateCanRateSatisfaction($tracking),
+                'satisfaction_score' => $tracking->signing_satisfaction_score,
             ],
         ]);
     }
@@ -81,7 +87,11 @@ class ConvenioPublicSigningController extends Controller
             ], 404);
         }
 
-        return $this->pdfStorageService->downloadResponse($contents, 'convenio.pdf', 'inline');
+        return $this->pdfStorageService->downloadResponse(
+            $contents,
+            ConvenioDisplayFilename::fromTracking($tracking),
+            'inline',
+        );
     }
 
     public function submitAffiliateSignature(SubmitAffiliateConvenioSignatureRequest $request, string $token): JsonResponse
@@ -231,6 +241,85 @@ class ConvenioPublicSigningController extends Controller
             'message' => 'Tu convenio firmado fue recibido correctamente.',
             'data' => [
                 'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+                'can_rate_satisfaction' => true,
+            ],
+        ]);
+    }
+
+    public function submitSatisfactionRating(SubmitConvenioSigningSatisfactionRequest $request, string $token): JsonResponse
+    {
+        $tracking = $this->signingService->findByPlainToken($token);
+        if (! $tracking instanceof ConvenioEmailTracking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Enlace inválido o expirado.',
+            ], 404);
+        }
+
+        $score = $request->score();
+
+        try {
+            DB::transaction(function () use ($tracking, $score): void {
+                $locked = ConvenioEmailTracking::query()
+                    ->where('id', $tracking->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $locked instanceof ConvenioEmailTracking) {
+                    throw new \RuntimeException('Registro no encontrado.');
+                }
+
+                if ($locked->hasSigningSatisfactionRating()) {
+                    throw new \RuntimeException('already_rated');
+                }
+
+                if (! $locked->canReceiveSigningSatisfactionRating()) {
+                    throw new \RuntimeException('not_eligible');
+                }
+
+                $locked->update([
+                    'signing_satisfaction_score' => $score,
+                    'signing_satisfaction_rated_at' => now(),
+                ]);
+            });
+        } catch (\Throwable $e) {
+            if ($e->getMessage() === 'already_rated') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este convenio ya tiene una calificación.',
+                    'code' => 'already_rated',
+                ], 409);
+            }
+
+            if ($e->getMessage() === 'not_eligible') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Solo puedes calificar después de enviar el convenio firmado.',
+                    'code' => 'not_eligible',
+                ], 403);
+            }
+
+            Log::warning('[CONVENIO DIGITAL] Error al registrar calificación de satisfacción', [
+                'tracking_id' => $tracking->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo guardar la calificación. Intenta nuevamente.',
+            ], 500);
+        }
+
+        Log::info('[CONVENIO DIGITAL] Calificación de satisfacción registrada', [
+            'tracking_id' => $tracking->id,
+            'score' => $score,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Gracias por tu calificación.',
+            'data' => [
+                'satisfaction_score' => $score,
             ],
         ]);
     }

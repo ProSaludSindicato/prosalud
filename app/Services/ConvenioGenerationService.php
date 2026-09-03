@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\ConvenioDisplayFilename;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -969,13 +970,12 @@ class ConvenioGenerationService
      */
     private function generarNombreArchivo(array $data): string
     {
-        $documento = preg_replace('/[^0-9]/', '', $data['numero_documento'] ?? '');
-        $apellidos = preg_replace('/[^a-zA-Z0-9]/', '_', $data['apellidos'] ?? '');
-        $nombres = preg_replace('/[^a-zA-Z0-9]/', '_', $data['nombres'] ?? '');
+        $documento = preg_replace('/[^0-9]/', '', $data['numero_documento'] ?? '') ?: 'sin-documento';
+        $location = strtoupper(trim((string) ($data['sede'] ?? $data['proceso'] ?? 'CONVENIO')));
+        $nombreAfiliado = strtoupper(trim(trim((string) ($data['nombres'] ?? '')).' '.trim((string) ($data['apellidos'] ?? ''))));
+        $pdfName = ConvenioDisplayFilename::build($location, $nombreAfiliado, $documento);
 
-        $nombreBase = "Convenio_{$documento}_{$apellidos}_{$nombres}";
-
-        return $nombreBase.'.docx';
+        return preg_replace('/\.pdf$/i', '.docx', $pdfName) ?? ($pdfName.'.docx');
     }
 
     /**

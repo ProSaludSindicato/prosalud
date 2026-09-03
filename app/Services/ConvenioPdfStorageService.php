@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\ConvenioPdfStage;
 use App\Models\ConvenioEmailTracking;
+use App\Support\ConvenioDisplayFilename;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\File;
@@ -47,7 +48,57 @@ class ConvenioPdfStorageService
 
     public function relativePath(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage): string
     {
-        return $this->relativeDirectory($tracking).'/'.$stage->fileName();
+        return $this->relativeDirectory($tracking).'/'.ConvenioDisplayFilename::storageFileName($tracking, $stage);
+    }
+
+    public function migrateToMnemonicPath(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage): ?string
+    {
+        $currentPath = match ($stage) {
+            ConvenioPdfStage::Original => $tracking->pdf_original_path,
+            ConvenioPdfStage::FirmadoAfiliado => $tracking->pdf_firmado_afiliado_path,
+            ConvenioPdfStage::Final => $tracking->pdf_final_path,
+        };
+
+        if (! is_string($currentPath) || $currentPath === '') {
+            return null;
+        }
+
+        $expectedPath = $this->relativePath($tracking, $stage);
+        if ($currentPath === $expectedPath) {
+            return $currentPath;
+        }
+
+        $contents = $this->get($currentPath);
+        if ($contents === null) {
+            return null;
+        }
+
+        $stored = $this->disk()->put($expectedPath, $contents, [
+            'visibility' => 'private',
+            'ContentType' => 'application/pdf',
+        ]);
+
+        if ($stored === false) {
+            throw new \RuntimeException('No se pudo migrar el PDF al nombre nemotécnico.');
+        }
+
+        if ($this->disk()->exists($currentPath)) {
+            $this->disk()->delete($currentPath);
+        }
+
+        $legacy = $this->legacyAbsolutePath($currentPath);
+        if (is_file($legacy)) {
+            @unlink($legacy);
+        }
+
+        Log::info('[CONVENIO STORAGE] PDF migrado a nombre nemotécnico', [
+            'tracking_id' => $tracking->id,
+            'stage' => $stage->value,
+            'from' => $currentPath,
+            'to' => $expectedPath,
+        ]);
+
+        return $expectedPath;
     }
 
     public function storeFromAbsolutePath(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage, string $absolutePdfPath): string
@@ -185,13 +236,20 @@ class ConvenioPdfStorageService
 
     public function downloadResponse(string $contents, string $downloadName, string $disposition = 'attachment'): Response
     {
-        $dispositionHeader = $disposition === 'inline'
-            ? 'inline; filename="'.$downloadName.'"'
-            : 'attachment; filename="'.$downloadName.'"';
+        $asciiFallback = preg_replace('/[^\x20-\x7E]/', '_', $downloadName) ?: 'convenio.pdf';
+        $asciiFallback = str_replace(['"', '\\'], '_', $asciiFallback);
+
+        $dispositionHeader = sprintf(
+            '%s; filename="%s"; filename*=UTF-8\'\'%s',
+            $disposition,
+            $asciiFallback,
+            rawurlencode($downloadName),
+        );
 
         return response($contents, 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => $dispositionHeader,
+            'X-Download-Filename' => rawurlencode($downloadName),
             'Content-Length' => (string) strlen($contents),
         ]);
     }

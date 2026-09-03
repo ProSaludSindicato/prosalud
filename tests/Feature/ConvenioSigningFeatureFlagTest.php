@@ -88,7 +88,8 @@ class ConvenioSigningFeatureFlagTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.digital_signing_enabled', false)
             ->assertJsonPath('data.signing', null)
-            ->assertJsonPath('data.signing_derived', null);
+            ->assertJsonPath('data.signing_derived', null)
+            ->assertJsonPath('data.satisfaction', null);
 
         $bySede = $response->json('data.by_sede');
         $this->assertIsArray($bySede);
@@ -196,8 +197,9 @@ class ConvenioSigningFeatureFlagTest extends TestCase
         $this->get('/api/public/convenio-firma/'.$token.'/document.pdf')
             ->assertStatus(404);
 
-        $this->postJson('/api/public/convenio-firma/'.$token.'/submit-affiliate-signature')
-            ->assertStatus(404);
+        $this->postJson('/api/public/convenio-firma/'.$token.'/satisfaction-rating', [
+            'score' => 5,
+        ])->assertStatus(404);
     }
 
     public function test_public_signing_routes_are_accessible_when_flag_is_enabled(): void

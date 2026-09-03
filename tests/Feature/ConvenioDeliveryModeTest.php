@@ -237,7 +237,9 @@ class ConvenioDeliveryModeTest extends TestCase
         $this->assertNotSame(ConvenioEmailTracking::ESTADO_VERIFICACION, $tracking->estado);
         $this->assertNotNull($tracking->pdf_original_path);
         $this->assertStringStartsWith('convenios/test/', $tracking->pdf_original_path);
-        $this->assertStringEndsWith('/original.pdf', $tracking->pdf_original_path);
+        $this->assertStringContainsString('BELLO - JUAN PEREZ - 1234567890', $tracking->pdf_original_path);
+        $this->assertStringEndsWith('.pdf', $tracking->pdf_original_path);
+        $this->assertStringNotContainsString('/original.pdf', $tracking->pdf_original_path);
         Storage::disk('prosalud-private')->assertExists($tracking->pdf_original_path);
     }
 

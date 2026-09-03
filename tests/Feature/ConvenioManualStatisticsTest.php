@@ -77,6 +77,12 @@ class ConvenioManualStatisticsTest extends TestCase
         $sinSede = collect($bySede)->firstWhere('sede', 'Sin sede');
         $this->assertNotNull($sinSede);
         $this->assertSame(1, $sinSede['rechazado']);
+
+        $response->assertJsonPath('data.satisfaction.ratings_count', 0)
+            ->assertJsonPath('data.satisfaction.eligible_count', 2)
+            ->assertJsonPath('data.satisfaction.average', null);
+        $this->assertSame(0, $bello['satisfaction_count']);
+        $this->assertNull($bello['satisfaction_average']);
     }
 
     public function test_statistics_exclude_test_records(): void

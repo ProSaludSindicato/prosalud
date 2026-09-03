@@ -89,6 +89,8 @@ if (config('convenio_signing.enabled', true)) {
             ->where('token', '[A-Za-z0-9]{32,128}');
         Route::post('{token}/submit-affiliate-signature', [ConvenioPublicSigningController::class, 'submitAffiliateSignature'])
             ->where('token', '[A-Za-z0-9]{32,128}');
+        Route::post('{token}/satisfaction-rating', [ConvenioPublicSigningController::class, 'submitSatisfactionRating'])
+            ->where('token', '[A-Za-z0-9]{32,128}');
     });
 }
 

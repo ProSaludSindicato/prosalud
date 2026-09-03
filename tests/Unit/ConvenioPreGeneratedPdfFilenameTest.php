@@ -17,7 +17,19 @@ class ConvenioPreGeneratedPdfFilenameTest extends TestCase
         $this->assertSame('1035228093', $parsed['documento']);
         $this->assertSame('BELLO', $parsed['nombre_convenio']);
         $this->assertSame('ACEVEDO MONTOYA LUISA FERNANDA', $parsed['nombre_afiliado']);
+        $this->assertNull($parsed['periodo']);
         $this->assertSame('BELLO - ACEVEDO MONTOYA LUISA FERNANDA - 1035228093.pdf', $parsed['filename']);
+    }
+
+    public function test_parses_filename_with_period_suffix(): void
+    {
+        $parsed = ConvenioPreGeneratedPdfFilename::parse(
+            'BELLO - ACEVEDO MONTOYA LUISA FERNANDA - 1035228093 - 20262.pdf'
+        );
+
+        $this->assertNotNull($parsed);
+        $this->assertSame('1035228093', $parsed['documento']);
+        $this->assertSame('20262', $parsed['periodo']);
     }
 
     public function test_rejects_filename_without_separator(): void

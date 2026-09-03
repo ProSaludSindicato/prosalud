@@ -5,17 +5,30 @@ namespace App\Support;
 class ConvenioPreGeneratedPdfFilename
 {
     /**
-     * @return array{documento: string, nombre_convenio: string, nombre_afiliado: string, filename: string}|null
+     * @return array{documento: string, nombre_convenio: string, nombre_afiliado: string, periodo: string|null, filename: string}|null
      */
     public static function parse(string $filename): ?array
     {
         $basename = basename($filename);
         $filenameWithoutExt = preg_replace('/\.pdf$/i', '', $basename) ?? $basename;
 
-        $parts = explode(' - ', $filenameWithoutExt);
+        $parts = array_values(array_filter(
+            array_map(
+                static fn (string $part): string => trim($part),
+                explode(' - ', $filenameWithoutExt),
+            ),
+            static fn (string $part): bool => $part !== '',
+        ));
 
         if (count($parts) < 2) {
             return null;
+        }
+
+        $periodo = null;
+        $lastPart = (string) end($parts);
+        if (count($parts) >= 4 && preg_match('/^\d{4}[12]$/', $lastPart) === 1) {
+            $periodo = $lastPart;
+            array_pop($parts);
         }
 
         $documento = preg_replace('/[^0-9]/', '', (string) end($parts));
@@ -34,6 +47,7 @@ class ConvenioPreGeneratedPdfFilename
             'documento' => $documento,
             'nombre_convenio' => $nombreConvenio,
             'nombre_afiliado' => $nombreAfiliado,
+            'periodo' => $periodo,
             'filename' => $basename,
         ];
     }
