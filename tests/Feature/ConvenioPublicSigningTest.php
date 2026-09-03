@@ -82,6 +82,32 @@ PDF;
         return $tracking->fresh();
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function sampleAuditLog(): array
+    {
+        return [
+            'sessionId' => 'session-test',
+            'startedAt' => now()->toIso8601String(),
+            'events' => [
+                [
+                    'id' => 'evt-1',
+                    'type' => 'document_opened',
+                    'timestamp' => now()->toIso8601String(),
+                ],
+            ],
+            'summary' => [
+                'documentName' => 'convenio.pdf',
+                'totalPages' => 1,
+                'signaturePage' => 1,
+                'signatureMethod' => 'draw',
+                'submittedAt' => now()->toIso8601String(),
+                'downloadedAt' => null,
+            ],
+        ];
+    }
+
     public function test_metadata_returns_404_for_unknown_token(): void
     {
         $token = str_repeat('b', 64);
@@ -112,11 +138,15 @@ PDF;
 
         $this->post('/api/public/convenio-firma/'.$plainToken.'/submit-affiliate-signature', [
             'pdf' => $file,
+            'audit_log' => json_encode($this->sampleAuditLog()),
+            'terms_accepted' => '1',
         ])->assertOk()
             ->assertJsonPath('success', true);
 
         $this->post('/api/public/convenio-firma/'.$plainToken.'/submit-affiliate-signature', [
             'pdf' => $file,
+            'audit_log' => json_encode($this->sampleAuditLog()),
+            'terms_accepted' => '1',
         ])->assertStatus(403);
 
         $this->getJson('/api/public/convenio-firma/'.$plainToken.'/metadata')
@@ -159,6 +189,8 @@ PDF;
         $file = new UploadedFile($uploadPdf, 'signed.pdf', 'application/pdf', null, true);
         $this->post('/api/public/convenio-firma/'.$plainToken.'/submit-affiliate-signature', [
             'pdf' => $file,
+            'audit_log' => json_encode($this->sampleAuditLog()),
+            'terms_accepted' => '1',
         ])->assertOk();
 
         $tracking->refresh();

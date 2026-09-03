@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UploadConvenioPdfZipRequest;
 use App\Jobs\GenerateConvenioJob;
+use App\Jobs\ProcessConvenioPdfZipJob;
 use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioExcelTemplateExportService;
 use App\Services\ConvenioGenerationService;
 use App\Services\ConvenioPdfStorageService;
+use App\Services\ConvenioPdfZipImportService;
 use App\Support\ConvenioDataLabels;
 use App\Support\ConvenioDelivery;
 use App\Support\ConvenioHistoryUi;
@@ -18,6 +21,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -26,7 +30,8 @@ class ConvenioManualController extends Controller
 {
     public function __construct(
         private readonly ConvenioGenerationService $convenioGenerationService,
-        private readonly ConvenioExcelTemplateExportService $templateExportService
+        private readonly ConvenioExcelTemplateExportService $templateExportService,
+        private readonly ConvenioPdfZipImportService $pdfZipImportService,
     ) {}
 
     /**
@@ -40,10 +45,14 @@ class ConvenioManualController extends Controller
 
         return response()->json([
             'success' => false,
-            'message' => 'El envío masivo desde PDFs preexistentes fue reemplazado. Use importación masiva para generar y enviar convenios, o seleccione registros en el historial y reenvíe con resend-emails.',
+            'message' => 'El envío masivo desde PDFs preexistentes fue reemplazado. Use importación de ZIP de PDFs, importación masiva Excel, o reenvíe desde el historial.',
             'deprecated' => true,
             'delivery_mode' => config('convenios.delivery_mode'),
             'alternatives' => [
+                'import_pdf_zip' => [
+                    'endpoint' => '/api/convenios-manual/import-pdf-zip',
+                    'description' => 'Suba un ZIP con PDFs nombrados SEDE - NOMBRE - DOCUMENTO.pdf para almacenar y enviar.',
+                ],
                 'import_bulk' => [
                     'endpoint' => '/api/convenios-manual/import-bulk',
                     'description' => 'Suba un Excel para generar PDFs y opcionalmente enviar correos al procesar.',
@@ -171,6 +180,18 @@ class ConvenioManualController extends Controller
                 $tracking->resolveAvailableActions($digitalSigningEnabled),
             );
 
+            $tracking->setAttribute(
+                'error_message',
+                $tracking->resolveVisibleErrorMessage(),
+            );
+
+            if ($digitalSigningEnabled) {
+                $tracking->setAttribute(
+                    'integrity_badge_label',
+                    $tracking->resolveIntegrityBadgeLabel(),
+                );
+            }
+
             return $tracking;
         });
 
@@ -180,7 +201,7 @@ class ConvenioManualController extends Controller
             'digital_signing_enabled' => $digitalSigningEnabled,
             'ui' => ConvenioHistoryUi::metadata($digitalSigningEnabled),
             'data' => $trackings,
-        ]);
+        ])->header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
     }
 
     /**
@@ -201,15 +222,23 @@ class ConvenioManualController extends Controller
         }
 
         $tracking->loadMissing('generatedBy:id,name,email');
+        $tracking->setAttribute('error_message', $tracking->resolveVisibleErrorMessage());
 
         return response()->json([
             'success' => true,
             'delivery_mode' => config('convenios.delivery_mode'),
             'digital_signing_enabled' => $digitalSigningEnabled,
             'data' => [
-                'tracking' => array_merge($tracking->toArray(), [
+                'tracking' => array_merge($tracking->makeHidden([
+                    'signing_audit_log',
+                    'signed_user_agent',
+                ])->toArray(), [
                     'available_actions' => $tracking->resolveAvailableActions($digitalSigningEnabled),
+                    'integrity_badge_label' => $digitalSigningEnabled
+                        ? $tracking->resolveIntegrityBadgeLabel()
+                        : null,
                 ]),
+                'integrity' => $digitalSigningEnabled ? $tracking->resolveIntegrityPayload() : null,
                 'convenio_data' => $convenioData,
                 'convenio_data_fields' => ConvenioDataLabels::present(is_array($convenioData) ? $convenioData : null),
                 'generated_by' => $tracking->generatedBy ? [
@@ -218,7 +247,7 @@ class ConvenioManualController extends Controller
                     'email' => $tracking->generatedBy->email,
                 ] : null,
             ],
-        ]);
+        ])->header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
     }
 
     /**
@@ -935,6 +964,99 @@ class ConvenioManualController extends Controller
             $fileName,
             ['Content-Type' => 'application/pdf']
         )->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Importa PDFs pregenerados desde un archivo ZIP, los almacena en S3 y opcionalmente encola envíos.
+     */
+    public function importPdfZip(UploadConvenioPdfZipRequest $request): JsonResponse
+    {
+        $sendEmail = $request->boolean('send_email', true);
+        $file = $request->file('file');
+
+        if ($file === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se recibió el archivo ZIP.',
+            ], 422);
+        }
+
+        $realPath = $file->getRealPath();
+        if (! is_string($realPath) || ! is_readable($realPath)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo leer el archivo ZIP subido.',
+            ], 500);
+        }
+
+        try {
+            $scan = $this->pdfZipImportService->scanZipEntries($realPath);
+        } catch (\Throwable $e) {
+            Log::error('[CONVENIO ZIP] Error escaneando ZIP', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar el archivo ZIP: '.$e->getMessage(),
+            ], 422);
+        }
+
+        if ($scan['valid'] === []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se encontraron PDFs válidos en el ZIP. Verifique el formato de nombres: SEDE - NOMBRE COMPLETO - DOCUMENTO.pdf',
+                'data' => [
+                    'validos' => 0,
+                    'rechazados' => count($scan['rejected']),
+                    'rejected' => $scan['rejected'],
+                ],
+            ], 422);
+        }
+
+        try {
+            $storedZipPath = $this->pdfZipImportService->storeZipOnDisk($realPath);
+        } catch (\Throwable $e) {
+            Log::error('[CONVENIO ZIP] Error almacenando ZIP en S3', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al almacenar el ZIP: '.$e->getMessage(),
+            ], 500);
+        }
+
+        $batchId = (string) Str::uuid();
+
+        ProcessConvenioPdfZipJob::dispatch(
+            batchId: $batchId,
+            storedZipPath: $storedZipPath,
+            validEntries: $scan['valid'],
+            sendEmail: $sendEmail,
+            generatedByUserId: $request->user()?->id,
+        );
+
+        $message = $sendEmail
+            ? (ConvenioDelivery::isTestMode()
+                ? 'Se encolaron '.count($scan['valid']).' PDFs. En modo TEST los correos llegarán a tu usuario.'
+                : 'Se encolaron '.count($scan['valid']).' PDFs para almacenamiento y envío. Consulte el historial.')
+            : 'Se encolaron '.count($scan['valid']).' PDFs para almacenamiento. Puede reenviar desde el historial.';
+
+        return response()->json([
+            'success' => true,
+            'message' => $message,
+            'delivery_mode' => config('convenios.delivery_mode'),
+            'next_step' => 'email-history',
+            'ui' => ConvenioHistoryUi::metadata((bool) config('convenio_signing.enabled', true)),
+            'data' => [
+                'batch_id' => $batchId,
+                'validos' => count($scan['valid']),
+                'rechazados' => count($scan['rejected']),
+                'send_email' => $sendEmail,
+                'rejected' => $scan['rejected'],
+            ],
+        ], 202);
     }
 
     /**

@@ -31,5 +31,6 @@
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="CONVENIO_DIGITAL_SIGNING_ENABLED" value="true" force="true"/>
+        <env name="CORS_ALLOWED_ORIGINS" value="https://sindicatoprosalud.com,https://prosalud.org.co" force="true"/>
     </php>
 </phpunit>

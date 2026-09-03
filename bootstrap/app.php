@@ -7,6 +7,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\PostTooLargeException;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -47,7 +48,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'assembly.voting.enabled' => \App\Http\Middleware\EnsureAssemblyVotingEnabled::class,
         ]);
 
-        // La configuración de rate limiters ahora está en AppServiceProvider::boot()
+        // La configuraci?n de rate limiters ahora est? en AppServiceProvider::boot()
         // para evitar el error "A facade root has not been set"
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -58,13 +59,28 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Demasiadas solicitudes. Intenta nuevamente más tarde.',
+                    'message' => 'Demasiadas solicitudes. Intenta nuevamente m?s tarde.',
                     'error' => 'rate_limit_exceeded',
                 ], 429);
             }
 
             // Para rutas web, retornar la respuesta por defecto de Laravel
             return null;
+        });
+
+        $exceptions->render(function (PostTooLargeException $e, Request $request) {
+            if (! $request->expectsJson() && ! $request->is('api/*')) {
+                return null;
+            }
+
+            $maxMb = round(max(1, (int) config('convenios.zip_max_kb', 51200)) / 1024, 1);
+            $serverLimit = ini_get('post_max_size') ?: 'desconocido';
+
+            return response()->json([
+                'success' => false,
+                'message' => "El archivo supera el l?mite de carga del servidor ({$serverLimit}). La aplicaci?n permite ZIP de hasta {$maxMb}MB. Aumente post_max_size y upload_max_filesize en PHP, o reduzca el tama?o del ZIP.",
+                'error' => 'payload_too_large',
+            ], 413);
         });
 
         $exceptions->render(function (\Throwable $e, Request $request) {
@@ -74,7 +90,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof ValidationException) {
                 return response()->json([
-                    'message' => 'Los datos proporcionados no son válidos.',
+                    'message' => 'Los datos proporcionados no son v?lidos.',
                     'errors' => $e->errors(),
                 ], $e->status);
             }
@@ -87,7 +103,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof AuthorizationException) {
                 return response()->json([
-                    'message' => 'No tienes permisos para realizar esta acción.',
+                    'message' => 'No tienes permisos para realizar esta acci?n.',
                 ], 403);
             }
 
@@ -99,7 +115,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof QueryException) {
                 return response()->json([
-                    'message' => 'Ocurrió un error al procesar la solicitud. Intenta nuevamente más tarde.',
+                    'message' => 'Ocurri? un error al procesar la solicitud. Intenta nuevamente m?s tarde.',
                 ], 500);
             }
 
@@ -107,15 +123,15 @@ return Application::configure(basePath: dirname(__DIR__))
                 $status = $e->getStatusCode();
 
                 $defaultMessages = [
-                    400 => 'Solicitud inválida.',
+                    400 => 'Solicitud inv?lida.',
                     401 => 'No autorizado.',
-                    403 => 'No tienes permisos para realizar esta acción.',
+                    403 => 'No tienes permisos para realizar esta acci?n.',
                     404 => 'Recurso no encontrado.',
-                    405 => 'Método no permitido.',
-                    429 => 'Demasiadas solicitudes. Intenta nuevamente más tarde.',
+                    405 => 'M?todo no permitido.',
+                    429 => 'Demasiadas solicitudes. Intenta nuevamente m?s tarde.',
                 ];
 
-                $message = $defaultMessages[$status] ?? 'Ocurrió un error al procesar la solicitud.';
+                $message = $defaultMessages[$status] ?? 'Ocurri? un error al procesar la solicitud.';
 
                 return response()->json([
                     'message' => $message,
@@ -125,7 +141,7 @@ return Application::configure(basePath: dirname(__DIR__))
             report($e);
 
             return response()->json([
-                'message' => 'Ha ocurrido un error inesperado. Intenta nuevamente más tarde.',
+                'message' => 'Ha ocurrido un error inesperado. Intenta nuevamente m?s tarde.',
             ], 500);
         });
     })->create();

@@ -256,6 +256,10 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::post('/import-bulk', [ConvenioManualController::class, 'importAndGenerateBulk'])
         ->middleware('permission:document_signing.manage');
 
+    // Import pre-generated PDFs from ZIP (bulk store + optional email)
+    Route::post('/import-pdf-zip', [ConvenioManualController::class, 'importPdfZip'])
+        ->middleware('permission:document_signing.manage');
+
     // @deprecated Use import-bulk or resend-emails from history (returns 410)
     Route::post('/send-bulk-emails', [ConvenioManualController::class, 'sendBulkEmails'])
         ->middleware('permission:document_signing.manage');

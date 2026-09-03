@@ -44,10 +44,11 @@ class ConvenioHistoryUi
             'deprecated_endpoints' => [
                 [
                     'endpoint' => '/api/convenios-manual/send-bulk-emails',
-                    'replacement' => 'Use importación masiva con send_email=true para nuevos convenios, o seleccione registros en el historial y use resend-emails.',
+                    'replacement' => 'Use importación de ZIP de PDFs, importación masiva Excel con send_email=true, o reenvíe desde el historial.',
                 ],
             ],
             'alternative_flows' => [
+                'upload_pdfs' => '/api/convenios-manual/import-pdf-zip',
                 'generate_and_send' => '/api/convenios-manual/import-bulk',
                 'bulk_resend' => '/api/convenios-manual/resend-emails',
                 'history' => '/api/convenios-manual/email-history',

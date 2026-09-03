@@ -26,4 +26,22 @@ return [
     */
     'storage_disk' => env('CONVENIO_STORAGE_DISK', 'prosalud-private'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Rate limits for bulk PDF import and email dispatch
+    |--------------------------------------------------------------------------
+    */
+    'emails_per_minute' => (int) env('CONVENIO_EMAILS_PER_MINUTE', 30),
+
+    'prosanet_per_minute' => (int) env('CONVENIO_PROSANET_PER_MINUTE', 20),
+
+    /*
+    |--------------------------------------------------------------------------
+    | ZIP upload limits for pre-generated PDF import
+    |--------------------------------------------------------------------------
+    */
+    'zip_max_kb' => (int) env('CONVENIO_ZIP_MAX_KB', 51200),
+
+    'zip_max_pdfs' => (int) env('CONVENIO_ZIP_MAX_PDFS', 200),
+
 ];

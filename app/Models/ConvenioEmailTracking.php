@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Enums\ConvenioPdfStage;
+use App\Enums\ConvenioTextIntegrityStatus;
 use App\Services\ConvenioPdfStorageService;
+use App\Support\ConvenioSigningAuditLog;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -43,7 +45,14 @@ class ConvenioEmailTracking extends Model
         'pdf_original_path',
         'pdf_firmado_afiliado_path',
         'pdf_final_path',
+        'pdf_original_sha256',
+        'pdf_firmado_afiliado_sha256',
+        'text_integrity_status',
         'firmado_afiliado_at',
+        'signed_ip',
+        'signed_user_agent',
+        'signing_audit_log',
+        'terms_accepted_at',
         'firmado_presidente_at',
         'rechazado_at',
         'motivo_rechazo',
@@ -53,8 +62,14 @@ class ConvenioEmailTracking extends Model
         'is_test',
     ];
 
+    protected $hidden = [
+        'signing_token_hash',
+    ];
+
     protected $casts = [
         'convenio_data' => 'array',
+        'signing_audit_log' => 'array',
+        'text_integrity_status' => ConvenioTextIntegrityStatus::class,
         'is_test' => 'boolean',
         'enviado_at' => 'datetime',
         'created_at' => 'datetime',
@@ -64,6 +79,7 @@ class ConvenioEmailTracking extends Model
         'firmado_afiliado_at' => 'datetime',
         'firmado_presidente_at' => 'datetime',
         'rechazado_at' => 'datetime',
+        'terms_accepted_at' => 'datetime',
     ];
 
     /**
@@ -166,12 +182,10 @@ class ConvenioEmailTracking extends Model
         $this->update([
             'estado' => 'enviado',
             'enviado_at' => now(),
+            'error_message' => null,
         ]);
     }
 
-    /**
-     * Marcar como fallido
-     */
     public function marcarComoFallido(string $errorMessage): void
     {
         $this->update([
@@ -179,6 +193,15 @@ class ConvenioEmailTracking extends Model
             'error_message' => $errorMessage,
             'intentos' => $this->intentos + 1,
         ]);
+    }
+
+    public function resolveVisibleErrorMessage(): ?string
+    {
+        if ($this->estado !== 'fallido') {
+            return null;
+        }
+
+        return $this->error_message;
     }
 
     public function marcarComoDisponibleVerificacion(): void
@@ -247,6 +270,54 @@ class ConvenioEmailTracking extends Model
     public function resolveOriginalPdfAbsolutePath(): ?string
     {
         return app(ConvenioPdfStorageService::class)->materializeOriginalToTemp($this);
+    }
+
+    /**
+     * @return array{
+     *     text_integrity_status: string|null,
+     *     text_integrity_label: string|null,
+     *     pdf_original_sha256: string|null,
+     *     pdf_firmado_afiliado_sha256: string|null,
+     *     firmado_afiliado_at: string|null,
+     *     signed_ip: string|null,
+     *     signed_user_agent: string|null,
+     *     signing_audit_log: array<string, mixed>|null,
+     *     terms_accepted_at: string|null
+     * }
+     */
+    public function resolveIntegrityPayload(): array
+    {
+        $status = $this->text_integrity_status;
+
+        return [
+            'text_integrity_status' => $status?->value,
+            'text_integrity_label' => match ($status) {
+                ConvenioTextIntegrityStatus::Matched => 'Texto íntegro',
+                ConvenioTextIntegrityStatus::Unavailable => 'Sin verificar texto',
+                default => null,
+            },
+            'pdf_original_sha256' => $this->pdf_original_sha256,
+            'pdf_firmado_afiliado_sha256' => $this->pdf_firmado_afiliado_sha256,
+            'firmado_afiliado_at' => $this->firmado_afiliado_at?->toIso8601String(),
+            'signed_ip' => $this->signed_ip,
+            'signed_user_agent' => $this->signed_user_agent,
+            'signing_audit_log' => ConvenioSigningAuditLog::present($this->signing_audit_log),
+            'terms_accepted_at' => $this->terms_accepted_at?->toIso8601String(),
+        ];
+    }
+
+    public function resolveIntegrityBadgeLabel(): ?string
+    {
+        if ($this->signing_estado !== self::SIGNING_FIRMADO_AFILIADO
+            && $this->signing_estado !== self::SIGNING_COMPLETADO) {
+            return null;
+        }
+
+        return match ($this->text_integrity_status) {
+            ConvenioTextIntegrityStatus::Matched => 'Texto íntegro',
+            ConvenioTextIntegrityStatus::Unavailable => 'Sin verificar texto',
+            default => null,
+        };
     }
 
     /**

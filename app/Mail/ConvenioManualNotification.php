@@ -41,9 +41,9 @@ class ConvenioManualNotification extends Mailable
             $subject = '[TEST] '.$subject;
         }
 
-        $mail = $this
+        return $this
             ->subject($subject)
-            ->replyTo('sprosalud.auxiliar@gmail.com')
+            ->replyTo('auxiliartalento.sprosalud@gmail.com')
             ->view('emails.convenio_manual_notification')
             ->with([
                 'nombreAfiliado' => $this->nombreAfiliado,
@@ -53,12 +53,6 @@ class ConvenioManualNotification extends Mailable
                 'signingUrl' => $this->signingUrl,
                 'isTest' => $this->isTest,
             ]);
-
-        if (! $this->isTest) {
-            $mail->cc('sprosalud.auxiliar@gmail.com');
-        }
-
-        return $mail;
     }
 
     /**

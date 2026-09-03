@@ -3,21 +3,22 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ConvenioPdfStage;
+use App\Http\Requests\SubmitAffiliateConvenioSignatureRequest;
 use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioDigitalSigningService;
+use App\Services\ConvenioPdfIntegrityService;
 use App\Services\ConvenioPdfStorageService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 
 class ConvenioPublicSigningController extends Controller
 {
     public function __construct(
         private readonly ConvenioDigitalSigningService $signingService,
         private readonly ConvenioPdfStorageService $pdfStorageService,
+        private readonly ConvenioPdfIntegrityService $integrityService,
     ) {}
 
     public function metadata(string $token): JsonResponse
@@ -83,7 +84,7 @@ class ConvenioPublicSigningController extends Controller
         return $this->pdfStorageService->downloadResponse($contents, 'convenio.pdf', 'inline');
     }
 
-    public function submitAffiliateSignature(Request $request, string $token): JsonResponse
+    public function submitAffiliateSignature(SubmitAffiliateConvenioSignatureRequest $request, string $token): JsonResponse
     {
         $tracking = $this->signingService->findByPlainToken($token);
         if (! $tracking instanceof ConvenioEmailTracking) {
@@ -100,20 +101,6 @@ class ConvenioPublicSigningController extends Controller
             ], 403);
         }
 
-        $maxKb = (int) config('convenio_signing.affiliate_submitted_max_kb', 12288);
-
-        $validator = Validator::make($request->all(), [
-            'pdf' => 'required|file|mimes:pdf|max:'.$maxKb,
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
         $uploaded = $request->file('pdf');
         if ($uploaded === null) {
             return response()->json([
@@ -122,27 +109,58 @@ class ConvenioPublicSigningController extends Controller
             ], 422);
         }
 
-        $stream = fopen($uploaded->getRealPath(), 'rb');
-        if ($stream === false) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se pudo leer el archivo enviado.',
-            ], 422);
-        }
-
-        $header = fread($stream, 5);
-        fclose($stream);
-        if ($header === false || ! str_starts_with((string) $header, '%PDF')) {
+        $signedContents = file_get_contents((string) $uploaded->getRealPath());
+        if ($signedContents === false || $signedContents === '' || ! str_starts_with($signedContents, '%PDF')) {
             return response()->json([
                 'success' => false,
                 'message' => 'El archivo no es un PDF válido.',
             ], 422);
         }
 
+        $originalContents = $this->pdfStorageService->get($tracking->pdf_original_path);
+        if ($originalContents === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El documento original no está disponible para verificación.',
+            ], 422);
+        }
+
+        $originalSha256 = $tracking->pdf_original_sha256 ?? $this->integrityService->hash($originalContents);
+        $signedSha256 = $this->integrityService->hash($signedContents);
+        $comparison = $this->integrityService->compareContents($originalContents, $signedContents);
+
+        if ($this->integrityService->hasMismatch($comparison)) {
+            Log::warning('[CONVENIO DIGITAL] Firma rechazada por integridad del documento', [
+                'tracking_id' => $tracking->id,
+                'mismatch_reason' => $comparison['mismatch_reason'],
+                'signed_ip' => $request->ip(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'El documento enviado no coincide con el convenio original. No se altere el contenido del PDF; solo coloque su firma y vuelva a intentarlo.',
+                'code' => 'document_integrity_mismatch',
+            ], 422);
+        }
+
+        $textIntegrityStatus = $this->integrityService->resolveTextIntegrityStatus($comparison);
+        $auditLog = $request->decodedAuditLog();
+        $signedIp = $request->ip();
+        $signedUserAgent = $request->userAgent();
+
         try {
-            DB::transaction(function () use ($tracking, $uploaded): void {
+            DB::transaction(function () use (
+                $tracking,
+                $uploaded,
+                $originalSha256,
+                $signedSha256,
+                $textIntegrityStatus,
+                $auditLog,
+                $signedIp,
+                $signedUserAgent,
+            ): void {
                 $locked = ConvenioEmailTracking::query()
-                    ->whereKey($tracking->id)
+                    ->where('id', $tracking->id)
                     ->lockForUpdate()
                     ->first();
 
@@ -167,7 +185,14 @@ class ConvenioPublicSigningController extends Controller
                 $locked->update([
                     'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
                     'pdf_firmado_afiliado_path' => $relativePath,
+                    'pdf_original_sha256' => $originalSha256,
+                    'pdf_firmado_afiliado_sha256' => $signedSha256,
+                    'text_integrity_status' => $textIntegrityStatus,
                     'firmado_afiliado_at' => now(),
+                    'signed_ip' => $signedIp,
+                    'signed_user_agent' => $signedUserAgent,
+                    'signing_audit_log' => $auditLog,
+                    'terms_accepted_at' => now(),
                 ]);
             });
         } catch (\Throwable $e) {
@@ -189,8 +214,16 @@ class ConvenioPublicSigningController extends Controller
             ], 500);
         }
 
+        if ($textIntegrityStatus?->value === 'unavailable') {
+            Log::warning('[CONVENIO DIGITAL] Firma aceptada sin verificación de texto', [
+                'tracking_id' => $tracking->id,
+            ]);
+        }
+
         Log::info('[CONVENIO DIGITAL] Firma del afiliado registrada', [
             'tracking_id' => $tracking->id,
+            'text_integrity_status' => $textIntegrityStatus?->value,
+            'signed_ip' => $signedIp,
         ]);
 
         return response()->json([
