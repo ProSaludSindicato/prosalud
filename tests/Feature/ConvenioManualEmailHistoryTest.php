@@ -166,7 +166,7 @@ class ConvenioManualEmailHistoryTest extends TestCase
 
         ConvenioEmailTracking::factory()->create([
             'estado' => 'fallido',
-            'error_message' => 'Job falló después de 5 intentos: 550 5.7.0 Too many emails per second',
+            'error_message' => 'Job falló después de 3 excepciones: 550 5.7.0 Too many emails per second',
         ]);
 
         $user = User::factory()->create();
@@ -185,7 +185,7 @@ class ConvenioManualEmailHistoryTest extends TestCase
             ->assertJsonPath('data.data.0.estado', 'fallido')
             ->assertJsonPath(
                 'data.data.0.error_message',
-                'Job falló después de 5 intentos: 550 5.7.0 Too many emails per second'
+                'Job falló después de 3 excepciones: 550 5.7.0 Too many emails per second'
             );
     }
 

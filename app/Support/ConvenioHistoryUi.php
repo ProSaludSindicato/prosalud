@@ -39,6 +39,13 @@ class ConvenioHistoryUi
                     'method' => 'POST',
                     'payload_key' => 'tracking_ids',
                 ],
+                [
+                    'id' => 'retry_failed',
+                    'label' => 'Reintentar fallidos',
+                    'endpoint' => '/api/convenios-manual/retry-failed-emails',
+                    'method' => 'POST',
+                    'payload_key' => 'filters',
+                ],
             ],
             'estado_filtros' => $estadoFiltros,
             'deprecated_endpoints' => [
@@ -51,6 +58,7 @@ class ConvenioHistoryUi
                 'upload_pdfs' => '/api/convenios-manual/import-pdf-zip',
                 'generate_and_send' => '/api/convenios-manual/import-bulk',
                 'bulk_resend' => '/api/convenios-manual/resend-emails',
+                'retry_failed' => '/api/convenios-manual/retry-failed-emails',
                 'history' => '/api/convenios-manual/email-history',
             ],
         ];

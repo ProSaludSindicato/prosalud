@@ -16,6 +16,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -23,9 +24,9 @@ class SendConvenioManualEmailJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $tries = 5;
+    public $maxExceptions = 3;
 
-    public $backoff = 60;
+    public $backoff = [30, 60, 120];
 
     public function __construct(
         public string $documento,
@@ -39,6 +40,11 @@ class SendConvenioManualEmailJob implements ShouldQueue
         public ?int $generatedByUserId = null,
         public ?int $existingTrackingId = null,
     ) {}
+
+    public function retryUntil(): Carbon
+    {
+        return now()->addHours(2);
+    }
 
     public function handle(
         AfiliadoService $afiliadoService,
@@ -284,7 +290,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 'documento' => $this->documento,
                 'nombre_archivo' => $this->nombreArchivo,
                 'attempt' => $this->attempts(),
-                'tries' => $this->tries,
+                'maxExceptions' => $this->maxExceptions,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -462,7 +468,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 ->first();
 
         if ($tracking) {
-            $tracking->marcarComoFallido('Job falló después de '.$this->tries.' intentos: '.$exception->getMessage());
+            $tracking->marcarComoFallido('Job falló después de '.$this->maxExceptions.' excepciones: '.$exception->getMessage());
         }
     }
 }

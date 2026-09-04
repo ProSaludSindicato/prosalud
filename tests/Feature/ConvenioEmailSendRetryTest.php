@@ -147,7 +147,7 @@ class ConvenioEmailSendRetryTest extends TestCase
         $tracking->refresh();
 
         $this->assertSame('fallido', $tracking->estado);
-        $this->assertStringContainsString('Job falló después de 5 intentos', (string) $tracking->error_message);
+        $this->assertStringContainsString('Job falló después de 3 excepciones', (string) $tracking->error_message);
         $this->assertStringContainsString('Too many emails per second', (string) $tracking->error_message);
         $this->assertSame(1, $tracking->intentos);
     }
@@ -160,12 +160,12 @@ class ConvenioEmailSendRetryTest extends TestCase
         ]);
         $failed = ConvenioEmailTracking::factory()->create([
             'estado' => 'fallido',
-            'error_message' => 'Job falló después de 5 intentos: 550 5.7.0 Too many emails per second',
+            'error_message' => 'Job falló después de 3 excepciones: 550 5.7.0 Too many emails per second',
         ]);
 
         $this->assertNull($sent->resolveVisibleErrorMessage());
         $this->assertSame(
-            'Job falló después de 5 intentos: 550 5.7.0 Too many emails per second',
+            'Job falló después de 3 excepciones: 550 5.7.0 Too many emails per second',
             $failed->resolveVisibleErrorMessage()
         );
     }

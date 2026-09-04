@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\RetryFailedConvenioEmailsRequest;
 use App\Http\Requests\UploadConvenioPdfZipRequest;
 use App\Jobs\GenerateConvenioJob;
 use App\Jobs\ProcessConvenioPdfZipJob;
 use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioExcelTemplateExportService;
+use App\Services\ConvenioFailedEmailRetryService;
 use App\Services\ConvenioGenerationService;
 use App\Services\ConvenioPdfStorageService;
 use App\Services\ConvenioPdfZipImportService;
@@ -397,6 +399,34 @@ class ConvenioManualController extends Controller
                 'failed_count' => count($results['failed']),
                 'results' => $results,
             ],
+        ]);
+    }
+
+    public function retryFailedEmails(
+        RetryFailedConvenioEmailsRequest $request,
+        ConvenioFailedEmailRetryService $retryService,
+    ): JsonResponse {
+        $result = $retryService->retry(
+            [
+                'tracking_ids' => $request->input('tracking_ids'),
+                'fecha_desde' => $request->input('fecha_desde'),
+                'fecha_hasta' => $request->input('fecha_hasta'),
+                'sede' => $request->input('sede'),
+                'q' => $request->input('q'),
+            ],
+            $request->user()?->id,
+            $request->user()?->email,
+        );
+
+        $queued = $result['success_count'];
+
+        return response()->json([
+            'success' => true,
+            'delivery_mode' => config('convenios.delivery_mode'),
+            'message' => $queued === 0
+                ? 'No se encontraron convenios fallidos para reintentar en el período indicado.'
+                : 'Se encolaron '.$queued.' convenios fallidos. Los envíos respetan el límite por minuto; consulte el historial para ver el avance.',
+            'data' => $result,
         ]);
     }
 
