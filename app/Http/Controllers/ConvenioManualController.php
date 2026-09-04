@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ExportConvenioHistoryExcelRequest;
 use App\Http\Requests\RetryFailedConvenioEmailsRequest;
 use App\Http\Requests\UploadConvenioPdfZipRequest;
 use App\Jobs\GenerateConvenioJob;
@@ -11,6 +12,7 @@ use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioExcelTemplateExportService;
 use App\Services\ConvenioFailedEmailRetryService;
 use App\Services\ConvenioGenerationService;
+use App\Services\ConvenioHistoryExcelExportService;
 use App\Services\ConvenioPdfStorageService;
 use App\Services\ConvenioPdfZipImportService;
 use App\Support\ConvenioDataLabels;
@@ -107,72 +109,9 @@ class ConvenioManualController extends Controller
             ], 422);
         }
 
-        $query = ConvenioEmailTracking::query();
-
-        // Apply filters
-        if ($request->filled('q')) {
-            $term = trim((string) $request->input('q'));
-            $pattern = '%'.$term.'%';
-            $query->where(function ($q) use ($pattern): void {
-                $q->where('documento', 'like', $pattern)
-                    ->orWhere('nombre_convenio', 'like', $pattern);
-            });
-        } else {
-            if ($request->has('documento')) {
-                $query->byDocumento($request->input('documento'));
-            }
-
-            if ($request->has('nombre_convenio')) {
-                $query->byNombreConvenio($request->input('nombre_convenio'));
-            }
-        }
-
-        $estadoFiltro = $request->input('estado_filtro');
-        if (is_string($estadoFiltro) && $estadoFiltro !== '' && $estadoFiltro !== 'todos') {
-            $isSigningFilter = in_array($estadoFiltro, ['firma_pendiente_firma', 'firma_firmado_afiliado', 'firma_completado'], true);
-
-            if ($isSigningFilter && ! $digitalSigningEnabled) {
-                // Signing filters are ignored when the feature is disabled
-            } else {
-                match ($estadoFiltro) {
-                    'pendiente', 'enviado', 'fallido' => $query->byEstado($estadoFiltro),
-                    'verificacion', 'test' => $query->test(),
-                    'firma_pendiente_firma' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA),
-                    'firma_firmado_afiliado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO),
-                    'firma_completado' => $query->bySigningEstado(ConvenioEmailTracking::SIGNING_COMPLETADO),
-                    default => null,
-                };
-            }
-        } else {
-            if ($request->has('estado')) {
-                $query->byEstado($request->input('estado'));
-            }
-
-            if ($digitalSigningEnabled && $request->filled('signing_estado')) {
-                $query->bySigningEstado((string) $request->input('signing_estado'));
-            }
-        }
-
-        if ($request->filled('sede')) {
-            $query->bySede((string) $request->input('sede'));
-        }
-
-        if ($request->has('is_test')) {
-            $query->where('is_test', $request->boolean('is_test'));
-        }
-
-        if ($request->has('fecha_desde') || $request->has('fecha_hasta')) {
-            $fechaInicio = $request->input('fecha_desde') ?: '1970-01-01';
-            $fechaFin = $request->input('fecha_hasta') ?: now()->format('Y-m-d');
-            $query->byFechaRango($fechaInicio, $fechaFin);
-        }
-
-        if ($request->filled('calificacion')) {
-            $query->byCalificacion((string) $request->input('calificacion'));
-        }
-
-        // Order by most recent first
-        $query->orderBy('created_at', 'desc');
+        $query = ConvenioEmailTracking::query()
+            ->applyHistoryFilters($request->all(), $digitalSigningEnabled)
+            ->orderBy('created_at', 'desc');
 
         // Paginate
         $perPage = $request->input('per_page', 15);
@@ -1159,6 +1098,62 @@ class ConvenioManualController extends Controller
                 'rejected' => $scan['rejected'],
             ],
         ], 202);
+    }
+
+    public function exportHistoryExcel(
+        ExportConvenioHistoryExcelRequest $request,
+        ConvenioHistoryExcelExportService $excelExportService,
+    ): BinaryFileResponse|JsonResponse {
+        try {
+            $filters = $request->validated();
+            $filePath = $excelExportService->generateReport($filters);
+
+            if (! is_file($filePath)) {
+                Log::error('[CONVENIO API] Error generando reporte Excel de historial: archivo no creado', [
+                    'user_id' => $request->user()?->id,
+                    'filters' => $filters,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al generar el reporte',
+                ], 500);
+            }
+
+            $fileName = 'Reporte_Convenios_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
+
+            Log::info('[CONVENIO API] Reporte Excel de historial generado', [
+                'user_id' => $request->user()?->id,
+                'filters' => $filters,
+                'file_name' => $fileName,
+            ]);
+
+            return response()->download($filePath, $fileName, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'X-Download-Filename' => rawurlencode($fileName),
+            ])->deleteFileAfterSend(true);
+        } catch (\InvalidArgumentException $e) {
+            Log::warning('[CONVENIO API] Error de validación al generar reporte Excel de historial', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        } catch (\Exception $e) {
+            Log::error('[CONVENIO API] Error generando reporte Excel de historial', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el reporte. Por favor, intente nuevamente.',
+            ], 500);
+        }
     }
 
     /**

@@ -271,6 +271,9 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::get('/email-history', [ConvenioManualController::class, 'listEmailHistory'])
         ->middleware('permission:document_signing.view');
 
+    Route::post('/export/excel', [ConvenioManualController::class, 'exportHistoryExcel'])
+        ->middleware('permission:document_signing.view');
+
     Route::get('/tracking/{tracking}', [ConvenioManualController::class, 'showTracking'])
         ->middleware('permission:document_signing.view');
 

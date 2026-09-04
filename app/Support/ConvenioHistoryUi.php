@@ -61,6 +61,7 @@ class ConvenioHistoryUi
                 'retry_failed' => '/api/convenios-manual/retry-failed-emails',
                 'failed_email_days' => '/api/convenios-manual/failed-email-days',
                 'history' => '/api/convenios-manual/email-history',
+                'export_excel' => '/api/convenios-manual/export/excel',
             ],
         ];
     }

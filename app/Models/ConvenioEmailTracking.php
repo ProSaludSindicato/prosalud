@@ -212,8 +212,83 @@ class ConvenioEmailTracking extends Model
     }
 
     /**
-     * Marcar como enviado exitosamente
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @param  array<string, mixed>  $filters
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
      */
+    public function scopeApplyHistoryFilters($query, array $filters, bool $digitalSigningEnabled = true)
+    {
+        $search = isset($filters['q']) ? trim((string) $filters['q']) : '';
+
+        if ($search !== '') {
+            $pattern = '%'.$search.'%';
+            $query->where(function ($builder) use ($pattern): void {
+                $builder->where('documento', 'like', $pattern)
+                    ->orWhere('nombre_convenio', 'like', $pattern);
+            });
+        } else {
+            if (! empty($filters['documento'])) {
+                $query->byDocumento((string) $filters['documento']);
+            }
+
+            if (! empty($filters['nombre_convenio'])) {
+                $query->byNombreConvenio((string) $filters['nombre_convenio']);
+            }
+        }
+
+        $estadoFiltro = $filters['estado_filtro'] ?? null;
+        if (is_string($estadoFiltro) && $estadoFiltro !== '' && $estadoFiltro !== 'todos') {
+            $isSigningFilter = in_array($estadoFiltro, ['firma_pendiente_firma', 'firma_firmado_afiliado', 'firma_completado'], true);
+
+            if (! $isSigningFilter || $digitalSigningEnabled) {
+                match ($estadoFiltro) {
+                    'pendiente', 'enviado', 'fallido' => $query->byEstado($estadoFiltro),
+                    'verificacion', 'test' => $query->test(),
+                    'firma_pendiente_firma' => $query->bySigningEstado(self::SIGNING_PENDIENTE_FIRMA),
+                    'firma_firmado_afiliado' => $query->bySigningEstado(self::SIGNING_FIRMADO_AFILIADO),
+                    'firma_completado' => $query->bySigningEstado(self::SIGNING_COMPLETADO),
+                    default => null,
+                };
+            }
+        } else {
+            if (! empty($filters['estado'])) {
+                $query->byEstado((string) $filters['estado']);
+            }
+
+            if ($digitalSigningEnabled && ! empty($filters['signing_estado'])) {
+                $query->bySigningEstado((string) $filters['signing_estado']);
+            }
+        }
+
+        if (! empty($filters['sede'])) {
+            $sede = trim((string) $filters['sede']);
+            $pattern = '%'.$sede.'%';
+            $query->where(function ($builder) use ($pattern): void {
+                $builder->where('sede', 'like', $pattern)
+                    ->orWhere('nombre_convenio', 'like', $pattern);
+            });
+        }
+
+        if (array_key_exists('is_test', $filters) && $filters['is_test'] !== null && $filters['is_test'] !== '') {
+            $query->where('is_test', filter_var($filters['is_test'], FILTER_VALIDATE_BOOLEAN));
+        }
+
+        $fechaDesde = $filters['fecha_desde'] ?? null;
+        $fechaHasta = $filters['fecha_hasta'] ?? null;
+        if ($fechaDesde || $fechaHasta) {
+            $query->byFechaRango(
+                $fechaDesde ?: '1970-01-01',
+                $fechaHasta ?: now()->format('Y-m-d'),
+            );
+        }
+
+        if (! empty($filters['calificacion'])) {
+            $query->byCalificacion((string) $filters['calificacion']);
+        }
+
+        return $query;
+    }
+
     public function marcarComoEnviado(): void
     {
         $this->update([
