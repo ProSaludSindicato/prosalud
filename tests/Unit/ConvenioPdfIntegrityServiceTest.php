@@ -46,6 +46,22 @@ class ConvenioPdfIntegrityServiceTest extends TestCase
         $this->assertFalse($this->service->hasMismatch($result));
     }
 
+    public function test_compare_signed_against_cached_original_metadata(): void
+    {
+        $original = $this->createPdfWithText('Convenio original ProSalud');
+        $signed = $this->createPdfWithText('Convenio original ProSalud');
+        $integrity = $this->service->originalIntegrityFromContents($original);
+
+        $result = $this->service->compareSignedAgainstOriginal(
+            $integrity['page_count'],
+            $integrity['text_fingerprint'],
+            $signed,
+        );
+
+        $this->assertSame(ConvenioTextIntegrityStatus::Matched, $result['status']);
+        $this->assertNull($result['mismatch_reason']);
+    }
+
     public function test_compare_contents_returns_mismatch_for_different_text(): void
     {
         $original = $this->createPdfWithText('Convenio original ProSalud');

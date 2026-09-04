@@ -47,6 +47,8 @@ class ConvenioEmailTracking extends Model
         'pdf_firmado_afiliado_path',
         'pdf_final_path',
         'pdf_original_sha256',
+        'pdf_original_page_count',
+        'pdf_original_text_fingerprint',
         'pdf_firmado_afiliado_sha256',
         'text_integrity_status',
         'firmado_afiliado_at',

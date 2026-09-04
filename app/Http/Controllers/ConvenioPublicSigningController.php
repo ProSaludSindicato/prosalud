@@ -13,6 +13,7 @@ use App\Services\ConvenioPdfStorageService;
 use App\Support\ConvenioDisplayFilename;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -120,6 +121,30 @@ class ConvenioPublicSigningController extends Controller
             ], 422);
         }
 
+        $lockSeconds = max(30, (int) config('convenio_signing.affiliate_signature_submit_lock_seconds', 180));
+        $submitLock = Cache::lock('convenio-affiliate-sign:'.$tracking->id, $lockSeconds);
+
+        if (! $submitLock->get()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ya hay un envío de firma en proceso para este convenio. Espera un momento e intenta de nuevo.',
+                'code' => 'signature_submit_in_progress',
+            ], 409);
+        }
+
+        try {
+            return $this->processAffiliateSignatureSubmit($request, $tracking, $uploaded);
+        } finally {
+            $submitLock->release();
+        }
+    }
+
+    private function processAffiliateSignatureSubmit(
+        SubmitAffiliateConvenioSignatureRequest $request,
+        ConvenioEmailTracking $tracking,
+        \Illuminate\Http\UploadedFile $uploaded,
+    ): JsonResponse {
+
         $signedContents = file_get_contents((string) $uploaded->getRealPath());
         if ($signedContents === false || $signedContents === '' || ! str_starts_with($signedContents, '%PDF')) {
             return response()->json([
@@ -138,7 +163,22 @@ class ConvenioPublicSigningController extends Controller
 
         $originalSha256 = $tracking->pdf_original_sha256 ?? $this->integrityService->hash($originalContents);
         $signedSha256 = $this->integrityService->hash($signedContents);
-        $comparison = $this->integrityService->compareContents($originalContents, $signedContents);
+
+        $originalPageCount = $tracking->pdf_original_page_count;
+        $originalTextFingerprint = $tracking->pdf_original_text_fingerprint;
+
+        if ($originalTextFingerprint === null) {
+            $this->integrityService->persistOriginalIntegrityMetadata($tracking, $originalContents);
+            $tracking->refresh();
+            $originalPageCount = $tracking->pdf_original_page_count;
+            $originalTextFingerprint = $tracking->pdf_original_text_fingerprint;
+        }
+
+        $comparison = $this->integrityService->compareSignedAgainstOriginal(
+            $originalPageCount,
+            $originalTextFingerprint,
+            $signedContents,
+        );
 
         if ($this->integrityService->hasMismatch($comparison)) {
             Log::warning('[CONVENIO DIGITAL] Firma rechazada por integridad del documento', [

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ConvenioTextIntegrityStatus;
+use App\Models\ConvenioEmailTracking;
 use Illuminate\Support\Facades\Log;
 use Smalot\PdfParser\Parser;
 
@@ -30,11 +31,18 @@ class ConvenioPdfIntegrityService
         return trim((string) $collapsed);
     }
 
+    public function textFingerprint(string $text): string
+    {
+        return $this->hash($this->normalizeText($text));
+    }
+
     /**
      * @return array{text: string|null, page_count: int|null}
      */
     public function extractPdfMetadata(string $contents): array
     {
+        $this->extendExecutionTimeLimit();
+
         try {
             $document = $this->parser->parseContent($contents);
             $text = $document->getText();
@@ -57,6 +65,29 @@ class ConvenioPdfIntegrityService
     }
 
     /**
+     * @return array{page_count: int|null, text_fingerprint: string|null}
+     */
+    public function originalIntegrityFromContents(string $contents): array
+    {
+        $metadata = $this->extractPdfMetadata($contents);
+
+        return [
+            'page_count' => $metadata['page_count'],
+            'text_fingerprint' => is_string($metadata['text']) ? $this->textFingerprint($metadata['text']) : null,
+        ];
+    }
+
+    public function persistOriginalIntegrityMetadata(ConvenioEmailTracking $tracking, string $contents): void
+    {
+        $integrity = $this->originalIntegrityFromContents($contents);
+
+        $tracking->update([
+            'pdf_original_page_count' => $integrity['page_count'],
+            'pdf_original_text_fingerprint' => $integrity['text_fingerprint'],
+        ]);
+    }
+
+    /**
      * @return array{
      *     status: ConvenioTextIntegrityStatus,
      *     original_page_count: int|null,
@@ -66,39 +97,61 @@ class ConvenioPdfIntegrityService
      */
     public function compareContents(string $originalContents, string $signedContents): array
     {
-        $originalMeta = $this->extractPdfMetadata($originalContents);
-        $signedMeta = $this->extractPdfMetadata($signedContents);
+        $originalIntegrity = $this->originalIntegrityFromContents($originalContents);
 
-        $originalText = $originalMeta['text'];
+        return $this->compareSignedAgainstOriginal(
+            $originalIntegrity['page_count'],
+            $originalIntegrity['text_fingerprint'],
+            $signedContents,
+        );
+    }
+
+    /**
+     * @return array{
+     *     status: ConvenioTextIntegrityStatus,
+     *     original_page_count: int|null,
+     *     signed_page_count: int|null,
+     *     mismatch_reason: string|null
+     * }
+     */
+    public function compareSignedAgainstOriginal(
+        ?int $originalPageCount,
+        ?string $originalTextFingerprint,
+        string $signedContents,
+        ?string $originalContentsForBackfill = null,
+    ): array {
+        if ($originalTextFingerprint === null && $originalContentsForBackfill !== null) {
+            $originalIntegrity = $this->originalIntegrityFromContents($originalContentsForBackfill);
+            $originalPageCount = $originalIntegrity['page_count'];
+            $originalTextFingerprint = $originalIntegrity['text_fingerprint'];
+        }
+
+        $signedMeta = $this->extractPdfMetadata($signedContents);
         $signedText = $signedMeta['text'];
-        $originalPages = $originalMeta['page_count'];
         $signedPages = $signedMeta['page_count'];
 
-        if ($originalText === null || $signedText === null) {
+        if ($originalTextFingerprint === null || $signedText === null) {
             return [
                 'status' => ConvenioTextIntegrityStatus::Unavailable,
-                'original_page_count' => $originalPages,
+                'original_page_count' => $originalPageCount,
                 'signed_page_count' => $signedPages,
                 'mismatch_reason' => null,
             ];
         }
 
-        if ($originalPages !== null && $signedPages !== null && $originalPages !== $signedPages) {
+        if ($originalPageCount !== null && $signedPages !== null && $originalPageCount !== $signedPages) {
             return [
                 'status' => null,
-                'original_page_count' => $originalPages,
+                'original_page_count' => $originalPageCount,
                 'signed_page_count' => $signedPages,
                 'mismatch_reason' => 'page_count_mismatch',
             ];
         }
 
-        $normalizedOriginal = $this->normalizeText($originalText);
-        $normalizedSigned = $this->normalizeText($signedText);
-
-        if ($normalizedOriginal !== $normalizedSigned) {
+        if ($this->textFingerprint($signedText) !== $originalTextFingerprint) {
             return [
                 'status' => null,
-                'original_page_count' => $originalPages,
+                'original_page_count' => $originalPageCount,
                 'signed_page_count' => $signedPages,
                 'mismatch_reason' => 'text_mismatch',
             ];
@@ -106,7 +159,7 @@ class ConvenioPdfIntegrityService
 
         return [
             'status' => ConvenioTextIntegrityStatus::Matched,
-            'original_page_count' => $originalPages,
+            'original_page_count' => $originalPageCount,
             'signed_page_count' => $signedPages,
             'mismatch_reason' => null,
         ];
@@ -124,5 +177,14 @@ class ConvenioPdfIntegrityService
         }
 
         return $comparison['status'] ?? ConvenioTextIntegrityStatus::Unavailable;
+    }
+
+    private function extendExecutionTimeLimit(): void
+    {
+        $seconds = (int) config('convenio_signing.affiliate_signature_max_execution_seconds', 120);
+
+        if ($seconds > 0) {
+            @set_time_limit($seconds);
+        }
     }
 }

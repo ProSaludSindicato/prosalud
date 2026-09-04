@@ -50,6 +50,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
         AfiliadoService $afiliadoService,
         ConvenioDigitalSigningService $convenioDigitalSigningService,
         ConvenioPdfStorageService $convenioPdfStorageService,
+        \App\Services\ConvenioPdfIntegrityService $convenioPdfIntegrityService,
     ): void {
         $trackingId = null;
         $tempPdfPath = null;
@@ -258,6 +259,9 @@ class SendConvenioManualEmailJob implements ShouldQueue
                     'pdf_original_path' => $relativeStored,
                     'pdf_original_sha256' => $originalSha256,
                 ]);
+                if (is_string($originalContents) && $originalContents !== '') {
+                    $convenioPdfIntegrityService->persistOriginalIntegrityMetadata($tracking, $originalContents);
+                }
             } else {
                 $migratedPath = $convenioPdfStorageService->migrateToMnemonicPath(
                     $tracking,

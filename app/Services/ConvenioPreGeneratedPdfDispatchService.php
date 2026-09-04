@@ -13,6 +13,7 @@ class ConvenioPreGeneratedPdfDispatchService
 {
     public function __construct(
         private readonly ConvenioPdfStorageService $pdfStorageService,
+        private readonly ConvenioPdfIntegrityService $integrityService,
     ) {}
 
     /**
@@ -82,6 +83,7 @@ class ConvenioPreGeneratedPdfDispatchService
                 'pdf_original_path' => $relativeStored,
                 'pdf_original_sha256' => hash('sha256', $contents),
             ]);
+            $this->integrityService->persistOriginalIntegrityMetadata($tracking, $contents);
         } catch (\Throwable $e) {
             $tracking->marcarComoFallido('Error al almacenar PDF: '.$e->getMessage());
 

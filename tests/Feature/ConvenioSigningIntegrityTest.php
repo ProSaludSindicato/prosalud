@@ -6,6 +6,7 @@ use App\Enums\ConvenioTextIntegrityStatus;
 use App\Models\ApiToken;
 use App\Models\ConvenioEmailTracking;
 use App\Models\User;
+use App\Services\ConvenioPdfIntegrityService;
 use App\Services\ConvenioPdfStorageService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -226,6 +227,10 @@ class ConvenioSigningIntegrityTest extends TestCase
             'pdf_original_path' => $relative,
             'pdf_original_sha256' => is_string($originalContents) ? hash('sha256', $originalContents) : null,
         ]);
+
+        if (is_string($originalContents) && $originalContents !== '') {
+            app(ConvenioPdfIntegrityService::class)->persistOriginalIntegrityMetadata($tracking->fresh(), $originalContents);
+        }
 
         return $tracking->fresh();
     }
