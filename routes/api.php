@@ -278,6 +278,9 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::post('/resend-emails', [ConvenioManualController::class, 'resendEmails'])
         ->middleware('permission:document_signing.manage');
 
+    Route::get('/failed-email-days', [ConvenioManualController::class, 'listFailedEmailDays'])
+        ->middleware('permission:document_signing.manage');
+
     Route::post('/retry-failed-emails', [ConvenioManualController::class, 'retryFailedEmails'])
         ->middleware('permission:document_signing.manage');
 

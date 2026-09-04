@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ConvenioEmailTracking;
 use App\Support\ConvenioDelivery;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
 
@@ -17,8 +18,29 @@ class ConvenioFailedEmailRetryService
     ) {}
 
     /**
+     * @return list<array{fecha: string, total: int}>
+     */
+    public function failedDays(): array
+    {
+        return ConvenioEmailTracking::query()
+            ->where('estado', 'fallido')
+            ->toBase()
+            ->selectRaw('DATE(created_at) as fecha, COUNT(*) as total')
+            ->groupByRaw('DATE(created_at)')
+            ->orderByDesc('fecha')
+            ->get()
+            ->map(fn (object $row): array => [
+                'fecha' => (string) $row->fecha,
+                'total' => (int) $row->total,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
      * @param  array{
      *     tracking_ids?: list<int>|null,
+     *     fechas?: list<string>|null,
      *     fecha_desde?: string|null,
      *     fecha_hasta?: string|null,
      *     sede?: string|null,
@@ -28,6 +50,7 @@ class ConvenioFailedEmailRetryService
      *     total: int,
      *     success_count: int,
      *     failed_count: int,
+     *     fechas: list<string>|null,
      *     fecha_desde: string|null,
      *     fecha_hasta: string|null,
      *     results: array{
@@ -56,6 +79,7 @@ class ConvenioFailedEmailRetryService
             'total' => $trackings->count(),
             'success_count' => count($results['success']),
             'failed_count' => count($results['failed']),
+            'fechas' => $filters['fechas'] ?? null,
             'fecha_desde' => $filters['fecha_desde'] ?? null,
             'fecha_hasta' => $filters['fecha_hasta'] ?? null,
             'results' => $results,
@@ -65,6 +89,7 @@ class ConvenioFailedEmailRetryService
     /**
      * @param  array{
      *     tracking_ids?: list<int>|null,
+     *     fechas?: list<string>|null,
      *     fecha_desde?: string|null,
      *     fecha_hasta?: string|null,
      *     sede?: string|null,
@@ -81,7 +106,21 @@ class ConvenioFailedEmailRetryService
             return $query->whereIn('id', $trackingIds);
         }
 
-        if (! empty($filters['fecha_desde']) || ! empty($filters['fecha_hasta'])) {
+        $fechas = $filters['fechas'] ?? null;
+        if (is_array($fechas) && $fechas !== []) {
+            $query->where(function (Builder $outer) use ($fechas): void {
+                foreach ($fechas as $fecha) {
+                    if (! is_string($fecha) || $fecha === '') {
+                        continue;
+                    }
+
+                    $outer->orWhere(function (Builder $dayQuery) use ($fecha): void {
+                        $dayQuery->where('created_at', '>=', Carbon::parse($fecha)->startOfDay())
+                            ->where('created_at', '<=', Carbon::parse($fecha)->endOfDay());
+                    });
+                }
+            });
+        } elseif (! empty($filters['fecha_desde']) || ! empty($filters['fecha_hasta'])) {
             $query->byFechaRango(
                 $filters['fecha_desde'] ?? '1970-01-01',
                 $filters['fecha_hasta'] ?? now()->toDateString(),

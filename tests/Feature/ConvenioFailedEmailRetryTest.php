@@ -44,39 +44,19 @@ class ConvenioFailedEmailRetryTest extends TestCase
         return [$user, $this->apiCookieForUser($user)];
     }
 
-    public function test_retry_failed_defaults_to_today_and_reuses_existing_tracking(): void
+    public function test_retry_failed_without_dates_returns_validation_error(): void
     {
         config(['convenios.delivery_mode' => 'production']);
         Bus::fake([SendConvenioManualEmailJob::class]);
 
-        [$user, $token] = $this->authenticatedManageUser();
-        $pdfPath = $this->writeTempPdf('%PDF-1.4 retry today');
+        [, $token] = $this->authenticatedManageUser();
+        $pdfPath = $this->writeTempPdf('%PDF-1.4 retry missing dates');
 
-        $failedToday = ConvenioEmailTracking::factory()->create([
+        $tracking = ConvenioEmailTracking::factory()->create([
             'documento' => '1017252506',
-            'email_afiliado' => 'afiliado@example.com',
             'ruta_archivo_pdf' => $pdfPath,
             'estado' => 'fallido',
-            'error_message' => 'App\Jobs\SendConvenioManualEmailJob has been attempted too many times.',
-            'intentos' => 1,
             'created_at' => now(),
-        ]);
-
-        $sentToday = ConvenioEmailTracking::factory()->create([
-            'documento' => '1111111111',
-            'email_afiliado' => 'enviado@example.com',
-            'ruta_archivo_pdf' => $pdfPath,
-            'estado' => 'enviado',
-            'created_at' => now(),
-        ]);
-
-        $failedYesterday = ConvenioEmailTracking::factory()->create([
-            'documento' => '2222222222',
-            'email_afiliado' => 'ayer@example.com',
-            'ruta_archivo_pdf' => $pdfPath,
-            'estado' => 'fallido',
-            'error_message' => 'Error anterior',
-            'created_at' => now()->subDay(),
         ]);
 
         $response = $this->call(
@@ -88,11 +68,74 @@ class ConvenioFailedEmailRetryTest extends TestCase
             ['HTTP_ACCEPT' => 'application/json']
         );
 
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $tracking->refresh();
+        $this->assertSame('fallido', $tracking->estado);
+        Bus::assertNothingDispatched();
+    }
+
+    public function test_retry_failed_by_selected_days_reuses_existing_tracking(): void
+    {
+        config(['convenios.delivery_mode' => 'production']);
+        Bus::fake([SendConvenioManualEmailJob::class]);
+
+        [, $token] = $this->authenticatedManageUser();
+        $pdfPath = $this->writeTempPdf('%PDF-1.4 retry selected days');
+        $today = now()->toDateString();
+        $yesterday = now()->subDay()->toDateString();
+        $twoDaysAgo = now()->subDays(2)->toDateString();
+
+        $failedToday = ConvenioEmailTracking::factory()->create([
+            'documento' => '1017252506',
+            'email_afiliado' => 'afiliado@example.com',
+            'ruta_archivo_pdf' => $pdfPath,
+            'estado' => 'fallido',
+            'error_message' => 'App\Jobs\SendConvenioManualEmailJob has been attempted too many times.',
+            'intentos' => 1,
+            'created_at' => now()->startOfDay()->addHours(12),
+        ]);
+
+        $sentToday = ConvenioEmailTracking::factory()->create([
+            'documento' => '1111111111',
+            'email_afiliado' => 'enviado@example.com',
+            'ruta_archivo_pdf' => $pdfPath,
+            'estado' => 'enviado',
+            'created_at' => now()->startOfDay()->addHours(12),
+        ]);
+
+        $failedYesterday = ConvenioEmailTracking::factory()->create([
+            'documento' => '2222222222',
+            'email_afiliado' => 'ayer@example.com',
+            'ruta_archivo_pdf' => $pdfPath,
+            'estado' => 'fallido',
+            'error_message' => 'Error anterior',
+            'created_at' => now()->subDay()->startOfDay()->addHours(12),
+        ]);
+
+        $failedTwoDaysAgo = ConvenioEmailTracking::factory()->create([
+            'documento' => '3333333333',
+            'email_afiliado' => 'antiguo@example.com',
+            'ruta_archivo_pdf' => $pdfPath,
+            'estado' => 'fallido',
+            'created_at' => now()->subDays(2)->startOfDay()->addHours(12),
+        ]);
+
+        $response = $this->call(
+            'POST',
+            '/api/convenios-manual/retry-failed-emails',
+            ['fechas' => [$today, $yesterday]],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
         $response->assertOk()
-            ->assertJsonPath('data.success_count', 1)
+            ->assertJsonPath('data.success_count', 2)
             ->assertJsonPath('data.failed_count', 0)
-            ->assertJsonPath('data.fecha_desde', now()->toDateString())
-            ->assertJsonPath('data.fecha_hasta', now()->toDateString());
+            ->assertJsonPath('data.fechas.0', $today)
+            ->assertJsonPath('data.fechas.1', $yesterday);
 
         $failedToday->refresh();
         $this->assertSame('pendiente', $failedToday->estado);
@@ -103,9 +146,12 @@ class ConvenioFailedEmailRetryTest extends TestCase
         $this->assertSame('enviado', $sentToday->estado);
 
         $failedYesterday->refresh();
-        $this->assertSame('fallido', $failedYesterday->estado);
+        $this->assertSame('pendiente', $failedYesterday->estado);
 
-        $this->assertSame(3, ConvenioEmailTracking::count());
+        $failedTwoDaysAgo->refresh();
+        $this->assertSame('fallido', $failedTwoDaysAgo->estado);
+
+        $this->assertSame(4, ConvenioEmailTracking::count());
 
         Bus::assertDispatched(SendConvenioManualEmailJob::class, function (SendConvenioManualEmailJob $job) use ($failedToday): bool {
             return $job->existingTrackingId === $failedToday->id
@@ -114,7 +160,49 @@ class ConvenioFailedEmailRetryTest extends TestCase
                 && $job->parentTrackingId === null;
         });
 
-        Bus::assertDispatchedTimes(SendConvenioManualEmailJob::class, 1);
+        Bus::assertDispatchedTimes(SendConvenioManualEmailJob::class, 2);
+        $this->assertSame($twoDaysAgo, $failedTwoDaysAgo->created_at->toDateString());
+    }
+
+    public function test_failed_email_days_lists_dates_with_counts(): void
+    {
+        [, $token] = $this->authenticatedManageUser();
+        $today = now()->toDateString();
+        $yesterday = now()->subDay()->toDateString();
+
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'fallido',
+            'created_at' => now()->startOfDay()->addHours(10),
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'fallido',
+            'created_at' => now()->startOfDay()->addHours(14),
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'fallido',
+            'created_at' => now()->subDay()->startOfDay()->addHours(12),
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'enviado',
+            'created_at' => now()->startOfDay()->addHours(12),
+        ]);
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/failed-email-days',
+            [],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 3)
+            ->assertJsonPath('data.days.0.fecha', $today)
+            ->assertJsonPath('data.days.0.total', 2)
+            ->assertJsonPath('data.days.1.fecha', $yesterday)
+            ->assertJsonPath('data.days.1.total', 1);
     }
 
     public function test_retry_failed_skips_records_without_pdf(): void
@@ -129,13 +217,13 @@ class ConvenioFailedEmailRetryTest extends TestCase
             'ruta_archivo_pdf' => '/tmp/does-not-exist-retry.pdf',
             'pdf_original_path' => null,
             'estado' => 'fallido',
-            'created_at' => now(),
+            'created_at' => now()->startOfDay()->addHours(12),
         ]);
 
         $response = $this->call(
             'POST',
             '/api/convenios-manual/retry-failed-emails',
-            [],
+            ['fechas' => [now()->toDateString()]],
             ['prosalud_auth_token' => $token],
             [],
             ['HTTP_ACCEPT' => 'application/json']
@@ -203,6 +291,25 @@ class ConvenioFailedEmailRetryTest extends TestCase
         $response = $this->call(
             'POST',
             '/api/convenios-manual/retry-failed-emails',
+            [],
+            ['prosalud_auth_token' => $this->apiCookieForUser($user)],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertForbidden();
+    }
+
+    public function test_failed_email_days_requires_manage_permission(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/failed-email-days',
             [],
             ['prosalud_auth_token' => $this->apiCookieForUser($user)],
             [],

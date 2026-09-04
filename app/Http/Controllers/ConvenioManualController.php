@@ -94,6 +94,7 @@ class ConvenioManualController extends Controller
             'nombre_convenio' => 'nullable|string|max:255',
             'fecha_desde' => 'nullable|date',
             'fecha_hasta' => 'nullable|date',
+            'calificacion' => 'nullable|string|in:1,2,3,4,5,sin_calificar',
             'per_page' => 'nullable|integer|min:1|max:100',
             'page' => 'nullable|integer|min:1',
         ]);
@@ -164,6 +165,10 @@ class ConvenioManualController extends Controller
             $fechaInicio = $request->input('fecha_desde') ?: '1970-01-01';
             $fechaFin = $request->input('fecha_hasta') ?: now()->format('Y-m-d');
             $query->byFechaRango($fechaInicio, $fechaFin);
+        }
+
+        if ($request->filled('calificacion')) {
+            $query->byCalificacion((string) $request->input('calificacion'));
         }
 
         // Order by most recent first
@@ -402,6 +407,19 @@ class ConvenioManualController extends Controller
         ]);
     }
 
+    public function listFailedEmailDays(ConvenioFailedEmailRetryService $retryService): JsonResponse
+    {
+        $days = $retryService->failedDays();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'days' => $days,
+                'total' => array_sum(array_column($days, 'total')),
+            ],
+        ])->header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+    }
+
     public function retryFailedEmails(
         RetryFailedConvenioEmailsRequest $request,
         ConvenioFailedEmailRetryService $retryService,
@@ -409,6 +427,7 @@ class ConvenioManualController extends Controller
         $result = $retryService->retry(
             [
                 'tracking_ids' => $request->input('tracking_ids'),
+                'fechas' => $request->input('fechas'),
                 'fecha_desde' => $request->input('fecha_desde'),
                 'fecha_hasta' => $request->input('fecha_hasta'),
                 'sede' => $request->input('sede'),
@@ -424,7 +443,7 @@ class ConvenioManualController extends Controller
             'success' => true,
             'delivery_mode' => config('convenios.delivery_mode'),
             'message' => $queued === 0
-                ? 'No se encontraron convenios fallidos para reintentar en el período indicado.'
+                ? 'No se encontraron convenios fallidos para reintentar en los días seleccionados.'
                 : 'Se encolaron '.$queued.' convenios fallidos. Los envíos respetan el límite por minuto; consulte el historial para ver el avance.',
             'data' => $result,
         ]);

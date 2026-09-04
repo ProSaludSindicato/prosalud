@@ -13,22 +13,6 @@ class RetryFailedConvenioEmailsRequest extends FormRequest
         return true;
     }
 
-    protected function prepareForValidation(): void
-    {
-        if ($this->filled('tracking_ids')) {
-            return;
-        }
-
-        if (! $this->filled('fecha_desde') && ! $this->filled('fecha_hasta')) {
-            $today = now()->toDateString();
-
-            $this->merge([
-                'fecha_desde' => $today,
-                'fecha_hasta' => $today,
-            ]);
-        }
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -37,6 +21,8 @@ class RetryFailedConvenioEmailsRequest extends FormRequest
         return [
             'tracking_ids' => ['nullable', 'array', 'max:1000'],
             'tracking_ids.*' => ['integer', 'exists:convenio_email_tracking,id'],
+            'fechas' => ['nullable', 'array', 'max:90'],
+            'fechas.*' => ['required', 'date_format:Y-m-d'],
             'fecha_desde' => ['nullable', 'date'],
             'fecha_hasta' => ['nullable', 'date', 'after_or_equal:fecha_desde'],
             'sede' => ['nullable', 'string', 'max:255'],
@@ -52,8 +38,24 @@ class RetryFailedConvenioEmailsRequest extends FormRequest
         return [
             'tracking_ids.max' => 'No se pueden reintentar más de 1000 convenios a la vez.',
             'tracking_ids.*.exists' => 'Uno o más registros no existen.',
+            'fechas.max' => 'No se pueden seleccionar más de 90 días a la vez.',
+            'fechas.*.date_format' => 'Cada día debe tener el formato YYYY-MM-DD.',
             'fecha_hasta.after_or_equal' => 'La fecha hasta debe ser igual o posterior a la fecha desde.',
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            if ($this->filled('tracking_ids') || $this->filled('fechas') || $this->filled('fecha_desde') || $this->filled('fecha_hasta')) {
+                return;
+            }
+
+            $validator->errors()->add(
+                'fechas',
+                'Seleccione al menos un día con envíos fallidos para reintentar.',
+            );
+        });
     }
 
     protected function failedValidation(Validator $validator): void

@@ -170,6 +170,19 @@ class ConvenioEmailTracking extends Model
     }
 
     /**
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
+     */
+    public function scopeByCalificacion($query, string|int $calificacion)
+    {
+        if ($calificacion === 'sin_calificar') {
+            return $query->whereNull('signing_satisfaction_score');
+        }
+
+        return $query->where('signing_satisfaction_score', (int) $calificacion);
+    }
+
+    /**
      * Scope para buscar por rango de fechas
      * Usa created_at para incluir registros pendientes que aún no tienen enviado_at
      */

@@ -215,4 +215,55 @@ class ConvenioManualEmailHistoryTest extends TestCase
             ->assertJsonPath('data.tracking.estado', 'enviado')
             ->assertJsonPath('data.tracking.error_message', null);
     }
+
+    public function test_calificacion_filter_returns_matching_scores(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '1000000001',
+            'estado' => 'enviado',
+            'signing_satisfaction_score' => 5,
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '1000000002',
+            'estado' => 'enviado',
+            'signing_satisfaction_score' => 4,
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '1000000003',
+            'estado' => 'enviado',
+            'signing_satisfaction_score' => null,
+        ]);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+        $cookie = $this->apiCookieForUser($user);
+
+        $ratedFive = $this->call(
+            'GET',
+            '/api/convenios-manual/email-history',
+            ['calificacion' => '5'],
+            ['prosalud_auth_token' => $cookie],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $ratedFive->assertOk();
+        $this->assertSame(1, $ratedFive->json('data.total'));
+        $this->assertSame('1000000001', $ratedFive->json('data.data.0.documento'));
+
+        $unrated = $this->call(
+            'GET',
+            '/api/convenios-manual/email-history',
+            ['calificacion' => 'sin_calificar'],
+            ['prosalud_auth_token' => $cookie],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $unrated->assertOk();
+        $this->assertSame(1, $unrated->json('data.total'));
+        $this->assertSame('1000000003', $unrated->json('data.data.0.documento'));
+    }
 }

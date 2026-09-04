@@ -59,6 +59,7 @@ class ConvenioHistoryUi
                 'generate_and_send' => '/api/convenios-manual/import-bulk',
                 'bulk_resend' => '/api/convenios-manual/resend-emails',
                 'retry_failed' => '/api/convenios-manual/retry-failed-emails',
+                'failed_email_days' => '/api/convenios-manual/failed-email-days',
                 'history' => '/api/convenios-manual/email-history',
             ],
         ];
