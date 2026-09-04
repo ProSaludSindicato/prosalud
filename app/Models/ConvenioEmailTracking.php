@@ -356,6 +356,18 @@ class ConvenioEmailTracking extends Model
         return ConvenioDisplayFilename::fromTracking($this);
     }
 
+    public function affiliateHasSigned(): bool
+    {
+        if ($this->firmado_afiliado_at !== null) {
+            return true;
+        }
+
+        return in_array($this->signing_estado, [
+            self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_COMPLETADO,
+        ], true);
+    }
+
     /**
      * @return array{resend: bool, download_original: bool, download_final: bool}
      */
@@ -365,6 +377,10 @@ class ConvenioEmailTracking extends Model
         $hasOriginal = $storage->hasOriginal($this);
 
         $canResend = in_array($this->estado, ['enviado', 'fallido', self::ESTADO_VERIFICACION], true);
+
+        if ($digitalSigningEnabled && $this->affiliateHasSigned()) {
+            $canResend = false;
+        }
 
         $canDownloadFinal = false;
         if ($digitalSigningEnabled) {

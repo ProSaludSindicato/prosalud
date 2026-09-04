@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Support\ConvenioEmailSubject;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
@@ -36,10 +37,12 @@ class ConvenioManualNotification extends Mailable
             }
         }
 
-        $subject = "Convenio {$this->documento} ({$this->nombreConvenio}) - ProSalud";
-        if ($this->isTest) {
-            $subject = '[TEST] '.$subject;
-        }
+        $subject = ConvenioEmailSubject::make(
+            $this->documento,
+            $this->nombreConvenio,
+            $this->isTest,
+            now(),
+        );
 
         return $this
             ->subject($subject)

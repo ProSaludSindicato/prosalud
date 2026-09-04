@@ -271,6 +271,15 @@ class ConvenioManualController extends Controller
                     continue;
                 }
 
+                if (config('convenio_signing.enabled', true) && $tracking->affiliateHasSigned()) {
+                    $results['failed'][] = [
+                        'tracking_id' => $trackingId,
+                        'error' => 'No se puede reenviar un convenio ya firmado por el afiliado.',
+                    ];
+
+                    continue;
+                }
+
                 $rutaParaEnvio = is_string($tracking->ruta_archivo_pdf) && is_file($tracking->ruta_archivo_pdf)
                     ? $tracking->ruta_archivo_pdf
                     : '';

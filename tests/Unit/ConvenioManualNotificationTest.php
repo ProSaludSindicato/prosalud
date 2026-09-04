@@ -3,6 +3,8 @@
 namespace Tests\Unit;
 
 use App\Mail\ConvenioManualNotification;
+use App\Support\ConvenioEmailSubject;
+use Carbon\Carbon;
 use Tests\TestCase;
 
 class ConvenioManualNotificationTest extends TestCase
@@ -66,16 +68,72 @@ class ConvenioManualNotificationTest extends TestCase
 
         $this->assertStringContainsString('Este es un envío de prueba (TEST).', $html);
         $this->assertStringContainsString('[TEST]', (string) $mail->subject);
+        $this->assertNotSame(
+            '[TEST] Convenio 1234567890 (TEST CONVENIO) - ProSalud',
+            (string) $mail->subject,
+        );
     }
 
-    private function renderEmail(?string $signingUrl, bool $isTest = false): string
+    public function test_subject_includes_send_datetime(): void
     {
-        return (new ConvenioManualNotification(
+        $this->travelTo(Carbon::parse('2026-09-04 11:15:32', 'America/Bogota'));
+
+        $mail = $this->makeMail()->build();
+
+        $this->assertSame(
+            'Convenio 1234567890 (TEST CONVENIO) - 04/09/2026 11:15:32 - ProSalud',
+            (string) $mail->subject,
+        );
+    }
+
+    public function test_subject_differs_between_sends_at_different_times(): void
+    {
+        $this->travelTo(Carbon::parse('2026-09-04 11:15:32', 'America/Bogota'));
+        $firstSubject = (string) $this->makeMail()->build()->subject;
+
+        $this->travel(1)->seconds();
+        $secondSubject = (string) $this->makeMail()->build()->subject;
+
+        $this->assertNotSame($firstSubject, $secondSubject);
+    }
+
+    public function test_subject_stays_stable_when_the_same_mailable_is_built_twice(): void
+    {
+        $mail = $this->makeMail();
+
+        $firstSubject = (string) $mail->build()->subject;
+        $secondSubject = (string) $mail->build()->subject;
+
+        $this->assertSame($firstSubject, $secondSubject);
+    }
+
+    public function test_subject_helper_includes_datetime(): void
+    {
+        $sentAt = Carbon::parse('2026-09-04 11:15:32', 'America/Bogota');
+
+        $this->assertSame(
+            'Convenio 1234567890 (BELLO) - 04/09/2026 11:15:32 - ProSalud',
+            ConvenioEmailSubject::make('1234567890', 'BELLO', false, $sentAt),
+        );
+        $this->assertSame(
+            '[TEST] Convenio 1234567890 (BELLO) - 04/09/2026 11:15:32 - ProSalud',
+            ConvenioEmailSubject::make('1234567890', 'BELLO', true, $sentAt),
+        );
+    }
+
+    private function makeMail(?string $signingUrl = 'https://firma.test/sign/abc123token', bool $isTest = false): ConvenioManualNotification
+    {
+        return new ConvenioManualNotification(
             'YENIFER NAYELLI CANO ARBOLEDA',
             '1234567890',
             'TEST CONVENIO',
             $signingUrl,
             $isTest,
-        ))->render();
+        );
+    }
+
+    private function renderEmail(?string $signingUrl, bool $isTest = false): string
+    {
+        return $this->makeMail($signingUrl, $isTest)->render();
     }
 }

@@ -76,58 +76,11 @@
                                         Campos Actualizados
                                     </td>
                                 </tr>
-                                @php
-                                    $fieldLabels = [
-                                        'activity_name' => 'Nombre de la Actividad',
-                                        'activity_description' => 'Descripción',
-                                        'cost_center' => 'Centro de Costos',
-                                        'locations' => 'Sedes',
-                                        'proposed_date' => 'Fecha Propuesta',
-                                        'start_time' => 'Hora Inicio',
-                                        'end_time' => 'Hora Fin',
-                                        'participant_count' => 'Número de Participantes',
-                                        'requires_details' => 'Requiere Detalles/Souvenirs',
-                                        'status' => 'Estado',
-                                    ];
-
-                                    function formatFieldValue($field, $value) {
-                                        if ($value === null || $value === '') {
-                                            return '<em style="color:#94a3b8;">No especificado</em>';
-                                        }
-
-                                        switch($field) {
-                                            case 'proposed_date':
-                                                return \Carbon\Carbon::parse($value)->format('d/m/Y');
-                                            case 'start_time':
-                                            case 'end_time':
-                                                return strlen($value) >= 5 ? substr($value, 0, 5) : $value;
-                                            case 'participant_count':
-                                                return number_format($value, 0, ',', '.');
-                                            case 'requires_details':
-                                                return $value ? 'Sí' : 'No';
-                                            case 'status':
-                                                $statusTexts = [
-                                                    'pending' => 'Pendiente',
-                                                    'in_progress' => 'En revisión',
-                                                    'resolved' => 'Aprobada',
-                                                    'rejected' => 'Rechazada',
-                                                ];
-                                                return $statusTexts[$value] ?? ucfirst($value);
-                                            case 'locations':
-                                                if (is_array($value)) {
-                                                    return implode(', ', $value);
-                                                }
-                                                return $value;
-                                            default:
-                                                return $value;
-                                        }
-                                    }
-                                @endphp
                                 @foreach($changes as $field => $change)
                                     @php
                                         $oldValue = $change['old'] ?? null;
                                         $newValue = $change['new'] ?? null;
-                                        $fieldLabel = $fieldLabels[$field] ?? ucfirst(str_replace('_', ' ', $field));
+                                        $fieldLabel = \App\Support\WellnessRequestChangeLabels::fieldLabel($field);
                                     @endphp
                                     <tr>
                                         <td style="padding:12px 16px; color:#64748b; font-weight:600; font-size:14px; width:40%; border-bottom:1px solid #e5e7eb; vertical-align:top;">
@@ -137,13 +90,13 @@
                                             <div style="margin-bottom:8px;">
                                                 <div style="font-size:12px; color:#64748b; margin-bottom:4px;">❌ Valor anterior:</div>
                                                 <div style="background:#fee2e2; padding:6px 10px; border-radius:6px; border-left:3px solid #dc2626;">
-                                                    {!! formatFieldValue($field, $oldValue) !!}
+                                                    {!! \App\Support\WellnessRequestChangeLabels::formatFieldValue($field, $oldValue) !!}
                                                 </div>
                                             </div>
                                             <div>
                                                 <div style="font-size:12px; color:#64748b; margin-bottom:4px;">✅ Valor nuevo:</div>
                                                 <div style="background:#d1fae5; padding:6px 10px; border-radius:6px; border-left:3px solid #10b981;">
-                                                    {!! formatFieldValue($field, $newValue) !!}
+                                                    {!! \App\Support\WellnessRequestChangeLabels::formatFieldValue($field, $newValue) !!}
                                                 </div>
                                             </div>
                                         </td>
