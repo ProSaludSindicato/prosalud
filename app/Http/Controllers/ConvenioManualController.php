@@ -283,23 +283,40 @@ class ConvenioManualController extends Controller
                     ]);
                 }
 
-                // Incrementar intentos en el tracking original
+                if ($tracking->estado === 'fallido') {
+                    $updates = [
+                        'estado' => 'pendiente',
+                        'error_message' => null,
+                    ];
+
+                    if (empty($tracking->pdf_original_path)) {
+                        $parent = $tracking->parentTracking;
+                        if ($parent !== null && ! empty($parent->pdf_original_path)) {
+                            $updates['pdf_original_path'] = $parent->pdf_original_path;
+                            $updates['pdf_original_sha256'] = $parent->pdf_original_sha256;
+                        }
+                    }
+
+                    $tracking->update($updates);
+                }
+
+                // Incrementar intentos en el tracking que se reutiliza
                 $tracking->incrementarIntentos();
 
                 // Get optional email for this tracking if provided
                 $optionalEmail = $testRecipientEmail ?? ($emailMap[$trackingId] ?? null);
 
-                // Dispatch job to resend email with parent tracking ID
                 SendConvenioManualEmailJob::dispatch(
                     $tracking->documento,
                     $tracking->nombre_archivo,
                     $rutaParaEnvio,
                     $tracking->nombre_convenio,
-                    $trackingId,
+                    null,
                     $optionalEmail,
                     $tracking->sede,
                     $tracking->convenio_data,
                     $request->user()?->id ?? $tracking->generated_by_user_id,
+                    $trackingId,
                 );
 
                 $results['success'][] = [

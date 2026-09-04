@@ -32,7 +32,7 @@ class ConvenioResendFromStorageTest extends TestCase
         ]);
     }
 
-    public function test_resend_succeeds_when_pdf_exists_only_in_private_storage(): void
+    public function test_resend_reuses_existing_tracking_instead_of_creating_child(): void
     {
         Mail::fake();
 
@@ -48,12 +48,13 @@ class ConvenioResendFromStorageTest extends TestCase
 
         [, $token] = $this->authenticatedManageUser();
 
-        $parent = $this->createTrackingWithStoredPdf('70853497');
+        $tracking = $this->createTrackingWithStoredPdf('70853497');
+        $trackingId = $tracking->id;
 
         $response = $this->call(
             'POST',
             '/api/convenios-manual/resend-emails',
-            ['tracking_ids' => [$parent->id]],
+            ['tracking_ids' => [$trackingId]],
             ['prosalud_auth_token' => $token],
             [],
             ['HTTP_ACCEPT' => 'application/json']
@@ -67,18 +68,64 @@ class ConvenioResendFromStorageTest extends TestCase
             return $mail->hasTo('afiliado@example.com');
         });
 
-        $child = ConvenioEmailTracking::query()
-            ->where('parent_tracking_id', $parent->id)
-            ->latest('id')
-            ->first();
+        $this->assertSame(1, ConvenioEmailTracking::query()->count());
 
-        $this->assertNotNull($child);
-        $this->assertSame('enviado', $child->estado);
-        $this->assertNotNull($child->pdf_original_path);
-        Storage::disk('prosalud-private')->assertExists((string) $child->pdf_original_path);
+        $tracking->refresh();
+        $this->assertSame('enviado', $tracking->estado);
+        $this->assertNotNull($tracking->pdf_original_path);
+        Storage::disk('prosalud-private')->assertExists((string) $tracking->pdf_original_path);
     }
 
-    public function test_resend_job_resolves_pdf_from_parent_storage_when_child_has_no_local_temp(): void
+    public function test_resend_failed_record_updates_same_row(): void
+    {
+        Mail::fake();
+
+        $this->mock(AfiliadoService::class, function ($mock): void {
+            $mock->shouldReceive('getAfiliadoByDocumentoOnly')
+                ->andReturn([
+                    'correo_personal' => 'afiliado@example.com',
+                    'nombre_completo' => 'Carlos Ospina',
+                ]);
+        });
+
+        [, $token] = $this->authenticatedManageUser();
+
+        $parent = $this->createTrackingWithStoredPdf('70853497');
+
+        $failed = ConvenioEmailTracking::factory()->create([
+            'documento' => $parent->documento,
+            'parent_tracking_id' => $parent->id,
+            'nombre_archivo' => $parent->nombre_archivo,
+            'nombre_convenio' => $parent->nombre_convenio,
+            'email_afiliado' => 'afiliado@example.com',
+            'pdf_original_path' => null,
+            'ruta_archivo_pdf' => '/tmp/missing-resend.pdf',
+            'estado' => 'fallido',
+            'error_message' => 'Archivo PDF no encontrado para este registro.',
+        ]);
+
+        $response = $this->call(
+            'POST',
+            '/api/convenios-manual/resend-emails',
+            ['tracking_ids' => [$failed->id]],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('data.success_count', 1);
+
+        $this->assertSame(2, ConvenioEmailTracking::query()->count());
+
+        $failed->refresh();
+        $this->assertSame('enviado', $failed->estado);
+        $this->assertNull($failed->error_message);
+        $this->assertNotNull($failed->pdf_original_path);
+        Storage::disk('prosalud-private')->assertExists((string) $failed->pdf_original_path);
+    }
+
+    public function test_resend_job_resolves_pdf_from_storage_when_reusing_failed_tracking(): void
     {
         Mail::fake();
 
@@ -92,16 +139,29 @@ class ConvenioResendFromStorageTest extends TestCase
 
         $parent = $this->createTrackingWithStoredPdf('70853497');
 
+        $failed = ConvenioEmailTracking::factory()->create([
+            'documento' => $parent->documento,
+            'parent_tracking_id' => $parent->id,
+            'nombre_archivo' => $parent->nombre_archivo,
+            'nombre_convenio' => $parent->nombre_convenio,
+            'email_afiliado' => 'afiliado@example.com',
+            'pdf_original_path' => $parent->pdf_original_path,
+            'pdf_original_sha256' => $parent->pdf_original_sha256,
+            'ruta_archivo_pdf' => '/var/www/html/storage/app/temp/convenios/s3-'.$parent->id.'-missing.pdf',
+            'estado' => 'pendiente',
+        ]);
+
         $job = new SendConvenioManualEmailJob(
-            documento: $parent->documento,
-            nombreArchivo: $parent->nombre_archivo,
-            rutaArchivoPdf: '/var/www/html/storage/app/temp/convenios/s3-'.$parent->id.'-missing.pdf',
-            nombreConvenio: $parent->nombre_convenio,
-            parentTrackingId: $parent->id,
+            documento: $failed->documento,
+            nombreArchivo: $failed->nombre_archivo,
+            rutaArchivoPdf: $failed->ruta_archivo_pdf,
+            nombreConvenio: $failed->nombre_convenio,
+            parentTrackingId: null,
             optionalEmail: 'afiliado@example.com',
-            sede: $parent->sede,
-            convenioData: $parent->convenio_data,
-            generatedByUserId: $parent->generated_by_user_id,
+            sede: $failed->sede,
+            convenioData: $failed->convenio_data,
+            generatedByUserId: $failed->generated_by_user_id,
+            existingTrackingId: $failed->id,
         );
 
         $job->handle(
@@ -111,14 +171,10 @@ class ConvenioResendFromStorageTest extends TestCase
             app(\App\Services\ConvenioPdfIntegrityService::class),
         );
 
-        $child = ConvenioEmailTracking::query()
-            ->where('parent_tracking_id', $parent->id)
-            ->latest('id')
-            ->first();
-
-        $this->assertNotNull($child);
-        $this->assertSame('enviado', $child->estado);
-        $this->assertNull($child->error_message);
+        $failed->refresh();
+        $this->assertSame('enviado', $failed->estado);
+        $this->assertNull($failed->error_message);
+        $this->assertSame(2, ConvenioEmailTracking::query()->count());
     }
 
     public function test_has_original_falls_back_to_parent_storage_path(): void

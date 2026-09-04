@@ -5,6 +5,89 @@ namespace App\Support;
 class ConvenioDataLabels
 {
     /**
+     * @return list<string>
+     */
+    public static function moneyKeys(): array
+    {
+        return [
+            'basico',
+            'auxilios',
+            'manutencion',
+            'provisiones',
+            'valor_hora_diurna',
+            'valor_hora_nocturna',
+            'valor_hora_diurna_festiva',
+            'valor_hora_nocturna_festiva',
+            'auxilio_de_transporte',
+            'auxilio_de_manutencion',
+            'auxilio_de_encierro',
+            'auxilio_de_rodamiento',
+            'auxilio_especial',
+            'auxilio_prosalud',
+            'valor_auxilio_diurno',
+            'valor_auxilio_recargo_nocturno',
+            'valor_auxilio_recargo_festivo',
+            'valor_auxilio_recargo_festivo_nocturno',
+            't_basicos',
+            't_auxilios',
+            't_ingresos',
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function integerKeys(): array
+    {
+        return [
+            'horas',
+        ];
+    }
+
+    public static function formatValue(string $key, mixed $value): mixed
+    {
+        if ($value === null || $value === '') {
+            return $value;
+        }
+
+        if (in_array($key, self::moneyKeys(), true)) {
+            return self::formatMoney($value);
+        }
+
+        if (in_array($key, self::integerKeys(), true)) {
+            return self::formatInteger($value);
+        }
+
+        return $value;
+    }
+
+    public static function formatMoney(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (! is_numeric($value)) {
+            return (string) $value;
+        }
+
+        return '$'.number_format((float) $value, 0, ',', '.');
+    }
+
+    public static function formatInteger(mixed $value): mixed
+    {
+        if ($value === null || $value === '') {
+            return $value;
+        }
+
+        if (! is_numeric($value)) {
+            return $value;
+        }
+
+        return number_format((float) $value, 0, ',', '.');
+    }
+
+    /**
      * @return array<string, string>
      */
     public static function labels(): array
@@ -72,6 +155,8 @@ class ConvenioDataLabels
 
             if ($key === 'send_email') {
                 $value = filter_var($value, FILTER_VALIDATE_BOOLEAN) ? 'Sí' : 'No';
+            } else {
+                $value = self::formatValue($key, $value);
             }
 
             $items[] = [
@@ -89,7 +174,7 @@ class ConvenioDataLabels
             $items[] = [
                 'key' => (string) $key,
                 'label' => ucfirst(str_replace('_', ' ', (string) $key)),
-                'value' => $value,
+                'value' => self::formatValue((string) $key, $value),
             ];
         }
 
