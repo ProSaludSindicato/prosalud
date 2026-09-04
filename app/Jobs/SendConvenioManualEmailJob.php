@@ -445,6 +445,8 @@ class SendConvenioManualEmailJob implements ShouldQueue
             'error_message' => $errorMessage,
             'intentos' => $intentos,
             'parent_tracking_id' => $this->parentTrackingId,
+            'pdf_original_path' => $parentTracking?->pdf_original_path,
+            'pdf_original_sha256' => $parentTracking?->pdf_original_sha256,
             'sede' => $sedeParaTracking,
             'convenio_data' => $convenioData,
             'generated_by_user_id' => $generatedByUserId,

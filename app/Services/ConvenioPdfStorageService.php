@@ -178,9 +178,18 @@ class ConvenioPdfStorageService
             return true;
         }
 
-        return is_string($tracking->ruta_archivo_pdf)
+        if (is_string($tracking->ruta_archivo_pdf)
             && $tracking->ruta_archivo_pdf !== ''
-            && is_file($tracking->ruta_archivo_pdf);
+            && is_file($tracking->ruta_archivo_pdf)) {
+            return true;
+        }
+
+        $parent = $tracking->parentTracking;
+        if ($parent !== null && $this->exists($parent->pdf_original_path)) {
+            return true;
+        }
+
+        return false;
     }
 
     public function hasStage(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage): bool
@@ -207,7 +216,19 @@ class ConvenioPdfStorageService
             return $contents === false || $contents === '' ? null : $contents;
         }
 
+        $parent = $tracking->parentTracking;
+        if ($parent !== null) {
+            return $this->originalContentsFromStorageOnly($parent);
+        }
+
         return null;
+    }
+
+    private function originalContentsFromStorageOnly(ConvenioEmailTracking $tracking): ?string
+    {
+        $fromStorage = $this->get($tracking->pdf_original_path);
+
+        return $fromStorage !== null && $fromStorage !== '' ? $fromStorage : null;
     }
 
     public function materializeOriginalToTemp(ConvenioEmailTracking $tracking): ?string

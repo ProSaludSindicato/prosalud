@@ -155,12 +155,7 @@ class ConvenioFailedEmailRetryService
         ?string $requestedByEmail,
         array &$results,
     ): void {
-        $rutaParaEnvio = $tracking->ruta_archivo_pdf;
-        if (! is_file((string) $rutaParaEnvio)) {
-            $rutaParaEnvio = $this->pdfStorageService->materializeOriginalToTemp($tracking);
-        }
-
-        if ($rutaParaEnvio === null || ! is_file($rutaParaEnvio)) {
+        if (! $this->pdfStorageService->hasOriginal($tracking)) {
             $results['failed'][] = [
                 'tracking_id' => $tracking->id,
                 'error' => 'Archivo PDF no encontrado para este registro.',
@@ -168,6 +163,10 @@ class ConvenioFailedEmailRetryService
 
             return;
         }
+
+        $rutaParaEnvio = is_string($tracking->ruta_archivo_pdf) && is_file($tracking->ruta_archivo_pdf)
+            ? $tracking->ruta_archivo_pdf
+            : '';
 
         $claimed = ConvenioEmailTracking::query()
             ->where('id', $tracking->id)

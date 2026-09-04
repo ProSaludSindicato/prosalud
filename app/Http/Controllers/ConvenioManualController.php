@@ -262,12 +262,7 @@ class ConvenioManualController extends Controller
                 $tracking = ConvenioEmailTracking::findOrFail($trackingId);
                 $pdfStorage = app(ConvenioPdfStorageService::class);
 
-                $rutaParaEnvio = $tracking->ruta_archivo_pdf;
-                if (! is_file((string) $rutaParaEnvio)) {
-                    $rutaParaEnvio = $pdfStorage->materializeOriginalToTemp($tracking);
-                }
-
-                if ($rutaParaEnvio === null || ! is_file($rutaParaEnvio)) {
+                if (! $pdfStorage->hasOriginal($tracking)) {
                     $results['failed'][] = [
                         'tracking_id' => $trackingId,
                         'error' => 'Archivo PDF no encontrado para este registro.',
@@ -275,6 +270,10 @@ class ConvenioManualController extends Controller
 
                     continue;
                 }
+
+                $rutaParaEnvio = is_string($tracking->ruta_archivo_pdf) && is_file($tracking->ruta_archivo_pdf)
+                    ? $tracking->ruta_archivo_pdf
+                    : '';
 
                 if ($tracking->signing_token_hash !== null
                     && $tracking->signing_estado === ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA) {
