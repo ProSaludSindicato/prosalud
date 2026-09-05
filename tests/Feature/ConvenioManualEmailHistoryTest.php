@@ -266,4 +266,57 @@ class ConvenioManualEmailHistoryTest extends TestCase
         $this->assertSame(1, $unrated->json('data.total'));
         $this->assertSame('1000000003', $unrated->json('data.data.0.documento'));
     }
+
+    public function test_email_history_filters_by_semester_period(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+        $this->travelTo(now()->setDate(2026, 9, 4)->setTime(12, 0));
+
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '2026000001',
+            'estado' => 'enviado',
+            'created_at' => '2026-08-15 10:00:00',
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '2026000002',
+            'estado' => 'enviado',
+            'created_at' => '2026-03-10 10:00:00',
+        ]);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/email-history',
+            ['periodo' => '20262'],
+            ['prosalud_auth_token' => $this->apiCookieForUser($user)],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertOk()->assertJsonPath('success', true);
+        $this->assertSame(1, $response->json('data.total'));
+        $this->assertSame('2026000001', $response->json('data.data.0.documento'));
+        $this->assertSame('20262', $response->json('filter_options.current'));
+        $this->assertContains('20262', $response->json('filter_options.periodos'));
+        $this->assertContains('20261', $response->json('filter_options.periodos'));
+    }
+
+    public function test_email_history_rejects_invalid_periodo(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        $this->call(
+            'GET',
+            '/api/convenios-manual/email-history',
+            ['periodo' => '20263'],
+            ['prosalud_auth_token' => $this->apiCookieForUser($user)],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        )->assertStatus(422);
+    }
 }

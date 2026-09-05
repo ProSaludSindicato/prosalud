@@ -108,4 +108,33 @@ class ConvenioManualStatisticsTest extends TestCase
             ->assertJsonPath('data.total', 1)
             ->assertJsonPath('data.sent', 1);
     }
+
+    public function test_statistics_filters_by_semester_period(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+        $this->travelTo(now()->setDate(2026, 9, 4)->setTime(12, 0));
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'enviado',
+            'created_at' => '2026-08-15 10:00:00',
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'estado' => 'enviado',
+            'created_at' => '2026-02-10 10:00:00',
+        ]);
+
+        $response = $this->call('GET', '/api/convenios-manual/statistics', [
+            'periodo' => '20262',
+        ], [
+            'prosalud_auth_token' => $this->apiCookieForUser($user),
+        ], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        $response->assertOk()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('filter_options.current', '20262');
+        $this->assertContains('20261', $response->json('filter_options.periodos'));
+    }
 }

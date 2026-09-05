@@ -19,6 +19,7 @@ use App\Support\ConvenioDataLabels;
 use App\Support\ConvenioDelivery;
 use App\Support\ConvenioDisplayFilename;
 use App\Support\ConvenioHistoryUi;
+use App\Support\ConvenioSemesterPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -96,6 +97,7 @@ class ConvenioManualController extends Controller
             'nombre_convenio' => 'nullable|string|max:255',
             'fecha_desde' => 'nullable|date',
             'fecha_hasta' => 'nullable|date',
+            'periodo' => ['nullable', 'string', 'regex:/^(todos|\d{4}[12])$/'],
             'calificacion' => 'nullable|string|in:1,2,3,4,5,sin_calificar',
             'per_page' => 'nullable|integer|min:1|max:100',
             'page' => 'nullable|integer|min:1',
@@ -152,6 +154,7 @@ class ConvenioManualController extends Controller
             'delivery_mode' => config('convenios.delivery_mode'),
             'digital_signing_enabled' => $digitalSigningEnabled,
             'ui' => ConvenioHistoryUi::metadata($digitalSigningEnabled),
+            'filter_options' => ConvenioSemesterPeriod::filterOptions(),
             'data' => $trackings,
         ])->header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
     }
@@ -421,6 +424,7 @@ class ConvenioManualController extends Controller
         $validator = Validator::make($request->all(), [
             'fecha_desde' => 'nullable|date',
             'fecha_hasta' => 'nullable|date',
+            'periodo' => ['nullable', 'string', 'regex:/^(todos|\d{4}[12])$/'],
         ]);
 
         if ($validator->fails()) {
@@ -434,6 +438,11 @@ class ConvenioManualController extends Controller
         $digitalSigningEnabled = (bool) config('convenio_signing.enabled', true);
 
         $baseQuery = ConvenioEmailTracking::query()->real();
+
+        $periodo = $request->input('periodo');
+        if (is_string($periodo) && ConvenioSemesterPeriod::isValid($periodo)) {
+            $baseQuery->byPeriodo($periodo);
+        }
 
         if ($request->has('fecha_desde') || $request->has('fecha_hasta')) {
             $fechaInicio = $request->input('fecha_desde') ?: '1970-01-01';
@@ -557,6 +566,7 @@ class ConvenioManualController extends Controller
         return response()->json([
             'success' => true,
             'delivery_mode' => config('convenios.delivery_mode'),
+            'filter_options' => ConvenioSemesterPeriod::filterOptions(),
             'data' => $stats,
         ]);
     }

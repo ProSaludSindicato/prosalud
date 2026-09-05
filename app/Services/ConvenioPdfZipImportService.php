@@ -124,8 +124,8 @@ class ConvenioPdfZipImportService
 
     public function materializeZipToTemp(string $relativeZipPath): string
     {
-        $contents = $this->pdfStorageService->disk()->get($relativeZipPath);
-        if (! is_string($contents) || $contents === '') {
+        $disk = $this->pdfStorageService->disk();
+        if (! $disk->exists($relativeZipPath)) {
             throw new \RuntimeException('No se pudo descargar el ZIP desde almacenamiento.');
         }
 
@@ -135,8 +135,31 @@ class ConvenioPdfZipImportService
         }
 
         $tempPath = $tempDir.'/'.Str::uuid().'.zip';
-        if (file_put_contents($tempPath, $contents) === false) {
-            throw new \RuntimeException('No se pudo materializar el ZIP temporalmente.');
+        $stream = $disk->readStream($relativeZipPath);
+        if (! is_resource($stream)) {
+            throw new \RuntimeException('No se pudo descargar el ZIP desde almacenamiento.');
+        }
+
+        try {
+            $destination = fopen($tempPath, 'w');
+            if ($destination === false) {
+                throw new \RuntimeException('No se pudo materializar el ZIP temporalmente.');
+            }
+
+            try {
+                if (stream_copy_to_stream($stream, $destination) === false) {
+                    throw new \RuntimeException('No se pudo materializar el ZIP temporalmente.');
+                }
+            } finally {
+                fclose($destination);
+            }
+        } finally {
+            fclose($stream);
+        }
+
+        if (! is_file($tempPath) || filesize($tempPath) === 0) {
+            @unlink($tempPath);
+            throw new \RuntimeException('No se pudo descargar el ZIP desde almacenamiento.');
         }
 
         return $tempPath;

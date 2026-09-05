@@ -238,4 +238,37 @@ class ConvenioHistoryExcelExportTest extends TestCase
             }
         }
     }
+
+    public function test_export_excel_filters_by_semester_period(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+        $this->travelTo(now()->setDate(2026, 9, 4)->setTime(12, 0));
+
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '2026000001',
+            'nombre_afiliado' => 'Actual Semestre',
+            'estado' => 'enviado',
+            'created_at' => '2026-08-15 10:00:00',
+        ]);
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '2026000002',
+            'nombre_afiliado' => 'Semestre Anterior',
+            'estado' => 'enviado',
+            'created_at' => '2026-03-10 10:00:00',
+        ]);
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('document_signing.view');
+
+        $response = $this->exportAs($user, ['periodo' => '20262']);
+        $response->assertOk();
+
+        $spreadsheet = IOFactory::load($response->getFile()->getPathname());
+        $summary = $spreadsheet->getSheetByName('Resumen');
+        $this->assertSame('2.º semestre 2026', (string) $summary->getCell('B4')->getValue());
+
+        $detail = $spreadsheet->getSheetByName('Detalle Convenios');
+        $this->assertSame('2026000001', (string) $detail->getCell('A2')->getValue());
+        $this->assertSame('', (string) $detail->getCell('A3')->getValue());
+    }
 }

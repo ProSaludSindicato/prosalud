@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\ConvenioEmailTracking;
+use App\Support\ConvenioSemesterPeriod;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -436,22 +437,29 @@ class ConvenioHistoryExcelExportService
      */
     private function periodLabel(array $filters): string
     {
+        $periodo = $filters['periodo'] ?? null;
         $from = $filters['fecha_desde'] ?? null;
         $to = $filters['fecha_hasta'] ?? null;
 
+        $parts = [];
+
+        if (is_string($periodo) && ConvenioSemesterPeriod::isValid($periodo)) {
+            $parts[] = ConvenioSemesterPeriod::label($periodo);
+        }
+
         if ($from && $to) {
-            return Carbon::parse($from)->format('d/m/Y').' - '.Carbon::parse($to)->format('d/m/Y');
+            $parts[] = Carbon::parse($from)->format('d/m/Y').' - '.Carbon::parse($to)->format('d/m/Y');
+        } elseif ($from) {
+            $parts[] = 'Desde '.Carbon::parse($from)->format('d/m/Y');
+        } elseif ($to) {
+            $parts[] = 'Hasta '.Carbon::parse($to)->format('d/m/Y');
         }
 
-        if ($from) {
-            return 'Desde '.Carbon::parse($from)->format('d/m/Y');
+        if ($parts === []) {
+            return 'Todos los registros';
         }
 
-        if ($to) {
-            return 'Hasta '.Carbon::parse($to)->format('d/m/Y');
-        }
-
-        return 'Todos los registros';
+        return implode(' · ', $parts);
     }
 
     /**

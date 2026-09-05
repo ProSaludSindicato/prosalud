@@ -6,6 +6,7 @@ use App\Enums\ConvenioPdfStage;
 use App\Enums\ConvenioTextIntegrityStatus;
 use App\Services\ConvenioPdfStorageService;
 use App\Support\ConvenioDisplayFilename;
+use App\Support\ConvenioSemesterPeriod;
 use App\Support\ConvenioSigningAuditLog;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -213,6 +214,21 @@ class ConvenioEmailTracking extends Model
 
     /**
      * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
+     */
+    public function scopeByPeriodo($query, string $periodo)
+    {
+        $range = ConvenioSemesterPeriod::dateRange($periodo);
+
+        if ($range === null) {
+            return $query;
+        }
+
+        return $query->whereBetween('created_at', [$range['start'], $range['end']]);
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
      * @param  array<string, mixed>  $filters
      * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
      */
@@ -271,6 +287,11 @@ class ConvenioEmailTracking extends Model
 
         if (array_key_exists('is_test', $filters) && $filters['is_test'] !== null && $filters['is_test'] !== '') {
             $query->where('is_test', filter_var($filters['is_test'], FILTER_VALIDATE_BOOLEAN));
+        }
+
+        $periodo = $filters['periodo'] ?? null;
+        if (is_string($periodo) && ConvenioSemesterPeriod::isValid($periodo)) {
+            $query->byPeriodo($periodo);
         }
 
         $fechaDesde = $filters['fecha_desde'] ?? null;

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\ConvenioEmailTracking;
 use App\Services\ConvenioPdfZipImportService;
 use App\Services\ConvenioPreGeneratedPdfDispatchService;
 use Illuminate\Bus\Queueable;
@@ -15,9 +16,11 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $tries = 1;
+    public int $tries = 1;
 
-    public $timeout = 300;
+    public int $timeout = 840;
+
+    public bool $failOnTimeout = true;
 
     /**
      * @param  list<array{entry: string, filename: string, documento: string, nombre_convenio: string}>  $validEntries
@@ -34,12 +37,19 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
         ConvenioPdfZipImportService $zipImportService,
         ConvenioPreGeneratedPdfDispatchService $dispatchService,
     ): void {
+        set_time_limit($this->timeout);
+        ini_set('max_execution_time', (string) $this->timeout);
+
         $localZipPath = null;
 
         try {
             $localZipPath = $zipImportService->materializeZipToTemp($this->storedZipPath);
 
             foreach ($this->validEntries as $entryMeta) {
+                if ($this->entryAlreadyProcessed($entryMeta)) {
+                    continue;
+                }
+
                 $tempPdfPath = null;
 
                 try {
@@ -65,18 +75,11 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
                     }
                 }
             }
+
+            $zipImportService->deleteStoredZip($this->storedZipPath);
         } finally {
             if ($localZipPath !== null && is_file($localZipPath)) {
                 @unlink($localZipPath);
-            }
-
-            try {
-                $zipImportService->deleteStoredZip($this->storedZipPath);
-            } catch (\Throwable $e) {
-                Log::warning('[CONVENIO ZIP] No se pudo eliminar el ZIP de inbox', [
-                    'stored_zip_path' => $this->storedZipPath,
-                    'error' => $e->getMessage(),
-                ]);
             }
         }
 
@@ -85,5 +88,32 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
             'total_entries' => count($this->validEntries),
             'send_email' => $this->sendEmail,
         ]);
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('[CONVENIO ZIP] Job falló después de todos los intentos', [
+            'batch_id' => $this->batchId,
+            'stored_zip_path' => $this->storedZipPath,
+            'total_entries' => count($this->validEntries),
+            'error' => $exception->getMessage(),
+        ]);
+    }
+
+    /**
+     * @param  array{documento?: string}  $entryMeta
+     */
+    private function entryAlreadyProcessed(array $entryMeta): bool
+    {
+        $documento = $entryMeta['documento'] ?? null;
+        if (! is_string($documento) || $documento === '') {
+            return false;
+        }
+
+        return ConvenioEmailTracking::query()
+            ->where('documento', $documento)
+            ->where('convenio_data->batch_id', $this->batchId)
+            ->where('convenio_data->source', 'pdf_zip')
+            ->exists();
     }
 }

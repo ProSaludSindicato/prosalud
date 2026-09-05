@@ -70,9 +70,7 @@ class ConvenioDisplayFilename
             return null;
         }
 
-        $semester = (int) $date->format('n') <= 6 ? '1' : '2';
-
-        return $date->format('Y').$semester;
+        return ConvenioSemesterPeriod::fromDate($date);
     }
 
     /**

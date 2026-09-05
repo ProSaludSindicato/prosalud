@@ -29,6 +29,7 @@ class ExportConvenioHistoryExcelRequest extends FormRequest
             'nombre_convenio' => ['nullable', 'string', 'max:255'],
             'fecha_desde' => ['nullable', 'date'],
             'fecha_hasta' => ['nullable', 'date', 'after_or_equal:fecha_desde'],
+            'periodo' => ['nullable', 'string', 'regex:/^(todos|\d{4}[12])$/'],
             'calificacion' => ['nullable', 'string', 'in:1,2,3,4,5,sin_calificar'],
         ];
     }
@@ -61,6 +62,7 @@ class ExportConvenioHistoryExcelRequest extends FormRequest
             'sede' => 'sede',
             'fecha_desde' => 'fecha desde',
             'fecha_hasta' => 'fecha hasta',
+            'periodo' => 'periodo',
             'calificacion' => 'calificación',
         ];
     }

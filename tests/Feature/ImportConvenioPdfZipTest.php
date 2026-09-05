@@ -3,8 +3,12 @@
 namespace Tests\Feature;
 
 use App\Jobs\ProcessConvenioPdfZipJob;
+use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ApiToken;
+use App\Models\ConvenioEmailTracking;
 use App\Models\User;
+use App\Services\ConvenioPdfZipImportService;
+use App\Services\ConvenioPreGeneratedPdfDispatchService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -130,5 +134,153 @@ class ImportConvenioPdfZipTest extends TestCase
             ], ['Accept' => 'application/json']);
 
         $response->assertForbidden();
+    }
+
+    public function test_process_pdf_zip_job_persists_entries_and_deletes_stored_zip(): void
+    {
+        Bus::fake([SendConvenioManualEmailJob::class]);
+
+        $filename = 'BELLO - ACEVEDO MONTOYA LUISA FERNANDA - 1035228093.pdf';
+        $storedZipPath = $this->storeConvenioZip([
+            $filename => '%PDF-1.4 valid pdf one',
+        ]);
+        $batchId = (string) Str::uuid();
+
+        $job = new ProcessConvenioPdfZipJob(
+            batchId: $batchId,
+            storedZipPath: $storedZipPath,
+            validEntries: [[
+                'entry' => $filename,
+                'filename' => $filename,
+                'documento' => '1035228093',
+                'nombre_convenio' => 'BELLO',
+            ]],
+            sendEmail: true,
+            generatedByUserId: null,
+        );
+
+        $job->handle(
+            app(ConvenioPdfZipImportService::class),
+            app(ConvenioPreGeneratedPdfDispatchService::class),
+        );
+
+        $this->assertSame(1, ConvenioEmailTracking::query()->count());
+        $tracking = ConvenioEmailTracking::query()->firstOrFail();
+        $this->assertSame('1035228093', $tracking->documento);
+        $this->assertSame($batchId, $tracking->convenio_data['batch_id'] ?? null);
+        $this->assertSame('pdf_zip', $tracking->convenio_data['source'] ?? null);
+        Storage::disk('prosalud-private')->assertMissing($storedZipPath);
+        Bus::assertDispatched(SendConvenioManualEmailJob::class);
+    }
+
+    public function test_process_pdf_zip_job_keeps_stored_zip_when_download_fails(): void
+    {
+        $storedZipPath = 'convenios/inbox/zips/'.Str::uuid().'.zip';
+        Storage::disk('prosalud-private')->put($storedZipPath, '');
+
+        $job = new ProcessConvenioPdfZipJob(
+            batchId: (string) Str::uuid(),
+            storedZipPath: $storedZipPath,
+            validEntries: [[
+                'entry' => 'BELLO - TEST USER - 1234567890.pdf',
+                'filename' => 'BELLO - TEST USER - 1234567890.pdf',
+                'documento' => '1234567890',
+                'nombre_convenio' => 'BELLO',
+            ]],
+            sendEmail: false,
+            generatedByUserId: null,
+        );
+
+        try {
+            $job->handle(
+                app(ConvenioPdfZipImportService::class),
+                app(ConvenioPreGeneratedPdfDispatchService::class),
+            );
+            $this->fail('Expected the job to fail when the ZIP cannot be downloaded.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('No se pudo descargar el ZIP desde almacenamiento.', $exception->getMessage());
+        }
+
+        Storage::disk('prosalud-private')->assertExists($storedZipPath);
+        $this->assertSame(0, ConvenioEmailTracking::query()->count());
+    }
+
+    public function test_process_pdf_zip_job_skips_already_processed_entries(): void
+    {
+        Bus::fake([SendConvenioManualEmailJob::class]);
+
+        $filename = 'BELLO - ACEVEDO MONTOYA LUISA FERNANDA - 1035228093.pdf';
+        $batchId = (string) Str::uuid();
+        ConvenioEmailTracking::factory()->create([
+            'documento' => '1035228093',
+            'nombre_convenio' => 'BELLO',
+            'convenio_data' => [
+                'source' => 'pdf_zip',
+                'batch_id' => $batchId,
+            ],
+        ]);
+
+        $storedZipPath = $this->storeConvenioZip([
+            $filename => '%PDF-1.4 valid pdf one',
+        ]);
+
+        $job = new ProcessConvenioPdfZipJob(
+            batchId: $batchId,
+            storedZipPath: $storedZipPath,
+            validEntries: [[
+                'entry' => $filename,
+                'filename' => $filename,
+                'documento' => '1035228093',
+                'nombre_convenio' => 'BELLO',
+            ]],
+            sendEmail: true,
+            generatedByUserId: null,
+        );
+
+        $job->handle(
+            app(ConvenioPdfZipImportService::class),
+            app(ConvenioPreGeneratedPdfDispatchService::class),
+        );
+
+        $this->assertSame(1, ConvenioEmailTracking::query()->count());
+        Bus::assertNotDispatched(SendConvenioManualEmailJob::class);
+        Storage::disk('prosalud-private')->assertMissing($storedZipPath);
+    }
+
+    public function test_process_pdf_zip_job_timeout_stays_below_database_retry_after(): void
+    {
+        $job = new ProcessConvenioPdfZipJob(
+            batchId: (string) Str::uuid(),
+            storedZipPath: 'convenios/inbox/zips/example.zip',
+            validEntries: [],
+            sendEmail: false,
+            generatedByUserId: null,
+        );
+
+        $this->assertTrue($job->failOnTimeout);
+        $this->assertSame(1, $job->tries);
+        $this->assertLessThan(
+            (int) config('queue.connections.database.retry_after'),
+            $job->timeout,
+        );
+    }
+
+    /**
+     * @param  array<string, string>  $entries
+     */
+    private function storeConvenioZip(array $entries): string
+    {
+        $zipPath = storage_path('framework/testing/convenios-store-'.Str::uuid().'.zip');
+        $zip = new ZipArchive;
+        $zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        foreach ($entries as $entryName => $content) {
+            $zip->addFromString($entryName, $content);
+        }
+        $zip->close();
+
+        $storedPath = app(ConvenioPdfZipImportService::class)->storeZipOnDisk($zipPath);
+        @unlink($zipPath);
+
+        return $storedPath;
     }
 }
