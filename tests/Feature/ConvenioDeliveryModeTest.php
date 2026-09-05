@@ -12,7 +12,9 @@ use App\Services\AfiliadoService;
 use App\Services\ConvenioGenerationService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -253,6 +255,12 @@ class ConvenioDeliveryModeTest extends TestCase
         ]);
 
         Mail::fake();
+        $signingLinkLogs = [];
+        Event::listen(MessageLogged::class, function (MessageLogged $event) use (&$signingLinkLogs): void {
+            if ($event->message === '[CONVENIO DIGITAL] Enlace de firma generado') {
+                $signingLinkLogs[] = $event;
+            }
+        });
 
         $pdfPath = storage_path('app/temp/convenios/test-signing.pdf');
         if (! is_dir(dirname($pdfPath))) {
@@ -295,6 +303,13 @@ class ConvenioDeliveryModeTest extends TestCase
 
         $tracking = ConvenioEmailTracking::query()->where('documento', '1234567890')->first();
         $this->assertNotNull($tracking);
+        $this->assertCount(1, $signingLinkLogs);
+        $this->assertSame($tracking->id, $signingLinkLogs[0]->context['tracking_id'] ?? null);
+        $this->assertSame('1234567890', $signingLinkLogs[0]->context['documento'] ?? null);
+        $this->assertSame('tester@example.com', $signingLinkLogs[0]->context['email'] ?? null);
+        $this->assertTrue($signingLinkLogs[0]->context['is_test'] ?? false);
+        $this->assertIsString($signingLinkLogs[0]->context['signing_url'] ?? null);
+        $this->assertStringContainsString('https://firma.test/sign/', (string) $signingLinkLogs[0]->context['signing_url']);
         $this->assertTrue($tracking->is_test);
         $this->assertSame(ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA, $tracking->signing_estado);
         $this->assertNotNull($tracking->signing_token_hash);

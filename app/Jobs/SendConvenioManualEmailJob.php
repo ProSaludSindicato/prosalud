@@ -245,6 +245,16 @@ class SendConvenioManualEmailJob implements ShouldQueue
             Mail::to($email)->send($mailable);
             ConvenioRateLimiter::hitEmail();
 
+            if (is_string($signingUrl) && $signingUrl !== '') {
+                Log::info('[CONVENIO DIGITAL] Enlace de firma generado', [
+                    'tracking_id' => $tracking->id,
+                    'documento' => $this->documento,
+                    'email' => $email,
+                    'signing_url' => $signingUrl,
+                    'is_test' => $isTest,
+                ]);
+            }
+
             $tracking->marcarComoEnviado();
             $tracking->refresh();
 
