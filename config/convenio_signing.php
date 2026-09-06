@@ -18,4 +18,19 @@ return [
      */
     'viewer_header_title' => env('CONVENIO_VIEWER_HEADER_TITLE', 'Convenio de afiliación ProSalud'),
 
+    'auto_sign' => [
+        'enabled' => filter_var(env('AUTO_SIGN_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    'president' => [
+        'search_text' => env('AUTO_SIGN_SEARCH_TEXT', 'JORGE IVAN ÁLVAREZ SOTO'),
+        'secondary_anchor' => env('AUTO_SIGN_SECONDARY_ANCHOR', 'PRESIDENTE'),
+        'search_page' => (int) env('AUTO_SIGN_SEARCH_PAGE', 2),
+        'width' => (int) env('AUTO_SIGN_STAMP_WIDTH', 48),
+        'height' => (int) env('AUTO_SIGN_STAMP_HEIGHT', 63),
+        'offset_x' => (int) env('AUTO_SIGN_OFFSET_X', 0),
+        'offset_y' => (int) env('AUTO_SIGN_OFFSET_Y', -14),
+        'signature_path' => env('AUTO_SIGN_SIGNATURE_PATH', 'resources/signatures/presidente.png'),
+    ],
+
 ];

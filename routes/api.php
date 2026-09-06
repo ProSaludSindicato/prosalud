@@ -296,6 +296,12 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
 
     Route::get('/tracking/{tracking}/download-original', [ConvenioManualController::class, 'downloadConvenioOriginal'])
         ->middleware('permission:document_signing.view');
+
+    Route::post('/tracking/president-sign-bulk', [ConvenioManualController::class, 'signAsPresidentBulk'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::post('/tracking/{tracking}/president-sign', [ConvenioManualController::class, 'signAsPresident'])
+        ->middleware('permission:document_signing.manage');
 });
 
 // Assembly Voting System Routes

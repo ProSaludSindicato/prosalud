@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ExportConvenioHistoryExcelRequest;
+use App\Http\Requests\PresidentSignBulkRequest;
 use App\Http\Requests\RetryFailedConvenioEmailsRequest;
 use App\Http\Requests\UploadConvenioPdfZipRequest;
 use App\Jobs\GenerateConvenioJob;
@@ -15,6 +16,8 @@ use App\Services\ConvenioGenerationService;
 use App\Services\ConvenioHistoryExcelExportService;
 use App\Services\ConvenioPdfStorageService;
 use App\Services\ConvenioPdfZipImportService;
+use App\Services\ConvenioPresidentSignService;
+use App\Support\ConvenioAutoSign;
 use App\Support\ConvenioDataLabels;
 use App\Support\ConvenioDelivery;
 use App\Support\ConvenioDisplayFilename;
@@ -90,8 +93,8 @@ class ConvenioManualController extends Controller
             'q' => 'nullable|string|max:200',
             'documento' => 'nullable|string|max:50',
             'estado' => 'nullable|string|in:pendiente,enviado,fallido,verificacion',
-            'signing_estado' => 'nullable|string|in:pendiente_firma,firmado_afiliado,completado,rechazado',
-            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,verificacion,test,firma_pendiente_firma,firma_firmado_afiliado,firma_completado',
+            'signing_estado' => 'nullable|string|in:pendiente_firma,firmado_afiliado,firmando_presidente,error_firma_presidente,completado,rechazado',
+            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,verificacion,test,firma_pendiente_firma,firma_firmado_afiliado,firma_completado,firma_error_presidente',
             'is_test' => 'nullable|boolean',
             'sede' => 'nullable|string|max:255',
             'nombre_convenio' => 'nullable|string|max:255',
@@ -149,11 +152,14 @@ class ConvenioManualController extends Controller
             return $tracking;
         });
 
+        $autoSignEnabled = ConvenioAutoSign::enabled();
+
         return response()->json([
             'success' => true,
             'delivery_mode' => config('convenios.delivery_mode'),
             'digital_signing_enabled' => $digitalSigningEnabled,
-            'ui' => ConvenioHistoryUi::metadata($digitalSigningEnabled),
+            'auto_sign_enabled' => $autoSignEnabled,
+            'ui' => ConvenioHistoryUi::metadata($digitalSigningEnabled, $autoSignEnabled),
             'filter_options' => ConvenioSemesterPeriod::filterOptions(),
             'data' => $trackings,
         ])->header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
@@ -183,6 +189,7 @@ class ConvenioManualController extends Controller
             'success' => true,
             'delivery_mode' => config('convenios.delivery_mode'),
             'digital_signing_enabled' => $digitalSigningEnabled,
+            'auto_sign_enabled' => ConvenioAutoSign::enabled(),
             'data' => [
                 'tracking' => array_merge($tracking->makeHidden([
                     'signing_audit_log',
@@ -459,19 +466,26 @@ class ConvenioManualController extends Controller
         if ($digitalSigningEnabled) {
             $signingPendienteFirma = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA)->count();
             $signingFirmadoAfiliado = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO)->count();
+            $signingFirmandoPresidente = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE)->count();
+            $signingErrorPresidente = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE)->count();
             $signingCompletado = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_COMPLETADO)->count();
             $signingRechazado = (clone $baseQuery)->where('signing_estado', ConvenioEmailTracking::SIGNING_RECHAZADO)->count();
 
             $signingStats = [
                 'pendiente_firma' => $signingPendienteFirma,
                 'firmado_afiliado' => $signingFirmadoAfiliado,
+                'firmando_presidente' => $signingFirmandoPresidente,
+                'error_firma_presidente' => $signingErrorPresidente,
                 'completado' => $signingCompletado,
                 'rechazado' => $signingRechazado,
             ];
 
             $signingDerived = [
                 'pendientes_firma' => $signingPendienteFirma,
-                'firmados_afiliado_o_finalizados' => $signingFirmadoAfiliado + $signingCompletado,
+                'firmados_afiliado_o_finalizados' => $signingFirmadoAfiliado + $signingFirmandoPresidente + $signingErrorPresidente + $signingCompletado,
+                'por_firmar_presidente' => $signingFirmadoAfiliado + $signingErrorPresidente,
+                'firmando_presidente' => $signingFirmandoPresidente,
+                'error_firma_presidente' => $signingErrorPresidente,
             ];
         }
 
@@ -479,6 +493,8 @@ class ConvenioManualController extends Controller
         if ($digitalSigningEnabled) {
             $eligibleForSatisfaction = (clone $baseQuery)->whereIn('signing_estado', [
                 ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+                ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+                ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
                 ConvenioEmailTracking::SIGNING_COMPLETADO,
             ])->count();
             $ratingsCount = (clone $baseQuery)->whereNotNull('signing_satisfaction_score')->count();
@@ -548,6 +564,7 @@ class ConvenioManualController extends Controller
 
         $stats = [
             'digital_signing_enabled' => $digitalSigningEnabled,
+            'auto_sign_enabled' => ConvenioAutoSign::enabled(),
             'total' => (clone $baseQuery)->count(),
             'by_status' => (clone $baseQuery)->selectRaw('estado, COUNT(*) as count')
                 ->groupBy('estado')
@@ -586,7 +603,11 @@ class ConvenioManualController extends Controller
         $tracking = ConvenioEmailTracking::findOrFail($tracking);
         $pdfStorage = app(ConvenioPdfStorageService::class);
 
-        if ($tracking->signing_estado === ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO) {
+        if (in_array($tracking->signing_estado, [
+            ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+            ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+            ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
+        ], true)) {
             $contents = $pdfStorage->get($tracking->pdf_firmado_afiliado_path);
             if ($contents === null) {
                 return response()->json([
@@ -643,6 +664,52 @@ class ConvenioManualController extends Controller
             'success' => false,
             'message' => 'No se encontró el PDF original del convenio para este registro.',
         ], 404);
+    }
+
+    public function signAsPresident(
+        ConvenioEmailTracking $tracking,
+        ConvenioPresidentSignService $presidentSign,
+    ): JsonResponse {
+        if (! $presidentSign->isEnabled()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La autofirma del presidente no está habilitada.',
+            ], 503);
+        }
+
+        try {
+            $presidentSign->queue($tracking);
+        } catch (\InvalidArgumentException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'El convenio fue enviado a la cola de firma presidencial.',
+        ], 202);
+    }
+
+    public function signAsPresidentBulk(
+        PresidentSignBulkRequest $request,
+        ConvenioPresidentSignService $presidentSign,
+    ): JsonResponse {
+        if (! $presidentSign->isEnabled()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La autofirma del presidente no está habilitada.',
+            ], 503);
+        }
+
+        $result = $presidentSign->queueMany($request->validated('tracking_ids'));
+
+        return response()->json([
+            'success' => true,
+            'accepted' => $result['accepted'],
+            'rejected' => $result['rejected'],
+        ]);
     }
 
     /**
@@ -1124,7 +1191,10 @@ class ConvenioManualController extends Controller
             'message' => $message,
             'delivery_mode' => config('convenios.delivery_mode'),
             'next_step' => 'email-history',
-            'ui' => ConvenioHistoryUi::metadata((bool) config('convenio_signing.enabled', true)),
+            'ui' => ConvenioHistoryUi::metadata(
+                (bool) config('convenio_signing.enabled', true),
+                ConvenioAutoSign::enabled(),
+            ),
             'data' => [
                 'batch_id' => $batchId,
                 'validos' => count($scan['valid']),
@@ -1572,15 +1642,18 @@ class ConvenioManualController extends Controller
                 'message' => $this->buildImportBulkMessage($sendEmail, $exitosos, $errores, $filasVacias, $procesados),
                 'delivery_mode' => config('convenios.delivery_mode'),
                 'next_step' => 'email-history',
-                'ui' => ConvenioHistoryUi::metadata((bool) config('convenio_signing.enabled', true)),
+                'ui' => ConvenioHistoryUi::metadata(
+                    (bool) config('convenio_signing.enabled', true),
+                    ConvenioAutoSign::enabled(),
+                ),
                 'data' => [
-                    'procesados' => $procesados,
-                    'exitosos' => $exitosos,
-                    'errores' => $errores,
-                    'filas_vacias' => $filasVacias,
-                    'send_email' => $sendEmail,
-                    'errors' => $errors,
-                ],
+                        'procesados' => $procesados,
+                        'exitosos' => $exitosos,
+                        'errores' => $errores,
+                        'filas_vacias' => $filasVacias,
+                        'send_email' => $sendEmail,
+                        'errors' => $errors,
+                    ],
             ], $exitosos > 0 ? 202 : 422);
 
         } catch (\Exception $e) {

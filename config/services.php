@@ -95,6 +95,14 @@ return [
         'sign_path' => env('FIRMA_DIGITAL_SIGN_PATH', '/sign'),
     ],
 
+    'auto_sign' => [
+        'url' => env('AUTO_SIGN_URL'),
+        'api_key' => env('AUTO_SIGN_API_KEY'),
+        'timeout' => (int) env('AUTO_SIGN_TIMEOUT', 60),
+        'connect_timeout' => (int) env('AUTO_SIGN_CONNECT_TIMEOUT', 10),
+        'verify_ssl' => filter_var(env('AUTO_SIGN_VERIFY_SSL', true), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | ProSanet Employees API

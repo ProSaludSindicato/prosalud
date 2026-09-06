@@ -27,6 +27,8 @@ class ConvenioHistoryExcelExportService
     private const SIGNING_STATUS_LABELS = [
         ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA => 'Pendiente firma',
         ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO => 'Firmado afiliado',
+        ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE => 'Firmando presidente',
+        ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE => 'Error firma presidente',
         ConvenioEmailTracking::SIGNING_COMPLETADO => 'Completado',
         ConvenioEmailTracking::SIGNING_RECHAZADO => 'Rechazado',
     ];
@@ -36,6 +38,8 @@ class ConvenioHistoryExcelExportService
     private const STATUS_FILLS = [
         ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA => 'FFF2CC',
         ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO => 'DDEBF7',
+        ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE => 'DDEBF7',
+        ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE => 'F8CBAD',
         ConvenioEmailTracking::SIGNING_COMPLETADO => 'C6EFCE',
         ConvenioEmailTracking::SIGNING_RECHAZADO => 'F8CBAD',
         'fallido' => 'F8CBAD',
@@ -504,6 +508,7 @@ class ConvenioHistoryExcelExportService
             'firma_pendiente_firma' => $digitalSigningEnabled ? 'Pendiente de firma' : $estadoFiltro,
             'firma_firmado_afiliado' => $digitalSigningEnabled ? 'Firmado por afiliado' : $estadoFiltro,
             'firma_completado' => $digitalSigningEnabled ? 'Firma completada' : $estadoFiltro,
+            'firma_error_presidente' => $digitalSigningEnabled ? 'Error firma presidente' : $estadoFiltro,
         ];
 
         return $labels[$estadoFiltro] ?? $estadoFiltro;

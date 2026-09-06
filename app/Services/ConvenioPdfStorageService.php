@@ -101,15 +101,10 @@ class ConvenioPdfStorageService
         return $expectedPath;
     }
 
-    public function storeFromAbsolutePath(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage, string $absolutePdfPath): string
+    public function storeFromContents(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage, string $contents): string
     {
-        if (! is_file($absolutePdfPath)) {
-            throw new \InvalidArgumentException('El archivo PDF de origen no existe.');
-        }
-
-        $contents = file_get_contents($absolutePdfPath);
-        if ($contents === false || $contents === '') {
-            throw new \RuntimeException('No se pudo leer el PDF de origen.');
+        if ($contents === '' || ! str_starts_with($contents, '%PDF')) {
+            throw new \InvalidArgumentException('El contenido no es un PDF válido.');
         }
 
         $relativePath = $this->relativePath($tracking, $stage);
@@ -130,6 +125,20 @@ class ConvenioPdfStorageService
         ]);
 
         return $relativePath;
+    }
+
+    public function storeFromAbsolutePath(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage, string $absolutePdfPath): string
+    {
+        if (! is_file($absolutePdfPath)) {
+            throw new \InvalidArgumentException('El archivo PDF de origen no existe.');
+        }
+
+        $contents = file_get_contents($absolutePdfPath);
+        if ($contents === false || $contents === '') {
+            throw new \RuntimeException('No se pudo leer el PDF de origen.');
+        }
+
+        return $this->storeFromContents($tracking, $stage, $contents);
     }
 
     public function storeOriginalFromAbsolutePath(ConvenioEmailTracking $tracking, string $absolutePdfPath): string

@@ -20,6 +20,10 @@ class ConvenioEmailTracking extends Model
 
     public const SIGNING_FIRMADO_AFILIADO = 'firmado_afiliado';
 
+    public const SIGNING_FIRMANDO_PRESIDENTE = 'firmando_presidente';
+
+    public const SIGNING_ERROR_FIRMA_PRESIDENTE = 'error_firma_presidente';
+
     public const SIGNING_COMPLETADO = 'completado';
 
     public const SIGNING_RECHAZADO = 'rechazado';
@@ -60,6 +64,7 @@ class ConvenioEmailTracking extends Model
         'signing_satisfaction_score',
         'signing_satisfaction_rated_at',
         'firmado_presidente_at',
+        'president_sign_last_error',
         'rechazado_at',
         'motivo_rechazo',
         'sede',
@@ -150,6 +155,8 @@ class ConvenioEmailTracking extends Model
 
         return in_array($this->signing_estado, [
             self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_FIRMANDO_PRESIDENTE,
+            self::SIGNING_ERROR_FIRMA_PRESIDENTE,
             self::SIGNING_COMPLETADO,
         ], true);
     }
@@ -254,7 +261,12 @@ class ConvenioEmailTracking extends Model
 
         $estadoFiltro = $filters['estado_filtro'] ?? null;
         if (is_string($estadoFiltro) && $estadoFiltro !== '' && $estadoFiltro !== 'todos') {
-            $isSigningFilter = in_array($estadoFiltro, ['firma_pendiente_firma', 'firma_firmado_afiliado', 'firma_completado'], true);
+            $isSigningFilter = in_array($estadoFiltro, [
+                'firma_pendiente_firma',
+                'firma_firmado_afiliado',
+                'firma_completado',
+                'firma_error_presidente',
+            ], true);
 
             if (! $isSigningFilter || $digitalSigningEnabled) {
                 match ($estadoFiltro) {
@@ -263,6 +275,7 @@ class ConvenioEmailTracking extends Model
                     'firma_pendiente_firma' => $query->bySigningEstado(self::SIGNING_PENDIENTE_FIRMA),
                     'firma_firmado_afiliado' => $query->bySigningEstado(self::SIGNING_FIRMADO_AFILIADO),
                     'firma_completado' => $query->bySigningEstado(self::SIGNING_COMPLETADO),
+                    'firma_error_presidente' => $query->bySigningEstado(self::SIGNING_ERROR_FIRMA_PRESIDENTE),
                     default => null,
                 };
             }
@@ -385,8 +398,27 @@ class ConvenioEmailTracking extends Model
 
         return in_array($this->signing_estado, [
             self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_FIRMANDO_PRESIDENTE,
+            self::SIGNING_ERROR_FIRMA_PRESIDENTE,
             self::SIGNING_COMPLETADO,
         ], true);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function presidentSignEligibleStates(): array
+    {
+        return [
+            self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_ERROR_FIRMA_PRESIDENTE,
+        ];
+    }
+
+    public function isEligibleForPresidentSign(): bool
+    {
+        return in_array($this->signing_estado, self::presidentSignEligibleStates(), true)
+            && filled($this->pdf_firmado_afiliado_path);
     }
 
     /**
@@ -407,6 +439,8 @@ class ConvenioEmailTracking extends Model
         if ($digitalSigningEnabled) {
             $canDownloadFinal = in_array($this->signing_estado, [
                 self::SIGNING_FIRMADO_AFILIADO,
+                self::SIGNING_FIRMANDO_PRESIDENTE,
+                self::SIGNING_ERROR_FIRMA_PRESIDENTE,
                 self::SIGNING_COMPLETADO,
             ], true) && (
                 $storage->hasStage($this, ConvenioPdfStage::FirmadoAfiliado)
@@ -462,8 +496,12 @@ class ConvenioEmailTracking extends Model
 
     public function resolveIntegrityBadgeLabel(): ?string
     {
-        if ($this->signing_estado !== self::SIGNING_FIRMADO_AFILIADO
-            && $this->signing_estado !== self::SIGNING_COMPLETADO) {
+        if (! in_array($this->signing_estado, [
+            self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_FIRMANDO_PRESIDENTE,
+            self::SIGNING_ERROR_FIRMA_PRESIDENTE,
+            self::SIGNING_COMPLETADO,
+        ], true)) {
             return null;
         }
 

@@ -7,7 +7,7 @@ class ConvenioHistoryUi
     /**
      * @return array<string, mixed>
      */
-    public static function metadata(bool $digitalSigningEnabled): array
+    public static function metadata(bool $digitalSigningEnabled, bool $autoSignEnabled = false): array
     {
         $estadoFiltros = [
             ['value' => 'todos', 'label' => 'Todos'],
@@ -23,6 +23,37 @@ class ConvenioHistoryUi
                 ['value' => 'firma_firmado_afiliado', 'label' => 'Firmado afiliado'],
                 ['value' => 'firma_completado', 'label' => 'Firma completada'],
             ]);
+
+            if ($autoSignEnabled) {
+                $estadoFiltros[] = ['value' => 'firma_error_presidente', 'label' => 'Error firma presidente'];
+            }
+        }
+
+        $bulkActions = [
+            [
+                'id' => 'resend',
+                'label' => 'Reenviar seleccionados',
+                'endpoint' => '/api/convenios-manual/resend-emails',
+                'method' => 'POST',
+                'payload_key' => 'tracking_ids',
+            ],
+            [
+                'id' => 'retry_failed',
+                'label' => 'Reintentar fallidos',
+                'endpoint' => '/api/convenios-manual/retry-failed-emails',
+                'method' => 'POST',
+                'payload_key' => 'filters',
+            ],
+        ];
+
+        if ($autoSignEnabled) {
+            $bulkActions[] = [
+                'id' => 'president_sign',
+                'label' => 'Firmar presidente',
+                'endpoint' => '/api/convenios-manual/tracking/president-sign-bulk',
+                'method' => 'POST',
+                'payload_key' => 'tracking_ids',
+            ];
         }
 
         return [
@@ -31,22 +62,7 @@ class ConvenioHistoryUi
                 ['id' => 'import_bulk', 'label' => 'Importación masiva'],
                 ['id' => 'history', 'label' => 'Historial y seguimiento'],
             ],
-            'bulk_actions' => [
-                [
-                    'id' => 'resend',
-                    'label' => 'Reenviar seleccionados',
-                    'endpoint' => '/api/convenios-manual/resend-emails',
-                    'method' => 'POST',
-                    'payload_key' => 'tracking_ids',
-                ],
-                [
-                    'id' => 'retry_failed',
-                    'label' => 'Reintentar fallidos',
-                    'endpoint' => '/api/convenios-manual/retry-failed-emails',
-                    'method' => 'POST',
-                    'payload_key' => 'filters',
-                ],
-            ],
+            'bulk_actions' => $bulkActions,
             'estado_filtros' => $estadoFiltros,
             'deprecated_endpoints' => [
                 [
