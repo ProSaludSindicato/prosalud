@@ -50,20 +50,22 @@ class WordToPdfApiService implements DocxToPdfConverter
         ]));
     }
 
-    public function convert(string $docxPath, bool $saveToStorage = true): array
+    public function convert(string $docxPath, bool $saveToStorage = true, ?bool $protectPdf = null): array
     {
         $this->validateDocxFile($docxPath);
 
         $fileSize = filesize($docxPath);
         $startTime = microtime(true);
+        $shouldProtectPdf = $protectPdf ?? $this->protectPdf;
 
         Log::info('Iniciando conversión DOCX a PDF con WordToPdf API', [
             'archivo' => basename($docxPath),
             'tamaño' => $this->formatBytes($fileSize),
+            'protect_pdf' => $shouldProtectPdf,
         ]);
 
         try {
-            $pdfContent = $this->requestConversion($docxPath);
+            $pdfContent = $this->requestConversion($docxPath, $shouldProtectPdf);
             $durationMs = (int) round((microtime(true) - $startTime) * 1000);
 
             if ($saveToStorage) {
@@ -163,7 +165,7 @@ class WordToPdfApiService implements DocxToPdfConverter
         return $available;
     }
 
-    private function requestConversion(string $docxPath): string
+    private function requestConversion(string $docxPath, bool $protectPdf): string
     {
         $fileContents = file_get_contents($docxPath);
 
@@ -175,7 +177,7 @@ class WordToPdfApiService implements DocxToPdfConverter
             $response = $this->buildHttpClient($this->connectTimeout, $this->timeout)
                 ->attach('file', $fileContents, basename($docxPath))
                 ->post($this->baseUrl.'/api/convert', [
-                    'protect' => $this->protectPdf ? 'true' : 'false',
+                    'protect' => $protectPdf ? 'true' : 'false',
                 ]);
         } catch (ConnectionException $e) {
             throw new Exception('No se pudo conectar con el servicio WordToPdf: '.$e->getMessage(), 0, $e);

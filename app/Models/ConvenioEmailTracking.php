@@ -24,6 +24,8 @@ class ConvenioEmailTracking extends Model
 
     public const SIGNING_ERROR_FIRMA_PRESIDENTE = 'error_firma_presidente';
 
+    public const SIGNING_PENDIENTE_REVISION = 'pendiente_revision';
+
     public const SIGNING_COMPLETADO = 'completado';
 
     public const SIGNING_RECHAZADO = 'rechazado';
@@ -65,6 +67,12 @@ class ConvenioEmailTracking extends Model
         'signing_satisfaction_rated_at',
         'firmado_presidente_at',
         'president_sign_last_error',
+        'president_sign_batch_id',
+        'president_sign_requested_by_user_id',
+        'completed_by_user_id',
+        'completed_at',
+        'completed_email_sent_at',
+        'completed_email_last_error',
         'rechazado_at',
         'motivo_rechazo',
         'sede',
@@ -89,6 +97,8 @@ class ConvenioEmailTracking extends Model
         'token_expires_at' => 'datetime',
         'firmado_afiliado_at' => 'datetime',
         'firmado_presidente_at' => 'datetime',
+        'completed_at' => 'datetime',
+        'completed_email_sent_at' => 'datetime',
         'rechazado_at' => 'datetime',
         'terms_accepted_at' => 'datetime',
         'signing_satisfaction_score' => 'integer',
@@ -156,6 +166,7 @@ class ConvenioEmailTracking extends Model
         return in_array($this->signing_estado, [
             self::SIGNING_FIRMADO_AFILIADO,
             self::SIGNING_FIRMANDO_PRESIDENTE,
+            self::SIGNING_PENDIENTE_REVISION,
             self::SIGNING_ERROR_FIRMA_PRESIDENTE,
             self::SIGNING_COMPLETADO,
         ], true);
@@ -265,6 +276,7 @@ class ConvenioEmailTracking extends Model
                 'firma_pendiente_firma',
                 'firma_firmado_afiliado',
                 'firma_completado',
+                'firma_pendiente_revision',
                 'firma_error_presidente',
             ], true);
 
@@ -399,9 +411,21 @@ class ConvenioEmailTracking extends Model
         return in_array($this->signing_estado, [
             self::SIGNING_FIRMADO_AFILIADO,
             self::SIGNING_FIRMANDO_PRESIDENTE,
+            self::SIGNING_PENDIENTE_REVISION,
             self::SIGNING_ERROR_FIRMA_PRESIDENTE,
             self::SIGNING_COMPLETADO,
         ], true);
+    }
+
+    public function isEligibleForReviewComplete(): bool
+    {
+        return $this->signing_estado === self::SIGNING_PENDIENTE_REVISION
+            && filled($this->pdf_final_path);
+    }
+
+    public function isEligibleForReviewError(): bool
+    {
+        return $this->signing_estado === self::SIGNING_PENDIENTE_REVISION;
     }
 
     /**
@@ -422,7 +446,7 @@ class ConvenioEmailTracking extends Model
     }
 
     /**
-     * @return array{resend: bool, download_original: bool, download_final: bool}
+     * @return array{resend: bool, download_original: bool, download_final: bool, president_sign: bool, complete_review: bool, mark_review_error: bool, preview_pdf: bool}
      */
     public function resolveAvailableActions(bool $digitalSigningEnabled): array
     {
@@ -452,6 +476,16 @@ class ConvenioEmailTracking extends Model
             'resend' => $canResend && $hasOriginal,
             'download_original' => $hasOriginal,
             'download_final' => $canDownloadFinal,
+            'president_sign' => $digitalSigningEnabled && $this->isEligibleForPresidentSign(),
+            'complete_review' => $digitalSigningEnabled && $this->isEligibleForReviewComplete(),
+            'mark_review_error' => $digitalSigningEnabled && $this->isEligibleForReviewError(),
+            'preview_pdf' => $digitalSigningEnabled && (
+                $this->isEligibleForReviewComplete()
+                || in_array($this->signing_estado, [
+                    self::SIGNING_FIRMADO_AFILIADO,
+                    self::SIGNING_COMPLETADO,
+                ], true)
+            ),
         ];
     }
 
@@ -499,6 +533,7 @@ class ConvenioEmailTracking extends Model
         if (! in_array($this->signing_estado, [
             self::SIGNING_FIRMADO_AFILIADO,
             self::SIGNING_FIRMANDO_PRESIDENTE,
+            self::SIGNING_PENDIENTE_REVISION,
             self::SIGNING_ERROR_FIRMA_PRESIDENTE,
             self::SIGNING_COMPLETADO,
         ], true)) {
@@ -526,5 +561,20 @@ class ConvenioEmailTracking extends Model
     public function resends()
     {
         return $this->hasMany(ConvenioEmailTracking::class, 'parent_tracking_id');
+    }
+
+    public function presidentSignBatch()
+    {
+        return $this->belongsTo(ConvenioPresidentSignBatch::class, 'president_sign_batch_id');
+    }
+
+    public function presidentSignRequestedBy()
+    {
+        return $this->belongsTo(User::class, 'president_sign_requested_by_user_id');
+    }
+
+    public function completedBy()
+    {
+        return $this->belongsTo(User::class, 'completed_by_user_id');
     }
 }

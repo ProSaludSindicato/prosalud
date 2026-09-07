@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\ConvenioPdfStage;
 use App\Exceptions\AutoSignApiException;
 use App\Jobs\ApplyPresidentSignatureJob;
+use App\Mail\ConvenioCompletedNotification;
 use App\Models\ApiToken;
 use App\Models\ConvenioEmailTracking;
 use App\Models\User;
@@ -14,6 +15,8 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -27,7 +30,7 @@ class ConvenioPresidentSignTest extends TestCase
         parent::setUp();
 
         Storage::fake('prosalud-private');
-        $this->configureAutoSign(true);
+        $this->configureAutoSign(true, bulkEnabled: true);
     }
 
     public function test_queues_individual_president_sign(): void
@@ -77,7 +80,8 @@ class ConvenioPresidentSignTest extends TestCase
         )->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('accepted', 1)
-            ->assertJsonPath('rejected.0.tracking_id', $pending->id);
+            ->assertJsonPath('rejected.0.tracking_id', $pending->id)
+            ->assertJsonPath('batch_id', fn ($value) => $value !== null);
 
         Bus::assertDispatched(ApplyPresidentSignatureJob::class, 1);
     }
@@ -116,6 +120,8 @@ class ConvenioPresidentSignTest extends TestCase
 
     public function test_job_stores_final_pdf_and_marks_completed(): void
     {
+        $this->configureAutoSign(true, bulkEnabled: true, requireReview: false);
+
         Http::fake([
             'https://auto-sign.test/api/auto-sign' => Http::response('%PDF-1.4 signed-final', 200, [
                 'Content-Type' => 'application/pdf',
@@ -125,22 +131,68 @@ class ConvenioPresidentSignTest extends TestCase
             ]),
         ]);
 
+        Mail::fake();
+        RateLimiter::clear('convenio-email-send');
+        config(['convenios.delivery_mode' => 'test']);
+
+        $user = User::factory()->create(['email' => 'admin@test.com']);
         $tracking = $this->trackingReadyForPresidentSign();
         $tracking->update([
             'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+            'president_sign_requested_by_user_id' => $user->id,
         ]);
 
         (new ApplyPresidentSignatureJob($tracking->id))->handle(
             app(AutoSignApiService::class),
             app(ConvenioPdfStorageService::class),
+            app(\App\Services\ConvenioCompletedEmailService::class),
         );
 
         $tracking->refresh();
         $this->assertSame(ConvenioEmailTracking::SIGNING_COMPLETADO, $tracking->signing_estado);
         $this->assertNotNull($tracking->pdf_final_path);
         $this->assertNotNull($tracking->firmado_presidente_at);
+        $this->assertNotNull($tracking->completed_email_sent_at);
         $this->assertNull($tracking->president_sign_last_error);
         $this->assertSame('%PDF-1.4 signed-final', Storage::disk('prosalud-private')->get($tracking->pdf_final_path));
+        Mail::assertSent(ConvenioCompletedNotification::class, function (ConvenioCompletedNotification $mail) use ($user): bool {
+            return $mail->hasTo($user->email);
+        });
+    }
+
+    public function test_job_without_review_stays_pending_when_email_fails(): void
+    {
+        $this->configureAutoSign(true, bulkEnabled: true, requireReview: false);
+
+        Http::fake([
+            'https://auto-sign.test/api/auto-sign' => Http::response('%PDF-1.4 signed-final', 200, [
+                'Content-Type' => 'application/pdf',
+            ]),
+        ]);
+
+        $user = User::factory()->create(['email' => 'admin@test.com']);
+        $tracking = $this->trackingReadyForPresidentSign();
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+            'president_sign_requested_by_user_id' => $user->id,
+        ]);
+
+        $this->mock(\App\Services\ConvenioCompletedEmailService::class, function ($mock): void {
+            $mock->shouldReceive('send')
+                ->once()
+                ->andThrow(new \RuntimeException('No se pudo enviar el correo del convenio completado.'));
+        });
+
+        (new ApplyPresidentSignatureJob($tracking->id))->handle(
+            app(AutoSignApiService::class),
+            app(ConvenioPdfStorageService::class),
+            app(\App\Services\ConvenioCompletedEmailService::class),
+        );
+
+        $tracking->refresh();
+        $this->assertSame(ConvenioEmailTracking::SIGNING_PENDIENTE_REVISION, $tracking->signing_estado);
+        $this->assertNotNull($tracking->pdf_final_path);
+        $this->assertNull($tracking->completed_at);
     }
 
     public function test_job_failure_marks_error_state(): void
@@ -157,6 +209,24 @@ class ConvenioPresidentSignTest extends TestCase
         $this->assertSame(ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE, $tracking->signing_estado);
         $this->assertSame(
             'No se encontró el texto ancla de la firma del presidente en el PDF.',
+            $tracking->president_sign_last_error,
+        );
+    }
+
+    public function test_job_failure_maps_detection_error_to_incompatible_affiliate_pdf_message(): void
+    {
+        $tracking = $this->trackingReadyForPresidentSign();
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+        ]);
+
+        $job = new ApplyPresidentSignatureJob($tracking->id);
+        $job->failed(new AutoSignApiException('Error procesando el PDF', 'detection_error', 500));
+
+        $tracking->refresh();
+        $this->assertSame(ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE, $tracking->signing_estado);
+        $this->assertSame(
+            'El PDF firmado por el afiliado no es compatible con autofirma.',
             $tracking->president_sign_last_error,
         );
     }
@@ -265,11 +335,14 @@ class ConvenioPresidentSignTest extends TestCase
         return $tracking->fresh();
     }
 
-    private function configureAutoSign(bool $enabled): void
+    private function configureAutoSign(bool $enabled, bool $bulkEnabled = false, bool $requireReview = true): void
     {
         config([
             'convenio_signing.enabled' => true,
             'convenio_signing.auto_sign.enabled' => $enabled,
+            'convenio_signing.auto_sign.per_minute' => 8,
+            'convenio_signing.president_sign_bulk_enabled' => $bulkEnabled,
+            'convenio_signing.president_sign_require_review' => $requireReview,
             'convenio_signing.president.search_text' => 'JORGE IVAN ÁLVAREZ SOTO',
             'convenio_signing.president.secondary_anchor' => 'PRESIDENTE',
             'convenio_signing.president.search_page' => 2,

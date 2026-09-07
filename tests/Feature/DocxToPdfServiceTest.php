@@ -41,7 +41,7 @@ class DocxToPdfServiceTest extends TestCase
         $primary->shouldReceive('isAvailable')->once()->andReturn(true);
         $primary->shouldReceive('convert')
             ->once()
-            ->with($this->docxPath, true)
+            ->with($this->docxPath, true, null)
             ->andReturn(['path' => 'tmp/test.pdf', 'content' => null, 'size' => 1024]);
 
         /** @var DocxToPdfCloudConvertService&MockInterface $fallback */
@@ -62,7 +62,7 @@ class DocxToPdfServiceTest extends TestCase
         $primary->shouldReceive('isAvailable')->once()->andReturn(true);
         $primary->shouldReceive('convert')
             ->once()
-            ->with($this->docxPath, true)
+            ->with($this->docxPath, true, null)
             ->andThrow(new Exception('Primary service timeout'));
 
         /** @var DocxToPdfCloudConvertService&MockInterface $fallback */
@@ -70,7 +70,7 @@ class DocxToPdfServiceTest extends TestCase
         $fallback->shouldReceive('isAvailable')->once()->andReturn(true);
         $fallback->shouldReceive('convert')
             ->once()
-            ->with($this->docxPath, true)
+            ->with($this->docxPath, true, null)
             ->andReturn(['path' => 'tmp/fallback.pdf', 'content' => null, 'size' => 2048]);
 
         $service = new DocxToPdfService($primary, $fallback);
@@ -94,7 +94,7 @@ class DocxToPdfServiceTest extends TestCase
         $fallback->shouldReceive('isAvailable')->once()->andReturn(true);
         $fallback->shouldReceive('convert')
             ->once()
-            ->with($this->docxPath, true)
+            ->with($this->docxPath, true, null)
             ->andReturn(['path' => 'tmp/direct.pdf', 'content' => null, 'size' => 512]);
 
         $service = new DocxToPdfService($primary, $fallback);
@@ -140,6 +140,26 @@ class DocxToPdfServiceTest extends TestCase
         $service = new DocxToPdfService($primary, $fallback);
 
         $this->assertTrue($service->isAvailable());
+    }
+
+    public function test_forwards_explicit_protect_pdf_override_to_primary_converter(): void
+    {
+        /** @var WordToPdfApiService&MockInterface $primary */
+        $primary = Mockery::mock(WordToPdfApiService::class);
+        $primary->shouldReceive('isAvailable')->once()->andReturn(true);
+        $primary->shouldReceive('convert')
+            ->once()
+            ->with($this->docxPath, true, false)
+            ->andReturn(['path' => 'tmp/unprotected.pdf', 'content' => null, 'size' => 256]);
+
+        /** @var DocxToPdfCloudConvertService&MockInterface $fallback */
+        $fallback = Mockery::mock(DocxToPdfCloudConvertService::class);
+        $fallback->shouldNotReceive('convert');
+
+        $service = new DocxToPdfService($primary, $fallback);
+        $result = $service->convert($this->docxPath, true, false);
+
+        $this->assertSame('tmp/unprotected.pdf', $result['path']);
     }
 
     public function test_cloudconvert_instantiates_without_throwing_when_api_key_missing(): void

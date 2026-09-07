@@ -13,7 +13,7 @@ class DocxToPdfService implements DocxToPdfConverter
         private DocxToPdfCloudConvertService $fallbackConverter,
     ) {}
 
-    public function convert(string $docxPath, bool $saveToStorage = true): array
+    public function convert(string $docxPath, bool $saveToStorage = true, ?bool $protectPdf = null): array
     {
         $primaryEnabled = config('wordtopdf.enabled', true);
         $primaryAvailable = $primaryEnabled && $this->primaryConverter->isAvailable();
@@ -23,9 +23,10 @@ class DocxToPdfService implements DocxToPdfConverter
             try {
                 Log::info('Intentando conversión DOCX a PDF con servicio primario (WordToPdf API)', [
                     'archivo' => basename($docxPath),
+                    'protect_pdf' => $protectPdf,
                 ]);
 
-                return $this->primaryConverter->convert($docxPath, $saveToStorage);
+                return $this->primaryConverter->convert($docxPath, $saveToStorage, $protectPdf);
             } catch (Exception $e) {
                 Log::warning('Conversión primaria WordToPdf API falló, intentando fallback CloudConvert', [
                     'archivo' => basename($docxPath),
@@ -53,7 +54,7 @@ class DocxToPdfService implements DocxToPdfConverter
                 'archivo' => basename($docxPath),
             ]);
 
-            return $this->fallbackConverter->convert($docxPath, $saveToStorage);
+            return $this->fallbackConverter->convert($docxPath, $saveToStorage, $protectPdf);
         } catch (Exception $e) {
             Log::critical('Conversión DOCX a PDF falló en ambos servicios', [
                 'archivo' => basename($docxPath),

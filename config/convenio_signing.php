@@ -20,7 +20,14 @@ return [
 
     'auto_sign' => [
         'enabled' => filter_var(env('AUTO_SIGN_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'per_minute' => (int) env('AUTO_SIGN_PER_MINUTE', 8),
     ],
+
+    'president_sign_bulk_enabled' => filter_var(env('CONVENIO_PRESIDENT_SIGN_BULK_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+
+    'president_sign_require_review' => filter_var(env('CONVENIO_PRESIDENT_SIGN_REQUIRE_REVIEW', true), FILTER_VALIDATE_BOOLEAN),
+
+    'president_sign_bulk_max' => (int) env('CONVENIO_PRESIDENT_SIGN_BULK_MAX', 1000),
 
     'president' => [
         'search_text' => env('AUTO_SIGN_SEARCH_TEXT', 'JORGE IVAN ÁLVAREZ SOTO'),

@@ -5,7 +5,7 @@ namespace App\Facades;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @method static array convert(string $docxPath, bool $saveToStorage = true)
+ * @method static array convert(string $docxPath, bool $saveToStorage = true, ?bool $protectPdf = null)
  *
  * @see \App\Services\DocxToPdfService
  */

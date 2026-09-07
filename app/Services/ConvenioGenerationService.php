@@ -1025,7 +1025,7 @@ class ConvenioGenerationService
         }
 
         $converterService = app(DocxToPdfService::class);
-        $resultadoPdf = $converterService->convert($rutaWord, true);
+        $resultadoPdf = $converterService->convert($rutaWord, true, false);
         $pdfTmpPath = storage_path('app/'.$resultadoPdf['path']);
 
         if (! file_exists($pdfTmpPath)) {

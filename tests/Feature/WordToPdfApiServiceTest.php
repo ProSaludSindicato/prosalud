@@ -68,7 +68,28 @@ class WordToPdfApiServiceTest extends TestCase
 
         Http::assertSent(function ($request) {
             return $request->url() === 'http://wordtopdf.test/api/convert'
-                && $request->hasHeader('Authorization', 'Bearer test-api-key');
+                && $request->hasHeader('Authorization', 'Bearer test-api-key')
+                && str_contains($request->body(), 'name="protect"')
+                && str_contains($request->body(), 'true');
+        });
+    }
+
+    public function test_convert_can_override_global_protect_pdf_flag(): void
+    {
+        Http::fake([
+            'http://wordtopdf.test/api/convert' => Http::response('%PDF-1.4 fake pdf content', 200, [
+                'Content-Type' => 'application/pdf',
+            ]),
+        ]);
+
+        $service = new WordToPdfApiService;
+        $service->convert($this->docxPath, true, false);
+
+        Http::assertSent(function ($request) {
+            return $request->url() === 'http://wordtopdf.test/api/convert'
+                && str_contains($request->body(), 'name="protect"')
+                && str_contains($request->body(), 'false')
+                && ! str_contains($request->body(), 'true');
         });
     }
 

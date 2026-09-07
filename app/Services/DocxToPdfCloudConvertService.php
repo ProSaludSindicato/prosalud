@@ -58,7 +58,7 @@ class DocxToPdfCloudConvertService implements DocxToPdfConverter
      *
      * @throws Exception
      */
-    public function convert(string $docxPath, bool $saveToStorage = true): array
+    public function convert(string $docxPath, bool $saveToStorage = true, ?bool $protectPdf = null): array
     {
         // Validar que el archivo existe
         if (! file_exists($docxPath)) {
@@ -92,7 +92,7 @@ class DocxToPdfCloudConvertService implements DocxToPdfConverter
             ]);
 
             // 1. Crear Job con tareas
-            $job = $this->createJob();
+            $job = $this->createJob($protectPdf);
 
             // 2. Subir archivo
             $this->uploadFile($job['id'], $docxPath);
@@ -142,12 +142,12 @@ class DocxToPdfCloudConvertService implements DocxToPdfConverter
      *
      * @throws Exception
      */
-    private function createJob(): array
+    private function createJob(?bool $protectPdf = null): array
     {
         try {
             // Obtener configuración de seguridad PDF
             $pdfSecurity = config('cloudconvert.pdf_security', []);
-            $securityEnabled = $pdfSecurity['enabled'] ?? false;
+            $securityEnabled = $protectPdf ?? (bool) ($pdfSecurity['enabled'] ?? false);
 
             // Configurar tarea de conversión
             $convertTask = [

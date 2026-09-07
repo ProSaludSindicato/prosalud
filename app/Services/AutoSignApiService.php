@@ -105,6 +105,7 @@ class AutoSignApiService
                 'reference_id' => $referenceId,
                 'status' => $response->status(),
                 'code' => $code,
+                'error' => $error,
             ]);
 
             throw new AutoSignApiException($error, $code, $response->status());

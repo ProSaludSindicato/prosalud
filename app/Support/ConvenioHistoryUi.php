@@ -26,6 +26,7 @@ class ConvenioHistoryUi
 
             if ($autoSignEnabled) {
                 $estadoFiltros[] = ['value' => 'firma_error_presidente', 'label' => 'Error firma presidente'];
+                $estadoFiltros[] = ['value' => 'firma_pendiente_revision', 'label' => 'Pendiente revisión'];
             }
         }
 
@@ -54,6 +55,20 @@ class ConvenioHistoryUi
                 'method' => 'POST',
                 'payload_key' => 'tracking_ids',
             ];
+            $bulkActions[] = [
+                'id' => 'complete_review',
+                'label' => 'Completar revisión',
+                'endpoint' => '/api/convenios-manual/tracking/complete-bulk',
+                'method' => 'POST',
+                'payload_key' => 'tracking_ids',
+            ];
+            $bulkActions[] = [
+                'id' => 'review_error',
+                'label' => 'Marcar error en revisión',
+                'endpoint' => '/api/convenios-manual/tracking/review-error-bulk',
+                'method' => 'POST',
+                'payload_key' => 'tracking_ids',
+            ];
         }
 
         return [
@@ -64,6 +79,8 @@ class ConvenioHistoryUi
             ],
             'bulk_actions' => $bulkActions,
             'estado_filtros' => $estadoFiltros,
+            'president_sign_bulk_enabled' => $autoSignEnabled && (bool) config('convenio_signing.president_sign_bulk_enabled', false),
+            'president_sign_require_review' => (bool) config('convenio_signing.president_sign_require_review', true),
             'deprecated_endpoints' => [
                 [
                     'endpoint' => '/api/convenios-manual/send-bulk-emails',

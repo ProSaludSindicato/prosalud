@@ -297,11 +297,41 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::get('/tracking/{tracking}/download-original', [ConvenioManualController::class, 'downloadConvenioOriginal'])
         ->middleware('permission:document_signing.view');
 
+    Route::get('/tracking/president-sign-bulk/preview', [ConvenioManualController::class, 'previewPresidentSignCampaign'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::post('/tracking/president-sign-campaign', [ConvenioManualController::class, 'startPresidentSignCampaign'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::get('/president-sign-batches/active', [ConvenioManualController::class, 'activePresidentSignBatch'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::get('/president-sign-batches/{batch}', [ConvenioManualController::class, 'showPresidentSignBatch'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::get('/president-sign-batches/{batch}/trackings', [ConvenioManualController::class, 'listPresidentSignBatchTrackings'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::post('/tracking/complete-bulk', [ConvenioManualController::class, 'completeConvenioBulk'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::post('/tracking/review-error-bulk', [ConvenioManualController::class, 'markConvenioReviewErrorBulk'])
+        ->middleware('permission:document_signing.manage');
+
     Route::post('/tracking/president-sign-bulk', [ConvenioManualController::class, 'signAsPresidentBulk'])
         ->middleware('permission:document_signing.manage');
 
     Route::post('/tracking/{tracking}/president-sign', [ConvenioManualController::class, 'signAsPresident'])
         ->middleware('permission:document_signing.manage');
+
+    Route::post('/tracking/{tracking}/complete', [ConvenioManualController::class, 'completeConvenio'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::post('/tracking/{tracking}/review-error', [ConvenioManualController::class, 'markConvenioReviewError'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::get('/tracking/{tracking}/preview-pdf', [ConvenioManualController::class, 'previewConvenioPdf'])
+        ->middleware('permission:document_signing.view');
 });
 
 // Assembly Voting System Routes

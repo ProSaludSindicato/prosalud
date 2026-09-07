@@ -10,6 +10,8 @@ class ConvenioRateLimiter
 
     private const EMAIL_KEY = 'convenio-email-send';
 
+    private const AUTO_SIGN_KEY = 'convenio-auto-sign';
+
     public static function prosanetPerMinute(): int
     {
         return max(1, (int) config('convenios.prosanet_per_minute', 20));
@@ -48,5 +50,25 @@ class ConvenioRateLimiter
     public static function hitEmail(): void
     {
         RateLimiter::hit(self::EMAIL_KEY, 60);
+    }
+
+    public static function autoSignPerMinute(): int
+    {
+        return max(1, (int) config('convenio_signing.auto_sign.per_minute', 8));
+    }
+
+    public static function tooManyAutoSignAttempts(): bool
+    {
+        return RateLimiter::tooManyAttempts(self::AUTO_SIGN_KEY, self::autoSignPerMinute());
+    }
+
+    public static function autoSignAvailableIn(): int
+    {
+        return RateLimiter::availableIn(self::AUTO_SIGN_KEY);
+    }
+
+    public static function hitAutoSign(): void
+    {
+        RateLimiter::hit(self::AUTO_SIGN_KEY, 60);
     }
 }
