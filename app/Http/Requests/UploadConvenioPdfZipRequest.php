@@ -26,6 +26,25 @@ class UploadConvenioPdfZipRequest extends FormRequest
 
             $this->merge(['send_email' => $boolValue]);
         }
+
+        if ($this->has('confirm_duplicates') && is_string($this->input('confirm_duplicates'))) {
+            $normalized = mb_strtolower(trim((string) $this->input('confirm_duplicates')), 'UTF-8');
+            $boolValue = match ($normalized) {
+                'si', 'sí', 'yes', '1', 'true' => true,
+                'no', '0', 'false' => false,
+                default => $this->input('confirm_duplicates'),
+            };
+
+            $this->merge(['confirm_duplicates' => $boolValue]);
+        }
+
+        $actions = $this->input('duplicate_actions');
+        if (is_string($actions) && $actions !== '') {
+            $decoded = json_decode($actions, true);
+            if (is_array($decoded)) {
+                $this->merge(['duplicate_actions' => $decoded]);
+            }
+        }
     }
 
     public function rules(): array
@@ -40,6 +59,13 @@ class UploadConvenioPdfZipRequest extends FormRequest
                 'max:'.$maxKb,
             ],
             'send_email' => ['nullable', 'boolean'],
+            'confirm_duplicates' => ['nullable', 'boolean'],
+            'duplicate_actions' => ['nullable', 'array'],
+            'duplicate_actions.*.documento' => ['required_with:duplicate_actions', 'string', 'max:50'],
+            'duplicate_actions.*.sede' => ['required_with:duplicate_actions', 'string', 'max:255'],
+            'duplicate_actions.*.action' => ['required_with:duplicate_actions', 'in:invalidate_and_proceed,skip,proceed_anyway'],
+            'duplicate_actions.*.invalidation_reason' => ['nullable', 'string', 'min:8', 'max:500'],
+            'invalidation_reason' => ['nullable', 'string', 'max:500'],
         ];
     }
 

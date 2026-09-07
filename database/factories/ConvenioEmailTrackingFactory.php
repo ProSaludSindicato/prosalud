@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Models\ConvenioEmailTracking;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends Factory<ConvenioEmailTracking>
@@ -34,6 +35,25 @@ class ConvenioEmailTrackingFactory extends Factory
     {
         return $this->state(fn (): array => [
             'is_test' => true,
+        ]);
+    }
+
+    public function pendienteFirma(): static
+    {
+        return $this->state(fn (): array => [
+            'estado' => 'enviado',
+            'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA,
+            'signing_token_hash' => hash('sha256', Str::random(64)),
+            'token_expires_at' => now()->addDays(30),
+        ]);
+    }
+
+    public function firmadoAfiliado(): static
+    {
+        return $this->state(fn (): array => [
+            'estado' => 'enviado',
+            'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+            'firmado_afiliado_at' => now(),
         ]);
     }
 }

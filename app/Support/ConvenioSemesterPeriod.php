@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\ConvenioEmailTracking;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Cache;
 
 class ConvenioSemesterPeriod
 {
@@ -149,10 +150,14 @@ class ConvenioSemesterPeriod
     {
         $now = $now ?? now();
 
-        return [
-            'periodos' => self::availableFromTracking($now),
-            'current' => self::fromDate($now),
-        ];
+        return Cache::remember(
+            'convenio_semester_filter_options',
+            now()->addMinutes(5),
+            fn (): array => [
+                'periodos' => self::availableFromTracking($now),
+                'current' => self::fromDate($now),
+            ],
+        );
     }
 
     private static function shift(string $periodo, int $delta): string

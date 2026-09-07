@@ -330,6 +330,9 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::post('/tracking/{tracking}/review-error', [ConvenioManualController::class, 'markConvenioReviewError'])
         ->middleware('permission:document_signing.manage');
 
+    Route::post('/tracking/{tracking}/invalidate', [ConvenioManualController::class, 'invalidateConvenio'])
+        ->middleware('permission:document_signing.manage');
+
     Route::get('/tracking/{tracking}/preview-pdf', [ConvenioManualController::class, 'previewConvenioPdf'])
         ->middleware('permission:document_signing.view');
 });

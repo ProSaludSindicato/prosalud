@@ -22,6 +22,7 @@ class ConvenioHistoryUi
                 ['value' => 'firma_pendiente_firma', 'label' => 'Firma pendiente'],
                 ['value' => 'firma_firmado_afiliado', 'label' => 'Firmado afiliado'],
                 ['value' => 'firma_completado', 'label' => 'Firma completada'],
+                ['value' => 'firma_rechazado', 'label' => 'Invalidado'],
             ]);
 
             if ($autoSignEnabled) {

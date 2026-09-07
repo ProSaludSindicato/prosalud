@@ -278,6 +278,7 @@ class ConvenioEmailTracking extends Model
                 'firma_completado',
                 'firma_pendiente_revision',
                 'firma_error_presidente',
+                'firma_rechazado',
             ], true);
 
             if (! $isSigningFilter || $digitalSigningEnabled) {
@@ -287,7 +288,9 @@ class ConvenioEmailTracking extends Model
                     'firma_pendiente_firma' => $query->bySigningEstado(self::SIGNING_PENDIENTE_FIRMA),
                     'firma_firmado_afiliado' => $query->bySigningEstado(self::SIGNING_FIRMADO_AFILIADO),
                     'firma_completado' => $query->bySigningEstado(self::SIGNING_COMPLETADO),
+                    'firma_pendiente_revision' => $query->bySigningEstado(self::SIGNING_PENDIENTE_REVISION),
                     'firma_error_presidente' => $query->bySigningEstado(self::SIGNING_ERROR_FIRMA_PRESIDENTE),
+                    'firma_rechazado' => $query->bySigningEstado(self::SIGNING_RECHAZADO),
                     default => null,
                 };
             }
@@ -417,6 +420,20 @@ class ConvenioEmailTracking extends Model
         ], true);
     }
 
+    public function isInvalidated(): bool
+    {
+        return $this->signing_estado === self::SIGNING_RECHAZADO;
+    }
+
+    public function isEligibleForInvalidation(): bool
+    {
+        if ($this->isInvalidated()) {
+            return false;
+        }
+
+        return ! $this->affiliateHasSigned();
+    }
+
     public function isEligibleForReviewComplete(): bool
     {
         return $this->signing_estado === self::SIGNING_PENDIENTE_REVISION
@@ -445,17 +462,69 @@ class ConvenioEmailTracking extends Model
             && filled($this->pdf_firmado_afiliado_path);
     }
 
+    public function hasOriginalPathRecorded(): bool
+    {
+        if (filled($this->pdf_original_path) || filled($this->ruta_archivo_pdf)) {
+            return true;
+        }
+
+        return filled($this->parentTracking?->pdf_original_path);
+    }
+
+    public function hasSignedPathRecorded(): bool
+    {
+        return filled($this->pdf_firmado_afiliado_path) || filled($this->pdf_final_path);
+    }
+
     /**
-     * @return array{resend: bool, download_original: bool, download_final: bool, president_sign: bool, complete_review: bool, mark_review_error: bool, preview_pdf: bool}
+     * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
      */
-    public function resolveAvailableActions(bool $digitalSigningEnabled): array
+    public function scopeForHistoryList($query)
+    {
+        return $query->select([
+            'id',
+            'documento',
+            'nombre_afiliado',
+            'email_afiliado',
+            'nombre_convenio',
+            'viewer_header_title',
+            'nombre_archivo',
+            'ruta_archivo_pdf',
+            'enviado_at',
+            'estado',
+            'error_message',
+            'intentos',
+            'parent_tracking_id',
+            'signing_estado',
+            'pdf_original_path',
+            'pdf_firmado_afiliado_path',
+            'pdf_final_path',
+            'text_integrity_status',
+            'firmado_afiliado_at',
+            'firmado_presidente_at',
+            'rechazado_at',
+            'motivo_rechazo',
+            'sede',
+            'is_test',
+            'created_at',
+            'updated_at',
+        ]);
+    }
+
+    /**
+     * @return array{resend: bool, download_original: bool, download_final: bool, president_sign: bool, complete_review: bool, mark_review_error: bool, mark_invalid: bool, preview_pdf: bool}
+     */
+    public function resolveAvailableActions(bool $digitalSigningEnabled, bool $verifyStorage = false): array
     {
         $storage = app(ConvenioPdfStorageService::class);
-        $hasOriginal = $storage->hasOriginal($this);
+        $hasOriginal = $verifyStorage
+            ? $storage->hasOriginal($this)
+            : $this->hasOriginalPathRecorded();
 
         $canResend = in_array($this->estado, ['enviado', 'fallido', self::ESTADO_VERIFICACION], true);
 
-        if ($digitalSigningEnabled && $this->affiliateHasSigned()) {
+        if ($this->isInvalidated() || ($digitalSigningEnabled && $this->affiliateHasSigned())) {
             $canResend = false;
         }
 
@@ -467,8 +536,12 @@ class ConvenioEmailTracking extends Model
                 self::SIGNING_ERROR_FIRMA_PRESIDENTE,
                 self::SIGNING_COMPLETADO,
             ], true) && (
-                $storage->hasStage($this, ConvenioPdfStage::FirmadoAfiliado)
-                || $storage->hasStage($this, ConvenioPdfStage::Final)
+                $verifyStorage
+                    ? (
+                        $storage->hasStage($this, ConvenioPdfStage::FirmadoAfiliado)
+                        || $storage->hasStage($this, ConvenioPdfStage::Final)
+                    )
+                    : $this->hasSignedPathRecorded()
             );
         }
 
@@ -479,6 +552,7 @@ class ConvenioEmailTracking extends Model
             'president_sign' => $digitalSigningEnabled && $this->isEligibleForPresidentSign(),
             'complete_review' => $digitalSigningEnabled && $this->isEligibleForReviewComplete(),
             'mark_review_error' => $digitalSigningEnabled && $this->isEligibleForReviewError(),
+            'mark_invalid' => $this->isEligibleForInvalidation(),
             'preview_pdf' => $digitalSigningEnabled && (
                 $this->isEligibleForReviewComplete()
                 || in_array($this->signing_estado, [

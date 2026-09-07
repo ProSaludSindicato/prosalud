@@ -31,7 +31,7 @@ class ConvenioHistoryExcelExportService
         ConvenioEmailTracking::SIGNING_PENDIENTE_REVISION => 'Pendiente revisión',
         ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE => 'Error firma presidente',
         ConvenioEmailTracking::SIGNING_COMPLETADO => 'Completado',
-        ConvenioEmailTracking::SIGNING_RECHAZADO => 'Rechazado',
+        ConvenioEmailTracking::SIGNING_RECHAZADO => 'Invalidado',
     ];
 
     private const HEADER_FILL = '4472C4';
@@ -174,7 +174,7 @@ class ConvenioHistoryExcelExportService
                 ['Pendientes de firma', $stats['signing_pendiente']],
                 ['Firmado por afiliado', $stats['signing_firmado']],
                 ['Firma completada', $stats['signing_completado']],
-                ['Rechazados', $stats['signing_rechazado']],
+                ['Invalidados', $stats['signing_rechazado']],
             ]);
         }
 

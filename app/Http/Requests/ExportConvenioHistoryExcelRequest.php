@@ -23,7 +23,7 @@ class ExportConvenioHistoryExcelRequest extends FormRequest
             'documento' => ['nullable', 'string', 'max:50'],
             'estado' => ['nullable', 'string', 'in:pendiente,enviado,fallido,verificacion'],
             'signing_estado' => ['nullable', 'string', 'in:pendiente_firma,firmado_afiliado,firmando_presidente,pendiente_revision,error_firma_presidente,completado,rechazado'],
-            'estado_filtro' => ['nullable', 'string', 'in:todos,pendiente,enviado,fallido,verificacion,test,firma_pendiente_firma,firma_firmado_afiliado,firma_pendiente_revision,firma_completado,firma_error_presidente'],
+            'estado_filtro' => ['nullable', 'string', 'in:todos,pendiente,enviado,fallido,verificacion,test,firma_pendiente_firma,firma_firmado_afiliado,firma_pendiente_revision,firma_completado,firma_error_presidente,firma_rechazado'],
             'is_test' => ['nullable', 'boolean'],
             'sede' => ['nullable', 'string', 'max:255'],
             'nombre_convenio' => ['nullable', 'string', 'max:255'],

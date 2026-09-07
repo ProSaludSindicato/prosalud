@@ -44,4 +44,16 @@ return [
 
     'zip_max_pdfs' => (int) env('CONVENIO_ZIP_MAX_PDFS', 200),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Validación de duplicados en importación ZIP/Excel
+    |--------------------------------------------------------------------------
+    |
+    | Desactivado temporalmente: el equipo prefiere importar directo e invalidar
+    | manualmente desde el historial cuando aplique. Reactivar con true cuando
+    | retomen el flujo de confirmación de duplicados.
+    |
+    */
+    'duplicate_import_check_enabled' => (bool) env('CONVENIO_DUPLICATE_IMPORT_CHECK_ENABLED', false),
+
 ];

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\CompleteConvenioBulkRequest;
 use App\Http\Requests\ExportConvenioHistoryExcelRequest;
+use App\Http\Requests\InvalidateConvenioRequest;
 use App\Http\Requests\PresidentSignBulkPreviewRequest;
 use App\Http\Requests\PresidentSignBulkRequest;
 use App\Http\Requests\PresidentSignCampaignRequest;
@@ -15,10 +16,12 @@ use App\Jobs\ProcessConvenioPdfZipJob;
 use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ConvenioEmailTracking;
 use App\Models\ConvenioPresidentSignBatch;
+use App\Services\ConvenioDuplicateDetectionService;
 use App\Services\ConvenioExcelTemplateExportService;
 use App\Services\ConvenioFailedEmailRetryService;
 use App\Services\ConvenioGenerationService;
 use App\Services\ConvenioHistoryExcelExportService;
+use App\Services\ConvenioInvalidationService;
 use App\Services\ConvenioPdfStorageService;
 use App\Services\ConvenioPdfZipImportService;
 use App\Services\ConvenioPresidentSignReviewService;
@@ -100,7 +103,7 @@ class ConvenioManualController extends Controller
             'documento' => 'nullable|string|max:50',
             'estado' => 'nullable|string|in:pendiente,enviado,fallido,verificacion',
             'signing_estado' => 'nullable|string|in:pendiente_firma,firmado_afiliado,firmando_presidente,pendiente_revision,error_firma_presidente,completado,rechazado',
-            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,verificacion,test,firma_pendiente_firma,firma_firmado_afiliado,firma_pendiente_revision,firma_completado,firma_error_presidente',
+            'estado_filtro' => 'nullable|string|in:todos,pendiente,enviado,fallido,verificacion,test,firma_pendiente_firma,firma_firmado_afiliado,firma_pendiente_revision,firma_completado,firma_error_presidente,firma_rechazado',
             'is_test' => 'nullable|boolean',
             'sede' => 'nullable|string|max:255',
             'nombre_convenio' => 'nullable|string|max:255',
@@ -121,8 +124,10 @@ class ConvenioManualController extends Controller
         }
 
         $query = ConvenioEmailTracking::query()
+            ->forHistoryList()
+            ->with(['parentTracking:id,pdf_original_path'])
             ->applyHistoryFilters($request->all(), $digitalSigningEnabled)
-            ->orderBy('created_at', 'desc');
+            ->orderByDesc('created_at');
 
         // Paginate
         $perPage = $request->input('per_page', 15);
@@ -203,7 +208,7 @@ class ConvenioManualController extends Controller
                     'signing_audit_log',
                     'signed_user_agent',
                 ])->toArray(), [
-                    'available_actions' => $tracking->resolveAvailableActions($digitalSigningEnabled),
+                    'available_actions' => $tracking->resolveAvailableActions($digitalSigningEnabled, true),
                     'download_filename' => $tracking->resolveDownloadFilename(),
                     'integrity_badge_label' => $digitalSigningEnabled
                         ? $tracking->resolveIntegrityBadgeLabel()
@@ -284,6 +289,15 @@ class ConvenioManualController extends Controller
                     $results['failed'][] = [
                         'tracking_id' => $trackingId,
                         'error' => 'Archivo PDF no encontrado para este registro.',
+                    ];
+
+                    continue;
+                }
+
+                if ($tracking->isInvalidated()) {
+                    $results['failed'][] = [
+                        'tracking_id' => $trackingId,
+                        'error' => 'No se puede reenviar un convenio invalidado.',
                     ];
 
                     continue;
@@ -1045,6 +1059,30 @@ class ConvenioManualController extends Controller
         ]);
     }
 
+    public function invalidateConvenio(
+        InvalidateConvenioRequest $request,
+        ConvenioEmailTracking $tracking,
+        ConvenioInvalidationService $invalidationService,
+    ): JsonResponse {
+        try {
+            $invalidationService->invalidate(
+                $tracking,
+                auth()->id(),
+                $request->validated('reason'),
+            );
+        } catch (\InvalidArgumentException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'El convenio quedó invalidado. El afiliado ya no puede firmarlo.',
+        ]);
+    }
+
     public function markConvenioReviewErrorBulk(
         ReviewErrorConvenioBulkRequest $request,
         ConvenioPresidentSignReviewService $reviewService,
@@ -1462,8 +1500,10 @@ class ConvenioManualController extends Controller
     /**
      * Importa PDFs pregenerados desde un archivo ZIP, los almacena en S3 y opcionalmente encola envíos.
      */
-    public function importPdfZip(UploadConvenioPdfZipRequest $request): JsonResponse
-    {
+    public function importPdfZip(
+        UploadConvenioPdfZipRequest $request,
+        ConvenioDuplicateDetectionService $duplicateDetection,
+    ): JsonResponse {
         $sendEmail = $request->boolean('send_email', true);
         $file = $request->file('file');
 
@@ -1507,6 +1547,80 @@ class ConvenioManualController extends Controller
             ], 422);
         }
 
+        $incoming = [];
+        foreach ($scan['valid'] as $entry) {
+            $incoming[] = [
+                'documento' => $entry['documento'],
+                'sede' => $entry['nombre_convenio'],
+                'incoming_label' => $entry['filename'],
+            ];
+        }
+
+        $validEntries = $scan['valid'];
+        $omitidos = 0;
+
+        // TODO: reactivar cuando retomen confirmación de duplicados en importación ZIP.
+        if (config('convenios.duplicate_import_check_enabled', false)) {
+            try {
+                $decision = $duplicateDetection->resolveImportDecision(
+                    $duplicateDetection->findConflicts($incoming),
+                    $request->boolean('confirm_duplicates'),
+                    $this->duplicateActionsFromRequest($request),
+                    $request->input('invalidation_reason'),
+                );
+            } catch (\InvalidArgumentException $exception) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $exception->getMessage(),
+                ], 422);
+            }
+
+            if ($decision['needs_confirmation']) {
+                return $this->duplicateConveniosResponse($decision['duplicates']);
+            }
+
+            try {
+                $duplicateDetection->applyInvalidations(
+                    $decision['invalidate_entries'],
+                    $request->user()?->id,
+                    $request->input('invalidation_reason'),
+                );
+            } catch (\InvalidArgumentException $exception) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $exception->getMessage(),
+                ], 422);
+            }
+
+            $skipKeys = array_flip($decision['skip_keys']);
+            $validEntries = [];
+            foreach ($scan['valid'] as $entry) {
+                $key = ConvenioDuplicateDetectionService::conflictKey(
+                    $entry['documento'],
+                    $entry['nombre_convenio'],
+                );
+                if (isset($skipKeys[$key])) {
+                    continue;
+                }
+                $validEntries[] = $entry;
+            }
+
+            $omitidos = count($decision['skip_keys']);
+
+            if ($validEntries === []) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No quedaron PDFs para importar. Todos los duplicados fueron omitidos.',
+                    'data' => [
+                        'validos' => 0,
+                        'omitidos' => $omitidos,
+                        'rechazados' => count($scan['rejected']),
+                        'rejected' => $scan['rejected'],
+                    ],
+                ], 422);
+            }
+        }
+
         try {
             $storedZipPath = $this->pdfZipImportService->storeZipOnDisk($realPath);
         } catch (\Throwable $e) {
@@ -1525,16 +1639,16 @@ class ConvenioManualController extends Controller
         ProcessConvenioPdfZipJob::dispatch(
             batchId: $batchId,
             storedZipPath: $storedZipPath,
-            validEntries: $scan['valid'],
+            validEntries: $validEntries,
             sendEmail: $sendEmail,
             generatedByUserId: $request->user()?->id,
         );
 
         $message = $sendEmail
             ? (ConvenioDelivery::isTestMode()
-                ? 'Se encolaron '.count($scan['valid']).' PDFs. En modo TEST los correos llegarán a tu usuario.'
-                : 'Se encolaron '.count($scan['valid']).' PDFs para almacenamiento y envío. Consulte el historial.')
-            : 'Se encolaron '.count($scan['valid']).' PDFs para almacenamiento. Puede reenviar desde el historial.';
+                ? 'Se encolaron '.count($validEntries).' PDFs. En modo TEST los correos llegarán a tu usuario.'
+                : 'Se encolaron '.count($validEntries).' PDFs para almacenamiento y envío. Consulte el historial.')
+            : 'Se encolaron '.count($validEntries).' PDFs para almacenamiento. Puede reenviar desde el historial.';
 
         return response()->json([
             'success' => true,
@@ -1547,7 +1661,8 @@ class ConvenioManualController extends Controller
             ),
             'data' => [
                 'batch_id' => $batchId,
-                'validos' => count($scan['valid']),
+                'validos' => count($validEntries),
+                'omitidos' => $omitidos,
                 'rechazados' => count($scan['rejected']),
                 'send_email' => $sendEmail,
                 'rejected' => $scan['rejected'],
@@ -1643,8 +1758,10 @@ class ConvenioManualController extends Controller
      * Importa convenios desde un archivo Excel y los genera masivamente
      * Opcionalmente envía correos electrónicos
      */
-    public function importAndGenerateBulk(Request $request): JsonResponse
-    {
+    public function importAndGenerateBulk(
+        Request $request,
+        ConvenioDuplicateDetectionService $duplicateDetection,
+    ): JsonResponse {
         Log::info('[CONVENIO API] Iniciando importación masiva - Validando request', [
             'has_file' => $request->hasFile('file'),
             'send_email' => $request->input('send_email'),
@@ -1665,9 +1782,32 @@ class ConvenioManualController extends Controller
             }
         }
 
+        if (isset($requestData['confirm_duplicates']) && is_string($requestData['confirm_duplicates'])) {
+            $normalizedConfirm = mb_strtolower(trim($requestData['confirm_duplicates']), 'UTF-8');
+            if (in_array($normalizedConfirm, ['si', 'sí', 'yes', '1', 'true'], true)) {
+                $requestData['confirm_duplicates'] = true;
+            } elseif (in_array($normalizedConfirm, ['no', 'false', '0'], true)) {
+                $requestData['confirm_duplicates'] = false;
+            }
+        }
+
+        if (isset($requestData['duplicate_actions']) && is_string($requestData['duplicate_actions'])) {
+            $decodedActions = json_decode($requestData['duplicate_actions'], true);
+            if (is_array($decodedActions)) {
+                $requestData['duplicate_actions'] = $decodedActions;
+            }
+        }
+
         $validator = Validator::make($requestData, [
             'file' => 'required|file|mimes:xlsx,xls|max:10240', // Max 10MB
             'send_email' => 'nullable|boolean',
+            'confirm_duplicates' => 'nullable|boolean',
+            'duplicate_actions' => 'nullable|array',
+            'duplicate_actions.*.documento' => 'required_with:duplicate_actions|string|max:50',
+            'duplicate_actions.*.sede' => 'required_with:duplicate_actions|string|max:255',
+            'duplicate_actions.*.action' => 'required_with:duplicate_actions|in:invalidate_and_proceed,skip,proceed_anyway',
+            'duplicate_actions.*.invalidation_reason' => 'nullable|string|min:8|max:500',
+            'invalidation_reason' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
@@ -1861,6 +2001,7 @@ class ConvenioManualController extends Controller
             $errores = 0;
             $filasVacias = 0;
             $errors = [];
+            $pendingRows = [];
 
             for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
                 $procesados++;
@@ -1950,19 +2091,14 @@ class ConvenioManualController extends Controller
                         'send_email' => $sendEmail,
                     ]);
 
-                    // Encolar job para generar convenio
-                    GenerateConvenioJob::dispatch(
-                        $convenioData,
-                        $email,
-                        $sendEmail,
-                        $request->user()?->id,
-                    );
-                    $exitosos++;
-
-                    Log::debug('[CONVENIO API] Job encolado exitosamente', [
-                        'fila' => $rowIndex,
-                        'documento' => $convenioData['numero_documento'] ?? 'N/A',
-                    ]);
+                    $pendingRows[] = [
+                        'row_index' => $rowIndex,
+                        'documento' => (string) ($convenioData['numero_documento'] ?? ''),
+                        'sede' => (string) ($convenioData['sede'] ?? ''),
+                        'nombre' => trim(((string) ($convenioData['nombres'] ?? '')).' '.((string) ($convenioData['apellidos'] ?? ''))),
+                        'convenio_data' => $convenioData,
+                        'email' => $email,
+                    ];
 
                 } catch (\Exception $e) {
                     $errores++;
@@ -1974,6 +2110,95 @@ class ConvenioManualController extends Controller
                 }
             }
 
+            $incoming = [];
+            foreach ($pendingRows as $pendingRow) {
+                $incoming[] = [
+                    'documento' => $pendingRow['documento'],
+                    'sede' => $pendingRow['sede'],
+                    'incoming_label' => 'Fila '.$pendingRow['row_index'],
+                    'incoming_nombre' => $pendingRow['nombre'],
+                ];
+            }
+
+            $omitidos = 0;
+
+            // TODO: reactivar cuando retomen confirmación de duplicados en importación Excel.
+            if (config('convenios.duplicate_import_check_enabled', false)) {
+                try {
+                    $decision = $duplicateDetection->resolveImportDecision(
+                        $duplicateDetection->findConflicts($incoming),
+                        $request->boolean('confirm_duplicates'),
+                        $this->duplicateActionsFromRequest($request),
+                        $request->input('invalidation_reason'),
+                    );
+                } catch (\InvalidArgumentException $exception) {
+                    $this->deleteBulkImportExcelTemp($tempPath);
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => $exception->getMessage(),
+                    ], 422);
+                }
+
+                if ($decision['needs_confirmation']) {
+                    $this->deleteBulkImportExcelTemp($tempPath);
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
+                    return $this->duplicateConveniosResponse($decision['duplicates']);
+                }
+
+                try {
+                    $duplicateDetection->applyInvalidations(
+                        $decision['invalidate_entries'],
+                        $request->user()?->id,
+                        $request->input('invalidation_reason'),
+                    );
+                } catch (\InvalidArgumentException $exception) {
+                    $this->deleteBulkImportExcelTemp($tempPath);
+                    $spreadsheet->disconnectWorksheets();
+                    unset($spreadsheet);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => $exception->getMessage(),
+                    ], 422);
+                }
+
+                $skipKeys = array_flip($decision['skip_keys']);
+                foreach ($pendingRows as $pendingRow) {
+                    $key = ConvenioDuplicateDetectionService::conflictKey(
+                        $pendingRow['documento'],
+                        $pendingRow['sede'],
+                    );
+                    if (isset($skipKeys[$key])) {
+                        $omitidos++;
+
+                        continue;
+                    }
+
+                    GenerateConvenioJob::dispatch(
+                        $pendingRow['convenio_data'],
+                        $pendingRow['email'],
+                        $sendEmail,
+                        $request->user()?->id,
+                    );
+                    $exitosos++;
+                }
+            } else {
+                foreach ($pendingRows as $pendingRow) {
+                    GenerateConvenioJob::dispatch(
+                        $pendingRow['convenio_data'],
+                        $pendingRow['email'],
+                        $sendEmail,
+                        $request->user()?->id,
+                    );
+                    $exitosos++;
+                }
+            }
+
             // Limpiar archivo temporal
             $this->deleteBulkImportExcelTemp($tempPath);
             $spreadsheet->disconnectWorksheets();
@@ -1982,6 +2207,7 @@ class ConvenioManualController extends Controller
             Log::info('[CONVENIO API] Importación masiva completada', [
                 'procesados' => $procesados,
                 'exitosos' => $exitosos,
+                'omitidos' => $omitidos,
                 'errores' => $errores,
                 'filas_vacias' => $filasVacias,
                 'send_email' => $sendEmail,
@@ -1999,6 +2225,7 @@ class ConvenioManualController extends Controller
                 'data' => [
                     'procesados' => $procesados,
                     'exitosos' => $exitosos,
+                    'omitidos' => $omitidos,
                     'errores' => $errores,
                     'filas_vacias' => $filasVacias,
                     'send_email' => $sendEmail,
@@ -2354,5 +2581,34 @@ class ConvenioManualController extends Controller
         }
 
         Storage::disk('local')->delete($storagePath);
+    }
+
+    /**
+     * @return list<array{documento?: mixed, sede?: mixed, action?: mixed}>
+     */
+    private function duplicateActionsFromRequest(Request $request): array
+    {
+        $actions = $request->input('duplicate_actions', []);
+        if (is_string($actions) && $actions !== '') {
+            $decoded = json_decode($actions, true);
+            $actions = is_array($decoded) ? $decoded : [];
+        }
+
+        return is_array($actions) ? array_values($actions) : [];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $duplicates
+     */
+    private function duplicateConveniosResponse(array $duplicates): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'code' => 'duplicate_convenios',
+            'message' => 'Hay convenios existentes para algunos afiliados de esta misma sede. Confirme si desea invalidar el anterior, omitirlo o continuar.',
+            'data' => [
+                'duplicates' => $duplicates,
+            ],
+        ], 409);
     }
 }
