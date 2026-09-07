@@ -36,6 +36,10 @@ class ConvenioPresidentSignService
             throw new InvalidArgumentException('El convenio no está listo para firma del presidente.');
         }
 
+        if ($tracking->isInvalidated()) {
+            throw new InvalidArgumentException('No se puede firmar un convenio invalidado.');
+        }
+
         $update = [
             'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
             'president_sign_last_error' => null,

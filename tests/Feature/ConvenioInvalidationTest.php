@@ -51,6 +51,31 @@ class ConvenioInvalidationTest extends TestCase
             ->assertJsonPath('data.data.0.available_actions.resend', true);
     }
 
+    public function test_history_exposes_mark_invalid_for_firmado_afiliado_convenio(): void
+    {
+        [, $token] = $this->authenticatedManageUser();
+        $tracking = $this->createPendingTracking('71226927');
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+            'firmado_afiliado_at' => now(),
+            'pdf_firmado_afiliado_path' => 'convenios/production/2026/09/71226927/'.$tracking->id.'/signed.pdf',
+        ]);
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/email-history',
+            [],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('data.data.0.id', $tracking->id)
+            ->assertJsonPath('data.data.0.available_actions.mark_invalid', true)
+            ->assertJsonPath('data.data.0.available_actions.president_sign', true);
+    }
+
     public function test_can_invalidate_pending_convenio_and_blocks_affiliate_signing(): void
     {
         $plainToken = str_repeat('c', 64);
@@ -103,29 +128,59 @@ class ConvenioInvalidationTest extends TestCase
         ])->assertStatus(403);
     }
 
-    public function test_cannot_invalidate_signed_convenio(): void
+    public function test_can_invalidate_firmado_afiliado_convenio_and_blocks_president_sign(): void
     {
         [, $token] = $this->authenticatedManageUser();
         $tracking = $this->createPendingTracking('71226924');
         $tracking->update([
             'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
             'firmado_afiliado_at' => now(),
+            'pdf_firmado_afiliado_path' => 'convenios/production/2026/09/71226924/'.$tracking->id.'/signed.pdf',
         ]);
 
         $response = $this->call(
             'POST',
             '/api/convenios-manual/tracking/'.$tracking->id.'/invalidate',
-            ['reason' => 'Intento de invalidar un firmado.'],
+            ['reason' => 'Convenio firmado con errores, se envió uno nuevo.'],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/json']
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $tracking->refresh();
+        $this->assertTrue($tracking->isInvalidated());
+        $this->assertFalse($tracking->isEligibleForPresidentSign());
+    }
+
+    public function test_cannot_invalidate_completado_convenio(): void
+    {
+        [, $token] = $this->authenticatedManageUser();
+        $tracking = $this->createPendingTracking('71226924');
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_COMPLETADO,
+            'firmado_afiliado_at' => now(),
+            'firmado_presidente_at' => now(),
+            'completed_at' => now(),
+        ]);
+
+        $response = $this->call(
+            'POST',
+            '/api/convenios-manual/tracking/'.$tracking->id.'/invalidate',
+            ['reason' => 'Intento de invalidar un completado.'],
             ['prosalud_auth_token' => $token],
             [],
             ['HTTP_ACCEPT' => 'application/json']
         );
 
         $response->assertStatus(422)
-            ->assertJsonPath('success', false);
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'No se puede invalidar un convenio ya completado.');
 
         $tracking->refresh();
-        $this->assertSame(ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO, $tracking->signing_estado);
+        $this->assertSame(ConvenioEmailTracking::SIGNING_COMPLETADO, $tracking->signing_estado);
     }
 
     public function test_resend_is_blocked_after_invalidation(): void

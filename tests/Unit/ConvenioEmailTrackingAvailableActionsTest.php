@@ -23,6 +23,18 @@ class ConvenioEmailTrackingAvailableActionsTest extends TestCase
         ]);
     }
 
+    public function test_resolve_available_actions_allows_mark_invalid_for_firmado_afiliado(): void
+    {
+        $tracking = ConvenioEmailTracking::factory()->firmadoAfiliado()->create([
+            'pdf_firmado_afiliado_path' => 'convenios/production/2026/09/123456/1/signed.pdf',
+        ]);
+
+        $actions = $tracking->resolveAvailableActions(true, false);
+
+        $this->assertTrue($actions['mark_invalid']);
+        $this->assertTrue($actions['president_sign']);
+    }
+
     public function test_resolve_available_actions_uses_recorded_paths_without_storage_checks(): void
     {
         $tracking = ConvenioEmailTracking::factory()->pendienteFirma()->create([
@@ -41,7 +53,8 @@ class ConvenioEmailTrackingAvailableActionsTest extends TestCase
 
         $this->assertTrue($actions['download_original']);
         $this->assertTrue($actions['download_final']);
-        $this->assertFalse($actions['mark_invalid']);
+        $this->assertTrue($actions['mark_invalid']);
+        $this->assertTrue($actions['president_sign']);
     }
 
     public function test_has_original_path_recorded_uses_parent_tracking_path(): void

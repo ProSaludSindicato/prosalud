@@ -431,18 +431,40 @@ class ConvenioEmailTracking extends Model
             return false;
         }
 
-        return ! $this->affiliateHasSigned();
+        if ($this->signing_estado === self::SIGNING_COMPLETADO) {
+            return false;
+        }
+
+        if ($this->signing_estado === null || $this->signing_estado === self::SIGNING_PENDIENTE_FIRMA) {
+            return true;
+        }
+
+        return in_array($this->signing_estado, [
+            self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_FIRMANDO_PRESIDENTE,
+            self::SIGNING_PENDIENTE_REVISION,
+            self::SIGNING_ERROR_FIRMA_PRESIDENTE,
+        ], true);
+    }
+
+    public function isEligibleForPresidentSign(): bool
+    {
+        return ! $this->isInvalidated()
+            && in_array($this->signing_estado, self::presidentSignEligibleStates(), true)
+            && filled($this->pdf_firmado_afiliado_path);
     }
 
     public function isEligibleForReviewComplete(): bool
     {
-        return $this->signing_estado === self::SIGNING_PENDIENTE_REVISION
+        return ! $this->isInvalidated()
+            && $this->signing_estado === self::SIGNING_PENDIENTE_REVISION
             && filled($this->pdf_final_path);
     }
 
     public function isEligibleForReviewError(): bool
     {
-        return $this->signing_estado === self::SIGNING_PENDIENTE_REVISION;
+        return ! $this->isInvalidated()
+            && $this->signing_estado === self::SIGNING_PENDIENTE_REVISION;
     }
 
     /**
@@ -454,12 +476,6 @@ class ConvenioEmailTracking extends Model
             self::SIGNING_FIRMADO_AFILIADO,
             self::SIGNING_ERROR_FIRMA_PRESIDENTE,
         ];
-    }
-
-    public function isEligibleForPresidentSign(): bool
-    {
-        return in_array($this->signing_estado, self::presidentSignEligibleStates(), true)
-            && filled($this->pdf_firmado_afiliado_path);
     }
 
     public function hasOriginalPathRecorded(): bool

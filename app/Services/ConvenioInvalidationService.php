@@ -93,8 +93,8 @@ class ConvenioInvalidationService
             return 'Este convenio ya está invalidado.';
         }
 
-        if ($tracking->affiliateHasSigned()) {
-            return 'No se puede invalidar un convenio ya firmado por el afiliado.';
+        if ($tracking->signing_estado === ConvenioEmailTracking::SIGNING_COMPLETADO) {
+            return 'No se puede invalidar un convenio ya completado.';
         }
 
         return 'Este convenio no se puede invalidar.';
