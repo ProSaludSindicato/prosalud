@@ -636,7 +636,7 @@ class ConvenioManualController extends Controller
             ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
             ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
         ], true)) {
-            $contents = $pdfStorage->get($tracking->pdf_firmado_afiliado_path);
+            $contents = $pdfStorage->affiliateSignedContents($tracking);
             if ($contents === null) {
                 return response()->json([
                     'success' => false,
@@ -647,6 +647,7 @@ class ConvenioManualController extends Controller
             return $pdfStorage->downloadResponse(
                 $contents,
                 ConvenioDisplayFilename::fromTracking($tracking),
+                'inline',
             );
         }
 
@@ -665,6 +666,7 @@ class ConvenioManualController extends Controller
             return $pdfStorage->downloadResponse(
                 $contents,
                 ConvenioDisplayFilename::fromTracking($tracking),
+                'inline',
             );
         }
 
@@ -688,6 +690,7 @@ class ConvenioManualController extends Controller
             return $pdfStorage->downloadResponse(
                 $contents,
                 ConvenioDisplayFilename::fromTracking($tracking),
+                'inline',
             );
         }
 
@@ -961,8 +964,12 @@ class ConvenioManualController extends Controller
     {
         $tracking = ConvenioEmailTracking::findOrFail($tracking);
 
-        if ($tracking->signing_estado === ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO) {
-            $contents = $pdfStorage->get($tracking->pdf_firmado_afiliado_path);
+        if (in_array($tracking->signing_estado, [
+            ConvenioEmailTracking::SIGNING_FIRMADO_AFILIADO,
+            ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+            ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
+        ], true)) {
+            $contents = $pdfStorage->affiliateSignedContents($tracking);
             if ($contents === null) {
                 return response()->json([
                     'success' => false,

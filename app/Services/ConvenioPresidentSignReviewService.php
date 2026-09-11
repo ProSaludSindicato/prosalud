@@ -90,7 +90,7 @@ class ConvenioPresidentSignReviewService
 
         $tracking->update([
             'signing_estado' => ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
-            'president_sign_last_error' => $reason ?: 'Marcado con error durante la revisión presidencial.',
+            'president_sign_last_error' => $reason ?: 'Rechazado durante la revisión del convenio.',
         ]);
 
         $this->refreshBatchProgress($tracking->president_sign_batch_id);

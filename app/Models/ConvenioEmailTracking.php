@@ -492,6 +492,45 @@ class ConvenioEmailTracking extends Model
         return filled($this->pdf_firmado_afiliado_path) || filled($this->pdf_final_path);
     }
 
+    public function hasAffiliateSignedPdfAvailable(bool $verifyStorage = false): bool
+    {
+        $storage = app(ConvenioPdfStorageService::class);
+
+        if ($verifyStorage) {
+            if ($storage->hasStage($this, ConvenioPdfStage::FirmadoAfiliado)) {
+                return true;
+            }
+
+            if (
+                $this->signing_estado === self::SIGNING_ERROR_FIRMA_PRESIDENTE
+                && filled($this->firmado_afiliado_at)
+            ) {
+                return $storage->hasStage($this, ConvenioPdfStage::Final);
+            }
+
+            return false;
+        }
+
+        if (filled($this->pdf_firmado_afiliado_path)) {
+            return true;
+        }
+
+        if (
+            $this->signing_estado === self::SIGNING_ERROR_FIRMA_PRESIDENTE
+            && filled($this->firmado_afiliado_at)
+            && filled($this->pdf_final_path)
+        ) {
+            return true;
+        }
+
+        return filled($this->firmado_afiliado_at)
+            && in_array($this->signing_estado, [
+                self::SIGNING_FIRMADO_AFILIADO,
+                self::SIGNING_FIRMANDO_PRESIDENTE,
+                self::SIGNING_ERROR_FIRMA_PRESIDENTE,
+            ], true);
+    }
+
     /**
      * @param  \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>  $query
      * @return \Illuminate\Database\Eloquent\Builder<ConvenioEmailTracking>
@@ -546,19 +585,20 @@ class ConvenioEmailTracking extends Model
 
         $canDownloadFinal = false;
         if ($digitalSigningEnabled) {
-            $canDownloadFinal = in_array($this->signing_estado, [
-                self::SIGNING_FIRMADO_AFILIADO,
-                self::SIGNING_FIRMANDO_PRESIDENTE,
-                self::SIGNING_ERROR_FIRMA_PRESIDENTE,
-                self::SIGNING_COMPLETADO,
-            ], true) && (
-                $verifyStorage
+            $canDownloadFinal = match (true) {
+                in_array($this->signing_estado, [
+                    self::SIGNING_FIRMADO_AFILIADO,
+                    self::SIGNING_FIRMANDO_PRESIDENTE,
+                    self::SIGNING_ERROR_FIRMA_PRESIDENTE,
+                ], true) => $this->hasAffiliateSignedPdfAvailable($verifyStorage),
+                $this->signing_estado === self::SIGNING_COMPLETADO => $verifyStorage
                     ? (
-                        $storage->hasStage($this, ConvenioPdfStage::FirmadoAfiliado)
-                        || $storage->hasStage($this, ConvenioPdfStage::Final)
+                        $storage->hasStage($this, ConvenioPdfStage::Final)
+                        || $storage->hasStage($this, ConvenioPdfStage::FirmadoAfiliado)
                     )
-                    : $this->hasSignedPathRecorded()
-            );
+                    : $this->hasSignedPathRecorded(),
+                default => false,
+            };
         }
 
         return [

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\ConvenioPdfStage;
 use App\Jobs\ApplyPresidentSignatureJob;
+use App\Jobs\EnqueuePresidentSignBatchJob;
 use App\Jobs\SendConvenioCompletedEmailJob;
 use App\Mail\ConvenioCompletedNotification;
 use App\Models\ApiToken;
@@ -130,6 +131,82 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
             'total' => 1,
             'status' => ConvenioPresidentSignBatch::STATUS_PROCESSING,
         ]);
+
+        Bus::assertDispatched(ApplyPresidentSignatureJob::class, 1);
+    }
+
+    public function test_campaign_enqueues_all_eligible_trackings_in_background(): void
+    {
+        Bus::fake([ApplyPresidentSignatureJob::class]);
+
+        for ($i = 0; $i < 35; $i++) {
+            $this->trackingReadyForPresidentSign();
+        }
+
+        [, $token] = $this->userWithPermission('document_signing.manage');
+
+        $this->call(
+            'POST',
+            '/api/convenios-manual/tracking/president-sign-campaign',
+            ['scope' => 'all'],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/json'],
+        )->assertStatus(202)
+            ->assertJsonPath('accepted', 35);
+
+        $this->assertDatabaseHas('convenio_president_sign_batches', [
+            'scope' => ConvenioPresidentSignBatch::SCOPE_ALL,
+            'total' => 35,
+            'status' => ConvenioPresidentSignBatch::STATUS_PROCESSING,
+        ]);
+
+        Bus::assertDispatched(ApplyPresidentSignatureJob::class, 35);
+    }
+
+    public function test_enqueue_batch_job_can_resume_campaign_after_partial_dispatch(): void
+    {
+        Bus::fake([ApplyPresidentSignatureJob::class]);
+
+        $first = $this->trackingReadyForPresidentSign();
+        $second = $this->trackingReadyForPresidentSign();
+
+        $batch = ConvenioPresidentSignBatch::query()->create([
+            'requested_by_user_id' => User::factory()->create()->id,
+            'scope' => ConvenioPresidentSignBatch::SCOPE_ALL,
+            'include_errors' => false,
+            'total' => 2,
+            'status' => ConvenioPresidentSignBatch::STATUS_PROCESSING,
+            'require_review' => true,
+        ]);
+
+        app(\App\Services\ConvenioPresidentSignService::class)->queue(
+            $first,
+            $batch->requested_by_user_id,
+            $batch->id,
+        );
+
+        (new EnqueuePresidentSignBatchJob($batch->id))->handle(
+            app(\App\Services\ConvenioPresidentSignService::class),
+        );
+
+        $batch->refresh();
+        $this->assertSame(2, $batch->total);
+        $this->assertSame(
+            ConvenioPresidentSignBatch::STATUS_PROCESSING,
+            $batch->status,
+        );
+
+        Bus::assertDispatched(ApplyPresidentSignatureJob::class, 2);
+        $this->assertSame(2, ConvenioEmailTracking::query()->where('president_sign_batch_id', $batch->id)->count());
+        $this->assertSame(
+            ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+            $first->fresh()->signing_estado,
+        );
+        $this->assertSame(
+            ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
+            $second->fresh()->signing_estado,
+        );
     }
 
     public function test_active_batch_returns_finished_batch_with_pending_review(): void
@@ -308,6 +385,71 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
         $this->assertTrue($tracking->isEligibleForPresidentSign());
     }
 
+    public function test_review_rejected_convenio_allows_downloading_affiliate_signed_pdf(): void
+    {
+        $tracking = $this->trackingReadyForPresidentSign();
+        $finalPath = app(ConvenioPdfStorageService::class)->storeFromContents(
+            $tracking,
+            ConvenioPdfStage::Final,
+            '%PDF-1.4 final-with-president',
+        );
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_REVISION,
+            'pdf_final_path' => $finalPath,
+            'firmado_presidente_at' => now(),
+        ]);
+
+        app(ConvenioPresidentSignReviewService::class)->markReviewError($tracking, 'Firma mal ubicada');
+        $tracking->refresh();
+
+        [, $token] = $this->userWithPermission('document_signing.view');
+
+        $this->call(
+            'GET',
+            '/api/convenios-manual/tracking/'.$tracking->id.'/download-final',
+            [],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/pdf'],
+        )
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+
+        $this->assertTrue($tracking->resolveAvailableActions(true, false)['download_final']);
+    }
+
+    public function test_review_rejected_convenio_download_falls_back_to_final_when_affiliate_path_missing(): void
+    {
+        $tracking = $this->trackingReadyForPresidentSign();
+        $finalPath = app(ConvenioPdfStorageService::class)->storeFromContents(
+            $tracking,
+            ConvenioPdfStage::Final,
+            '%PDF-1.4 final-with-president',
+        );
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
+            'pdf_firmado_afiliado_path' => null,
+            'pdf_final_path' => $finalPath,
+            'firmado_presidente_at' => now(),
+            'president_sign_last_error' => 'Firma del afiliado mal ubicada',
+        ]);
+
+        [, $token] = $this->userWithPermission('document_signing.view');
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/tracking/'.$tracking->id.'/download-final',
+            [],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/pdf'],
+        );
+
+        $response->assertOk();
+        $this->assertSame('%PDF-1.4 final-with-president', $response->getContent());
+        $this->assertTrue($tracking->resolveAvailableActions(true, false)['download_final']);
+    }
+
     public function test_completed_email_in_test_mode_goes_to_completing_user(): void
     {
         Mail::fake();
@@ -457,7 +599,11 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
             }
         };
 
-        $job->handle(app(AutoSignApiService::class), app(ConvenioPdfStorageService::class));
+        $job->handle(
+            app(AutoSignApiService::class),
+            app(ConvenioPdfStorageService::class),
+            app(ConvenioCompletedEmailService::class),
+        );
 
         $this->assertNotNull($job->releasedFor);
         $tracking->refresh();
@@ -487,7 +633,11 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
         };
 
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            $job->handle(app(AutoSignApiService::class), app(ConvenioPdfStorageService::class));
+            $job->handle(
+                app(AutoSignApiService::class),
+                app(ConvenioPdfStorageService::class),
+                app(ConvenioCompletedEmailService::class),
+            );
         }
 
         $this->assertSame(5, $job->releaseCount);

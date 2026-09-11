@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\ApplyPresidentSignatureJob;
+use App\Jobs\EnqueuePresidentSignBatchJob;
 use App\Models\ConvenioEmailTracking;
 use App\Models\ConvenioPresidentSignBatch;
 use App\Support\ConvenioAutoSign;
@@ -89,7 +90,7 @@ class ConvenioPresidentSignService
         ]);
 
         $rejected = [];
-        $accepted = 0;
+        $eligibleIds = [];
 
         $trackings = ConvenioEmailTracking::query()
             ->whereIn('id', $trackingIds)
@@ -108,22 +109,36 @@ class ConvenioPresidentSignService
                 continue;
             }
 
-            try {
-                $this->queue($tracking, $requestedByUserId, $batch->id);
-                $accepted++;
-            } catch (InvalidArgumentException $exception) {
+            if (! $tracking->isEligibleForPresidentSign()) {
                 $rejected[] = [
                     'tracking_id' => $trackingId,
-                    'reason' => $exception->getMessage(),
+                    'reason' => 'El convenio no está listo para firma del presidente.',
                 ];
+
+                continue;
             }
+
+            if ($tracking->isInvalidated()) {
+                $rejected[] = [
+                    'tracking_id' => $trackingId,
+                    'reason' => 'No se puede firmar un convenio invalidado.',
+                ];
+
+                continue;
+            }
+
+            $eligibleIds[] = $trackingId;
         }
 
-        $batch->update(['total' => $accepted]);
+        if ($eligibleIds !== []) {
+            EnqueuePresidentSignBatchJob::dispatch($batch->id, $eligibleIds);
+        }
+
+        $batch->update(['total' => count($eligibleIds)]);
         $batch->refreshProgressCounts();
 
         return [
-            'accepted' => $accepted,
+            'accepted' => count($eligibleIds),
             'rejected' => $rejected,
             'batch_id' => $batch->id,
         ];
@@ -183,25 +198,79 @@ class ConvenioPresidentSignService
             'require_review' => ConvenioAutoSign::requireReview(),
         ]);
 
-        $accepted = 0;
-
-        $query->orderBy('id')->chunkById(100, function ($trackings) use ($requestedByUserId, $batch, &$accepted): void {
-            foreach ($trackings as $tracking) {
-                try {
-                    $this->queue($tracking, $requestedByUserId, $batch->id);
-                    $accepted++;
-                } catch (InvalidArgumentException) {
-                    // Otro proceso pudo reclamar el registro entre el conteo y el encolado.
-                }
-            }
-        });
-
-        $batch->update(['total' => $accepted]);
-        $batch->refreshProgressCounts();
+        EnqueuePresidentSignBatchJob::dispatch($batch->id);
 
         return [
             'batch_id' => $batch->id,
+            'accepted' => $count,
+        ];
+    }
+
+    /**
+     * @param  list<int>|null  $trackingIds
+     * @return array{accepted: int, rejected: list<array{tracking_id: int, reason: string}>}
+     */
+    public function enqueueBatchTrackings(int $batchId, ?array $trackingIds = null): array
+    {
+        $batch = ConvenioPresidentSignBatch::query()->findOrFail($batchId);
+        $rejected = [];
+        $accepted = 0;
+
+        if ($trackingIds !== null) {
+            $trackings = ConvenioEmailTracking::query()
+                ->whereIn('id', $trackingIds)
+                ->get()
+                ->keyBy('id');
+
+            foreach ($trackingIds as $trackingId) {
+                $tracking = $trackings->get($trackingId);
+
+                if ($tracking === null) {
+                    $rejected[] = [
+                        'tracking_id' => $trackingId,
+                        'reason' => 'Registro no encontrado.',
+                    ];
+
+                    continue;
+                }
+
+                try {
+                    $this->queue($tracking, $batch->requested_by_user_id, $batch->id);
+                    $accepted++;
+                } catch (InvalidArgumentException $exception) {
+                    $rejected[] = [
+                        'tracking_id' => $trackingId,
+                        'reason' => $exception->getMessage(),
+                    ];
+                }
+            }
+        } else {
+            $this->eligibleCampaignQuery(
+                $batch->scope,
+                $batch->date_from?->format('Y-m-d'),
+                $batch->date_to?->format('Y-m-d'),
+                (bool) $batch->include_errors,
+            )
+                ->whereNull('president_sign_batch_id')
+                ->orderBy('id')
+                ->chunkById(100, function ($trackings) use ($batch, &$accepted): void {
+                    foreach ($trackings as $tracking) {
+                        try {
+                            $this->queue($tracking, $batch->requested_by_user_id, $batch->id);
+                            $accepted++;
+                        } catch (InvalidArgumentException) {
+                            // Otro proceso pudo reclamar el registro entre el conteo y el encolado.
+                        }
+                    }
+                });
+        }
+
+        $batch->update(['total' => $batch->trackings()->count()]);
+        $batch->refreshProgressCounts();
+
+        return [
             'accepted' => $accepted,
+            'rejected' => $rejected,
         ];
     }
 

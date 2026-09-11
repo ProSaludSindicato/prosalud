@@ -35,6 +35,24 @@ class ConvenioEmailTrackingAvailableActionsTest extends TestCase
         $this->assertTrue($actions['president_sign']);
     }
 
+    public function test_resolve_available_actions_allows_download_final_for_president_sign_error(): void
+    {
+        $tracking = ConvenioEmailTracking::factory()->create([
+            'estado' => 'enviado',
+            'signing_estado' => ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
+            'pdf_original_path' => 'convenios/production/2026/09/123456/1/original.pdf',
+            'pdf_firmado_afiliado_path' => 'convenios/production/2026/09/123456/1/signed.pdf',
+            'firmado_afiliado_at' => now(),
+            'president_sign_last_error' => 'No se encontró el texto ancla.',
+        ]);
+
+        $actions = $tracking->resolveAvailableActions(true, false);
+
+        $this->assertTrue($actions['download_original']);
+        $this->assertTrue($actions['download_final']);
+        $this->assertTrue($actions['president_sign']);
+    }
+
     public function test_resolve_available_actions_uses_recorded_paths_without_storage_checks(): void
     {
         $tracking = ConvenioEmailTracking::factory()->pendienteFirma()->create([

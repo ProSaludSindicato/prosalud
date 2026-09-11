@@ -231,6 +231,30 @@ class ConvenioPresidentSignTest extends TestCase
         );
     }
 
+    public function test_download_final_serves_affiliate_signed_pdf_inline_when_president_sign_failed(): void
+    {
+        $tracking = $this->trackingReadyForPresidentSign();
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE,
+            'president_sign_last_error' => 'No se encontró el texto ancla de la firma del presidente en el PDF.',
+        ]);
+
+        [, $token] = $this->userWithPermission('document_signing.view');
+
+        $response = $this->call(
+            'GET',
+            '/api/convenios-manual/tracking/'.$tracking->id.'/download-final',
+            [],
+            ['prosalud_auth_token' => $token],
+            [],
+            ['HTTP_ACCEPT' => 'application/pdf'],
+        );
+
+        $response->assertOk();
+        $this->assertStringContainsString('inline', (string) $response->headers->get('Content-Disposition'));
+        $this->assertSame('%PDF-1.4 affiliate-signed', $response->getContent());
+    }
+
     public function test_history_exposes_auto_sign_flag_and_error_filter(): void
     {
         ConvenioEmailTracking::factory()->create([

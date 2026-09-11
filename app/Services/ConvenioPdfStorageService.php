@@ -212,6 +212,26 @@ class ConvenioPdfStorageService
         return $this->exists($path);
     }
 
+    public function affiliateSignedContents(ConvenioEmailTracking $tracking): ?string
+    {
+        if (filled($tracking->pdf_firmado_afiliado_path)) {
+            $contents = $this->get($tracking->pdf_firmado_afiliado_path);
+            if ($contents !== null) {
+                return $contents;
+            }
+        }
+
+        if (
+            $tracking->signing_estado === ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE
+            && filled($tracking->firmado_presidente_at)
+            && filled($tracking->pdf_final_path)
+        ) {
+            return $this->get($tracking->pdf_final_path);
+        }
+
+        return null;
+    }
+
     public function originalContents(ConvenioEmailTracking $tracking): ?string
     {
         $fromStorage = $this->get($tracking->pdf_original_path);

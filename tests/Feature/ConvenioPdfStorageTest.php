@@ -123,6 +123,7 @@ class ConvenioPdfStorageTest extends TestCase
         );
 
         $response->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertStringContainsString('inline', (string) $response->headers->get('Content-Disposition'));
         $this->assertSame('%PDF-1.4 stored original', $response->getContent());
     }
 

@@ -26,7 +26,7 @@ class ConvenioHistoryUi
             ]);
 
             if ($autoSignEnabled) {
-                $estadoFiltros[] = ['value' => 'firma_error_presidente', 'label' => 'Error firma presidente'];
+                $estadoFiltros[] = ['value' => 'firma_error_presidente', 'label' => 'Con observaciones'];
                 $estadoFiltros[] = ['value' => 'firma_pendiente_revision', 'label' => 'Pendiente revisión'];
             }
         }
@@ -65,7 +65,7 @@ class ConvenioHistoryUi
             ];
             $bulkActions[] = [
                 'id' => 'review_error',
-                'label' => 'Marcar error en revisión',
+                'label' => 'Rechazar en revisión',
                 'endpoint' => '/api/convenios-manual/tracking/review-error-bulk',
                 'method' => 'POST',
                 'payload_key' => 'tracking_ids',
