@@ -451,7 +451,29 @@ class ConvenioEmailTracking extends Model
     {
         return ! $this->isInvalidated()
             && in_array($this->signing_estado, self::presidentSignEligibleStates(), true)
-            && filled($this->pdf_firmado_afiliado_path);
+            && filled($this->pdf_firmado_afiliado_path)
+            && $this->firmado_presidente_at === null;
+    }
+
+    public function isEligibleForAffiliateResign(): bool
+    {
+        if ($this->isInvalidated()) {
+            return false;
+        }
+
+        if (! $this->affiliateHasSigned()) {
+            return false;
+        }
+
+        if (! $this->hasOriginalPathRecorded()) {
+            return false;
+        }
+
+        return in_array($this->signing_estado, [
+            self::SIGNING_FIRMADO_AFILIADO,
+            self::SIGNING_ERROR_FIRMA_PRESIDENTE,
+            self::SIGNING_PENDIENTE_REVISION,
+        ], true);
     }
 
     public function isEligibleForReviewComplete(): bool
@@ -568,7 +590,7 @@ class ConvenioEmailTracking extends Model
     }
 
     /**
-     * @return array{resend: bool, download_original: bool, download_final: bool, president_sign: bool, complete_review: bool, mark_review_error: bool, mark_invalid: bool, preview_pdf: bool}
+     * @return array{resend: bool, download_original: bool, download_final: bool, president_sign: bool, complete_review: bool, mark_review_error: bool, mark_invalid: bool, preview_pdf: bool, request_affiliate_resign: bool}
      */
     public function resolveAvailableActions(bool $digitalSigningEnabled, bool $verifyStorage = false): array
     {
@@ -601,6 +623,11 @@ class ConvenioEmailTracking extends Model
             };
         }
 
+        $canRequestAffiliateResign = $digitalSigningEnabled && $this->isEligibleForAffiliateResign();
+        if ($verifyStorage && $canRequestAffiliateResign) {
+            $canRequestAffiliateResign = $storage->hasOriginal($this);
+        }
+
         return [
             'resend' => $canResend && $hasOriginal,
             'download_original' => $hasOriginal,
@@ -616,6 +643,7 @@ class ConvenioEmailTracking extends Model
                     self::SIGNING_COMPLETADO,
                 ], true)
             ),
+            'request_affiliate_resign' => $canRequestAffiliateResign,
         ];
     }
 

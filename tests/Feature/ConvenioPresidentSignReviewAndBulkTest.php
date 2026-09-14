@@ -382,7 +382,8 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
         $tracking->refresh();
         $this->assertSame(ConvenioEmailTracking::SIGNING_ERROR_FIRMA_PRESIDENTE, $tracking->signing_estado);
         $this->assertSame('Firma mal ubicada', $tracking->president_sign_last_error);
-        $this->assertTrue($tracking->isEligibleForPresidentSign());
+        $this->assertFalse($tracking->isEligibleForPresidentSign());
+        $this->assertTrue($tracking->isEligibleForAffiliateResign());
     }
 
     public function test_review_rejected_convenio_allows_downloading_affiliate_signed_pdf(): void

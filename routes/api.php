@@ -333,6 +333,12 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::post('/tracking/{tracking}/invalidate', [ConvenioManualController::class, 'invalidateConvenio'])
         ->middleware('permission:document_signing.manage');
 
+    Route::post('/tracking/{tracking}/request-affiliate-resign', [ConvenioManualController::class, 'requestAffiliateResign'])
+        ->middleware('permission:document_signing.manage');
+
+    Route::post('/tracking/request-affiliate-resign-bulk', [ConvenioManualController::class, 'requestAffiliateResignBulk'])
+        ->middleware('permission:document_signing.manage');
+
     Route::get('/tracking/{tracking}/preview-pdf', [ConvenioManualController::class, 'previewConvenioPdf'])
         ->middleware('permission:document_signing.view');
 });

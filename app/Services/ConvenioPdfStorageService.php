@@ -304,6 +304,28 @@ class ConvenioPdfStorageService
         ]);
     }
 
+    public function deleteStage(ConvenioEmailTracking $tracking, ConvenioPdfStage $stage): void
+    {
+        $relativePath = match ($stage) {
+            ConvenioPdfStage::Original => $tracking->pdf_original_path,
+            ConvenioPdfStage::FirmadoAfiliado => $tracking->pdf_firmado_afiliado_path,
+            ConvenioPdfStage::Final => $tracking->pdf_final_path,
+        };
+
+        if (! is_string($relativePath) || $relativePath === '') {
+            return;
+        }
+
+        if ($this->disk()->exists($relativePath)) {
+            $this->disk()->delete($relativePath);
+        }
+
+        $legacy = $this->legacyAbsolutePath($relativePath);
+        if (is_file($legacy)) {
+            @unlink($legacy);
+        }
+    }
+
     public function deleteStoredDirectory(ConvenioEmailTracking $tracking): void
     {
         $paths = array_filter([

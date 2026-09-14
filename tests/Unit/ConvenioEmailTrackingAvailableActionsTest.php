@@ -51,6 +51,7 @@ class ConvenioEmailTrackingAvailableActionsTest extends TestCase
         $this->assertTrue($actions['download_original']);
         $this->assertTrue($actions['download_final']);
         $this->assertTrue($actions['president_sign']);
+        $this->assertTrue($actions['request_affiliate_resign']);
     }
 
     public function test_resolve_available_actions_uses_recorded_paths_without_storage_checks(): void

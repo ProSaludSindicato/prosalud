@@ -8,6 +8,7 @@ use App\Http\Requests\InvalidateConvenioRequest;
 use App\Http\Requests\PresidentSignBulkPreviewRequest;
 use App\Http\Requests\PresidentSignBulkRequest;
 use App\Http\Requests\PresidentSignCampaignRequest;
+use App\Http\Requests\RequestAffiliateResignBulkRequest;
 use App\Http\Requests\RetryFailedConvenioEmailsRequest;
 use App\Http\Requests\ReviewErrorConvenioBulkRequest;
 use App\Http\Requests\UploadConvenioPdfZipRequest;
@@ -16,6 +17,7 @@ use App\Jobs\ProcessConvenioPdfZipJob;
 use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ConvenioEmailTracking;
 use App\Models\ConvenioPresidentSignBatch;
+use App\Services\ConvenioAffiliateResignService;
 use App\Services\ConvenioDuplicateDetectionService;
 use App\Services\ConvenioExcelTemplateExportService;
 use App\Services\ConvenioFailedEmailRetryService;
@@ -1087,6 +1089,41 @@ class ConvenioManualController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'El convenio quedó invalidado. El afiliado ya no puede firmarlo.',
+        ]);
+    }
+
+    public function requestAffiliateResign(
+        ConvenioEmailTracking $tracking,
+        ConvenioAffiliateResignService $affiliateResignService,
+    ): JsonResponse {
+        try {
+            $affiliateResignService->request($tracking, auth()->id());
+        } catch (\InvalidArgumentException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Se encoló el reenvío del convenio original para una nueva firma del afiliado.',
+        ]);
+    }
+
+    public function requestAffiliateResignBulk(
+        RequestAffiliateResignBulkRequest $request,
+        ConvenioAffiliateResignService $affiliateResignService,
+    ): JsonResponse {
+        $result = $affiliateResignService->requestMany(
+            $request->validated('tracking_ids'),
+            auth()->id(),
+        );
+
+        return response()->json([
+            'success' => true,
+            'accepted' => $result['accepted'],
+            'rejected' => $result['rejected'],
         ]);
     }
 
