@@ -1221,11 +1221,8 @@ class SocioDemographicSurveyExcelExportService
 
         // Ajustar ancho de columnas (más anchas para mejor legibilidad)
         $headerCount = count($headers);
-        $colIndex = 0;
-        foreach (range('A', 'ZZ') as $col) {
-            if ($colIndex >= $headerCount) {
-                break;
-            }
+        for ($colIndex = 0; $colIndex < $headerCount; $colIndex++) {
+            $col = $this->getColumnLetter($colIndex + 1);
 
             // Calcular ancho basado en la longitud del nombre del header
             $headerText = $headers[$colIndex] ?? '';
@@ -1247,7 +1244,6 @@ class SocioDemographicSurveyExcelExportService
             }
 
             $sheet->getColumnDimension($col)->setWidth($width);
-            $colIndex++;
         }
 
         // Agregar autofiltros a todas las columnas
@@ -2157,14 +2153,7 @@ class SocioDemographicSurveyExcelExportService
      */
     private function getColumnLetter(int $columnIndex): string
     {
-        $letter = '';
-        while ($columnIndex > 0) {
-            $columnIndex--;
-            $letter = chr(65 + ($columnIndex % 26)).$letter;
-            $columnIndex = intval($columnIndex / 26);
-        }
-
-        return $letter;
+        return \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnIndex);
     }
 
     /**
