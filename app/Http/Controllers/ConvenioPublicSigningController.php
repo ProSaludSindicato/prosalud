@@ -55,9 +55,6 @@ class ConvenioPublicSigningController extends Controller
                 'firmado_afiliado_at' => $tracking->firmado_afiliado_at?->toIso8601String(),
                 'firmado_presidente_at' => $tracking->firmado_presidente_at?->toIso8601String(),
                 'rechazado_at' => $tracking->rechazado_at?->toIso8601String(),
-                'motivo_rechazo' => $tracking->signing_estado === ConvenioEmailTracking::SIGNING_RECHAZADO
-                    ? $tracking->motivo_rechazo
-                    : null,
                 'can_rate_satisfaction' => $this->signingService->affiliateCanRateSatisfaction($tracking),
                 'satisfaction_score' => $tracking->signing_satisfaction_score,
             ],

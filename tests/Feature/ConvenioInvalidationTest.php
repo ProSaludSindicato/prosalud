@@ -104,7 +104,8 @@ class ConvenioInvalidationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.can_sign', false)
             ->assertJsonPath('data.signing_estado', ConvenioEmailTracking::SIGNING_RECHAZADO)
-            ->assertJsonPath('data.motivo_rechazo', 'El convenio tenía errores de captura.');
+            ->assertJsonMissingPath('data.motivo_rechazo')
+            ->assertDontSee('El convenio tenía errores de captura.');
 
         $uploadPdf = $this->writeTempPdf('%PDF-1.4 signed after invalidate');
         $file = new UploadedFile($uploadPdf, 'signed.pdf', 'application/pdf', null, true);
