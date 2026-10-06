@@ -29,8 +29,10 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
     private function mockDotacionService(array $affiliatesByDocument): void
     {
         $this->mock(SstDotacionService::class, function (MockInterface $mock) use ($affiliatesByDocument) {
-            $mock->shouldReceive('findAffiliate')
-                ->andReturnUsing(fn (string $type, string $number) => $affiliatesByDocument[$type.'-'.$number] ?? null);
+            // The report resolves hospitals from the cached bulk catalog (one call, no matter how
+            // many documents need resolving) instead of the per-document "detail" API/findAffiliate().
+            $mock->shouldReceive('getAffiliatesIndexedByDocument')
+                ->andReturn(array_filter($affiliatesByDocument));
 
             $mock->shouldReceive('getInventoryItems')->andReturn([]);
         });

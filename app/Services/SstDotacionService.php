@@ -166,6 +166,21 @@ class SstDotacionService
     }
 
     /**
+     * Full affiliates catalog (ProSaNet full list or Excel fallback, cached ~30 min by AfiliadoService),
+     * indexed by "TIPO-NUMERO". Use this for resolving many documents at once (e.g. report backfills):
+     * it costs at most one catalog build, versus findAffiliate()'s per-document "detail" API call,
+     * which does not scale when resolving dozens/hundreds of documents.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function getAffiliatesIndexedByDocument(): array
+    {
+        return $this->buildAffiliatesCollection()
+            ->keyBy(fn (array $affiliate) => strtoupper($affiliate['documentType']).'-'.$affiliate['documentNumber'])
+            ->all();
+    }
+
+    /**
      * Find affiliate by document type and number.
      */
     public function findAffiliate(string $documentType, string $documentNumber): ?array

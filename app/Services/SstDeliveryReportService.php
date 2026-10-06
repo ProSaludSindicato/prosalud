@@ -39,7 +39,9 @@ class SstDeliveryReportService
     public const HOSPITAL_PLACEHOLDERS = ['SIN ASIGNAR', 'NO ESPECIFICADO', 'NO ASIGNADO', 'N/A', 'NA', '-'];
 
     /**
-     * Upper bound of ProSaNet lookups performed while backfilling hospitals for a single report.
+     * Upper bound of hospital updates persisted while backfilling a single report/command run.
+     * Lookups themselves are O(1) against the cached catalog (see getAffiliatesCatalog()), so this
+     * only bounds the number of UPDATE queries issued, not any external API traffic.
      */
     private const MAX_HOSPITAL_BACKFILL_LOOKUPS = 300;
 
@@ -49,11 +51,11 @@ class SstDeliveryReportService
     private array $tempImageFiles = [];
 
     /**
-     * Affiliate lookups keyed by "documentType|documentNumber".
+     * Full affiliates catalog indexed by document, built at most once per report (see getAffiliatesCatalog()).
      *
-     * @var array<string, array<string, mixed>|null>
+     * @var array<string, array<string, mixed>>|null
      */
-    private array $affiliateLookupCache = [];
+    private ?array $affiliatesCatalog = null;
 
     /**
      * Cache for colors lookup
@@ -386,30 +388,44 @@ class SstDeliveryReportService
     }
 
     /**
-     * Look up an affiliate through SstDotacionService (ProSaNet API with Excel fallback),
-     * memoized per document for the lifetime of the report.
+     * Full affiliates catalog indexed by document, built at most once per report.
+     *
+     * Deliberately NOT using SstDotacionService::findAffiliate() here: that method hits
+     * ProSaNet's per-document "detail" API, and falls back to a full catalog sync (~50+ paginated
+     * requests) whenever that single call fails. Calling it once per pending document previously
+     * caused the report to issue dozens/hundreds of ProSaNet requests and time out in the browser.
+     * The indexed catalog costs at most one build (cached ~30 min by AfiliadoService) no matter how
+     * many documents need resolving.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function getAffiliatesCatalog(): array
+    {
+        if ($this->affiliatesCatalog !== null) {
+            return $this->affiliatesCatalog;
+        }
+
+        try {
+            return $this->affiliatesCatalog = $this->dotacionService->getAffiliatesIndexedByDocument();
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo construir el catálogo de afiliados para resolver hospitales', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->affiliatesCatalog = [];
+        }
+    }
+
+    /**
+     * Look up an affiliate in the (memoized) full catalog by document type/number.
      *
      * @return array<string, mixed>|null
      */
     private function lookupAffiliate(string $documentType, string $documentNumber): ?array
     {
-        $cacheKey = $documentType.'|'.$documentNumber;
+        $key = strtoupper(trim($documentType)).'-'.trim($documentNumber);
 
-        if (array_key_exists($cacheKey, $this->affiliateLookupCache)) {
-            return $this->affiliateLookupCache[$cacheKey];
-        }
-
-        try {
-            return $this->affiliateLookupCache[$cacheKey] = $this->dotacionService->findAffiliate($documentType, $documentNumber);
-        } catch (\Throwable $e) {
-            Log::warning('No se pudo consultar el afiliado para resolver su hospital', [
-                'document_type' => $documentType,
-                'document_number' => $documentNumber,
-                'error' => $e->getMessage(),
-            ]);
-
-            return $this->affiliateLookupCache[$cacheKey] = null;
-        }
+        return $this->getAffiliatesCatalog()[$key] ?? null;
     }
 
     /**
