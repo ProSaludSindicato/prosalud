@@ -1108,6 +1108,24 @@ class AfiliadoService
     }
 
     /**
+     * Whether the ProSanet API is configured/enabled (vs. relying solely on the Excel fallback catalog).
+     */
+    public function isProsanetApiEnabled(): bool
+    {
+        return $this->proSanetApiService->isEnabled();
+    }
+
+    /**
+     * Whether the full affiliates catalog is already cached, i.e. reading it costs nothing extra.
+     * Callers that must avoid triggering a fresh ProSanet catalog sync (dozens of paginated HTTP
+     * requests) inline during an interactive, single-affiliate action should check this first.
+     */
+    public function isAllAfiliadosBasicCacheWarm(): bool
+    {
+        return Cache::tags(['afiliados'])->has('afiliado_service.all_basic');
+    }
+
+    /**
      * Get a cached list of affiliates with basic information for dotación/EPP management.
      */
     public function getAllAfiliadosBasic(): array

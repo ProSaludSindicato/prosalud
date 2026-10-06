@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\AffiliateServiceUnavailableException;
 use App\Http\Requests\StoreSstDeliveryRequest;
 use App\Http\Requests\StoreSstReturnRequest;
 use App\Services\SstDotacionService;
@@ -61,6 +62,18 @@ class DotacionEppController extends Controller
             }
 
             return response()->json($affiliate);
+        } catch (AffiliateServiceUnavailableException $e) {
+            Log::warning('Dotación/EPP: servicio de afiliados no disponible al consultar por tipo y documento', [
+                'dotacion_epp' => true,
+                'lookup' => 'find_affiliate',
+                'document_type_param' => $documentType,
+                'document_number_param' => $documentNumber,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 503);
         } catch (\Throwable $e) {
             Log::error('Dotación/EPP: fallo HTTP al consultar afiliado por tipo y documento', [
                 'dotacion_epp' => true,
@@ -154,6 +167,20 @@ class DotacionEppController extends Controller
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);
+        } catch (AffiliateServiceUnavailableException $e) {
+            Log::warning('Dotación/EPP: servicio de afiliados no disponible al registrar entrega', [
+                'dotacion_epp' => true,
+                'action' => 'delivery_failed',
+                'cause' => 'affiliate_service_unavailable',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 503);
         } catch (\RuntimeException $e) {
             Log::warning('Dotación/EPP: regla de negocio fallida al registrar entrega', [
                 'dotacion_epp' => true,
@@ -259,6 +286,20 @@ class DotacionEppController extends Controller
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);
+        } catch (AffiliateServiceUnavailableException $e) {
+            Log::warning('Dotación/EPP: servicio de afiliados no disponible al registrar devolución', [
+                'dotacion_epp' => true,
+                'action' => 'return_failed',
+                'cause' => 'affiliate_service_unavailable',
+                'affiliate_id' => $data['affiliateId'],
+                'affiliate_document_type' => $data['affiliateDocumentType'],
+                'affiliate_document_number' => $data['affiliateDocumentNumber'],
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 503);
         } catch (\RuntimeException $e) {
             Log::warning('Dotación/EPP: regla de negocio fallida al registrar devolución', [
                 'dotacion_epp' => true,

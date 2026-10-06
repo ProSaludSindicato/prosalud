@@ -50,6 +50,8 @@ class SstDotacionAffiliateDiagnosticsLogTest extends TestCase
 
         $afiliadoMock = Mockery::mock(AfiliadoService::class);
         $afiliadoMock->shouldReceive('getAllAfiliadosBasic')->once()->andReturn($payload);
+        // Diagnostics only build the full collection when it's free to do so (cache already warm).
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(false);
 
         $service = new SstDotacionService($afiliadoMock);
 

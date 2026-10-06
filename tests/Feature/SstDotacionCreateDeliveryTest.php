@@ -114,6 +114,9 @@ class SstDotacionCreateDeliveryTest extends TestCase
         $afiliadoMock->shouldReceive('getAllAfiliadosBasic')
             ->once()
             ->andReturn([]);
+        // Diagnostics build the full collection when it's safe/cheap to do so (cache already warm).
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
+        $afiliadoMock->shouldReceive('isAllAfiliadosBasicCacheWarm')->andReturn(true);
 
         $service = new SstDotacionService($afiliadoMock);
 

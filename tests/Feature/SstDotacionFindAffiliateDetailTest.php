@@ -124,6 +124,7 @@ class SstDotacionFindAffiliateDetailTest extends TestCase
             ->once()
             ->with('CC', '1234567890')
             ->andReturn(false);
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(false);
         $afiliadoMock->shouldReceive('getAllAfiliadosBasic')->once()->andReturn([
             [
                 'tipo_documento' => 'CC',

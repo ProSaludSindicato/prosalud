@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\AffiliateServiceUnavailableException;
 use App\Models\InventoryCategory;
 use App\Models\InventoryColor;
 use App\Models\SstDeliveryItem;
@@ -182,6 +183,11 @@ class SstDotacionService
 
     /**
      * Find affiliate by document type and number.
+     *
+     * @throws AffiliateServiceUnavailableException When the single-document ProSanet lookup
+     *                                              fails and recovering would require a fresh
+     *                                              full catalog sync (dozens of paginated HTTP
+     *                                              requests) that is too slow for an interactive request.
      */
     public function findAffiliate(string $documentType, string $documentNumber): ?array
     {
@@ -196,6 +202,17 @@ class SstDotacionService
                 $fromApi,
                 $this->resolveLastDeliveryAtIso($documentType, $documentNumber),
             );
+        }
+
+        // $fromApi === false means either the API is disabled (expected; the Excel-backed catalog
+        // below is the normal path and is cheap) or the single-document lookup failed transiently
+        // (network hiccup, timeout, 5xx). In the latter case, only use the full catalog if it's
+        // already cached — never trigger a fresh resync inline just to recover from one failed
+        // call. A resync can mean 50+ paginated requests to ProSanet and take over a minute,
+        // which blocks this request and times out in the browser (see incident: registering a
+        // single delivery triggered a full employees-api/summary pagination).
+        if ($this->afiliadoService->isProsanetApiEnabled() && ! $this->afiliadoService->isAllAfiliadosBasicCacheWarm()) {
+            throw new AffiliateServiceUnavailableException;
         }
 
         return $this->matchAffiliateInCollection(
@@ -629,6 +646,22 @@ class SstDotacionService
     {
         $documentType = strtoupper(trim($documentType));
         $documentNumber = trim($documentNumber);
+
+        // Diagnostics are a nice-to-have, not worth triggering a fresh ProSanet catalog resync
+        // (dozens of paginated requests) just to enrich a log line. Only build the full collection
+        // when it's free to do so (API disabled, or the 30-min catalog cache is already warm).
+        if ($this->afiliadoService->isProsanetApiEnabled() && ! $this->afiliadoService->isAllAfiliadosBasicCacheWarm()) {
+            Log::info('Dotación/EPP: búsqueda de afiliado sin resultado — diagnóstico detallado omitido (requeriría resincronizar el catálogo completo)', [
+                'dotacion_epp' => true,
+                'lookup' => 'find_affiliate',
+                'document_type_requested' => $documentType,
+                'document_number_requested' => $documentNumber,
+                'cause' => 'diagnostics_skipped_cold_cache',
+            ]);
+
+            return;
+        }
+
         $collection = $this->buildAffiliatesCollection();
 
         $this->logFindAffiliateMiss($collection, $documentType, $documentNumber);
