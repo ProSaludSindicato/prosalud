@@ -39,9 +39,8 @@ class SstDeliveryReportService
     public const HOSPITAL_PLACEHOLDERS = ['SIN ASIGNAR', 'NO ESPECIFICADO', 'NO ASIGNADO', 'N/A', 'NA', '-'];
 
     /**
-     * Upper bound of hospital updates persisted while backfilling a single report/command run.
-     * Lookups themselves are O(1) against the cached catalog (see getAffiliatesCatalog()), so this
-     * only bounds the number of UPDATE queries issued, not any external API traffic.
+     * Upper bound of per-document ProSaNet "detail" lookups performed per report/command run.
+     * Bounds external API traffic: each unresolved affiliate costs at most one detail call.
      */
     private const MAX_HOSPITAL_BACKFILL_LOOKUPS = 300;
 
@@ -51,11 +50,16 @@ class SstDeliveryReportService
     private array $tempImageFiles = [];
 
     /**
-     * Full affiliates catalog indexed by document, built at most once per report (see getAffiliatesCatalog()).
+     * Affiliate lookups keyed by "TIPO-NUMERO" (see lookupAffiliate()).
      *
-     * @var array<string, array<string, mixed>>|null
+     * @var array<string, array<string, mixed>|null>
      */
-    private ?array $affiliatesCatalog = null;
+    private array $affiliateLookupCache = [];
+
+    /**
+     * Remaining detail-API lookup budget for this run.
+     */
+    private int $affiliateLookupsRemaining = self::MAX_HOSPITAL_BACKFILL_LOOKUPS;
 
     /**
      * Cache for colors lookup
@@ -388,36 +392,13 @@ class SstDeliveryReportService
     }
 
     /**
-     * Full affiliates catalog indexed by document, built at most once per report.
+     * Resolve one affiliate from a convenio-bearing source, memoized per document.
      *
-     * Deliberately NOT using SstDotacionService::findAffiliate() here: that method hits
-     * ProSaNet's per-document "detail" API, and falls back to a full catalog sync (~50+ paginated
-     * requests) whenever that single call fails. Calling it once per pending document previously
-     * caused the report to issue dozens/hundreds of ProSaNet requests and time out in the browser.
-     * The indexed catalog costs at most one build (cached ~30 min by AfiliadoService) no matter how
-     * many documents need resolving.
-     *
-     * @return array<string, array<string, mixed>>
-     */
-    private function getAffiliatesCatalog(): array
-    {
-        if ($this->affiliatesCatalog !== null) {
-            return $this->affiliatesCatalog;
-        }
-
-        try {
-            return $this->affiliatesCatalog = $this->dotacionService->getAffiliatesIndexedByDocument();
-        } catch (\Throwable $e) {
-            Log::warning('No se pudo construir el catálogo de afiliados para resolver hospitales', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return $this->affiliatesCatalog = [];
-        }
-    }
-
-    /**
-     * Look up an affiliate in the (memoized) full catalog by document type/number.
+     * Must go per-document: the full summary catalog maps every affiliate with 'convenios' => [],
+     * so resolving a hospital from it always yields 'SIN ASIGNAR' — which is precisely how these
+     * records lost their hospital in the first place. Report generation runs in a background job,
+     * so paying one detail call per unresolved document is acceptable; the budget below caps it
+     * and never lets a failure escalate into a full catalog resync.
      *
      * @return array<string, mixed>|null
      */
@@ -425,7 +406,28 @@ class SstDeliveryReportService
     {
         $key = strtoupper(trim($documentType)).'-'.trim($documentNumber);
 
-        return $this->getAffiliatesCatalog()[$key] ?? null;
+        if (array_key_exists($key, $this->affiliateLookupCache)) {
+            return $this->affiliateLookupCache[$key];
+        }
+
+        // Budget exhausted: leave uncached so a later run can still resolve this document.
+        if ($this->affiliateLookupsRemaining <= 0) {
+            return null;
+        }
+
+        $this->affiliateLookupsRemaining--;
+
+        try {
+            return $this->affiliateLookupCache[$key] = $this->dotacionService->findAffiliateWithConvenios($documentType, $documentNumber);
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo consultar el afiliado para resolver su hospital', [
+                'document_type' => $documentType,
+                'document_number' => $documentNumber,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->affiliateLookupCache[$key] = null;
+        }
     }
 
     /**
@@ -475,6 +477,11 @@ class SstDeliveryReportService
         }
 
         $totalPendingDocuments = count($documents);
+
+        if ($limit !== null) {
+            $this->affiliateLookupsRemaining = max($this->affiliateLookupsRemaining, $limit);
+        }
+
         $documents = array_slice($documents, 0, $limit ?? self::MAX_HOSPITAL_BACKFILL_LOOKUPS);
 
         $updatedRecords = 0;

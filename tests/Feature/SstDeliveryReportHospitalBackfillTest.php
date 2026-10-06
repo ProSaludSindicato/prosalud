@@ -29,10 +29,10 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
     private function mockDotacionService(array $affiliatesByDocument): void
     {
         $this->mock(SstDotacionService::class, function (MockInterface $mock) use ($affiliatesByDocument) {
-            // The report resolves hospitals from the cached bulk catalog (one call, no matter how
-            // many documents need resolving) instead of the per-document "detail" API/findAffiliate().
-            $mock->shouldReceive('getAffiliatesIndexedByDocument')
-                ->andReturn(array_filter($affiliatesByDocument));
+            // Hospitals must be resolved per document from a convenio-bearing source; the bulk
+            // summary catalog carries 'convenios' => [] and would always yield 'SIN ASIGNAR'.
+            $mock->shouldReceive('findAffiliateWithConvenios')
+                ->andReturnUsing(fn (string $type, string $number) => $affiliatesByDocument[$type.'-'.$number] ?? null);
 
             $mock->shouldReceive('getInventoryItems')->andReturn([]);
         });
@@ -113,6 +113,32 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
         $this->assertSame('HMFS - BELLO', $placeholder->fresh()->affiliate_hospital);
         $this->assertSame('HOSPITAL MARCO FIDEL SUAREZ', $empty->fresh()->affiliate_hospital);
         $this->assertSame('CLÍNICA NORTE', $null->fresh()->affiliate_hospital);
+    }
+
+    /**
+     * Regression guard: the bulk summary catalog maps every affiliate with 'convenios' => [], so
+     * using it as a hospital source silently degrades every record to 'SIN ASIGNAR'. The backfill
+     * must resolve per document through a convenio-bearing source and never touch the catalog.
+     */
+    public function test_backfill_never_resolves_hospitals_from_the_bulk_catalog(): void
+    {
+        $this->createDelivery('111', 'SIN ASIGNAR');
+
+        $this->mock(SstDotacionService::class, function (MockInterface $mock) {
+            $mock->shouldReceive('findAffiliateWithConvenios')
+                ->once()
+                ->with('CC', '111')
+                ->andReturn($this->affiliate('111', 'HMFS - BELLO'));
+
+            $mock->shouldNotReceive('getAffiliatesIndexedByDocument');
+            $mock->shouldNotReceive('findAffiliate');
+            $mock->shouldReceive('getInventoryItems')->andReturn([]);
+        });
+
+        $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals();
+
+        $this->assertSame(1, $stats['resolvedDocuments']);
+        $this->assertSame(1, $stats['updatedRecords']);
     }
 
     public function test_backfill_leaves_records_that_already_have_a_hospital_untouched(): void

@@ -167,18 +167,36 @@ class SstDotacionService
     }
 
     /**
-     * Full affiliates catalog (ProSaNet full list or Excel fallback, cached ~30 min by AfiliadoService),
-     * indexed by "TIPO-NUMERO". Use this for resolving many documents at once (e.g. report backfills):
-     * it costs at most one catalog build, versus findAffiliate()'s per-document "detail" API call,
-     * which does not scale when resolving dozens/hundreds of documents.
+     * Resolve a single affiliate from a source that actually carries convenios — and therefore
+     * the hospital. Returns null when unknown or when no valid source is reachable.
      *
-     * @return array<string, array<string, mixed>>
+     * Critical: when the ProSanet API is enabled, the per-document "detail" endpoint is the ONLY
+     * valid hospital source. The summary catalog behind getAllAfiliadosBasic() maps every item with
+     * 'convenios' => [] (see ProSaNetAfiliadoMapper::mapSummaryItemToBasicAfiliado), so resolving a
+     * hospital from it always degrades to 'SIN ASIGNAR'. Never use the catalog for hospitals here.
+     *
+     * @return array<string, mixed>|null
      */
-    public function getAffiliatesIndexedByDocument(): array
+    public function findAffiliateWithConvenios(string $documentType, string $documentNumber): ?array
     {
-        return $this->buildAffiliatesCollection()
-            ->keyBy(fn (array $affiliate) => strtoupper($affiliate['documentType']).'-'.$affiliate['documentNumber'])
-            ->all();
+        if ($this->afiliadoService->isProsanetApiEnabled()) {
+            $fromApi = $this->afiliadoService->getAfiliadoBasicWithConvenios($documentType, $documentNumber);
+
+            // false = API unavailable, null = not found. Neither can yield a trustworthy hospital.
+            return is_array($fromApi)
+                ? $this->mapAfiliadoBasicToDotacionRecord(
+                    $fromApi,
+                    $this->resolveLastDeliveryAtIso($documentType, $documentNumber),
+                )
+                : null;
+        }
+
+        // API disabled: the Excel-backed catalog does carry real convenios, so it is a valid source.
+        return $this->matchAffiliateInCollection(
+            $this->buildAffiliatesCollection(),
+            $documentType,
+            $documentNumber,
+        );
     }
 
     /**
