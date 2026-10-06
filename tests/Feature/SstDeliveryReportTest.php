@@ -96,6 +96,17 @@ class SstDeliveryReportTest extends TestCase
         $this->assertNotNull(cache()->get("sst_report:{$jobId}"));
     }
 
+    public function test_excel_export_accepts_multiple_hospitals(): void
+    {
+        $response = $this->authenticatedGet(
+            '/api/dotacion-epp/reports/deliveries/excel?hospitals[]=Hospital+Central&hospitals[]=Cl%C3%ADnica+Norte'
+        );
+
+        $response->assertAccepted()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['job_id', 'check_status_url']);
+    }
+
     public function test_excel_export_rejects_invalid_date_range(): void
     {
         $response = $this->authenticatedGet(

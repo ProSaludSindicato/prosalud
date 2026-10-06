@@ -33,9 +33,27 @@ class SstDeliveryReportService
     private const IMAGE_TIMEOUT = 5; // 5 seconds
 
     /**
+     * Values stored in affiliate_hospital that actually mean "sin hospital asignado".
+     * Compared after trimming and uppercasing.
+     */
+    public const HOSPITAL_PLACEHOLDERS = ['SIN ASIGNAR', 'NO ESPECIFICADO', 'NO ASIGNADO', 'N/A', 'NA', '-'];
+
+    /**
+     * Upper bound of ProSaNet lookups performed while backfilling hospitals for a single report.
+     */
+    private const MAX_HOSPITAL_BACKFILL_LOOKUPS = 300;
+
+    /**
      * Temporary image files to clean up after report generation.
      */
     private array $tempImageFiles = [];
+
+    /**
+     * Affiliate lookups keyed by "documentType|documentNumber".
+     *
+     * @var array<string, array<string, mixed>|null>
+     */
+    private array $affiliateLookupCache = [];
 
     /**
      * Cache for colors lookup
@@ -60,6 +78,13 @@ class SstDeliveryReportService
         try {
             // Validate filters
             $this->validateFilters($filters);
+
+            // Normalize hospital selection (single value, CSV or array) into a list
+            $filters['hospitals'] = $this->normalizeHospitalFilter($filters);
+
+            // Resolve missing hospitals from ProSaNet before filtering, so recovered
+            // records are included when the report is scoped to specific hospitals
+            $this->backfillMissingHospitals($filters);
 
             // Get all deliveries matching filters
             $deliveries = $this->getAllDeliveries($filters);
@@ -159,18 +184,75 @@ class SstDeliveryReportService
     }
 
     /**
+     * Normalize the hospital filter into a list of hospital names.
+     * Accepts `hospitals` (array or comma separated) and the legacy single `hospital` value.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return list<string>
+     */
+    public function normalizeHospitalFilter(array $filters): array
+    {
+        $raw = $filters['hospitals'] ?? $filters['hospital'] ?? null;
+
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+
+        $values = is_array($raw) ? $raw : explode(',', (string) $raw);
+
+        $hospitals = [];
+
+        foreach ($values as $value) {
+            $value = trim((string) $value);
+
+            if ($value === '' || strcasecmp($value, 'all') === 0) {
+                continue;
+            }
+
+            $hospitals[mb_strtoupper($value)] = $value;
+        }
+
+        return array_values($hospitals);
+    }
+
+    /**
      * Get all deliveries matching filters (with pagination).
      */
     private function getAllDeliveries(array $filters): Collection
     {
-        $query = SstDeliveryRecord::query()
+        $query = $this->buildDeliveriesQuery($filters)
             ->with('items')
             ->orderByDesc('delivered_at');
 
-        // Apply filters
-        if (! empty($filters['hospital']) && $filters['hospital'] !== 'all') {
-            $query->where('affiliate_hospital', $filters['hospital']);
-        }
+        $this->applyHospitalFilter($query, $filters['hospitals'] ?? []);
+
+        // Get all records (no pagination for report)
+        return $query->get();
+    }
+
+    /**
+     * Get all returns matching filters.
+     */
+    private function getAllReturns(array $filters): Collection
+    {
+        $query = $this->buildReturnsQuery($filters)
+            ->with('items')
+            ->orderByDesc('returned_at');
+
+        $this->applyHospitalFilter($query, $filters['hospitals'] ?? []);
+
+        // Get all records (no pagination for report)
+        return $query->get();
+    }
+
+    /**
+     * Base delivery query with every filter applied except the hospital selection.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    private function buildDeliveriesQuery(array $filters): Builder
+    {
+        $query = SstDeliveryRecord::query();
 
         if (isset($filters['startDate'])) {
             try {
@@ -201,23 +283,17 @@ class SstDeliveryReportService
             });
         }
 
-        // Get all records (no pagination for report)
-        return $query->get();
+        return $query;
     }
 
     /**
-     * Get all returns matching filters.
+     * Base return query with every filter applied except the hospital selection.
+     *
+     * @param  array<string, mixed>  $filters
      */
-    private function getAllReturns(array $filters): Collection
+    private function buildReturnsQuery(array $filters): Builder
     {
-        $query = SstReturnRecord::query()
-            ->with('items')
-            ->orderByDesc('returned_at');
-
-        // Apply filters
-        if (! empty($filters['hospital']) && $filters['hospital'] !== 'all') {
-            $query->where('affiliate_hospital', $filters['hospital']);
-        }
+        $query = SstReturnRecord::query();
 
         if (isset($filters['startDate'])) {
             try {
@@ -249,8 +325,202 @@ class SstDeliveryReportService
             });
         }
 
-        // Get all records (no pagination for report)
-        return $query->get();
+        return $query;
+    }
+
+    /**
+     * @param  list<string>  $hospitals
+     */
+    private function applyHospitalFilter(Builder $query, array $hospitals): void
+    {
+        if ($hospitals === []) {
+            return;
+        }
+
+        $query->whereIn('affiliate_hospital', $hospitals);
+    }
+
+    /**
+     * Whether a stored hospital value should be treated as "not assigned".
+     */
+    public function isHospitalMissing(?string $hospital): bool
+    {
+        $normalized = mb_strtoupper(trim((string) $hospital));
+
+        return $normalized === '' || in_array($normalized, self::HOSPITAL_PLACEHOLDERS, true);
+    }
+
+    /**
+     * Resolve the hospital shown for a record, falling back to the affiliate lookup data.
+     *
+     * @param  array<string, mixed>|null  $affiliate
+     */
+    private function resolveRecordHospital(?string $recordHospital, ?array $affiliate): string
+    {
+        if (! $this->isHospitalMissing($recordHospital)) {
+            return trim((string) $recordHospital);
+        }
+
+        $affiliateHospital = $affiliate['hospital'] ?? null;
+
+        if (! $this->isHospitalMissing($affiliateHospital)) {
+            return trim((string) $affiliateHospital);
+        }
+
+        return 'No especificado';
+    }
+
+    /**
+     * Constrain a delivery/return query to records without a usable hospital.
+     * UPPER/TRIM keeps the match consistent across collations and stored casing.
+     */
+    private function applyMissingHospitalCondition(Builder $query): void
+    {
+        $placeholders = implode(',', array_fill(0, count(self::HOSPITAL_PLACEHOLDERS), '?'));
+
+        $query->where(function (Builder $builder) use ($placeholders) {
+            $builder->whereNull('affiliate_hospital')
+                ->orWhereRaw("UPPER(TRIM(affiliate_hospital)) IN ({$placeholders})", self::HOSPITAL_PLACEHOLDERS)
+                ->orWhereRaw("TRIM(affiliate_hospital) = ''");
+        });
+    }
+
+    /**
+     * Look up an affiliate through SstDotacionService (ProSaNet API with Excel fallback),
+     * memoized per document for the lifetime of the report.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function lookupAffiliate(string $documentType, string $documentNumber): ?array
+    {
+        $cacheKey = $documentType.'|'.$documentNumber;
+
+        if (array_key_exists($cacheKey, $this->affiliateLookupCache)) {
+            return $this->affiliateLookupCache[$cacheKey];
+        }
+
+        try {
+            return $this->affiliateLookupCache[$cacheKey] = $this->dotacionService->findAffiliate($documentType, $documentNumber);
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo consultar el afiliado para resolver su hospital', [
+                'document_type' => $documentType,
+                'document_number' => $documentNumber,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->affiliateLookupCache[$cacheKey] = null;
+        }
+    }
+
+    /**
+     * Resolve and persist the hospital of delivery/return records whose snapshot is empty
+     * or holds a placeholder, using the affiliate's most recent convenio from ProSaNet.
+     *
+     * Runs before the hospital filter is applied so recovered records can match the selection.
+     *
+     * @param  array<string, mixed>  $filters
+     * @param  int|null  $limit  Max distinct documents to look up (defaults to MAX_HOSPITAL_BACKFILL_LOOKUPS).
+     * @param  bool  $dryRun  Resolve hospitals without persisting them.
+     * @return array{pendingDocuments: int, processedDocuments: int, resolvedDocuments: int, unresolvedDocuments: int, updatedRecords: int}
+     */
+    public function backfillMissingHospitals(array $filters = [], ?int $limit = null, bool $dryRun = false): array
+    {
+        $pendingDeliveries = $this->buildDeliveriesQuery($filters);
+        $this->applyMissingHospitalCondition($pendingDeliveries);
+
+        $pendingReturns = $this->buildReturnsQuery($filters);
+        $this->applyMissingHospitalCondition($pendingReturns);
+
+        $columns = ['affiliate_id', 'affiliate_document_type', 'affiliate_document_number'];
+
+        $pending = $pendingDeliveries->get($columns)->concat($pendingReturns->get($columns));
+
+        if ($pending->isEmpty()) {
+            return [
+                'pendingDocuments' => 0,
+                'processedDocuments' => 0,
+                'resolvedDocuments' => 0,
+                'unresolvedDocuments' => 0,
+                'updatedRecords' => 0,
+            ];
+        }
+
+        $documents = [];
+
+        foreach ($pending as $record) {
+            $docType = strtoupper(trim((string) ($record->affiliate_document_type ?: $this->parseDocumentTypeFromId($record->affiliate_id))));
+            $docNumber = trim((string) ($record->affiliate_document_number ?: $this->parseDocumentNumberFromId($record->affiliate_id)));
+
+            if ($docType === '' || $docNumber === '') {
+                continue;
+            }
+
+            $documents[$docType.'|'.$docNumber] = ['documentType' => $docType, 'documentNumber' => $docNumber];
+        }
+
+        $totalPendingDocuments = count($documents);
+        $documents = array_slice($documents, 0, $limit ?? self::MAX_HOSPITAL_BACKFILL_LOOKUPS);
+
+        $updatedRecords = 0;
+        $resolvedDocuments = 0;
+        $unresolvedDocuments = 0;
+
+        foreach ($documents as $document) {
+            $affiliate = $this->lookupAffiliate($document['documentType'], $document['documentNumber']);
+            $hospital = $affiliate['hospital'] ?? null;
+
+            if ($this->isHospitalMissing($hospital)) {
+                $unresolvedDocuments++;
+
+                continue;
+            }
+
+            $resolvedDocuments++;
+
+            if ($dryRun) {
+                continue;
+            }
+
+            $updatedRecords += $this->persistResolvedHospital(
+                $document['documentType'],
+                $document['documentNumber'],
+                trim((string) $hospital),
+            );
+        }
+
+        $stats = [
+            'pendingDocuments' => $totalPendingDocuments,
+            'processedDocuments' => count($documents),
+            'resolvedDocuments' => $resolvedDocuments,
+            'unresolvedDocuments' => $unresolvedDocuments,
+            'updatedRecords' => $updatedRecords,
+        ];
+
+        Log::info('Backfill de hospitales en entregas/devoluciones de dotación', $stats + ['dry_run' => $dryRun]);
+
+        return $stats;
+    }
+
+    /**
+     * Persist a resolved hospital on every delivery/return of the affiliate that still lacks one.
+     *
+     * @return int Number of updated rows.
+     */
+    private function persistResolvedHospital(string $documentType, string $documentNumber, string $hospital): int
+    {
+        $updated = 0;
+
+        foreach ([SstDeliveryRecord::class, SstReturnRecord::class] as $model) {
+            $query = $model::query()
+                ->where('affiliate_document_type', $documentType)
+                ->where('affiliate_document_number', $documentNumber);
+
+            $this->applyMissingHospitalCondition($query);
+
+            $updated += $query->update(['affiliate_hospital' => $hospital]);
+        }
+
+        return $updated;
     }
 
     /**
@@ -283,11 +553,9 @@ class SstDeliveryReportService
         }
 
         foreach ($affiliatesMap as $affiliateId => $affiliate) {
-            $hasSnapshot = ($affiliate['hospital'] ?? '') !== ''
-                || ($affiliate['firstName'] ?? '') !== ''
-                || ($affiliate['lastName'] ?? '') !== '';
+            $hasIdentity = ($affiliate['firstName'] ?? '') !== '' || ($affiliate['lastName'] ?? '') !== '';
 
-            if ($hasSnapshot) {
+            if ($hasIdentity && ! $this->isHospitalMissing($affiliate['hospital'] ?? null)) {
                 continue;
             }
 
@@ -298,11 +566,18 @@ class SstDeliveryReportService
                 continue;
             }
 
-            $found = $this->dotacionService->findAffiliate($docType, $docNumber);
+            $found = $this->lookupAffiliate($docType, $docNumber);
 
-            if ($found) {
-                $affiliatesMap[$affiliateId] = $found;
+            if (! $found) {
+                continue;
             }
+
+            // Never trade a usable snapshot hospital for an unassigned one from the API
+            if ($this->isHospitalMissing($found['hospital'] ?? null) && ! $this->isHospitalMissing($affiliate['hospital'] ?? null)) {
+                $found['hospital'] = $affiliate['hospital'];
+            }
+
+            $affiliatesMap[$affiliateId] = $found;
         }
 
         return $affiliatesMap;
@@ -363,26 +638,19 @@ class SstDeliveryReportService
      */
     private function filterDeliveries(Collection $deliveries, array $filters, array $affiliatesMap): Collection
     {
-        return $deliveries->filter(function (SstDeliveryRecord $record) use ($filters, $affiliatesMap) {
-            // Additional filtering can be done here if needed
-            // Most filtering is already done in the query, but we can add normalization here
+        $hospitals = $filters['hospitals'] ?? [];
 
-            // Normalize hospital filter if needed
-            if (isset($filters['hospital']) && $filters['hospital'] !== 'all') {
-                $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
-                $recordHospital = $record->affiliate_hospital
-                    ?: ($affiliate['hospital'] ?? '');
+        if ($hospitals === []) {
+            return $deliveries;
+        }
 
-                // Normalize for comparison (case-insensitive)
-                $filterHospital = mb_strtoupper(trim($filters['hospital']));
-                $recordHospitalNormalized = mb_strtoupper(trim($recordHospital));
+        return $deliveries->filter(function (SstDeliveryRecord $record) use ($hospitals, $affiliatesMap) {
+            $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
 
-                if ($filterHospital && ! str_contains($recordHospitalNormalized, $filterHospital)) {
-                    return false;
-                }
-            }
-
-            return true;
+            return $this->matchesHospitalSelection(
+                $this->resolveRecordHospital($record->affiliate_hospital, $affiliate),
+                $hospitals,
+            );
         });
     }
 
@@ -391,27 +659,38 @@ class SstDeliveryReportService
      */
     private function filterReturns(Collection $returns, array $filters, array $affiliatesMap): Collection
     {
-        return $returns->filter(function (SstReturnRecord $record) use ($filters, $affiliatesMap) {
-            // Additional filtering can be done here if needed
-            // Most filtering is already done in the query, but we can add normalization here
+        $hospitals = $filters['hospitals'] ?? [];
 
-            // Normalize hospital filter if needed
-            if (isset($filters['hospital']) && $filters['hospital'] !== 'all') {
-                $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
-                $recordHospital = $record->affiliate_hospital
-                    ?: ($affiliate['hospital'] ?? '');
+        if ($hospitals === []) {
+            return $returns;
+        }
 
-                // Normalize for comparison (case-insensitive)
-                $filterHospital = mb_strtoupper(trim($filters['hospital']));
-                $recordHospitalNormalized = mb_strtoupper(trim($recordHospital));
+        return $returns->filter(function (SstReturnRecord $record) use ($hospitals, $affiliatesMap) {
+            $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
 
-                if ($filterHospital && ! str_contains($recordHospitalNormalized, $filterHospital)) {
-                    return false;
-                }
-            }
-
-            return true;
+            return $this->matchesHospitalSelection(
+                $this->resolveRecordHospital($record->affiliate_hospital, $affiliate),
+                $hospitals,
+            );
         });
+    }
+
+    /**
+     * Case-insensitive match of a record hospital against the selected hospitals.
+     *
+     * @param  list<string>  $hospitals
+     */
+    private function matchesHospitalSelection(string $recordHospital, array $hospitals): bool
+    {
+        $normalizedRecord = mb_strtoupper(trim($recordHospital));
+
+        foreach ($hospitals as $hospital) {
+            if (str_contains($normalizedRecord, mb_strtoupper(trim($hospital)))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -510,9 +789,7 @@ class SstDeliveryReportService
                     : '')
                 ?: 'Sin información';
 
-            $hospital = $record->affiliate_hospital
-                ?: ($affiliate['hospital'] ?? '')
-                ?: 'No especificado';
+            $hospital = $this->resolveRecordHospital($record->affiliate_hospital, $affiliate);
 
             $role = $record->affiliate_role
                 ?: ($affiliate['role'] ?? '')
@@ -733,9 +1010,7 @@ class SstDeliveryReportService
                     : '')
                 ?: 'Sin información';
 
-            $hospital = $record->affiliate_hospital
-                ?: ($affiliate['hospital'] ?? '')
-                ?: 'No especificado';
+            $hospital = $this->resolveRecordHospital($record->affiliate_hospital, $affiliate);
 
             $role = $record->affiliate_role
                 ?: ($affiliate['role'] ?? '')
@@ -894,8 +1169,10 @@ class SstDeliveryReportService
         $sheet->getStyle("A{$row}")->getFont()->setBold(true)->setSize(12);
         $row++;
 
+        $selectedHospitals = $filters['hospitals'] ?? [];
+
         $sheet->setCellValue("A{$row}", 'Hospital');
-        $sheet->setCellValue("B{$row}", $filters['hospital'] ?? 'Todos');
+        $sheet->setCellValue("B{$row}", $selectedHospitals === [] ? 'Todos' : implode(', ', $selectedHospitals));
         $row++;
 
         $sheet->setCellValue("A{$row}", 'Fecha desde');
@@ -1266,9 +1543,7 @@ class SstDeliveryReportService
             $uniqueAffiliateIds[$record->affiliate_id] = true;
 
             $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
-            $hospital = $record->affiliate_hospital
-                ?: ($affiliate['hospital'] ?? '')
-                ?: 'No especificado';
+            $hospital = $this->resolveRecordHospital($record->affiliate_hospital, $affiliate);
 
             if (! isset($stats['deliveriesByHospital'][$hospital])) {
                 $stats['deliveriesByHospital'][$hospital] = [
@@ -1334,9 +1609,7 @@ class SstDeliveryReportService
             $uniqueAffiliateIds[$record->affiliate_id] = true;
 
             $affiliate = $affiliatesMap[$record->affiliate_id] ?? null;
-            $hospital = $record->affiliate_hospital
-                ?: ($affiliate['hospital'] ?? '')
-                ?: 'No especificado';
+            $hospital = $this->resolveRecordHospital($record->affiliate_hospital, $affiliate);
 
             if (! isset($stats['returnsByHospital'][$hospital])) {
                 $stats['returnsByHospital'][$hospital] = [
@@ -1727,9 +2000,7 @@ class SstDeliveryReportService
 
         foreach ($deliveries as $delivery) {
             $affiliate = $affiliatesMap[$delivery->affiliate_id] ?? null;
-            $hospital = $delivery->affiliate_hospital
-                ?: ($affiliate['hospital'] ?? '')
-                ?: 'No especificado';
+            $hospital = $this->resolveRecordHospital($delivery->affiliate_hospital, $affiliate);
 
             $hospitalTotals[$hospital] = ($hospitalTotals[$hospital] ?? 0) + 1;
         }

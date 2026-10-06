@@ -67,11 +67,16 @@ class SstDeliveryReportController extends Controller
         try {
             $filters = $request->only([
                 'hospital',
+                'hospitals',
                 'startDate',
                 'endDate',
                 'documentNumber',
                 'deliveredBy',
             ]);
+
+            // Collapse `hospital` / `hospitals` into a single normalized list
+            $filters['hospitals'] = $this->reportService->normalizeHospitalFilter($filters);
+            unset($filters['hospital']);
 
             $this->reportService->validateReportFilters($filters);
 
