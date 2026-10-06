@@ -38,6 +38,7 @@ class SstDotacionCreateDeliveryTest extends TestCase
         Storage::fake('prosalud-private');
 
         $afiliadoMock = Mockery::mock(AfiliadoService::class);
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
         $afiliadoMock->shouldReceive('getAfiliadoBasicWithConvenios')
             ->once()
             ->with('CC', '1000764643')
@@ -107,16 +108,13 @@ class SstDotacionCreateDeliveryTest extends TestCase
         Event::fake([MessageLogged::class]);
 
         $afiliadoMock = Mockery::mock(AfiliadoService::class);
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
         $afiliadoMock->shouldReceive('getAfiliadoBasicWithConvenios')
             ->once()
             ->with('CC', '9999999999')
             ->andReturn(null);
-        $afiliadoMock->shouldReceive('getAllAfiliadosBasic')
-            ->once()
-            ->andReturn([]);
-        // Diagnostics build the full collection when it's safe/cheap to do so (cache already warm).
-        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
-        $afiliadoMock->shouldReceive('isAllAfiliadosBasicCacheWarm')->andReturn(true);
+        // With the API enabled the catalog is never the lookup source, not even for diagnostics.
+        $afiliadoMock->shouldNotReceive('getAllAfiliadosBasic');
 
         $service = new SstDotacionService($afiliadoMock);
 
@@ -142,6 +140,7 @@ class SstDotacionCreateDeliveryTest extends TestCase
         Event::fake([MessageLogged::class]);
 
         $afiliadoMock = Mockery::mock(AfiliadoService::class);
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
         $afiliadoMock->shouldReceive('getAfiliadoBasicWithConvenios')
             ->once()
             ->with('CC', '1000764643')

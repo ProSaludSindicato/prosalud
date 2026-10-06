@@ -28,15 +28,18 @@ class AffiliateServiceUnavailableTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_find_affiliate_fails_fast_when_detail_lookup_fails_and_catalog_cache_is_cold(): void
+    /**
+     * With the API enabled, the convenio-less summary catalog is never an acceptable fallback:
+     * it would yield hospital 'SIN ASIGNAR' and role null, silently persisting wrong data.
+     */
+    public function test_find_affiliate_fails_instead_of_falling_back_to_the_convenio_less_catalog(): void
     {
         $afiliadoMock = Mockery::mock(AfiliadoService::class);
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
         $afiliadoMock->shouldReceive('getAfiliadoBasicWithConvenios')
             ->once()
             ->with('CC', '1000764643')
             ->andReturn(false);
-        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
-        $afiliadoMock->shouldReceive('isAllAfiliadosBasicCacheWarm')->andReturn(false);
         $afiliadoMock->shouldNotReceive('getAllAfiliadosBasic');
 
         $service = new SstDotacionService($afiliadoMock);
@@ -46,15 +49,41 @@ class AffiliateServiceUnavailableTest extends TestCase
         $service->findAffiliate('CC', '1000764643');
     }
 
-    public function test_find_affiliate_uses_cached_catalog_when_detail_lookup_fails_but_cache_is_warm(): void
+    public function test_find_affiliate_keeps_hospital_and_role_from_the_detail_api(): void
     {
         $afiliadoMock = Mockery::mock(AfiliadoService::class);
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
         $afiliadoMock->shouldReceive('getAfiliadoBasicWithConvenios')
             ->once()
-            ->with('CC', '1000764643')
-            ->andReturn(false);
-        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(true);
-        $afiliadoMock->shouldReceive('isAllAfiliadosBasicCacheWarm')->andReturn(true);
+            ->with('CC', '1001509956')
+            ->andReturn([
+                'tipo_documento' => 'CC',
+                'documento' => '1001509956',
+                'nombres' => 'Juliana',
+                'apellidos' => 'Ramírez',
+                'estado' => 'ACTIVO',
+                'convenios' => [
+                    [
+                        'cliente' => 'HMFS - BELLO',
+                        'proceso' => 'ENFERMERO(A) PROFESIONAL - URGENCIAS',
+                        'estado' => 'Activo',
+                        'fecha_ingreso' => '2024-01-01',
+                        'fecha_fin' => null,
+                    ],
+                ],
+            ]);
+        $afiliadoMock->shouldNotReceive('getAllAfiliadosBasic');
+
+        $affiliate = (new SstDotacionService($afiliadoMock))->findAffiliate('CC', '1001509956');
+
+        $this->assertSame('HMFS - BELLO', $affiliate['hospital']);
+        $this->assertSame('ENFERMERO(A) PROFESIONAL - URGENCIAS', $affiliate['role']);
+    }
+
+    public function test_find_affiliate_uses_excel_catalog_when_api_is_disabled(): void
+    {
+        $afiliadoMock = Mockery::mock(AfiliadoService::class);
+        $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(false);
         $afiliadoMock->shouldReceive('getAllAfiliadosBasic')->once()->andReturn([
             [
                 'tipo_documento' => 'CC',
@@ -68,9 +97,7 @@ class AffiliateServiceUnavailableTest extends TestCase
             ],
         ]);
 
-        $service = new SstDotacionService($afiliadoMock);
-
-        $affiliate = $service->findAffiliate('CC', '1000764643');
+        $affiliate = (new SstDotacionService($afiliadoMock))->findAffiliate('CC', '1000764643');
 
         $this->assertNotNull($affiliate);
         $this->assertSame('HMFS - BELLO', $affiliate['hospital']);

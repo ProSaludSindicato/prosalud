@@ -179,41 +179,41 @@ class SstDotacionService
      */
     public function findAffiliateWithConvenios(string $documentType, string $documentNumber): ?array
     {
-        if ($this->afiliadoService->isProsanetApiEnabled()) {
-            $fromApi = $this->afiliadoService->getAfiliadoBasicWithConvenios($documentType, $documentNumber);
-
-            // false = API unavailable, null = not found. Neither can yield a trustworthy hospital.
-            return is_array($fromApi)
-                ? $this->mapAfiliadoBasicToDotacionRecord(
-                    $fromApi,
-                    $this->resolveLastDeliveryAtIso($documentType, $documentNumber),
-                )
-                : null;
+        try {
+            return $this->findAffiliate($documentType, $documentNumber);
+        } catch (AffiliateServiceUnavailableException) {
+            // Bulk callers skip what they cannot resolve instead of aborting the whole run.
+            return null;
         }
-
-        // API disabled: the Excel-backed catalog does carry real convenios, so it is a valid source.
-        return $this->matchAffiliateInCollection(
-            $this->buildAffiliatesCollection(),
-            $documentType,
-            $documentNumber,
-        );
     }
 
     /**
      * Find affiliate by document type and number.
      *
-     * @throws AffiliateServiceUnavailableException When the single-document ProSanet lookup
-     *                                              fails and recovering would require a fresh
-     *                                              full catalog sync (dozens of paginated HTTP
-     *                                              requests) that is too slow for an interactive request.
+     * When the ProSanet API is enabled, the per-document "detail" endpoint is the only acceptable
+     * source: it is the sole one carrying convenios, and therefore hospital and proceso. The bulk
+     * summary catalog maps every item with 'convenios' => [] (ProSaNetAfiliadoMapper::
+     * mapSummaryItemToBasicAfiliado), so falling back to it silently produces an affiliate with
+     * hospital 'SIN ASIGNAR' and role null — which is how deliveries ended up stored without
+     * hospital even though the panel had just shown the real one. Resyncing that catalog also costs
+     * 50+ paginated requests, hanging interactive requests until the browser times out.
+     *
+     * So: fail loudly instead of persisting data we know is wrong.
+     *
+     * @throws AffiliateServiceUnavailableException When the detail lookup is unavailable and no
+     *                                              convenio-bearing source can be used.
      */
     public function findAffiliate(string $documentType, string $documentNumber): ?array
     {
-        $fromApi = $this->afiliadoService->getAfiliadoBasicWithConvenios($documentType, $documentNumber);
+        if ($this->afiliadoService->isProsanetApiEnabled()) {
+            $fromApi = $this->afiliadoService->getAfiliadoBasicWithConvenios($documentType, $documentNumber);
 
-        if ($fromApi !== false) {
             if ($fromApi === null) {
                 return null;
+            }
+
+            if ($fromApi === false) {
+                throw new AffiliateServiceUnavailableException;
             }
 
             return $this->mapAfiliadoBasicToDotacionRecord(
@@ -222,17 +222,7 @@ class SstDotacionService
             );
         }
 
-        // $fromApi === false means either the API is disabled (expected; the Excel-backed catalog
-        // below is the normal path and is cheap) or the single-document lookup failed transiently
-        // (network hiccup, timeout, 5xx). In the latter case, only use the full catalog if it's
-        // already cached — never trigger a fresh resync inline just to recover from one failed
-        // call. A resync can mean 50+ paginated requests to ProSanet and take over a minute,
-        // which blocks this request and times out in the browser (see incident: registering a
-        // single delivery triggered a full employees-api/summary pagination).
-        if ($this->afiliadoService->isProsanetApiEnabled() && ! $this->afiliadoService->isAllAfiliadosBasicCacheWarm()) {
-            throw new AffiliateServiceUnavailableException;
-        }
-
+        // API disabled: the Excel-backed catalog does carry real convenios, so it is a valid source.
         return $this->matchAffiliateInCollection(
             $this->buildAffiliatesCollection(),
             $documentType,
@@ -665,10 +655,10 @@ class SstDotacionService
         $documentType = strtoupper(trim($documentType));
         $documentNumber = trim($documentNumber);
 
-        // Diagnostics are a nice-to-have, not worth triggering a fresh ProSanet catalog resync
-        // (dozens of paginated requests) just to enrich a log line. Only build the full collection
-        // when it's free to do so (API disabled, or the 30-min catalog cache is already warm).
-        if ($this->afiliadoService->isProsanetApiEnabled() && ! $this->afiliadoService->isAllAfiliadosBasicCacheWarm()) {
+        // Diagnostics are a nice-to-have, not worth a full ProSanet catalog resync (dozens of
+        // paginated requests) just to enrich a log line. Only inspect the catalog when it is the
+        // actual lookup source, i.e. when the API is disabled.
+        if ($this->afiliadoService->isProsanetApiEnabled()) {
             Log::info('Dotación/EPP: búsqueda de afiliado sin resultado — diagnóstico detallado omitido (requeriría resincronizar el catálogo completo)', [
                 'dotacion_epp' => true,
                 'lookup' => 'find_affiliate',

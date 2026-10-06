@@ -120,11 +120,9 @@ class SstDotacionFindAffiliateDetailTest extends TestCase
         config(['services.prosanet.enabled' => false]);
 
         $afiliadoMock = Mockery::mock(AfiliadoService::class);
-        $afiliadoMock->shouldReceive('getAfiliadoBasicWithConvenios')
-            ->once()
-            ->with('CC', '1234567890')
-            ->andReturn(false);
         $afiliadoMock->shouldReceive('isProsanetApiEnabled')->andReturn(false);
+        // API disabled: go straight to the Excel catalog, no per-document detail call at all.
+        $afiliadoMock->shouldNotReceive('getAfiliadoBasicWithConvenios');
         $afiliadoMock->shouldReceive('getAllAfiliadosBasic')->once()->andReturn([
             [
                 'tipo_documento' => 'CC',
