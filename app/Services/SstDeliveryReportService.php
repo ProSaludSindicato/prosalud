@@ -509,7 +509,7 @@ class SstDeliveryReportService
      * @param  int|null  $limit  Max distinct documents to look up (defaults to MAX_HOSPITAL_BACKFILL_LOOKUPS).
      * @param  bool  $dryRun  Report what is missing without calling ProSaNet or persisting anything.
      * @param  bool  $waitForRateLimit  Sleep when the ProSaNet rate limit is exhausted instead of stopping the run.
-     * @return array{pendingDocuments: int, missingHospitalRecords: int, missingRoleRecords: int, processedDocuments: int, resolvedDocuments: int, unresolvedDocuments: int, updatedRecords: int, updatedRoleRecords: int, rateLimited: bool}
+     * @return array{pendingDocuments: int, missingHospitalRecords: int, missingHospitalItemLines: int, missingRoleRecords: int, processedDocuments: int, resolvedDocuments: int, unresolvedDocuments: int, updatedRecords: int, updatedRoleRecords: int, rateLimited: bool}
      */
     public function backfillMissingHospitals(array $filters = [], ?int $limit = null, bool $dryRun = false, bool $waitForRateLimit = false): array
     {
@@ -519,13 +519,15 @@ class SstDeliveryReportService
         $pendingReturns = $this->buildReturnsQuery($filters);
         $this->applyMissingAffiliateDataCondition($pendingReturns);
 
-        $columns = ['affiliate_id', 'affiliate_document_type', 'affiliate_document_number', 'affiliate_hospital', 'affiliate_role'];
+        $columns = ['id', 'affiliate_id', 'affiliate_document_type', 'affiliate_document_number', 'affiliate_hospital', 'affiliate_role'];
 
-        $pending = $pendingDeliveries->get($columns)->concat($pendingReturns->get($columns));
+        $pending = $pendingDeliveries->withCount('items')->get($columns)
+            ->concat($pendingReturns->withCount('items')->get($columns));
 
         $stats = [
             'pendingDocuments' => 0,
             'missingHospitalRecords' => 0,
+            'missingHospitalItemLines' => 0,
             'missingRoleRecords' => 0,
             'processedDocuments' => 0,
             'resolvedDocuments' => 0,
@@ -546,6 +548,7 @@ class SstDeliveryReportService
             $needsRole = $this->isRoleMissing($record->affiliate_role);
 
             $stats['missingHospitalRecords'] += $needsHospital ? 1 : 0;
+            $stats['missingHospitalItemLines'] += $needsHospital ? $record->items_count : 0;
             $stats['missingRoleRecords'] += $needsRole ? 1 : 0;
 
             $docType = strtoupper(trim((string) ($record->affiliate_document_type ?: $this->parseDocumentTypeFromId($record->affiliate_id))));
