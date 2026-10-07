@@ -139,7 +139,7 @@ class ConvenioPresidentSignReviewService
         ];
     }
 
-    private function refreshBatchProgress(?int $batchId): void
+    public function refreshBatchProgress(?int $batchId): void
     {
         if ($batchId === null) {
             return;
