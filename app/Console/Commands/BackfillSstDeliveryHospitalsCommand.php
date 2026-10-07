@@ -12,9 +12,9 @@ class BackfillSstDeliveryHospitalsCommand extends Command
                             {--end-date= : Fecha máxima de entrega/devolución (Y-m-d)}
                             {--document-number= : Limitar a un número de documento}
                             {--limit=300 : Máximo de afiliados distintos a consultar en ProSaNet}
-                            {--dry-run : Mostrar lo que se resolvería sin guardar}';
+                            {--dry-run : Solo contar en base de datos lo que falta, sin consultar ProSaNet ni guardar}';
 
-    protected $description = 'Resolver en ProSaNet y asignar el hospital de las entregas y devoluciones de dotación/EPP que quedaron sin hospital';
+    protected $description = 'Resolver en ProSaNet y asignar el hospital y el cargo/proceso de las entregas y devoluciones de dotación/EPP que quedaron sin ellos';
 
     public function handle(SstDeliveryReportService $reportService): int
     {
@@ -28,13 +28,27 @@ class BackfillSstDeliveryHospitalsCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
 
         if ($dryRun) {
-            $this->warn('Modo simulación: no se guardará ningún cambio.');
+            $this->warn('Modo simulación: solo se revisa la base de datos, no se consulta ProSaNet ni se guarda nada.');
         }
 
-        $stats = $reportService->backfillMissingHospitals($filters, $limit, $dryRun);
+        $stats = $reportService->backfillMissingHospitals($filters, $limit, $dryRun, waitForRateLimit: true);
 
         if ($stats['pendingDocuments'] === 0) {
-            $this->info('No hay entregas ni devoluciones sin hospital asignado.');
+            $this->info('No hay entregas ni devoluciones sin hospital o cargo asignado.');
+
+            return Command::SUCCESS;
+        }
+
+        if ($dryRun) {
+            $this->table(
+                ['Métrica', 'Valor'],
+                [
+                    ['Afiliados con datos faltantes', $stats['pendingDocuments']],
+                    ['Registros sin hospital', $stats['missingHospitalRecords']],
+                    ['Registros sin cargo/proceso', $stats['missingRoleRecords']],
+                    ['Consultas a ProSaNet necesarias', min($stats['pendingDocuments'], $limit)],
+                ],
+            );
 
             return Command::SUCCESS;
         }
@@ -42,11 +56,12 @@ class BackfillSstDeliveryHospitalsCommand extends Command
         $this->table(
             ['Métrica', 'Valor'],
             [
-                ['Afiliados sin hospital', $stats['pendingDocuments']],
+                ['Afiliados con datos faltantes', $stats['pendingDocuments']],
                 ['Afiliados consultados', $stats['processedDocuments']],
-                ['Hospital resuelto', $stats['resolvedDocuments']],
-                ['Sin hospital en ProSaNet', $stats['unresolvedDocuments']],
-                ['Registros actualizados', $stats['updatedRecords']],
+                ['Datos resueltos', $stats['resolvedDocuments']],
+                ['Sin datos en ProSaNet', $stats['unresolvedDocuments']],
+                ['Registros con hospital actualizado', $stats['updatedRecords']],
+                ['Registros con cargo/proceso actualizado', $stats['updatedRoleRecords']],
             ],
         );
 

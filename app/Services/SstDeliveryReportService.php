@@ -5,11 +5,13 @@ namespace App\Services;
 use App\Models\InventoryColor;
 use App\Models\SstDeliveryRecord;
 use App\Models\SstReturnRecord;
+use App\Support\ConvenioRateLimiter;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use PhpOffice\PhpSpreadsheet\Chart\Chart;
 use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
 use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
@@ -60,6 +62,17 @@ class SstDeliveryReportService
      * Remaining detail-API lookup budget for this run.
      */
     private int $affiliateLookupsRemaining = self::MAX_HOSPITAL_BACKFILL_LOOKUPS;
+
+    /**
+     * Whether lookups sleep until the shared ProSaNet rate limit frees up (bulk command) instead of
+     * giving up right away (report jobs, which must not block a queue worker).
+     */
+    private bool $waitForRateLimit = false;
+
+    /**
+     * Set when a lookup was skipped because the ProSaNet rate limit was exhausted.
+     */
+    private bool $rateLimitReached = false;
 
     /**
      * Cache for colors lookup
@@ -415,6 +428,12 @@ class SstDeliveryReportService
             return null;
         }
 
+        if (! $this->acquireProsanetSlot()) {
+            $this->rateLimitReached = true;
+
+            return null;
+        }
+
         $this->affiliateLookupsRemaining--;
 
         try {
@@ -431,41 +450,104 @@ class SstDeliveryReportService
     }
 
     /**
-     * Resolve and persist the hospital of delivery/return records whose snapshot is empty
-     * or holds a placeholder, using the affiliate's most recent convenio from ProSaNet.
+     * Reserve one request in the ProSaNet per-minute budget shared with the convenio jobs.
+     * Sleeps until the window frees up when waiting is enabled; otherwise reports exhaustion.
+     */
+    private function acquireProsanetSlot(): bool
+    {
+        while (ConvenioRateLimiter::tooManyProsanetAttempts()) {
+            if (! $this->waitForRateLimit) {
+                return false;
+            }
+
+            Sleep::for(max(1, ConvenioRateLimiter::prosanetAvailableIn()))->seconds();
+        }
+
+        ConvenioRateLimiter::hitProsanet();
+
+        return true;
+    }
+
+    /**
+     * Whether a stored role (cargo/proceso) should be treated as "not assigned".
+     */
+    private function isRoleMissing(?string $role): bool
+    {
+        return trim((string) $role) === '';
+    }
+
+    /**
+     * Constrain a delivery/return query to records without a stored role.
+     */
+    private function applyMissingRoleCondition(Builder $query): void
+    {
+        $query->where(function (Builder $builder) {
+            $builder->whereNull('affiliate_role')
+                ->orWhereRaw("TRIM(affiliate_role) = ''");
+        });
+    }
+
+    /**
+     * Constrain a delivery/return query to records lacking a usable hospital or role.
+     */
+    private function applyMissingAffiliateDataCondition(Builder $query): void
+    {
+        $query->where(function (Builder $builder) {
+            $builder->where(fn (Builder $hospital) => $this->applyMissingHospitalCondition($hospital))
+                ->orWhere(fn (Builder $role) => $this->applyMissingRoleCondition($role));
+        });
+    }
+
+    /**
+     * Resolve and persist the hospital and role (cargo/proceso) of delivery/return records whose
+     * snapshot is empty or holds a placeholder, using the affiliate's most recent convenio from ProSaNet.
      *
      * Runs before the hospital filter is applied so recovered records can match the selection.
+     * A dry run only inspects the database: it never calls ProSaNet.
      *
      * @param  array<string, mixed>  $filters
      * @param  int|null  $limit  Max distinct documents to look up (defaults to MAX_HOSPITAL_BACKFILL_LOOKUPS).
-     * @param  bool  $dryRun  Resolve hospitals without persisting them.
-     * @return array{pendingDocuments: int, processedDocuments: int, resolvedDocuments: int, unresolvedDocuments: int, updatedRecords: int}
+     * @param  bool  $dryRun  Report what is missing without calling ProSaNet or persisting anything.
+     * @param  bool  $waitForRateLimit  Sleep when the ProSaNet rate limit is exhausted instead of stopping the run.
+     * @return array{pendingDocuments: int, missingHospitalRecords: int, missingRoleRecords: int, processedDocuments: int, resolvedDocuments: int, unresolvedDocuments: int, updatedRecords: int, updatedRoleRecords: int, rateLimited: bool}
      */
-    public function backfillMissingHospitals(array $filters = [], ?int $limit = null, bool $dryRun = false): array
+    public function backfillMissingHospitals(array $filters = [], ?int $limit = null, bool $dryRun = false, bool $waitForRateLimit = false): array
     {
         $pendingDeliveries = $this->buildDeliveriesQuery($filters);
-        $this->applyMissingHospitalCondition($pendingDeliveries);
+        $this->applyMissingAffiliateDataCondition($pendingDeliveries);
 
         $pendingReturns = $this->buildReturnsQuery($filters);
-        $this->applyMissingHospitalCondition($pendingReturns);
+        $this->applyMissingAffiliateDataCondition($pendingReturns);
 
-        $columns = ['affiliate_id', 'affiliate_document_type', 'affiliate_document_number'];
+        $columns = ['affiliate_id', 'affiliate_document_type', 'affiliate_document_number', 'affiliate_hospital', 'affiliate_role'];
 
         $pending = $pendingDeliveries->get($columns)->concat($pendingReturns->get($columns));
 
+        $stats = [
+            'pendingDocuments' => 0,
+            'missingHospitalRecords' => 0,
+            'missingRoleRecords' => 0,
+            'processedDocuments' => 0,
+            'resolvedDocuments' => 0,
+            'unresolvedDocuments' => 0,
+            'updatedRecords' => 0,
+            'updatedRoleRecords' => 0,
+            'rateLimited' => false,
+        ];
+
         if ($pending->isEmpty()) {
-            return [
-                'pendingDocuments' => 0,
-                'processedDocuments' => 0,
-                'resolvedDocuments' => 0,
-                'unresolvedDocuments' => 0,
-                'updatedRecords' => 0,
-            ];
+            return $stats;
         }
 
         $documents = [];
 
         foreach ($pending as $record) {
+            $needsHospital = $this->isHospitalMissing($record->affiliate_hospital);
+            $needsRole = $this->isRoleMissing($record->affiliate_role);
+
+            $stats['missingHospitalRecords'] += $needsHospital ? 1 : 0;
+            $stats['missingRoleRecords'] += $needsRole ? 1 : 0;
+
             $docType = strtoupper(trim((string) ($record->affiliate_document_type ?: $this->parseDocumentTypeFromId($record->affiliate_id))));
             $docNumber = trim((string) ($record->affiliate_document_number ?: $this->parseDocumentNumberFromId($record->affiliate_id)));
 
@@ -473,10 +555,20 @@ class SstDeliveryReportService
                 continue;
             }
 
-            $documents[$docType.'|'.$docNumber] = ['documentType' => $docType, 'documentNumber' => $docNumber];
+            $key = $docType.'|'.$docNumber;
+            $documents[$key] ??= ['documentType' => $docType, 'documentNumber' => $docNumber, 'needsHospital' => false, 'needsRole' => false];
+            $documents[$key]['needsHospital'] = $documents[$key]['needsHospital'] || $needsHospital;
+            $documents[$key]['needsRole'] = $documents[$key]['needsRole'] || $needsRole;
         }
 
-        $totalPendingDocuments = count($documents);
+        $stats['pendingDocuments'] = count($documents);
+
+        if ($dryRun) {
+            return $stats;
+        }
+
+        $this->waitForRateLimit = $waitForRateLimit;
+        $this->rateLimitReached = false;
 
         if ($limit !== null) {
             $this->affiliateLookupsRemaining = max($this->affiliateLookupsRemaining, $limit);
@@ -484,63 +576,82 @@ class SstDeliveryReportService
 
         $documents = array_slice($documents, 0, $limit ?? self::MAX_HOSPITAL_BACKFILL_LOOKUPS);
 
-        $updatedRecords = 0;
-        $resolvedDocuments = 0;
-        $unresolvedDocuments = 0;
+        try {
+            foreach ($documents as $document) {
+                $affiliate = $this->lookupAffiliate($document['documentType'], $document['documentNumber']);
 
-        foreach ($documents as $document) {
-            $affiliate = $this->lookupAffiliate($document['documentType'], $document['documentNumber']);
-            $hospital = $affiliate['hospital'] ?? null;
+                if ($this->rateLimitReached) {
+                    $stats['rateLimited'] = true;
 
-            if ($this->isHospitalMissing($hospital)) {
-                $unresolvedDocuments++;
+                    break;
+                }
 
-                continue;
+                $stats['processedDocuments']++;
+
+                $hospital = $document['needsHospital'] && ! $this->isHospitalMissing($affiliate['hospital'] ?? null)
+                    ? trim((string) $affiliate['hospital'])
+                    : null;
+                $role = $document['needsRole'] && ! $this->isRoleMissing($affiliate['role'] ?? null)
+                    ? trim((string) $affiliate['role'])
+                    : null;
+
+                if ($hospital === null && $role === null) {
+                    $stats['unresolvedDocuments']++;
+
+                    continue;
+                }
+
+                $stats['resolvedDocuments']++;
+
+                $updated = $this->persistResolvedAffiliateData(
+                    $document['documentType'],
+                    $document['documentNumber'],
+                    $hospital,
+                    $role,
+                );
+
+                $stats['updatedRecords'] += $updated['hospital'];
+                $stats['updatedRoleRecords'] += $updated['role'];
             }
-
-            $resolvedDocuments++;
-
-            if ($dryRun) {
-                continue;
-            }
-
-            $updatedRecords += $this->persistResolvedHospital(
-                $document['documentType'],
-                $document['documentNumber'],
-                trim((string) $hospital),
-            );
+        } finally {
+            $this->waitForRateLimit = false;
         }
 
-        $stats = [
-            'pendingDocuments' => $totalPendingDocuments,
-            'processedDocuments' => count($documents),
-            'resolvedDocuments' => $resolvedDocuments,
-            'unresolvedDocuments' => $unresolvedDocuments,
-            'updatedRecords' => $updatedRecords,
-        ];
-
-        Log::info('Backfill de hospitales en entregas/devoluciones de dotación', $stats + ['dry_run' => $dryRun]);
+        Log::info('Backfill de hospital y cargo en entregas/devoluciones de dotación', $stats);
 
         return $stats;
     }
 
     /**
-     * Persist a resolved hospital on every delivery/return of the affiliate that still lacks one.
+     * Persist the resolved hospital and role on every delivery/return of the affiliate that still lacks them.
+     * Values already stored are never overwritten.
      *
-     * @return int Number of updated rows.
+     * @return array{hospital: int, role: int} Number of updated rows per field.
      */
-    private function persistResolvedHospital(string $documentType, string $documentNumber, string $hospital): int
+    private function persistResolvedAffiliateData(string $documentType, string $documentNumber, ?string $hospital, ?string $role): array
     {
-        $updated = 0;
+        $updated = ['hospital' => 0, 'role' => 0];
 
         foreach ([SstDeliveryRecord::class, SstReturnRecord::class] as $model) {
-            $query = $model::query()
-                ->where('affiliate_document_type', $documentType)
-                ->where('affiliate_document_number', $documentNumber);
+            if ($hospital !== null) {
+                $query = $model::query()
+                    ->where('affiliate_document_type', $documentType)
+                    ->where('affiliate_document_number', $documentNumber);
 
-            $this->applyMissingHospitalCondition($query);
+                $this->applyMissingHospitalCondition($query);
 
-            $updated += $query->update(['affiliate_hospital' => $hospital]);
+                $updated['hospital'] += $query->update(['affiliate_hospital' => $hospital]);
+            }
+
+            if ($role !== null) {
+                $query = $model::query()
+                    ->where('affiliate_document_type', $documentType)
+                    ->where('affiliate_document_number', $documentNumber);
+
+                $this->applyMissingRoleCondition($query);
+
+                $updated['role'] += $query->update(['affiliate_role' => $role]);
+            }
         }
 
         return $updated;

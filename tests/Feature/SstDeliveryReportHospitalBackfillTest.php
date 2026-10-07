@@ -7,6 +7,8 @@ use App\Models\SstReturnRecord;
 use App\Services\SstDeliveryReportService;
 use App\Services\SstDotacionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Mockery;
 use Mockery\MockInterface;
@@ -41,7 +43,7 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function affiliate(string $documentNumber, string $hospital): array
+    private function affiliate(string $documentNumber, string $hospital, ?string $role = 'BACTERIOLOGO(A)'): array
     {
         return [
             'id' => 'CC-'.$documentNumber,
@@ -50,13 +52,13 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
             'documentType' => 'CC',
             'documentNumber' => $documentNumber,
             'hospital' => $hospital,
-            'role' => 'BACTERIOLOGO(A)',
+            'role' => $role,
             'active' => true,
             'status' => 'ACTIVO',
         ];
     }
 
-    private function createDelivery(string $documentNumber, ?string $hospital): SstDeliveryRecord
+    private function createDelivery(string $documentNumber, ?string $hospital, ?string $role = null): SstDeliveryRecord
     {
         return SstDeliveryRecord::query()->create([
             'id' => (string) Str::uuid(),
@@ -66,6 +68,7 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
             'affiliate_first_name' => 'JUAN',
             'affiliate_last_name' => 'PEREZ',
             'affiliate_hospital' => $hospital,
+            'affiliate_role' => $role,
             'delivered_by_name' => 'Usuario Prueba',
             'delivered_at' => now(),
             'signed_document_type' => 'CC',
@@ -74,7 +77,7 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
         ]);
     }
 
-    private function createReturn(string $documentNumber, ?string $hospital): SstReturnRecord
+    private function createReturn(string $documentNumber, ?string $hospital, ?string $role = null): SstReturnRecord
     {
         return SstReturnRecord::query()->create([
             'id' => (string) Str::uuid(),
@@ -84,6 +87,7 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
             'affiliate_first_name' => 'JUAN',
             'affiliate_last_name' => 'PEREZ',
             'affiliate_hospital' => $hospital,
+            'affiliate_role' => $role,
             'received_by_name' => 'Usuario Prueba',
             'returned_at' => now(),
             'signed_document_type' => 'CC',
@@ -143,7 +147,7 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
 
     public function test_backfill_leaves_records_that_already_have_a_hospital_untouched(): void
     {
-        $assigned = $this->createDelivery('444', 'HOSPITAL CENTRAL');
+        $assigned = $this->createDelivery('444', 'HOSPITAL CENTRAL', 'MEDICO GENERAL');
 
         $this->mockDotacionService([
             'CC-444' => $this->affiliate('444', 'OTRO HOSPITAL'),
@@ -153,6 +157,7 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
 
         $this->assertSame(0, $stats['pendingDocuments']);
         $this->assertSame('HOSPITAL CENTRAL', $assigned->fresh()->affiliate_hospital);
+        $this->assertSame('MEDICO GENERAL', $assigned->fresh()->affiliate_role);
     }
 
     public function test_backfill_keeps_placeholder_when_affiliate_source_has_no_hospital(): void
@@ -160,7 +165,7 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
         $unresolved = $this->createDelivery('555', 'SIN ASIGNAR');
 
         $this->mockDotacionService([
-            'CC-555' => $this->affiliate('555', 'SIN ASIGNAR'),
+            'CC-555' => $this->affiliate('555', 'SIN ASIGNAR', null),
         ]);
 
         $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals();
@@ -170,19 +175,126 @@ class SstDeliveryReportHospitalBackfillTest extends TestCase
         $this->assertSame('SIN ASIGNAR', $unresolved->fresh()->affiliate_hospital);
     }
 
-    public function test_backfill_dry_run_resolves_without_persisting(): void
+    public function test_backfill_dry_run_only_reads_the_database_and_never_calls_prosanet(): void
     {
         $record = $this->createDelivery('666', 'SIN ASIGNAR');
+        $this->createReturn('666', 'HOSPITAL CENTRAL');
+        $this->createDelivery('667', 'HOSPITAL CENTRAL', 'ENFERMERA');
 
-        $this->mockDotacionService([
-            'CC-666' => $this->affiliate('666', 'HMFS - BELLO'),
-        ]);
+        $this->mock(SstDotacionService::class, function (MockInterface $mock) {
+            $mock->shouldNotReceive('findAffiliateWithConvenios');
+            $mock->shouldNotReceive('findAffiliate');
+        });
 
         $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals([], null, true);
 
-        $this->assertSame(1, $stats['resolvedDocuments']);
+        $this->assertSame(1, $stats['pendingDocuments']);
+        $this->assertSame(1, $stats['missingHospitalRecords']);
+        $this->assertSame(2, $stats['missingRoleRecords']);
+        $this->assertSame(0, $stats['processedDocuments']);
         $this->assertSame(0, $stats['updatedRecords']);
+        $this->assertSame(0, $stats['updatedRoleRecords']);
         $this->assertSame('SIN ASIGNAR', $record->fresh()->affiliate_hospital);
+        $this->assertNull($record->fresh()->affiliate_role);
+    }
+
+    public function test_backfill_assigns_role_alongside_hospital(): void
+    {
+        $delivery = $this->createDelivery('111', 'SIN ASIGNAR');
+        $return = $this->createReturn('111', null, '  ');
+
+        $this->mockDotacionService([
+            'CC-111' => $this->affiliate('111', 'HMFS - BELLO', 'AUXILIAR DE ENFERMERIA'),
+        ]);
+
+        $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals();
+
+        $this->assertSame(1, $stats['resolvedDocuments']);
+        $this->assertSame(2, $stats['updatedRecords']);
+        $this->assertSame(2, $stats['updatedRoleRecords']);
+        $this->assertSame('AUXILIAR DE ENFERMERIA', $delivery->fresh()->affiliate_role);
+        $this->assertSame('AUXILIAR DE ENFERMERIA', $return->fresh()->affiliate_role);
+        $this->assertSame('HMFS - BELLO', $return->fresh()->affiliate_hospital);
+    }
+
+    public function test_backfill_fills_only_the_role_when_hospital_is_already_assigned(): void
+    {
+        $record = $this->createDelivery('222', 'HOSPITAL CENTRAL');
+
+        $this->mockDotacionService([
+            'CC-222' => $this->affiliate('222', 'OTRO HOSPITAL', 'BACTERIOLOGO(A)'),
+        ]);
+
+        $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals();
+
+        $this->assertSame(1, $stats['pendingDocuments']);
+        $this->assertSame(0, $stats['updatedRecords']);
+        $this->assertSame(1, $stats['updatedRoleRecords']);
+        $this->assertSame('HOSPITAL CENTRAL', $record->fresh()->affiliate_hospital);
+        $this->assertSame('BACTERIOLOGO(A)', $record->fresh()->affiliate_role);
+    }
+
+    public function test_backfill_never_overwrites_an_existing_role(): void
+    {
+        $record = $this->createDelivery('333', 'SIN ASIGNAR', 'MEDICO GENERAL');
+
+        $this->mockDotacionService([
+            'CC-333' => $this->affiliate('333', 'HMFS - BELLO', 'ENFERMERA'),
+        ]);
+
+        $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals();
+
+        $this->assertSame(1, $stats['updatedRecords']);
+        $this->assertSame(0, $stats['updatedRoleRecords']);
+        $this->assertSame('MEDICO GENERAL', $record->fresh()->affiliate_role);
+    }
+
+    public function test_backfill_waits_for_the_rate_limit_instead_of_exceeding_it(): void
+    {
+        config(['convenios.prosanet_per_minute' => 2]);
+        RateLimiter::clear('convenio-prosanet-lookup');
+        Sleep::fake();
+        Sleep::whenFakingSleep(fn () => RateLimiter::clear('convenio-prosanet-lookup'));
+
+        foreach (['101', '102', '103', '104', '105'] as $number) {
+            $this->createDelivery($number, 'SIN ASIGNAR');
+        }
+
+        $this->mockDotacionService(array_combine(
+            ['CC-101', 'CC-102', 'CC-103', 'CC-104', 'CC-105'],
+            array_map(fn (string $n) => $this->affiliate($n, 'HMFS - BELLO'), ['101', '102', '103', '104', '105']),
+        ));
+
+        $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals([], null, false, true);
+
+        $this->assertSame(5, $stats['processedDocuments']);
+        $this->assertSame(5, $stats['updatedRecords']);
+        $this->assertFalse($stats['rateLimited']);
+        Sleep::assertSleptTimes(2);
+    }
+
+    public function test_backfill_without_waiting_stops_when_the_rate_limit_is_exhausted(): void
+    {
+        config(['convenios.prosanet_per_minute' => 2]);
+        RateLimiter::clear('convenio-prosanet-lookup');
+        Sleep::fake();
+
+        foreach (['101', '102', '103'] as $number) {
+            $this->createDelivery($number, 'SIN ASIGNAR');
+        }
+
+        $this->mockDotacionService([
+            'CC-101' => $this->affiliate('101', 'HMFS - BELLO'),
+            'CC-102' => $this->affiliate('102', 'HMFS - BELLO'),
+            'CC-103' => $this->affiliate('103', 'HMFS - BELLO'),
+        ]);
+
+        $stats = app(SstDeliveryReportService::class)->backfillMissingHospitals();
+
+        $this->assertSame(2, $stats['processedDocuments']);
+        $this->assertSame(0, $stats['unresolvedDocuments']);
+        $this->assertTrue($stats['rateLimited']);
+        Sleep::assertNeverSlept();
     }
 
     public function test_report_includes_recovered_record_when_filtering_by_that_hospital(): void
