@@ -806,6 +806,8 @@ class VoteController extends Controller
             // Log the vote change
             Log::warning('Voto modificado - candidato cambiado', [
                 'vote_id' => $vote->id,
+                'changed_by_user_id' => $request->user()?->id,
+                'changed_by_email' => $request->user()?->email,
                 'voter_document_type' => $voterDocumentType,
                 'voter_document_number' => $voterDocumentNumber,
                 'candidate_election_key' => $candidateElectionKey,

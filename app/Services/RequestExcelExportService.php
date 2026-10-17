@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Constants\RequestStatuses;
 use App\Constants\RequestTypes;
 use App\Models\RequestForm;
+use App\Models\User;
 use App\Support\HospitalCatalog;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -78,14 +79,14 @@ class RequestExcelExportService
     /**
      * Generar reporte Excel con las 4 hojas especificadas.
      */
-    public function generateReport(array $filters): string
+    public function generateReport(array $filters, ?User $scopeUser = null): string
     {
         try {
             // Validar filtros
             $this->validateFilters($filters);
 
             // Obtener solicitudes con filtros aplicados
-            $requests = $this->getRequests($filters);
+            $requests = $this->getRequests($filters, $scopeUser);
 
             // Crear spreadsheet
             $spreadsheet = new Spreadsheet;
@@ -153,9 +154,13 @@ class RequestExcelExportService
     /**
      * Obtener solicitudes con filtros aplicados.
      */
-    private function getRequests(array $filters): Collection
+    private function getRequests(array $filters, ?User $scopeUser = null): Collection
     {
         $query = RequestForm::query();
+
+        if ($scopeUser !== null) {
+            (new RequestListService)->applyAssignmentFilters($query, $scopeUser);
+        }
 
         // Filtro por tipo de solicitud
         $requestType = $filters['request_type'] ?? 'all';

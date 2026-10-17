@@ -33,7 +33,8 @@ class ConvenioClientErrorReportTest extends TestCase
                 }
 
                 $loggedFrontendError = $context['message'] === $payload['message']
-                    && $context['token'] === $payload['token']
+                    && ! array_key_exists('token', $context)
+                    && $context['token_hash_prefix'] === substr(hash('sha256', $payload['token']), 0, 12)
                     && $context['url'] === $payload['url']
                     && $context['stack'] === $payload['stack']
                     && $context['component_stack'] === $payload['component_stack']

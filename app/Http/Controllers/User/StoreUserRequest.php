@@ -71,7 +71,7 @@ class StoreUserRequest extends FormRequest
     protected function failedValidation(Validator $validator)
     {
         Log::error('Errores de validación en StoreUserRequest', [
-            'input' => $this->all(),
+            'input' => $this->except(['password', 'password_confirmation']),
             'errors' => $validator->errors()->toArray(),
         ]);
 

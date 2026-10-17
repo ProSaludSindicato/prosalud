@@ -3153,13 +3153,23 @@ class RequestController extends Controller
     /**
      * Download a response attachment file.
      */
-    public function downloadResponseAttachment(int $responseId, int $attachmentId): \Illuminate\Http\Response|JsonResponse
+    public function downloadResponseAttachment(Request $request, int $responseId, int $attachmentId): \Illuminate\Http\Response|JsonResponse
     {
         $attachment = RequestResponseAttachment::where('request_response_id', $responseId)
             ->where('id', $attachmentId)
             ->first();
 
         if (! $attachment) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anexo no encontrado',
+            ], 404);
+        }
+
+        $requestForm = $attachment->requestResponse?->requestForm;
+        $user = $request->user();
+
+        if ($requestForm === null || (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $requestForm))) {
             return response()->json([
                 'success' => false,
                 'message' => 'Anexo no encontrado',
@@ -3241,7 +3251,7 @@ class RequestController extends Controller
             ];
 
             // Generar reporte
-            $filePath = $this->excelExportService->generateReport($filters);
+            $filePath = $this->excelExportService->generateReport($filters, $user);
 
             if (! file_exists($filePath)) {
                 Log::error('Error generando reporte Excel de solicitudes: archivo no creado', [
@@ -3613,6 +3623,8 @@ class RequestController extends Controller
             ->where('request_type', RequestTypes::ACTUALIZAR_DATOS_PERSONALES)
             ->where('status', RequestStatuses::PENDING)
             ->orderBy('created_at', 'desc');
+
+        $this->requestListService->applyAssignmentFilters($query, $request->user());
 
         // Eager load responses, validator y logs de estado para obtener el último cambio
         $requests = $query->with('responses', 'validator', 'statusLogs.user')->get();
@@ -4328,6 +4340,14 @@ class RequestController extends Controller
                     'success' => false,
                     'message' => 'Solicitud no encontrada',
                 ], 404);
+            }
+
+            $user = $request->user();
+            if (! $user->hasRole('admin') && ! $this->assignmentService->canUserAccessRequest($user, $requestForm)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permiso para gestionar esta solicitud',
+                ], 403);
             }
 
             // Verificar que sea una solicitud de certificado de convenio

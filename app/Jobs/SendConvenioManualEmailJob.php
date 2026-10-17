@@ -274,7 +274,6 @@ class SendConvenioManualEmailJob implements ShouldQueue
                     'tracking_id' => $tracking->id,
                     'documento' => $this->documento,
                     'email' => $email,
-                    'signing_url' => $signingUrl,
                     'is_test' => $isTest,
                 ]);
             }

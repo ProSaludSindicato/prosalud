@@ -88,6 +88,25 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        RateLimiter::for('voting', function (Request $request) {
+            return Limit::perMinute(120)
+                ->by('voting:'.md5($request->ip().$request->userAgent()))
+                ->response(function (Request $request, array $headers) {
+                    \App\Services\SecurityAlertService::logRateLimitExceeded(
+                        'voting',
+                        $request->path(),
+                        $request->ip(),
+                        $request->userAgent()
+                    );
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Demasiadas solicitudes. Intenta nuevamente más tarde.',
+                        'error' => 'rate_limit_exceeded',
+                    ], 429, $headers);
+                });
+        });
+
         RateLimiter::for('public-endpoints', function (Request $request) {
             // Fingerprinting: IP + User-Agent para endpoints públicos
             $fingerprint = md5(

@@ -10,7 +10,9 @@ use App\Models\WellnessActivityRealized;
 use App\Models\WellnessEvent;
 use App\Models\WellnessEventImage;
 use App\Models\WellnessRequest;
+use App\Services\WellnessRequestVisibilityService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -102,8 +104,17 @@ class WellnessActivityRealizedController extends Controller
     /**
      * Get activity realized for a wellness request.
      */
-    public function show(int $wellness_request_id): JsonResponse
+    public function show(Request $request, WellnessRequestVisibilityService $visibilityService, int $wellness_request_id): JsonResponse
     {
+        $wellnessRequest = WellnessRequest::query()->find($wellness_request_id);
+
+        if ($wellnessRequest === null || ! $visibilityService->canViewRequest($request->user(), $wellnessRequest)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para ver esta solicitud',
+            ], 403);
+        }
+
         try {
             $activityRealized = WellnessActivityRealized::where('wellness_request_id', $wellness_request_id)
                 ->with('evidences')

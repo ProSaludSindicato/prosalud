@@ -2,25 +2,31 @@
 
 namespace App\Services;
 
-use App\Constants\{RequestStatuses, RequestTypes};
+use App\Constants\RequestStatuses;
+use App\Constants\RequestTypes;
 use App\Jobs\SendRequestFormResponseEmailJob;
-use App\Models\{RequestForm, RequestResponse, RequestStatusLog};
-use App\Mail\RequestFormResponse;
+use App\Models\RequestForm;
+use App\Models\RequestResponse;
+use App\Models\RequestStatusLog;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\{Log, Mail, Storage};
 use Illuminate\Support\Collection;
-use PhpOffice\PhpSpreadsheet\{IOFactory, Spreadsheet, Writer\Xlsx};
-use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
-use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
-use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class BulkRequestResponseService
 {
     public function __construct(
         private AuditLogService $auditLogService,
-    ) {
-    }
+    ) {}
 
     /**
      * Generar plantilla Excel para respuesta masiva
@@ -32,7 +38,7 @@ class BulkRequestResponseService
             $requests = $this->getRequestsForTemplate($filters);
 
             // Crear spreadsheet
-            $spreadsheet = new Spreadsheet();
+            $spreadsheet = new Spreadsheet;
             $spreadsheet->removeSheetByIndex(0);
 
             // Crear hoja principal
@@ -43,7 +49,7 @@ class BulkRequestResponseService
             $this->buildTemplateSheet($sheet, $requests);
 
             // Guardar en archivo temporal
-            $tempFile = tempnam(sys_get_temp_dir(), 'bulk_response_template_') . '.xlsx';
+            $tempFile = tempnam(sys_get_temp_dir(), 'bulk_response_template_').'.xlsx';
             $writer = new Xlsx($spreadsheet);
             $writer->save($tempFile);
 
@@ -126,18 +132,21 @@ class BulkRequestResponseService
                         stripos($firstCell, 'No modifique') !== false ||
                         stripos($firstCell, 'Puede dejar filas') !== false) {
                         $skippedRows++;
+
                         continue; // Saltar filas de instrucciones
                     }
 
                     // Validar que la fila tenga ID de solicitud
                     if (empty($requestId)) {
                         $skippedRows++;
+
                         continue; // Saltar filas sin ID
                     }
 
                     // Si no tiene nuevo estado, asunto ni cuerpo, saltar sin error (fila intencionalmente vacía)
                     if (empty($newStatus) && empty($emailSubject) && empty($emailBody)) {
                         $skippedRows++;
+
                         continue; // Saltar filas vacías intencionalmente
                     }
 
@@ -145,6 +154,7 @@ class BulkRequestResponseService
                     // Incluso si hay asunto o cuerpo, sin estado no se puede procesar
                     if (empty($newStatus)) {
                         $skippedRows++;
+
                         continue; // Saltar filas sin estado
                     }
 
@@ -252,7 +262,7 @@ class BulkRequestResponseService
             $query->where('status', $status);
         } else {
             // Por defecto, filtrar solo solicitudes pendientes o en revisión
-        $query->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW]);
+            $query->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW]);
         }
 
         // Filtro por tipo de solicitud si se especifica
@@ -280,7 +290,7 @@ class BulkRequestResponseService
 
         // Filtro por rango de fechas si se especifica
         $dateRange = $filters['date_range'] ?? [];
-        if (!($dateRange['include_all'] ?? true)) {
+        if (! ($dateRange['include_all'] ?? true)) {
             if (isset($dateRange['start_date'])) {
                 $startDate = Carbon::parse($dateRange['start_date'])->startOfDay();
                 $query->where('created_at', '>=', $startDate);
@@ -308,7 +318,7 @@ class BulkRequestResponseService
             $query->where('status', $status);
         } else {
             // Por defecto, filtrar solo solicitudes pendientes o en revisión
-        $query->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW]);
+            $query->whereIn('status', [RequestStatuses::PENDING, RequestStatuses::IN_REVIEW]);
         }
 
         // Filtro por tipo de solicitud si se especifica
@@ -336,7 +346,7 @@ class BulkRequestResponseService
 
         // Filtro por rango de fechas si se especifica
         $dateRange = $filters['date_range'] ?? [];
-        if (!($dateRange['include_all'] ?? true)) {
+        if (! ($dateRange['include_all'] ?? true)) {
             if (isset($dateRange['start_date'])) {
                 $startDate = Carbon::parse($dateRange['start_date'])->startOfDay();
                 $query->where('created_at', '>=', $startDate);
@@ -513,7 +523,7 @@ class BulkRequestResponseService
                     $fileColLetter = Coordinate::stringFromColumnIndex($fileColIndex);
                     $fileCell = "{$fileColLetter}{$row}";
 
-                    if (!empty($fileLinks[$i]['url'])) {
+                    if (! empty($fileLinks[$i]['url'])) {
                         $sheet->getCell($fileCell)->getHyperlink()->setUrl($fileLinks[$i]['url']);
                         $sheet->getCell($fileCell)->getHyperlink()->setTooltip('Hacer clic para abrir/descargar archivo');
                         $sheet->getStyle($fileCell)->getFont()->getColor()->setRGB('0000FF');
@@ -593,7 +603,7 @@ class BulkRequestResponseService
     {
         $files = $request->files ?? [];
 
-        if (empty($files) || !is_array($files)) {
+        if (empty($files) || ! is_array($files)) {
             return [];
         }
 
@@ -605,7 +615,7 @@ class BulkRequestResponseService
             $path = $fileMetadata['path'] ?? null;
             $originalName = $fileMetadata['original_name'] ?? $fileMetadata['original_key'] ?? $key;
 
-            if (!$path) {
+            if (! $path) {
                 continue;
             }
 
@@ -718,8 +728,8 @@ class BulkRequestResponseService
             }
         }
 
-        if (!empty($missingColumns)) {
-            throw new \Exception('Faltan columnas requeridas en el archivo: ' . implode(', ', $missingColumns));
+        if (! empty($missingColumns)) {
+            throw new \Exception('Faltan columnas requeridas en el archivo: '.implode(', ', $missingColumns));
         }
 
         return $indexes;
@@ -738,8 +748,12 @@ class BulkRequestResponseService
     ): void {
         // Validar que la solicitud exista
         $requestForm = RequestForm::find($requestId);
-        if (!$requestForm) {
+        if (! $requestForm) {
             throw new \Exception("Solicitud con ID {$requestId} no encontrada");
+        }
+
+        if (! app(RequestAssignmentService::class)->canUserAccessRequest($user, $requestForm)) {
+            throw new \Exception("No tienes permiso para responder la solicitud con ID {$requestId}");
         }
 
         // Validar que la solicitud esté en estado pendiente o en revisión
@@ -751,7 +765,7 @@ class BulkRequestResponseService
             'IN_REVIEW',
         ];
 
-        if (!in_array($currentStatus, $allowedStatuses)) {
+        if (! in_array($currentStatus, $allowedStatuses)) {
             $currentStatusLabel = $this->getStatusLabel($requestForm->status);
             throw new \Exception("La solicitud con ID {$requestId} no está en estado pendiente o en revisión. Estado actual: {$currentStatusLabel}");
         }
@@ -765,9 +779,9 @@ class BulkRequestResponseService
             RequestStatuses::REJECTED,
         ];
 
-        if (!$normalizedStatus || !in_array($normalizedStatus, $allowedFinalStatuses, true)) {
+        if (! $normalizedStatus || ! in_array($normalizedStatus, $allowedFinalStatuses, true)) {
             $validStatusesSpanish = ['Completada', 'Rechazada'];
-            throw new \Exception("Estado inválido: {$newStatus}. Estados válidos: " . implode(', ', $validStatusesSpanish));
+            throw new \Exception("Estado inválido: {$newStatus}. Estados válidos: ".implode(', ', $validStatusesSpanish));
         }
 
         // Validar campos requeridos
@@ -794,7 +808,7 @@ class BulkRequestResponseService
             $payload = $requestForm->payload ?? [];
             $nuevoCorreo = $payload['correo'] ?? null;
 
-            if (!empty($nuevoCorreo) && filter_var($nuevoCorreo, FILTER_VALIDATE_EMAIL)) {
+            if (! empty($nuevoCorreo) && filter_var($nuevoCorreo, FILTER_VALIDATE_EMAIL)) {
                 $recipientEmail = $nuevoCorreo;
 
                 Log::info('Usando nuevo correo del payload para solicitud de actualización de datos personales (respuesta masiva)', [
@@ -884,7 +898,7 @@ class BulkRequestResponseService
                 'row' => $rowNumber,
                 'error' => $e->getMessage(),
             ]);
-            throw new \Exception('Error al enviar el correo: ' . $e->getMessage());
+            throw new \Exception('Error al enviar el correo: '.$e->getMessage());
         }
 
         // Actualizar estado de la solicitud (solo si el correo se envió exitosamente)
@@ -967,7 +981,7 @@ class BulkRequestResponseService
      */
     private function formatDate($date): string
     {
-        if (!$date) {
+        if (! $date) {
             return '';
         }
 
@@ -985,7 +999,7 @@ class BulkRequestResponseService
     /**
      * Normalizar estado desde español a valor técnico
      *
-     * @param string $statusInSpanish Estado en español (ej: "Pendiente", "En Revisión")
+     * @param  string  $statusInSpanish  Estado en español (ej: "Pendiente", "En Revisión")
      * @return string|null Valor técnico normalizado o null si es inválido
      */
     private function normalizeStatusFromSpanish(string $statusInSpanish): ?string
@@ -1034,7 +1048,7 @@ class BulkRequestResponseService
         $requestType = $request->request_type;
         $requestTypeLabel = $this->getRequestTypeLabel($requestType);
         $documentRef = trim(
-            trim((string) ($request->document_type ?? '')) . ' ' . trim((string) ($request->document_number ?? ''))
+            trim((string) ($request->document_type ?? '')).' '.trim((string) ($request->document_number ?? ''))
         );
 
         // Caso 1: Actualización de Datos Personales
@@ -1099,7 +1113,7 @@ class BulkRequestResponseService
         if (is_string($infoCertificado)) {
             try {
                 $infoCertificado = json_decode($infoCertificado, true);
-                if (!is_array($infoCertificado)) {
+                if (! is_array($infoCertificado)) {
                     $infoCertificado = [];
                 }
             } catch (\Exception $e) {
@@ -1107,7 +1121,7 @@ class BulkRequestResponseService
             }
         }
 
-        if (!is_array($infoCertificado)) {
+        if (! is_array($infoCertificado)) {
             $infoCertificado = [];
         }
 
@@ -1164,6 +1178,7 @@ class BulkRequestResponseService
         }
 
         $strValue = strtolower(trim((string) $value));
+
         return in_array($strValue, ['true', '1', 'yes', 'si', 'sí']);
     }
 
@@ -1205,6 +1220,7 @@ class BulkRequestResponseService
         $label = preg_replace('/([a-z])([A-Z])/', '$1 $2', $key);
         // Reemplazar guiones bajos por espacios
         $label = str_replace('_', ' ', $label);
+
         // Capitalizar primera letra de cada palabra
         return ucwords(strtolower($label));
     }
@@ -1224,7 +1240,7 @@ class BulkRequestResponseService
 
         // Formatear montoSolicitado como moneda
         if ($key === 'montoSolicitado' && is_numeric($value)) {
-            return number_format($value, 0, ',', '.') . ' COP';
+            return number_format($value, 0, ',', '.').' COP';
         }
 
         // Formatear valores booleanos
@@ -1234,13 +1250,14 @@ class BulkRequestResponseService
 
         // Formatear números
         if (is_numeric($value)) {
-            return (string)$value;
+            return (string) $value;
         }
 
         // Formatear fechas si parecen ser fechas
         if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
             try {
                 $date = Carbon::parse($value);
+
                 return $date->format('d/m/Y');
             } catch (\Exception $e) {
                 // Si no es una fecha válida, devolver el valor original
@@ -1248,7 +1265,6 @@ class BulkRequestResponseService
         }
 
         // Devolver el valor como string
-        return (string)$value;
+        return (string) $value;
     }
 }
-

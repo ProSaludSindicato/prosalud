@@ -108,8 +108,7 @@ Route::get('/public/wellness-events/{wellness_event}', [WellnessEventController:
 
 // Private API - Wellness Events (requires authentication and permissions)
 // These routes are moved inside the authenticated group below
-Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show']);
-Route::middleware('candidate.voting.enabled')->group(function () {
+Route::middleware(['candidate.voting.enabled', 'throttle:voting'])->group(function () {
     Route::post('/votes', [VoteController::class, 'store']);
     Route::get('/votes/check', [VoteController::class, 'checkVote']);
     Route::get('/delegados', [DelegadosController::class, 'index']);
@@ -178,11 +177,6 @@ Route::post('/socio-demographic-surveys', [SocioDemographicSurveyController::cla
 
 // Public route for vaccination surveys (used by affiliates from public site) - Rate limiting: 20 requests per minute
 Route::post('/encuesta-vacunacion', [VaccinationSurveyController::class, 'store'])->middleware('throttle:public-endpoints');
-
-// RUTA TEMPORAL: Reintentar generación de certificado cuando falló por intermitencia del servicio Word a PDF
-// TODO: Eliminar esta ruta después de resolver el problema de intermitencia
-Route::post('/requests/{requestId}/retry-certificate-generation', [RequestController::class, 'retryCertificateGeneration'])
-    ->middleware('throttle:public-endpoints');
 
 // Certificados de Convenio routes (públicas, sin autenticación)
 Route::prefix('certificados')->group(function () {
@@ -354,7 +348,7 @@ Route::prefix('assembly')->group(function () {
     Route::get('/questions/{id}', [AssemblyQuestionController::class, 'show']);
 
     // Public routes - Votes (protected by assembly voting enabled gate)
-    Route::post('/questions/{questionId}/votes', [AssemblyVoteController::class, 'store'])->middleware('assembly.voting.enabled');
+    Route::post('/questions/{questionId}/votes', [AssemblyVoteController::class, 'store'])->middleware(['assembly.voting.enabled', 'throttle:voting']);
     Route::get('/questions/{questionId}/votes/me', [AssemblyVoteController::class, 'getMyVote']);
 
     // Public routes - Results
@@ -417,6 +411,10 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::post('/requests/export/excel', [RequestController::class, 'exportExcel'])->middleware('permission:requests.view');
     Route::get('/requests/responses/{response}/attachments/{attachment}', [RequestController::class, 'downloadResponseAttachment'])->middleware('permission:requests.view');
 
+    // RUTA TEMPORAL: Reintentar generación de certificado cuando falló por intermitencia del servicio Word a PDF
+    // TODO: Eliminar esta ruta después de resolver el problema de intermitencia
+    Route::post('/requests/{requestId}/retry-certificate-generation', [RequestController::class, 'retryCertificateGeneration'])->middleware('permission:requests.respond');
+
     // Rutas con parámetros dinámicos - DESPUÉS de las específicas
     Route::get('/requests/{request}', [RequestController::class, 'show'])->middleware('permission:requests.view');
     Route::get('/requests/{request}/status-history', [RequestController::class, 'statusHistory'])->middleware('permission:requests.view');
@@ -436,7 +434,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/votes/statistics', [VoteController::class, 'statistics'])->middleware('permission:votes.statistics.view');
     Route::get('/votes/hospital-statistics', [VoteController::class, 'hospitalStatistics'])->middleware('permission:votes.statistics.view');
     Route::get('/votes/audit-trail', [VoteController::class, 'auditTrail'])->middleware('permission:votes.audit.view');
-    Route::put('/votes/change-candidate', [VoteController::class, 'changeVoteCandidate'])->middleware('permission:votes.audit.view');
+    Route::put('/votes/change-candidate', [VoteController::class, 'changeVoteCandidate'])->middleware('permission:votes.manage');
     Route::get('/candidate-voting-periods', [CandidateVotingPeriodController::class, 'index'])->middleware('permission:votes.statistics.view|votes.audit.view');
     Route::post('/candidate-voting-periods', [CandidateVotingPeriodController::class, 'store'])->middleware('permission:voting.mode.manage');
     Route::patch('/candidate-voting-periods/{id}/activate', [CandidateVotingPeriodController::class, 'activate'])->middleware('permission:voting.mode.manage');
@@ -480,6 +478,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
     Route::get('/wellness-requests/completed/without-activities', [WellnessRequestController::class, 'getCompletedWithoutActivities'])->middleware('permission:wellness_requests.view');
 
     // Wellness Activity Realized routes
+    Route::get('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'show'])->middleware('permission:wellness_requests.view');
     Route::post('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'store'])->middleware('permission:wellness_requests.edit');
     Route::put('/wellness-requests/{wellness_request_id}/activity-realized', [WellnessActivityRealizedController::class, 'update'])->middleware('permission:wellness_requests.edit');
     Route::post('/wellness-requests/{wellness_request_id}/publish-to-gallery', [WellnessActivityRealizedController::class, 'publishToGallery'])->middleware('permission:wellness_activity.publish');

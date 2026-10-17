@@ -27,8 +27,8 @@ class UpdateUserRequest extends FormRequest
 
         return [
             'name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|required|email|unique:users,email,' . $userId . '|max:255',
-            'password' => ['sometimes', 'required', 'string', 'max:128', 'confirmed', new SecurePassword()],
+            'email' => 'sometimes|required|email|unique:users,email,'.$userId.'|max:255',
+            'password' => ['sometimes', 'required', 'string', 'max:128', 'confirmed', new SecurePassword],
             'is_active' => 'sometimes|boolean',
             'role' => 'sometimes|string|exists:roles,name',
         ];
@@ -77,7 +77,7 @@ class UpdateUserRequest extends FormRequest
     protected function failedValidation(Validator $validator)
     {
         Log::error('Errores de validación en UpdateUserRequest', [
-            'input' => $this->all(),
+            'input' => $this->except(['password', 'password_confirmation']),
             'errors' => $validator->errors()->toArray(),
         ]);
 

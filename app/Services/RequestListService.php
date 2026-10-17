@@ -206,7 +206,10 @@ class RequestListService
         return $result;
     }
 
-    private function applyAssignmentFilters(Builder $query, User $user): void
+    /**
+     * Restrict a request query to the request types/subtypes assigned to the user (admins see everything).
+     */
+    public function applyAssignmentFilters(Builder $query, User $user): void
     {
         if ($user->hasRole('admin')) {
             return;

@@ -366,8 +366,8 @@ class ConvenioPublicSigningController extends Controller
     {
         Log::error('[CONVENIO DIGITAL][FRONTEND] Error no controlado en visor de firma', [
             'message' => $request->validated('message'),
-            'url' => $request->validated('url'),
-            'token' => $request->validated('token'),
+            'url' => $this->redactSigningTokens($request->validated('url')),
+            'token_hash_prefix' => $this->signingTokenHashPrefix($request->validated('token')),
             'stack' => $request->validated('stack'),
             'component_stack' => $request->validated('component_stack'),
             'context' => $request->validated('context'),
@@ -378,5 +378,29 @@ class ConvenioPublicSigningController extends Controller
         return response()->json([
             'success' => true,
         ], 202);
+    }
+
+    /**
+     * Replace signing tokens embedded in a URL so the log never stores a usable signing link.
+     */
+    private function redactSigningTokens(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        return preg_replace('/[A-Za-z0-9]{32,128}/', '[token]', $url);
+    }
+
+    /**
+     * Short sha256 prefix of the token, enough to correlate with the stored hash without exposing the token.
+     */
+    private function signingTokenHashPrefix(?string $token): ?string
+    {
+        if ($token === null || $token === '') {
+            return null;
+        }
+
+        return substr(hash('sha256', $token), 0, 12);
     }
 }
