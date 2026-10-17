@@ -24,7 +24,8 @@ class RolePermissionSeeder extends Seeder
 
             // Votes
             'votes.statistics.view' => 'Ver estadísticas generales de votaciones (incluye estadísticas por hospital)',
-            'votes.audit.view' => 'Ver auditoría y trazabilidad de votaciones y gestionar cambios de candidato',
+            'votes.audit.view' => 'Ver auditoría y trazabilidad de votaciones',
+            'votes.manage' => 'Gestionar votaciones y cambiar el candidato de un voto emitido',
 
             // Assembly voting
             'assembly.questions.manage' => 'Gestionar preguntas y estados de votación de la asamblea',

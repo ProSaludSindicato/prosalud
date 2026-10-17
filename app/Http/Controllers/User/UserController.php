@@ -9,6 +9,7 @@ use App\Services\UserInvitationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -115,6 +116,8 @@ class UserController extends Controller
         $userData = $request->validated();
         $role = $userData['role'];
 
+        Gate::authorize('createWithRole', [User::class, $role]);
+
         unset($userData['role']);
 
         // El usuario se crea con una contraseña aleatoria que el usuario no conoce
@@ -198,10 +201,27 @@ class UserController extends Controller
     {
         $userData = $request->validated();
 
+        Gate::authorize('manage', $user);
+
         // Extract role if provided
         $role = $userData['role'] ?? null;
         if (isset($userData['role'])) {
             unset($userData['role']);
+        }
+
+        $roleChanged = $role !== null && $user->roles->pluck('name')->first() !== $role;
+        $statusChanged = array_key_exists('is_active', $userData) && (bool) $userData['is_active'] !== (bool) $user->is_active;
+
+        if ($roleChanged || $statusChanged) {
+            Gate::authorize('changeAccess', $user);
+        }
+
+        if ($roleChanged) {
+            Gate::authorize('assignRole', [$user, $role]);
+        }
+
+        if ($statusChanged && ! $request->user()->can('users.change_status')) {
+            abort(403);
         }
 
         $user->update($userData);
@@ -259,6 +279,9 @@ class UserController extends Controller
     {
         $isActive = $request->validated()['is_active'];
 
+        Gate::authorize('manage', $user);
+        Gate::authorize('changeAccess', $user);
+
         $user->update(['is_active' => $isActive]);
 
         $statusText = $isActive ? 'activado' : 'desactivado';
@@ -298,6 +321,8 @@ class UserController extends Controller
      */
     public function destroy(Request $request, User $user): JsonResponse
     {
+        Gate::authorize('delete', $user);
+
         // Guardar información del usuario antes de eliminarlo para el log
         $userData = [
             'id' => $user->id,

@@ -4,10 +4,14 @@ namespace App\Services;
 
 use App\Mail\UserPasswordReset;
 use App\Models\User;
-use Illuminate\Support\Facades\{Crypt, Log, Mail};
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class PasswordResetService
 {
+    private const TOKEN_PURPOSE = 'password_reset';
+
     /**
      * Envía un correo de restablecimiento de contraseña al usuario.
      */
@@ -39,15 +43,18 @@ class PasswordResetService
     /**
      * Genera un token firmado y con expiración para restablecer la contraseña.
      *
-     * El token contiene: user_id|expires_at_timestamp y se cifra con la clave de la aplicación.
+     * El token contiene: propósito|user_id|expires_at_timestamp|huella de la contraseña y se cifra con la clave de la aplicación.
+     * La huella cambia cuando se define una nueva contraseña, por lo que el token es de un solo uso.
      */
     public function generateToken(User $user, ?int $ttlMinutes = null): string
     {
         $ttlMinutes = $ttlMinutes ?? config('auth.password_reset_ttl_minutes', 60); // 60 minutos por defecto
 
         $payload = implode('|', [
+            self::TOKEN_PURPOSE,
             $user->id,
             now()->addMinutes($ttlMinutes)->getTimestamp(),
+            $this->passwordFingerprint($user),
         ]);
 
         return Crypt::encryptString($payload);
@@ -68,9 +75,9 @@ class PasswordResetService
             throw new \RuntimeException('Token inválido o manipulado.');
         }
 
-        [$userId, $expiresAtTimestamp] = explode('|', $decoded) + [null, null];
+        [$purpose, $userId, $expiresAtTimestamp, $fingerprint] = explode('|', $decoded) + [null, null, null, null];
 
-        if (!$userId || !$expiresAtTimestamp) {
+        if ($purpose !== self::TOKEN_PURPOSE || ! $userId || ! $expiresAtTimestamp || ! $fingerprint) {
             throw new \RuntimeException('Token inválido.');
         }
 
@@ -83,11 +90,15 @@ class PasswordResetService
         /** @var User|null $user */
         $user = User::find($userId);
 
-        if (!$user) {
+        if (! $user) {
             throw new \RuntimeException('Usuario no encontrado.');
         }
 
-        if (!$user->is_active) {
+        if (! hash_equals($this->passwordFingerprint($user), $fingerprint)) {
+            throw new \RuntimeException('Este enlace ya fue utilizado o ya no es válido. Solicita uno nuevo.');
+        }
+
+        if (! $user->is_active) {
             throw new \RuntimeException('El usuario no está activo.');
         }
 
@@ -95,6 +106,14 @@ class PasswordResetService
             'user' => $user,
             'expires_at' => $expiresAt,
         ];
+    }
+
+    /**
+     * Huella derivada del hash de contraseña actual: cambia en cuanto se define una nueva contraseña.
+     */
+    private function passwordFingerprint(User $user): string
+    {
+        return substr(hash_hmac('sha256', (string) $user->password, (string) config('app.key')), 0, 32);
     }
 
     /**
@@ -107,6 +126,6 @@ class PasswordResetService
         $baseUrl = config('services.frontend.url');
         $path = trim(config('services.frontend.password_reset_path'), '/');
 
-        return rtrim($baseUrl, '/') . '/' . $path . '?token=' . urlencode($token);
+        return rtrim($baseUrl, '/').'/'.$path.'?token='.urlencode($token);
     }
 }

@@ -4,10 +4,14 @@ namespace App\Services;
 
 use App\Mail\UserPasswordSetupInvitation;
 use App\Models\User;
-use Illuminate\Support\Facades\{Crypt, Log, Mail};
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class UserInvitationService
 {
+    private const TOKEN_PURPOSE = 'password_setup';
+
     /**
      * Envía un correo de invitación al usuario para que configure su contraseña.
      */
@@ -38,15 +42,18 @@ class UserInvitationService
     /**
      * Genera un token firmado y con expiración para que el usuario configure su contraseña.
      *
-     * El token contiene: user_id|expires_at_timestamp y se cifra con la clave de la aplicación.
+     * El token contiene: propósito|user_id|expires_at_timestamp|huella de la contraseña y se cifra con la clave de la aplicación.
+     * La huella cambia cuando se define una nueva contraseña, por lo que el token es de un solo uso.
      */
     public function generateToken(User $user, ?int $ttlMinutes = null): string
     {
         $ttlMinutes = $ttlMinutes ?? config('auth.password_setup_ttl_minutes', 60 * 24); // 24 horas por defecto
 
         $payload = implode('|', [
+            self::TOKEN_PURPOSE,
             $user->id,
             now()->addMinutes($ttlMinutes)->getTimestamp(),
+            $this->passwordFingerprint($user),
         ]);
 
         return Crypt::encryptString($payload);
@@ -67,9 +74,9 @@ class UserInvitationService
             throw new \RuntimeException('Token inválido o manipulado.');
         }
 
-        [$userId, $expiresAtTimestamp] = explode('|', $decoded) + [null, null];
+        [$purpose, $userId, $expiresAtTimestamp, $fingerprint] = explode('|', $decoded) + [null, null, null, null];
 
-        if (!$userId || !$expiresAtTimestamp) {
+        if ($purpose !== self::TOKEN_PURPOSE || ! $userId || ! $expiresAtTimestamp || ! $fingerprint) {
             throw new \RuntimeException('Token inválido.');
         }
 
@@ -82,14 +89,26 @@ class UserInvitationService
         /** @var User|null $user */
         $user = User::find($userId);
 
-        if (!$user) {
+        if (! $user) {
             throw new \RuntimeException('Usuario no encontrado.');
+        }
+
+        if (! hash_equals($this->passwordFingerprint($user), $fingerprint)) {
+            throw new \RuntimeException('Este enlace ya fue utilizado o ya no es válido. Solicita uno nuevo.');
         }
 
         return [
             'user' => $user,
             'expires_at' => $expiresAt,
         ];
+    }
+
+    /**
+     * Huella derivada del hash de contraseña actual: cambia en cuanto se define una nueva contraseña.
+     */
+    private function passwordFingerprint(User $user): string
+    {
+        return substr(hash_hmac('sha256', (string) $user->password, (string) config('app.key')), 0, 32);
     }
 
     /**
@@ -102,6 +121,6 @@ class UserInvitationService
         $baseUrl = config('services.frontend.url');
         $path = trim(config('services.frontend.password_setup_path'), '/');
 
-        return rtrim($baseUrl, '/') . '/' . $path . '?token=' . urlencode($token);
+        return rtrim($baseUrl, '/').'/'.$path.'?token='.urlencode($token);
     }
 }

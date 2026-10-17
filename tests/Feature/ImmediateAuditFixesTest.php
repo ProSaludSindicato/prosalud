@@ -157,6 +157,20 @@ class ImmediateAuditFixesTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_change_candidate_is_reachable_with_votes_manage_and_admin_role_has_it(): void
+    {
+        $manager = $this->userWithPermissions('votes.manage');
+
+        $response = $this->actingWithToken($manager)->putJson('/api/votes/change-candidate', [
+            'voter_document_type' => 'CC',
+            'voter_document_number' => '123',
+            'new_candidate_id' => '999',
+        ]);
+
+        $this->assertNotContains($response->status(), [401, 403]);
+        $this->assertTrue(\Spatie\Permission\Models\Role::findByName('admin')->hasPermissionTo('votes.manage'));
+    }
+
     public function test_response_attachment_download_is_denied_for_unassigned_user(): void
     {
         $requestForm = RequestForm::factory()->create();
