@@ -26,7 +26,10 @@ class ConvenioPreGeneratedPdfDispatchService
         ?string $batchId,
         ?int $generatedByUserId,
         bool $sendEmail,
+        ?bool $isTest = null,
     ): array {
+        $isTest = ConvenioDelivery::resolveIsTest($isTest);
+
         if (! is_file($absolutePdfPath)) {
             return [
                 'success' => false,
@@ -74,7 +77,7 @@ class ConvenioPreGeneratedPdfDispatchService
             'sede' => $parsed['nombre_convenio'],
             'convenio_data' => $convenioData,
             'generated_by_user_id' => $generatedByUserId,
-            'is_test' => ConvenioDelivery::isTestMode(),
+            'is_test' => $isTest,
         ]);
 
         try {
@@ -110,7 +113,7 @@ class ConvenioPreGeneratedPdfDispatchService
             ];
         }
 
-        $optionalEmail = $this->resolveTestRecipientEmail($generatedByUserId);
+        $optionalEmail = $isTest ? $this->resolveTestRecipientEmail($generatedByUserId) : null;
 
         SendConvenioManualEmailJob::dispatch(
             $parsed['documento'],
@@ -123,12 +126,14 @@ class ConvenioPreGeneratedPdfDispatchService
             $convenioData,
             $generatedByUserId,
             $tracking->id,
+            $isTest,
         );
 
         Log::info('[CONVENIO PDF] PDF almacenado y envío encolado', [
             'tracking_id' => $tracking->id,
             'documento' => $parsed['documento'],
             'source' => $source,
+            'is_test' => $isTest,
         ]);
 
         return [
@@ -141,10 +146,6 @@ class ConvenioPreGeneratedPdfDispatchService
 
     private function resolveTestRecipientEmail(?int $generatedByUserId): ?string
     {
-        if (! ConvenioDelivery::isTestMode()) {
-            return null;
-        }
-
         if ($generatedByUserId === null) {
             return null;
         }

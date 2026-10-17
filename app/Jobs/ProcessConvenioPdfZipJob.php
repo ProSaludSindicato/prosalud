@@ -23,6 +23,12 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
     public bool $failOnTimeout = true;
 
     /**
+     * TEST explícito elegido en el panel. Se declara fuera del constructor con valor por defecto
+     * para que los jobs encolados antes de este campo sigan deserializando (null = modo global).
+     */
+    public ?bool $isTest = null;
+
+    /**
      * @param  list<array{entry: string, filename: string, documento: string, nombre_convenio: string}>  $validEntries
      */
     public function __construct(
@@ -31,7 +37,10 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
         public array $validEntries,
         public bool $sendEmail,
         public ?int $generatedByUserId,
-    ) {}
+        ?bool $isTest = null,
+    ) {
+        $this->isTest = $isTest;
+    }
 
     public function handle(
         ConvenioPdfZipImportService $zipImportService,
@@ -62,6 +71,7 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
                         batchId: $this->batchId,
                         generatedByUserId: $this->generatedByUserId,
                         sendEmail: $this->sendEmail,
+                        isTest: $this->isTest,
                     );
                 } catch (\Throwable $e) {
                     Log::error('[CONVENIO ZIP] Error procesando PDF del ZIP', [
@@ -87,6 +97,7 @@ class ProcessConvenioPdfZipJob implements ShouldQueue
             'batch_id' => $this->batchId,
             'total_entries' => count($this->validEntries),
             'send_email' => $this->sendEmail,
+            'is_test' => $this->isTest,
         ]);
     }
 

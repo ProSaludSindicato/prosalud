@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Mail\ConvenioCompletedNotification;
 use App\Models\ConvenioEmailTracking;
 use App\Models\User;
-use App\Support\ConvenioDelivery;
 use App\Support\ConvenioRateLimiter;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -59,7 +58,7 @@ class ConvenioCompletedEmailService
                 nombreAfiliado: (string) $tracking->nombre_afiliado,
                 documento: (string) $tracking->documento,
                 nombreConvenio: (string) $tracking->nombre_convenio,
-                isTest: $tracking->isTestRecord() || ConvenioDelivery::isTestMode(),
+                isTest: $tracking->isTestRecord(),
             );
 
             $mailable->attachPdfFromContents(
@@ -78,7 +77,7 @@ class ConvenioCompletedEmailService
             Log::info('[CONVENIO COMPLETADO] Correo enviado', [
                 'tracking_id' => $tracking->id,
                 'recipient' => $email,
-                'test_mode' => $tracking->isTestRecord() || ConvenioDelivery::isTestMode(),
+                'test_mode' => $tracking->isTestRecord(),
             ]);
         } catch (\Throwable $exception) {
             $this->recordFailure($tracking, 'No se pudo enviar el correo del convenio completado.');
@@ -101,7 +100,7 @@ class ConvenioCompletedEmailService
 
     private function resolveRecipientEmail(ConvenioEmailTracking $tracking): ?string
     {
-        if ($tracking->isTestRecord() || ConvenioDelivery::isTestMode()) {
+        if ($tracking->isTestRecord()) {
             if ($tracking->completed_by_user_id !== null) {
                 $email = User::query()->where('id', $tracking->completed_by_user_id)->value('email');
                 if (filled($email)) {

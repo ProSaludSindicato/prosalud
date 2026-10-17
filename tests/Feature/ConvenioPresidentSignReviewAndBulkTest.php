@@ -322,6 +322,7 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
             'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_REVISION,
             'pdf_final_path' => $path,
             'firmado_presidente_at' => now(),
+            'is_test' => true,
         ]);
 
         app(ConvenioPresidentSignReviewService::class)->complete($tracking, $user->id);
@@ -451,7 +452,39 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
         $this->assertTrue($tracking->resolveAvailableActions(true, false)['download_final']);
     }
 
-    public function test_completed_email_in_test_mode_goes_to_completing_user(): void
+    public function test_completed_email_for_test_record_goes_to_completing_user(): void
+    {
+        Mail::fake();
+        RateLimiter::clear('convenio-email-send');
+        config(['convenios.delivery_mode' => 'production']);
+
+        $user = User::factory()->create(['email' => 'admin@test.com']);
+        $tracking = $this->trackingReadyForPresidentSign();
+        $path = app(ConvenioPdfStorageService::class)->storeFromContents(
+            $tracking,
+            ConvenioPdfStage::Final,
+            '%PDF-1.4 final',
+        );
+
+        $tracking->update([
+            'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_REVISION,
+            'pdf_final_path' => $path,
+            'firmado_presidente_at' => now(),
+            'email_afiliado' => 'afiliado@real.com',
+            'is_test' => true,
+        ]);
+
+        app(ConvenioPresidentSignReviewService::class)->complete($tracking, $user->id);
+
+        Mail::assertSent(ConvenioCompletedNotification::class, function (ConvenioCompletedNotification $mail) use ($user): bool {
+            return $mail->hasTo($user->email) && $mail->isTest;
+        });
+        Mail::assertNotSent(ConvenioCompletedNotification::class, function (ConvenioCompletedNotification $mail): bool {
+            return $mail->hasTo('afiliado@real.com');
+        });
+    }
+
+    public function test_completed_email_for_real_record_in_test_mode_goes_to_affiliate(): void
     {
         Mail::fake();
         RateLimiter::clear('convenio-email-send');
@@ -470,12 +503,13 @@ class ConvenioPresidentSignReviewAndBulkTest extends TestCase
             'pdf_final_path' => $path,
             'firmado_presidente_at' => now(),
             'email_afiliado' => 'afiliado@real.com',
+            'is_test' => false,
         ]);
 
         app(ConvenioPresidentSignReviewService::class)->complete($tracking, $user->id);
 
-        Mail::assertSent(ConvenioCompletedNotification::class, function (ConvenioCompletedNotification $mail) use ($user): bool {
-            return $mail->hasTo($user->email);
+        Mail::assertSent(ConvenioCompletedNotification::class, function (ConvenioCompletedNotification $mail): bool {
+            return $mail->hasTo('afiliado@real.com') && ! $mail->isTest;
         });
     }
 

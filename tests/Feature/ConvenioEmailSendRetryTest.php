@@ -70,6 +70,7 @@ class ConvenioEmailSendRetryTest extends TestCase
             Mockery::mock(AfiliadoService::class),
             app(ConvenioDigitalSigningService::class),
             app(ConvenioPdfStorageService::class),
+            app(\App\Services\ConvenioPdfIntegrityService::class),
         );
 
         $tracking->refresh();
@@ -113,6 +114,7 @@ class ConvenioEmailSendRetryTest extends TestCase
                 Mockery::mock(AfiliadoService::class),
                 app(ConvenioDigitalSigningService::class),
                 app(ConvenioPdfStorageService::class),
+                app(\App\Services\ConvenioPdfIntegrityService::class),
             );
             $this->fail('Expected the mail transport exception to be rethrown for queue retry.');
         } catch (RuntimeException $e) {

@@ -361,7 +361,7 @@ class ConvenioDeliveryModeTest extends TestCase
         $this->assertNotEmpty($fields);
     }
 
-    public function test_resend_in_test_mode_emails_requesting_user(): void
+    public function test_resend_of_test_record_in_test_mode_emails_requesting_user(): void
     {
         config(['convenios.delivery_mode' => 'test']);
 
@@ -375,7 +375,7 @@ class ConvenioDeliveryModeTest extends TestCase
         }
         file_put_contents($pdfPath, '%PDF-1.4 resend test');
 
-        $tracking = ConvenioEmailTracking::factory()->create([
+        $tracking = ConvenioEmailTracking::factory()->test()->create([
             'documento' => '1234567890',
             'email_afiliado' => 'afiliado@example.com',
             'ruta_archivo_pdf' => $pdfPath,

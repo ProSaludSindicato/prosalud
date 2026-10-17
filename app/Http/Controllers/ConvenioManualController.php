@@ -33,6 +33,7 @@ use App\Support\ConvenioDataLabels;
 use App\Support\ConvenioDelivery;
 use App\Support\ConvenioDisplayFilename;
 use App\Support\ConvenioHistoryUi;
+use App\Support\ConvenioPreviewStorage;
 use App\Support\ConvenioSemesterPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -91,6 +92,19 @@ class ConvenioManualController extends Controller
                 ],
             ],
         ], 410);
+    }
+
+    /**
+     * Configuración de entrega para el panel: si el modo TEST está habilitado, el panel debe
+     * pedir confirmación de si cada convenio creado/enviado es de prueba o real.
+     */
+    public function deliveryConfig(): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'delivery_mode' => config('convenios.delivery_mode'),
+            'test_mode_enabled' => ConvenioDelivery::isTestMode(),
+        ])->header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
     }
 
     /**
@@ -250,8 +264,7 @@ class ConvenioManualController extends Controller
 
         $trackingIds = $request->input('tracking_ids');
         $emails = $request->input('emails', []);
-        $testMode = ConvenioDelivery::isTestMode();
-        $testRecipientEmail = $testMode ? $request->user()?->email : null;
+        $requesterEmail = $request->user()?->email;
 
         // Build email map: tracking_id => email (optional)
         // If emails array is provided, map it to tracking_ids
@@ -281,10 +294,12 @@ class ConvenioManualController extends Controller
             'success' => [],
             'failed' => [],
         ];
+        $testResendCount = 0;
 
         foreach ($trackingIds as $trackingId) {
             try {
                 $tracking = ConvenioEmailTracking::findOrFail($trackingId);
+                $isTestTracking = $tracking->isTestRecord();
                 $pdfStorage = app(ConvenioPdfStorageService::class);
 
                 if (! $pdfStorage->hasOriginal($tracking)) {
@@ -346,8 +361,11 @@ class ConvenioManualController extends Controller
                 // Incrementar intentos en el tracking que se reutiliza
                 $tracking->incrementarIntentos();
 
-                // Get optional email for this tracking if provided
-                $optionalEmail = $testRecipientEmail ?? ($emailMap[$trackingId] ?? null);
+                // Un registro TEST siempre se reenvía al usuario que lo solicita (nunca al afiliado),
+                // sin importar el modo global; un registro real va al afiliado o al correo indicado.
+                $optionalEmail = $isTestTracking
+                    ? (is_string($requesterEmail) && $requesterEmail !== '' ? $requesterEmail : null)
+                    : ($emailMap[$trackingId] ?? null);
 
                 SendConvenioManualEmailJob::dispatch(
                     $tracking->documento,
@@ -360,12 +378,18 @@ class ConvenioManualController extends Controller
                     $tracking->convenio_data,
                     $request->user()?->id ?? $tracking->generated_by_user_id,
                     $trackingId,
+                    $isTestTracking,
                 );
+
+                if ($isTestTracking) {
+                    $testResendCount++;
+                }
 
                 $results['success'][] = [
                     'tracking_id' => $trackingId,
                     'documento' => $tracking->documento,
                     'intentos' => $tracking->fresh()->intentos,
+                    'is_test' => $isTestTracking,
                 ];
 
                 Log::info('Email resend job dispatched', [
@@ -374,6 +398,7 @@ class ConvenioManualController extends Controller
                     'intentos' => $tracking->fresh()->intentos,
                     'email_provided' => ! empty($optionalEmail),
                     'email_used' => $optionalEmail ?? 'will use affiliate email',
+                    'is_test' => $isTestTracking,
                 ]);
             } catch (\Exception $e) {
                 $results['failed'][] = [
@@ -391,15 +416,13 @@ class ConvenioManualController extends Controller
         return response()->json([
             'success' => true,
             'delivery_mode' => config('convenios.delivery_mode'),
-            'message' => count($trackingIds) > 1
-                ? 'Se encolaron '.count($results['success']).' reenvíos. '.(ConvenioDelivery::isTestMode()
-                    ? 'En modo TEST los correos llegarán al usuario que realiza la solicitud y quedarán marcados como TEST.'
-                    : 'Consulte el historial para ver el estado.')
-                : 'Reenvío encolado correctamente.',
+            'message' => $this->buildResendMessage(count($trackingIds), count($results['success']), $testResendCount),
             'data' => [
                 'total' => count($trackingIds),
                 'success_count' => count($results['success']),
                 'failed_count' => count($results['failed']),
+                'test_count' => $testResendCount,
+                'real_count' => count($results['success']) - $testResendCount,
                 'results' => $results,
             ],
         ]);
@@ -1167,6 +1190,10 @@ class ConvenioManualController extends Controller
             }
         }
 
+        if (array_key_exists('is_test', $requestData)) {
+            $requestData['is_test'] = ConvenioDelivery::normalizeBooleanInput($requestData['is_test']);
+        }
+
         $validator = Validator::make($requestData, [
             // Campos requeridos básicos
             'numero_documento' => 'required|string|max:50',
@@ -1215,6 +1242,9 @@ class ConvenioManualController extends Controller
             'email' => 'nullable|email|max:255',
             // Control de descarga directa del archivo Word
             'download' => 'nullable|boolean',
+            // Con modo TEST habilitado el panel indica si el convenio es de prueba (true) o real (false).
+            // Si se omite, se asume el modo global (TEST cuando CONVENIO_DELIVERY_MODE ≠ production).
+            'is_test' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -1255,10 +1285,12 @@ class ConvenioManualController extends Controller
         try {
             $download = $request->boolean('download', false);
             $sendEmail = $request->boolean('send_email', false);
+            $isTest = ConvenioDelivery::resolveIsTest(ConvenioDelivery::requestedIsTest($request));
 
             Log::info('Generando convenio desde API', [
                 'documento' => $request->input('numero_documento'),
                 'send_email' => $sendEmail,
+                'is_test' => $isTest,
                 'download' => $download,
                 'modo' => $download ? 'síncrono (descarga directa)' : 'asíncrono (job)',
             ]);
@@ -1340,16 +1372,25 @@ class ConvenioManualController extends Controller
                 'documento' => $request->input('numero_documento'),
             ]);
 
+            $previewToken = ConvenioPreviewStorage::newToken();
+            if ($request->user() !== null) {
+                ConvenioPreviewStorage::purgeExpired($request->user()->id);
+            }
+
             GenerateConvenioJob::dispatch(
                 $convenioData,
                 $request->input('email'),
                 $sendEmail,
                 $request->user()?->id,
+                $isTest,
+                $previewToken,
             );
 
-            $message = ConvenioDelivery::isTestMode() && $sendEmail
-                ? 'La generación del convenio ha sido encolada. En modo TEST el correo (con enlace de firma o PDF adjunto) llegará a tu usuario y el registro quedará marcado como TEST en el historial.'
-                : 'La generación del convenio ha sido encolada y se procesará de forma asíncrona. El archivo estará disponible en breve.';
+            $message = match (true) {
+                $sendEmail && $isTest => 'La generación del convenio de PRUEBA (TEST) ha sido encolada. El correo (con enlace de firma o PDF adjunto) llegará a tu usuario, no al afiliado, y el registro quedará marcado como TEST en el historial.',
+                $sendEmail && ConvenioDelivery::isTestMode() => 'La generación del convenio REAL ha sido encolada. El correo se enviará al afiliado como en producción.',
+                default => 'La generación del convenio ha sido encolada y se procesará de forma asíncrona. El archivo estará disponible en breve.',
+            };
 
             return response()->json([
                 'success' => true,
@@ -1360,6 +1401,8 @@ class ConvenioManualController extends Controller
                     'documento' => $request->input('numero_documento'),
                     'procesando' => true,
                     'modo' => 'asíncrono',
+                    'is_test' => $isTest,
+                    'preview_token' => $previewToken,
                 ],
                 'warnings' => [],
             ], 202); // 202 Accepted - request accepted for processing
@@ -1391,6 +1434,7 @@ class ConvenioManualController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'numero_documento' => 'required|string|max:50',
+            'preview_token' => 'nullable|uuid',
         ]);
 
         if ($validator->fails()) {
@@ -1399,6 +1443,31 @@ class ConvenioManualController extends Controller
                 'message' => 'Validation failed',
                 'errors' => $validator->errors(),
             ], 422);
+        }
+
+        // Con token se entrega exactamente el PDF de esa generación (de este usuario); nunca otro
+        // convenio anterior del mismo documento. Mientras no exista, el panel sigue esperando.
+        $previewToken = $request->query('preview_token');
+        if (ConvenioPreviewStorage::isValidToken($previewToken)) {
+            $previewPath = $request->user() !== null
+                ? ConvenioPreviewStorage::path($request->user()->id, $previewToken)
+                : null;
+
+            if ($previewPath === null || ! is_file($previewPath)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El convenio aún se está generando. Por favor, espere unos momentos e intente nuevamente.',
+                    'status' => 'processing',
+                ], 404);
+            }
+
+            $storedName = is_file($previewPath.'.name') ? trim((string) file_get_contents($previewPath.'.name')) : '';
+
+            return response()->download(
+                $previewPath,
+                $storedName !== '' ? $storedName : 'Convenio_'.preg_replace('/\D/', '', (string) $request->query('numero_documento')).'.pdf',
+                ['Content-Type' => 'application/pdf']
+            );
         }
 
         $numeroDocumentoOriginal = $request->query('numero_documento');
@@ -1549,6 +1618,7 @@ class ConvenioManualController extends Controller
         ConvenioDuplicateDetectionService $duplicateDetection,
     ): JsonResponse {
         $sendEmail = $request->boolean('send_email', true);
+        $isTest = ConvenioDelivery::resolveIsTest(ConvenioDelivery::requestedIsTest($request));
         $file = $request->file('file');
 
         if ($file === null) {
@@ -1607,7 +1677,7 @@ class ConvenioManualController extends Controller
         if (config('convenios.duplicate_import_check_enabled', false)) {
             try {
                 $decision = $duplicateDetection->resolveImportDecision(
-                    $duplicateDetection->findConflicts($incoming),
+                    $duplicateDetection->findConflicts($incoming, $isTest),
                     $request->boolean('confirm_duplicates'),
                     $this->duplicateActionsFromRequest($request),
                     $request->input('invalidation_reason'),
@@ -1686,13 +1756,14 @@ class ConvenioManualController extends Controller
             validEntries: $validEntries,
             sendEmail: $sendEmail,
             generatedByUserId: $request->user()?->id,
+            isTest: $isTest,
         );
 
         $message = $sendEmail
-            ? (ConvenioDelivery::isTestMode()
-                ? 'Se encolaron '.count($validEntries).' PDFs. En modo TEST los correos llegarán a tu usuario.'
+            ? ($isTest
+                ? 'Se encolaron '.count($validEntries).' PDFs de PRUEBA (TEST). Los correos llegarán a tu usuario, no a los afiliados.'
                 : 'Se encolaron '.count($validEntries).' PDFs para almacenamiento y envío. Consulte el historial.')
-            : 'Se encolaron '.count($validEntries).' PDFs para almacenamiento. Puede reenviar desde el historial.';
+            : 'Se encolaron '.count($validEntries).' PDFs'.($isTest ? ' de PRUEBA (TEST)' : '').' para almacenamiento. Puede reenviar desde el historial.';
 
         return response()->json([
             'success' => true,
@@ -1709,6 +1780,7 @@ class ConvenioManualController extends Controller
                 'omitidos' => $omitidos,
                 'rechazados' => count($scan['rejected']),
                 'send_email' => $sendEmail,
+                'is_test' => $isTest,
                 'rejected' => $scan['rejected'],
             ],
         ], 202);
@@ -1842,9 +1914,14 @@ class ConvenioManualController extends Controller
             }
         }
 
+        if (array_key_exists('is_test', $requestData)) {
+            $requestData['is_test'] = ConvenioDelivery::normalizeBooleanInput($requestData['is_test']);
+        }
+
         $validator = Validator::make($requestData, [
             'file' => 'required|file|mimes:xlsx,xls|max:10240', // Max 10MB
             'send_email' => 'nullable|boolean',
+            'is_test' => 'nullable|boolean',
             'confirm_duplicates' => 'nullable|boolean',
             'duplicate_actions' => 'nullable|array',
             'duplicate_actions.*.documento' => 'required_with:duplicate_actions|string|max:50',
@@ -1871,6 +1948,7 @@ class ConvenioManualController extends Controller
         // Usar los datos normalizados
         $request->merge($requestData);
         $sendEmail = $request->boolean('send_email', true);
+        $isTest = ConvenioDelivery::resolveIsTest(ConvenioDelivery::requestedIsTest($request));
 
         Log::debug('[CONVENIO API] send_email normalizado', [
             'original' => $request->input('send_email'),
@@ -2170,7 +2248,7 @@ class ConvenioManualController extends Controller
             if (config('convenios.duplicate_import_check_enabled', false)) {
                 try {
                     $decision = $duplicateDetection->resolveImportDecision(
-                        $duplicateDetection->findConflicts($incoming),
+                        $duplicateDetection->findConflicts($incoming, $isTest),
                         $request->boolean('confirm_duplicates'),
                         $this->duplicateActionsFromRequest($request),
                         $request->input('invalidation_reason'),
@@ -2228,6 +2306,7 @@ class ConvenioManualController extends Controller
                         $pendingRow['email'],
                         $sendEmail,
                         $request->user()?->id,
+                        $isTest,
                     );
                     $exitosos++;
                 }
@@ -2238,6 +2317,7 @@ class ConvenioManualController extends Controller
                         $pendingRow['email'],
                         $sendEmail,
                         $request->user()?->id,
+                        $isTest,
                     );
                     $exitosos++;
                 }
@@ -2255,11 +2335,12 @@ class ConvenioManualController extends Controller
                 'errores' => $errores,
                 'filas_vacias' => $filasVacias,
                 'send_email' => $sendEmail,
+                'is_test' => $isTest,
             ]);
 
             return response()->json([
                 'success' => $exitosos > 0,
-                'message' => $this->buildImportBulkMessage($sendEmail, $exitosos, $errores, $filasVacias, $procesados),
+                'message' => $this->buildImportBulkMessage($sendEmail, $exitosos, $errores, $filasVacias, $procesados, $isTest),
                 'delivery_mode' => config('convenios.delivery_mode'),
                 'next_step' => 'email-history',
                 'ui' => ConvenioHistoryUi::metadata(
@@ -2273,6 +2354,7 @@ class ConvenioManualController extends Controller
                     'errores' => $errores,
                     'filas_vacias' => $filasVacias,
                     'send_email' => $sendEmail,
+                    'is_test' => $isTest,
                     'errors' => $errors,
                 ],
             ], $exitosos > 0 ? 202 : 422);
@@ -2557,12 +2639,40 @@ class ConvenioManualController extends Controller
         return false;
     }
 
+    private function buildResendMessage(int $requested, int $queued, int $testCount): string
+    {
+        $realCount = $queued - $testCount;
+
+        if ($requested <= 1) {
+            if ($queued === 0) {
+                return 'No se pudo encolar el reenvío.';
+            }
+
+            return $testCount > 0
+                ? 'Reenvío de convenio TEST encolado: el correo llegará a tu usuario, no al afiliado.'
+                : 'Reenvío encolado correctamente.';
+        }
+
+        $message = 'Se encolaron '.$queued.' reenvíos.';
+
+        if ($testCount > 0 && $realCount > 0) {
+            return $message.' '.$testCount.' TEST llegarán a tu usuario y '.$realCount.' reales a los afiliados.';
+        }
+
+        if ($testCount > 0) {
+            return $message.' Son registros TEST: los correos llegarán a tu usuario y no a los afiliados.';
+        }
+
+        return $message.' Consulte el historial para ver el estado.';
+    }
+
     private function buildImportBulkMessage(
         bool $sendEmail,
         int $exitosos,
         int $errores = 0,
         int $filasVacias = 0,
         int $procesados = 0,
+        bool $isTest = false,
     ): string {
         if ($exitosos === 0) {
             if ($errores > 0) {
@@ -2576,8 +2686,8 @@ class ConvenioManualController extends Controller
             return 'No se encolaron convenios. Verifique que el archivo tenga filas con datos debajo de los encabezados.';
         }
 
-        if ($sendEmail && ConvenioDelivery::isTestMode()) {
-            return "Se encolaron {$exitosos} convenios. En modo TEST los correos (con enlace de firma o PDF adjunto) llegarán a tu usuario y los registros quedarán marcados como TEST en el historial.";
+        if ($sendEmail && $isTest) {
+            return "Se encolaron {$exitosos} convenios de PRUEBA (TEST). Los correos (con enlace de firma o PDF adjunto) llegarán a tu usuario, no a los afiliados, y los registros quedarán marcados como TEST en el historial.";
         }
 
         if ($sendEmail) {

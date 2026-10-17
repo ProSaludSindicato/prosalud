@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\ConvenioDelivery;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -38,6 +39,10 @@ class UploadConvenioPdfZipRequest extends FormRequest
             $this->merge(['confirm_duplicates' => $boolValue]);
         }
 
+        if ($this->has('is_test')) {
+            $this->merge(['is_test' => ConvenioDelivery::normalizeBooleanInput($this->input('is_test'))]);
+        }
+
         $actions = $this->input('duplicate_actions');
         if (is_string($actions) && $actions !== '') {
             $decoded = json_decode($actions, true);
@@ -59,6 +64,7 @@ class UploadConvenioPdfZipRequest extends FormRequest
                 'max:'.$maxKb,
             ],
             'send_email' => ['nullable', 'boolean'],
+            'is_test' => ['nullable', 'boolean'],
             'confirm_duplicates' => ['nullable', 'boolean'],
             'duplicate_actions' => ['nullable', 'array'],
             'duplicate_actions.*.documento' => ['required_with:duplicate_actions', 'string', 'max:50'],

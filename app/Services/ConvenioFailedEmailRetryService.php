@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Jobs\SendConvenioManualEmailJob;
 use App\Models\ConvenioEmailTracking;
-use App\Support\ConvenioDelivery;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
@@ -201,6 +200,7 @@ class ConvenioFailedEmailRetryService
             $tracking->convenio_data,
             $requestedByUserId ?? $tracking->generated_by_user_id,
             $tracking->id,
+            $tracking->isTestRecord(),
         );
 
         $results['success'][] = [
@@ -215,9 +215,12 @@ class ConvenioFailedEmailRetryService
         ]);
     }
 
+    /**
+     * Cada registro conserva su naturaleza: TEST va al usuario que reintenta; real, al afiliado.
+     */
     private function resolveOptionalEmail(ConvenioEmailTracking $tracking, ?string $requestedByEmail): ?string
     {
-        if (ConvenioDelivery::isTestMode()) {
+        if ($tracking->isTestRecord()) {
             return is_string($requestedByEmail) && $requestedByEmail !== ''
                 ? $requestedByEmail
                 : null;

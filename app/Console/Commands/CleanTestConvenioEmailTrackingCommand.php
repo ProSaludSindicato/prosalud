@@ -13,7 +13,7 @@ class CleanTestConvenioEmailTrackingCommand extends Command
                             {--force : Omitir confirmación}
                             {--dry-run : Mostrar lo que se eliminaría sin borrar}';
 
-    protected $description = 'Elimina registros de convenio marcados como TEST (CONVENIO_DELIVERY_MODE distinto de production) y sus archivos asociados.';
+    protected $description = 'Elimina registros de convenio marcados como TEST (elegidos como prueba con CONVENIO_DELIVERY_MODE distinto de production) y sus archivos asociados.';
 
     public function handle(ConvenioPdfStorageService $convenioPdfStorageService): int
     {

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\User;
 use App\Services\ConvenioGenerationService;
 use App\Support\ConvenioDelivery;
+use App\Support\ConvenioPreviewStorage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -22,12 +23,29 @@ class GenerateConvenioJob implements ShouldQueue
 
     public $timeout = 300;
 
+    /**
+     * TEST explícito elegido en el panel. Se declara fuera del constructor con valor por defecto
+     * para que los jobs encolados antes de este campo sigan deserializando (null = modo global).
+     */
+    public ?bool $isTest = null;
+
+    /**
+     * Identifica esta generación para que el panel abra exactamente el PDF que acaba de crear
+     * (y no uno anterior del mismo documento). Fuera del constructor por la misma razón que $isTest.
+     */
+    public ?string $previewToken = null;
+
     public function __construct(
         public array $convenioData,
         public ?string $email = null,
         public bool $sendEmail = false,
         public ?int $generatedByUserId = null,
-    ) {}
+        ?bool $isTest = null,
+        ?string $previewToken = null,
+    ) {
+        $this->isTest = $isTest;
+        $this->previewToken = $previewToken;
+    }
 
     public function handle(ConvenioGenerationService $convenioGenerationService): void
     {
@@ -40,6 +58,7 @@ class GenerateConvenioJob implements ShouldQueue
                 'send_email' => $this->sendEmail,
                 'email' => $this->email,
                 'delivery_mode' => config('convenios.delivery_mode'),
+                'is_test' => ConvenioDelivery::resolveIsTest($this->isTest),
             ]);
 
             $resultadoWord = $convenioGenerationService->generarConvenio($this->convenioData);
@@ -51,17 +70,20 @@ class GenerateConvenioJob implements ShouldQueue
                 'ruta' => $resultado['ruta'],
             ]);
 
+            $this->storePreviewCopy($resultado['ruta'], $resultado['nombre']);
+
             if ($this->sendEmail) {
                 $documento = preg_replace('/[^0-9]/', '', (string) ($this->convenioData['numero_documento'] ?? ''));
                 $nombreConvenio = (string) ($this->convenioData['proceso'] ?? 'CONVENIO');
                 $sede = isset($this->convenioData['sede']) ? (string) $this->convenioData['sede'] : null;
                 $emailForJob = $this->email;
+                $isTest = ConvenioDelivery::resolveIsTest($this->isTest);
 
-                if (ConvenioDelivery::isTestMode()) {
+                if ($isTest) {
                     $creatorEmail = $this->resolveCreatorEmail();
 
                     if ($creatorEmail === null) {
-                        Log::warning('[CONVENIO JOB] Modo test: no se pudo determinar el correo del usuario creador; no se envía al afiliado', [
+                        Log::warning('[CONVENIO JOB] Convenio TEST: no se pudo determinar el correo del usuario creador; no se envía al afiliado', [
                             'documento' => $documento,
                             'generated_by_user_id' => $this->generatedByUserId,
                         ]);
@@ -90,12 +112,14 @@ class GenerateConvenioJob implements ShouldQueue
                     $sede,
                     $this->convenioData,
                     $this->generatedByUserId,
+                    isTest: $isTest,
                 );
 
                 Log::info('[CONVENIO JOB] PDF generado y correo encolado', [
                     'documento' => $documento,
                     'email' => $emailForJob,
                     'delivery_mode' => ConvenioDelivery::mode(),
+                    'is_test' => $isTest,
                     'generated_by_user_id' => $this->generatedByUserId,
                 ]);
             }
@@ -116,6 +140,29 @@ class GenerateConvenioJob implements ShouldQueue
             'error' => $exception->getMessage(),
             'trace' => $exception->getTraceAsString(),
         ]);
+    }
+
+    /**
+     * Copia el PDF recién generado a una ruta única por token y usuario, para la vista previa del panel.
+     */
+    private function storePreviewCopy(string $pdfPath, string $pdfName): void
+    {
+        if ($this->previewToken === null || $this->generatedByUserId === null || ! is_file($pdfPath)) {
+            return;
+        }
+
+        $previewPath = ConvenioPreviewStorage::path($this->generatedByUserId, $this->previewToken);
+        if (! is_dir(dirname($previewPath))) {
+            mkdir(dirname($previewPath), 0755, true);
+        }
+
+        if (! copy($pdfPath, $previewPath)) {
+            Log::warning('[CONVENIO JOB] No se pudo guardar la copia de vista previa', ['preview_token' => $this->previewToken]);
+
+            return;
+        }
+
+        file_put_contents($previewPath.'.name', $pdfName);
     }
 
     private function resolveCreatorEmail(): ?string

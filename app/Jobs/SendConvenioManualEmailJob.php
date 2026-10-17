@@ -28,6 +28,13 @@ class SendConvenioManualEmailJob implements ShouldQueue
 
     public $backoff = [30, 60, 120];
 
+    /**
+     * TEST explícito para envíos que crean un registro nuevo. Se declara fuera del constructor
+     * con valor por defecto para que los jobs ya encolados antes de este campo sigan deserializando.
+     * En reenvíos de un registro existente manda el `is_test` del registro.
+     */
+    public ?bool $isTest = null;
+
     public function __construct(
         public string $documento,
         public string $nombreArchivo,
@@ -39,7 +46,10 @@ class SendConvenioManualEmailJob implements ShouldQueue
         public ?array $convenioData = null,
         public ?int $generatedByUserId = null,
         public ?int $existingTrackingId = null,
-    ) {}
+        ?bool $isTest = null,
+    ) {
+        $this->isTest = $isTest;
+    }
 
     public function retryUntil(): Carbon
     {
@@ -78,9 +88,25 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 return;
             }
 
+            $isTest = $this->resolveIsTest($tracking);
+
             $afiliado = null;
             $emailFromAffiliate = null;
-            $email = $this->resolveRecipientEmail();
+            $email = $this->resolveRecipientEmail($isTest);
+
+            if ($isTest && $email === null) {
+                $errorMessage = 'Convenio TEST: no se pudo determinar el correo del usuario que realiza el envío. No se envía al afiliado.';
+                Log::warning('SendConvenioManualEmailJob: '.$errorMessage, [
+                    'documento' => $this->documento,
+                    'generated_by_user_id' => $this->generatedByUserId,
+                    'existing_tracking_id' => $this->existingTrackingId,
+                ]);
+
+                $tracking = $tracking ?? $this->createTrackingRecord(null, $errorMessage, $nombreCompletoFromFile, $isTest);
+                $tracking->marcarComoFallido($errorMessage);
+
+                return;
+            }
 
             $skipProsanetLookup = $this->existingTrackingId !== null && ! empty($this->optionalEmail);
 
@@ -104,7 +130,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
                             'nombre_archivo' => $this->nombreArchivo,
                         ]);
 
-                        $tracking = $tracking ?? $this->createTrackingRecord(null, $errorMessage, $nombreCompletoFromFile);
+                        $tracking = $tracking ?? $this->createTrackingRecord(null, $errorMessage, $nombreCompletoFromFile, $isTest);
                         $tracking->marcarComoFallido($errorMessage);
 
                         return;
@@ -118,7 +144,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
                             'nombre_archivo' => $this->nombreArchivo,
                         ]);
 
-                        $tracking = $tracking ?? $this->createTrackingRecord($afiliado, $errorMessage, $nombreCompletoFromFile);
+                        $tracking = $tracking ?? $this->createTrackingRecord($afiliado, $errorMessage, $nombreCompletoFromFile, $isTest);
                         $tracking->marcarComoFallido($errorMessage);
 
                         return;
@@ -166,7 +192,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             );
 
             if ($tracking === null) {
-                $tracking = $this->createTrackingRecord($afiliado, null, $nombreCompletoFromFile);
+                $tracking = $this->createTrackingRecord($afiliado, null, $nombreCompletoFromFile, $isTest);
             } else {
                 $tracking->update([
                     'nombre_afiliado' => $nombreCompleto ?? $tracking->nombre_afiliado,
@@ -198,8 +224,6 @@ class SendConvenioManualEmailJob implements ShouldQueue
 
                 return;
             }
-
-            $isTest = $tracking->is_test;
 
             if (ConvenioRateLimiter::tooManyEmailAttempts()) {
                 $this->release(ConvenioRateLimiter::emailAvailableIn());
@@ -317,11 +341,34 @@ class SendConvenioManualEmailJob implements ShouldQueue
         }
     }
 
-    private function resolveRecipientEmail(): ?string
+    /**
+     * Un registro existente conserva su naturaleza (TEST o real) sin importar el modo global,
+     * para que un reenvío nunca convierta un convenio de prueba en un envío al afiliado.
+     */
+    private function resolveIsTest(?ConvenioEmailTracking $tracking): bool
     {
-        if (ConvenioDelivery::isTestMode()) {
+        if ($tracking !== null) {
+            return $tracking->isTestRecord();
+        }
+
+        if ($this->parentTrackingId !== null) {
+            $parentTracking = ConvenioEmailTracking::find($this->parentTrackingId);
+            if ($parentTracking?->isTestRecord()) {
+                return true;
+            }
+        }
+
+        return ConvenioDelivery::resolveIsTest($this->isTest);
+    }
+
+    private function resolveRecipientEmail(bool $isTest): ?string
+    {
+        if ($isTest) {
             if ($this->generatedByUserId !== null) {
-                return User::query()->where('id', $this->generatedByUserId)->value('email');
+                $creatorEmail = User::query()->where('id', $this->generatedByUserId)->value('email');
+                if (is_string($creatorEmail) && trim($creatorEmail) !== '') {
+                    return trim($creatorEmail);
+                }
             }
 
             if ($this->optionalEmail !== null && $this->optionalEmail !== '') {
@@ -414,7 +461,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
         return $parsed['nombre_afiliado'] ?? '';
     }
 
-    private function createTrackingRecord(?array $afiliado, ?string $errorMessage, string $nombreFromFile = ''): ConvenioEmailTracking
+    private function createTrackingRecord(?array $afiliado, ?string $errorMessage, string $nombreFromFile, bool $isTest): ConvenioEmailTracking
     {
         $emailAfiliado = $afiliado['correo_personal'] ?? null;
         $emailToStore = ! empty($this->optionalEmail) ? $this->optionalEmail : $emailAfiliado;
@@ -460,7 +507,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
             'sede' => $sedeParaTracking,
             'convenio_data' => $convenioData,
             'generated_by_user_id' => $generatedByUserId,
-            'is_test' => ConvenioDelivery::isTestMode() || (bool) $parentTracking?->is_test,
+            'is_test' => $isTest,
         ]);
     }
 

@@ -55,7 +55,7 @@ class ConvenioDuplicateDetectionService
      *     }>
      * }>
      */
-    public function findConflicts(array $incoming): array
+    public function findConflicts(array $incoming, ?bool $isTest = null): array
     {
         $normalizedIncoming = [];
 
@@ -99,7 +99,7 @@ class ConvenioDuplicateDetectionService
 
         $existing = ConvenioEmailTracking::query()
             ->whereIn('documento', array_values(array_unique($lookupDocumentos)))
-            ->where('is_test', ConvenioDelivery::isTestMode())
+            ->where('is_test', ConvenioDelivery::resolveIsTest($isTest))
             ->where(function ($query): void {
                 $query->whereNull('signing_estado')
                     ->orWhere('signing_estado', '!=', ConvenioEmailTracking::SIGNING_RECHAZADO);

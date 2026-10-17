@@ -267,6 +267,10 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
     Route::post('/send-bulk-emails', [ConvenioManualController::class, 'sendBulkEmails'])
         ->middleware('permission:document_signing.manage');
 
+    // Modo de entrega (TEST habilitado => el panel pide confirmar si cada convenio es de prueba o real)
+    Route::get('/delivery-config', [ConvenioManualController::class, 'deliveryConfig'])
+        ->middleware('permission:document_signing.view');
+
     // Email history, bulk resend, and tracking
     Route::get('/email-history', [ConvenioManualController::class, 'listEmailHistory'])
         ->middleware('permission:document_signing.view');

@@ -26,6 +26,7 @@ class ConvenioManualEmailRateLimitTest extends TestCase
         RateLimiter::clear('convenio-prosanet-lookup');
         RateLimiter::clear('convenio-email-send');
         config([
+            'convenios.delivery_mode' => 'production',
             'convenios.prosanet_per_minute' => 1,
             'convenio_signing.enabled' => false,
         ]);
@@ -52,6 +53,7 @@ class ConvenioManualEmailRateLimitTest extends TestCase
             $afiliadoService,
             app(ConvenioDigitalSigningService::class),
             app(ConvenioPdfStorageService::class),
+            app(\App\Services\ConvenioPdfIntegrityService::class),
         );
 
         Mail::assertNothingSent();
@@ -93,6 +95,7 @@ class ConvenioManualEmailRateLimitTest extends TestCase
             $afiliadoService,
             app(ConvenioDigitalSigningService::class),
             $storage,
+            app(\App\Services\ConvenioPdfIntegrityService::class),
         );
 
         Mail::assertSent(\App\Mail\ConvenioManualNotification::class);

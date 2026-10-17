@@ -140,6 +140,7 @@ class ConvenioPresidentSignTest extends TestCase
         $tracking->update([
             'signing_estado' => ConvenioEmailTracking::SIGNING_FIRMANDO_PRESIDENTE,
             'president_sign_requested_by_user_id' => $user->id,
+            'is_test' => true,
         ]);
 
         (new ApplyPresidentSignatureJob($tracking->id))->handle(
