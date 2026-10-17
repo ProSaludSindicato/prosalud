@@ -8,6 +8,7 @@ use App\Jobs\SendRequestFormResponseEmailJob;
 use App\Models\RequestForm;
 use App\Models\RequestResponse;
 use App\Models\RequestStatusLog;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -31,11 +32,11 @@ class BulkRequestResponseService
     /**
      * Generar plantilla Excel para respuesta masiva
      */
-    public function generateTemplate(array $filters = []): string
+    public function generateTemplate(array $filters = [], ?User $scopeUser = null): string
     {
         try {
             // Obtener solicitudes pendientes o en revisión
-            $requests = $this->getRequestsForTemplate($filters);
+            $requests = $this->getRequestsForTemplate($filters, $scopeUser);
 
             // Crear spreadsheet
             $spreadsheet = new Spreadsheet;
@@ -252,9 +253,13 @@ class BulkRequestResponseService
     /**
      * Contar solicitudes disponibles para la plantilla
      */
-    public function countRequestsForTemplate(array $filters): int
+    public function countRequestsForTemplate(array $filters, ?User $scopeUser = null): int
     {
         $query = RequestForm::query();
+
+        if ($scopeUser !== null) {
+            (new RequestListService)->applyAssignmentFilters($query, $scopeUser);
+        }
 
         // Filtro por estado si se especifica
         $status = $filters['status'] ?? null;
@@ -308,9 +313,13 @@ class BulkRequestResponseService
     /**
      * Obtener solicitudes para la plantilla
      */
-    private function getRequestsForTemplate(array $filters): Collection
+    private function getRequestsForTemplate(array $filters, ?User $scopeUser = null): Collection
     {
         $query = RequestForm::query();
+
+        if ($scopeUser !== null) {
+            (new RequestListService)->applyAssignmentFilters($query, $scopeUser);
+        }
 
         // Filtro por estado si se especifica
         $status = $filters['status'] ?? null;

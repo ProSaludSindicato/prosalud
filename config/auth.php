@@ -122,6 +122,10 @@ return [
 
     'api_token_ttl_hours' => env('API_TOKEN_TTL_HOURS', 12),
 
+    'cookie_same_site' => env('COOKIE_SAME_SITE', 'Lax'),
+
+    'cookie_domain' => env('COOKIE_DOMAIN') ?: null,
+
     /*
     |--------------------------------------------------------------------------
     | Password Setup TTL

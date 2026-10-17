@@ -2,19 +2,22 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\{CertificadoConvenioService, CertificadoConvenioAutomaticoService};
 use App\Models\CertificadoConvenioRecord;
-use Illuminate\Http\{JsonResponse, Request, Response};
-use Illuminate\Support\Facades\{Log, Storage, Validator};
-use Symfony\Component\HttpFoundation\{BinaryFileResponse, StreamedResponse};
+use App\Services\CertificadoConvenioAutomaticoService;
+use App\Services\CertificadoConvenioService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class CertificadoConvenioController extends Controller
 {
     public function __construct(
         private readonly CertificadoConvenioService $certificadoService,
         private readonly CertificadoConvenioAutomaticoService $certificadoAutomaticoService
-    ) {
-    }
+    ) {}
 
     /**
      * Genera un certificado individual en formato PDF
@@ -39,7 +42,7 @@ class CertificadoConvenioController extends Controller
             if (isset($resultado['ruta']) && file_exists($resultado['ruta'])) {
                 // Asegurar que el nombre tenga extensión .pdf
                 $nombreArchivo = $resultado['nombre'];
-                if (!str_ends_with($nombreArchivo, '.pdf')) {
+                if (! str_ends_with($nombreArchivo, '.pdf')) {
                     $nombreArchivo .= '.pdf';
                 }
 
@@ -65,7 +68,7 @@ class CertificadoConvenioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al generar el certificado: ' . $e->getMessage(),
+                'message' => 'Error al generar el certificado. Intenta nuevamente más tarde.',
             ], 500);
         }
     }
@@ -105,7 +108,7 @@ class CertificadoConvenioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al generar el certificado: ' . $e->getMessage(),
+                'message' => 'Error al generar el certificado. Intenta nuevamente más tarde.',
             ], 500);
         }
     }
@@ -135,7 +138,7 @@ class CertificadoConvenioController extends Controller
             // Buscar el certificado en la base de datos
             $certificado = CertificadoConvenioRecord::byDocumentoAndConsecutivo($documento, $consecutivo)->first();
 
-            if (!$certificado) {
+            if (! $certificado) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Certificado no encontrado. Verifique el número de documento y el consecutivo.',
@@ -145,7 +148,7 @@ class CertificadoConvenioController extends Controller
             // Generar URL temporal usando el método privado
             $urlData = $this->generarUrlTemporalCertificado($certificado);
 
-            if (!$urlData['pdf_url']) {
+            if (! $urlData['pdf_url']) {
                 Log::error('Certificado encontrado en BD pero no se pudo generar URL', [
                     'documento' => $documento,
                     'consecutivo' => $consecutivo,
@@ -181,7 +184,7 @@ class CertificadoConvenioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al consultar el certificado: ' . $e->getMessage(),
+                'message' => 'Error al consultar el certificado. Intenta nuevamente más tarde.',
             ], 500);
         }
     }
@@ -280,7 +283,7 @@ class CertificadoConvenioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al consultar los certificados: ' . $e->getMessage(),
+                'message' => 'Error al consultar los certificados. Intenta nuevamente más tarde.',
             ], 500);
         }
     }
@@ -343,7 +346,7 @@ class CertificadoConvenioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar la solicitud: ' . $e->getMessage(),
+                'message' => 'Error al procesar la solicitud. Intenta nuevamente más tarde.',
             ], 500);
         }
     }
@@ -352,7 +355,6 @@ class CertificadoConvenioController extends Controller
      * Genera una URL temporal para un certificado
      * Retorna la URL y la fecha de expiración, o null si hay error
      *
-     * @param CertificadoConvenioRecord $certificado
      * @return array{pdf_url: string|null, url_expires_at: string|null}
      */
     private function generarUrlTemporalCertificado(CertificadoConvenioRecord $certificado): array
@@ -369,11 +371,12 @@ class CertificadoConvenioController extends Controller
             }
         }
 
-        if (!$storage) {
+        if (! $storage) {
             Log::warning('Archivo de certificado no encontrado en storage', [
                 'certificado_id' => $certificado->id,
                 'storage_path' => $certificado->storage_path,
             ]);
+
             return ['pdf_url' => null, 'url_expires_at' => null];
         }
 
@@ -409,6 +412,7 @@ class CertificadoConvenioController extends Controller
                         'certificado_id' => $certificado->id,
                         'error' => $urlError->getMessage(),
                     ]);
+
                     return ['pdf_url' => null, 'url_expires_at' => null];
                 }
             }
@@ -417,6 +421,7 @@ class CertificadoConvenioController extends Controller
                 'certificado_id' => $certificado->id,
                 'error' => $e->getMessage(),
             ]);
+
             return ['pdf_url' => null, 'url_expires_at' => null];
         }
 
@@ -470,10 +475,8 @@ class CertificadoConvenioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al consultar las estadísticas: ' . $e->getMessage(),
+                'message' => 'Error al consultar las estadísticas. Intenta nuevamente más tarde.',
             ], 500);
         }
     }
-
 }
-

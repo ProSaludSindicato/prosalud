@@ -4056,7 +4056,7 @@ class RequestController extends Controller
             ];
 
             // Validar que existan solicitudes pendientes o en revisión antes de generar la plantilla
-            $requestsCount = $this->bulkResponseService->countRequestsForTemplate($filters);
+            $requestsCount = $this->bulkResponseService->countRequestsForTemplate($filters, $user);
 
             if ($requestsCount === 0) {
                 $requestTypeLabel = $requestType !== 'all'
@@ -4080,7 +4080,7 @@ class RequestController extends Controller
             }
 
             // Generar plantilla
-            $filePath = $this->bulkResponseService->generateTemplate($filters);
+            $filePath = $this->bulkResponseService->generateTemplate($filters, $user);
 
             if (! file_exists($filePath)) {
                 Log::error('Error generando plantilla de respuesta masiva: archivo no creado', [

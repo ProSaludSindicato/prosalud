@@ -3,11 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Http\Resources\Auth\UserAuthResource;
-use App\Models\{ApiToken, User};
+use App\Models\ApiToken;
+use App\Models\User;
 use App\Rules\SecurePassword;
-use App\Services\{PasswordResetService, UserInvitationService};
-use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{Auth, Log};
+use App\Services\PasswordResetService;
+use App\Services\UserInvitationService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -16,8 +20,7 @@ class AuthController extends Controller
     public function __construct(
         private UserInvitationService $userInvitationService,
         private PasswordResetService $passwordResetService,
-    ) {
-    }
+    ) {}
 
     /**
      * Handle user login and issue an API token.
@@ -30,7 +33,7 @@ class AuthController extends Controller
             'device_name' => ['nullable', 'string', 'max:255'],
         ]);
 
-        if (!Auth::attempt([
+        if (! Auth::attempt([
             'email' => $credentials['email'],
             'password' => $credentials['password'],
             'is_active' => true,
@@ -63,10 +66,10 @@ class AuthController extends Controller
         } else {
             $cookieExpiration = config('auth.api_token_ttl_hours', 12) * 60;
         }
-        
+
         // Validación final: asegurar que siempre sea al menos 1 minuto (evitar Max-Age=0)
         $cookieExpiration = max(1, (int) $cookieExpiration);
-        
+
         // Logging para diagnóstico
         Log::debug('[AUTH] Cookie expiration calculada', [
             'token_expires_at' => $token->expires_at?->toIso8601String(),
@@ -84,10 +87,10 @@ class AuthController extends Controller
         // Agregar token en cookie HttpOnly, Secure y SameSite=Lax
         // SameSite=Lax permite cookies en peticiones cross-site GET pero protege contra CSRF en POST
         // Si frontend y backend están en dominios diferentes, usar 'None' con Secure=true
-        $sameSite = env('COOKIE_SAME_SITE', 'Lax'); // Lax, Strict, o None
-        $cookieDomain = env('COOKIE_DOMAIN');
+        $sameSite = config('auth.cookie_same_site'); // Lax, Strict, o None
+        $cookieDomain = config('auth.cookie_domain');
         $cookieDomain = $cookieDomain ?: null; // Convertir string vacío a null
-        
+
         $response->cookie(
             'prosalud_auth_token',
             $plainToken,
@@ -111,7 +114,7 @@ class AuthController extends Controller
         // Obtener el token de la cookie HttpOnly
         $token = $request->cookie('prosalud_auth_token');
 
-        if (!$token) {
+        if (! $token) {
             return response()->json([
                 'message' => 'Token no proporcionado',
             ], 400);
@@ -131,10 +134,10 @@ class AuthController extends Controller
         ]);
 
         // Eliminar la cookie estableciendo una expiración en el pasado
-        $sameSite = env('COOKIE_SAME_SITE', 'Lax');
-        $cookieDomain = env('COOKIE_DOMAIN');
+        $sameSite = config('auth.cookie_same_site');
+        $cookieDomain = config('auth.cookie_domain');
         $cookieDomain = $cookieDomain ?: null; // Convertir string vacío a null
-        
+
         $response->cookie(
             'prosalud_auth_token',
             '',
@@ -172,7 +175,7 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'token' => ['required', 'string'],
-            'password' => ['required', 'string', 'max:128', 'confirmed', new SecurePassword()],
+            'password' => ['required', 'string', 'max:128', 'confirmed', new SecurePassword],
         ]);
 
         try {
@@ -208,14 +211,14 @@ class AuthController extends Controller
         $user = User::where('email', $data['email'])->first();
 
         // Por seguridad, siempre devolvemos el mismo mensaje aunque el usuario no exista
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'message' => 'Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.',
             ]);
         }
 
         // Verificar que el usuario esté activo
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json([
                 'message' => 'Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.',
             ]);
@@ -252,7 +255,7 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'token' => ['required', 'string'],
-            'password' => ['required', 'string', 'max:128', 'confirmed', new SecurePassword()],
+            'password' => ['required', 'string', 'max:128', 'confirmed', new SecurePassword],
         ]);
 
         try {
@@ -269,6 +272,7 @@ class AuthController extends Controller
         // Asignamos la nueva contraseña; el cast "hashed" del modelo se encarga de encriptarla.
         $user->password = $data['password'];
         $user->save();
+        $user->apiTokens()->delete();
 
         return response()->json([
             'message' => 'Tu contraseña ha sido restablecida exitosamente. Ya puedes iniciar sesión.',

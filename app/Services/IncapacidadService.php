@@ -10,8 +10,7 @@ class IncapacidadService
         private ExcelReaderService $excelReader,
         private DateFormatterService $dateFormatter,
         private AfiliadoService $afiliadoService,
-    ) {
-    }
+    ) {}
 
     /**
      * Search for disability records by document criteria.
@@ -49,8 +48,8 @@ class IncapacidadService
 
             // First, validate the document and date against PROSANET_INFORMACION_AFILIADOS.xlsx
             $afiliadoInfo = $this->afiliadoService->authenticateAndGetAfiliado($tipo, $numeroDocumento, $fechaExpedicion);
-            
-            if (null === $afiliadoInfo) {
+
+            if ($afiliadoInfo === null) {
                 Log::warning('Validación fallida: documento y/o fecha de expedición no coinciden con PROSANET_INFORMACION_AFILIADOS.xlsx', [
                     'tipo' => $tipo,
                     'numero_documento' => $numeroDocumento,
@@ -108,7 +107,7 @@ class IncapacidadService
 
             return [
                 'status' => 'error',
-                'message' => 'Error interno del servidor: ' . $e->getMessage(),
+                'message' => 'Error interno del servidor. Intenta nuevamente más tarde.',
             ];
         }
     }
@@ -152,7 +151,7 @@ class IncapacidadService
             $filteredRecord = $this->filterInternalFields($record);
 
             foreach ($filteredRecord as $field => $value) {
-                if ($this->dateFormatter->isDateField($field) && !empty($value)) {
+                if ($this->dateFormatter->isDateField($field) && ! empty($value)) {
                     $filteredRecord[$field] = $this->dateFormatter->convertDateFormat($value);
                 }
             }
@@ -173,7 +172,7 @@ class IncapacidadService
         ];
 
         return array_filter($record, function ($value, $key) use ($internalFields) {
-            return !in_array(trim($key), $internalFields);
+            return ! in_array(trim($key), $internalFields);
         }, ARRAY_FILTER_USE_BOTH);
     }
 
@@ -189,7 +188,7 @@ class IncapacidadService
             // Excel date could be in various formats (e.g., "1/1/2025", "01/01/2025")
             $excelCarbon = $this->parseExcelDate($excelDate);
 
-            if (!$excelCarbon) {
+            if (! $excelCarbon) {
                 Log::warning('No se pudo parsear fecha del Excel', [
                     'excel_date' => $excelDate,
                     'request_date' => $requestDate,

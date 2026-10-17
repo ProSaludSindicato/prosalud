@@ -4,9 +4,12 @@ namespace App\Http\Controllers\User;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Services\{AuditLogService, UserInvitationService};
-use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{Cache, Log};
+use App\Services\AuditLogService;
+use App\Services\UserInvitationService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class UserController extends Controller
@@ -14,8 +17,7 @@ class UserController extends Controller
     public function __construct(
         private AuditLogService $auditLogService,
         private UserInvitationService $userInvitationService,
-    ) {
-    }
+    ) {}
 
     /**
      * Display a listing of users.
@@ -40,10 +42,10 @@ class UserController extends Controller
         // Pagination: only paginate if per_page is explicitly requested
         $perPage = $request->get('per_page');
         $paginationRequested = $request->has('per_page');
-        
+
         if ($paginationRequested) {
             $users = $query->with('roles')->paginate($perPage);
-            
+
             Log::info('Lista de usuarios consultada', [
                 'total_users' => $users->total(),
                 'current_page' => $users->currentPage(),
@@ -79,7 +81,7 @@ class UserController extends Controller
         } else {
             // Return all users without pagination
             $users = $query->with('roles')->get();
-            
+
             Log::info('Lista de usuarios consultada (sin paginación)', [
                 'total_users' => $users->count(),
                 'filters' => $request->only(['search', 'is_active']),
@@ -195,7 +197,7 @@ class UserController extends Controller
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
         $userData = $request->validated();
-        
+
         // Extract role if provided
         $role = $userData['role'] ?? null;
         if (isset($userData['role'])) {
@@ -203,6 +205,11 @@ class UserController extends Controller
         }
 
         $user->update($userData);
+
+        if (isset($userData['password'])) {
+            $currentTokenHash = hash('sha256', (string) $request->cookie('prosalud_auth_token'));
+            $user->apiTokens()->where('token', '!=', $currentTokenHash)->delete();
+        }
 
         // Update role if provided
         if ($role !== null) {
@@ -268,7 +275,7 @@ class UserController extends Controller
             'target_user_id' => $user->id,
             'target_user_email' => $user->email,
             'target_user_name' => $user->name,
-            'old_status' => !$isActive,
+            'old_status' => ! $isActive,
             'new_status' => $isActive,
             'action' => $statusText,
         ]));

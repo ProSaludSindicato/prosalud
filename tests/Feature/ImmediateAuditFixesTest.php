@@ -7,6 +7,8 @@ use App\Models\RequestForm;
 use App\Models\RequestResponse;
 use App\Models\RequestResponseAttachment;
 use App\Models\User;
+use App\Services\ExcelReaderService;
+use App\Services\PasswordResetService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -208,5 +210,94 @@ class ImmediateAuditFixesTest extends TestCase
     public function test_delegates_excel_is_no_longer_in_the_public_directory(): void
     {
         $this->assertFileDoesNotExist(public_path('data/ASAMBLEA_DELEGADOS_PROSALUD.xlsx'));
+    }
+
+    public function test_password_reset_revokes_existing_api_tokens(): void
+    {
+        $user = User::factory()->create();
+        $this->actingWithToken($user);
+        $this->assertSame(1, $user->apiTokens()->count());
+
+        $this->postJson('/api/auth/reset-password', [
+            'token' => app(PasswordResetService::class)->generateToken($user),
+            'password' => 'Nuev4-Clave-Segura!2026',
+            'password_confirmation' => 'Nuev4-Clave-Segura!2026',
+        ])->assertOk();
+
+        $this->assertSame(0, $user->apiTokens()->count());
+    }
+
+    public function test_admin_password_change_revokes_target_tokens_but_keeps_the_actors_session(): void
+    {
+        $admin = $this->userWithPermissions('users.edit');
+        $target = User::factory()->create();
+        $this->actingWithToken($target);
+        $this->assertSame(1, $target->apiTokens()->count());
+
+        $this->actingWithToken($admin)->putJson("/api/users/{$target->id}", [
+            'password' => 'Nuev4-Clave-Segura!2026',
+            'password_confirmation' => 'Nuev4-Clave-Segura!2026',
+        ])->assertOk();
+
+        $this->assertSame(0, $target->apiTokens()->count());
+        $this->assertSame(1, $admin->apiTokens()->count());
+    }
+
+    public function test_changing_own_password_keeps_the_current_session_only(): void
+    {
+        $admin = $this->userWithPermissions('users.edit');
+        $this->actingWithToken($admin);
+        $otherSession = ApiToken::query()->create([
+            'user_id' => $admin->id,
+            'name' => 'other-device',
+            'token' => hash('sha256', 'another-device-token'),
+            'expires_at' => now()->addDay(),
+        ]);
+
+        $this->putJson("/api/users/{$admin->id}", [
+            'password' => 'Nuev4-Clave-Segura!2026',
+            'password_confirmation' => 'Nuev4-Clave-Segura!2026',
+        ])->assertOk();
+
+        $this->assertSame(1, $admin->apiTokens()->count());
+        $this->assertNull(ApiToken::query()->find($otherSession->id));
+    }
+
+    public function test_incapacidades_search_does_not_leak_internal_exception_messages(): void
+    {
+        $this->mock(ExcelReaderService::class)
+            ->shouldReceive('readIncapacidadesFile')
+            ->andThrow(new \RuntimeException('internal-path-/var/secret'));
+
+        $this->postJson('/api/incapacidades/search', [
+            'tipo' => 'CC',
+            'numero_documento' => '123456',
+            'fecha_expedicion' => '2020-01-01',
+        ])->assertSee('Error interno del servidor')->assertDontSee('internal-path');
+    }
+
+    public function test_login_cookie_uses_configured_same_site_and_domain(): void
+    {
+        config(['auth.cookie_same_site' => 'None', 'auth.cookie_domain' => 'example.test']);
+        $user = User::factory()->create(['password' => 'Cl4ve-Segura-Prueba!']);
+
+        $response = $this->postJson('/api/auth/login', [
+            'email' => $user->email,
+            'password' => 'Cl4ve-Segura-Prueba!',
+        ])->assertOk();
+
+        $cookie = $response->getCookie('prosalud_auth_token', false);
+        $this->assertSame('none', strtolower((string) $cookie->getSameSite()));
+        $this->assertSame('example.test', $cookie->getDomain());
+    }
+
+    public function test_bulk_response_template_is_scoped_to_assigned_requests(): void
+    {
+        RequestForm::factory()->create(['status' => 'pending']);
+        $user = $this->userWithPermissions('requests.respond');
+
+        $this->actingWithToken($user)
+            ->getJson('/api/requests/bulk-response-template')
+            ->assertStatus(422);
     }
 }
