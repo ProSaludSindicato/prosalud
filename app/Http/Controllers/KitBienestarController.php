@@ -960,7 +960,7 @@ class KitBienestarController extends Controller
                 $excelExportService = $this->excelExportService;
                 dispatch(function () use ($excelExportService, $filters, $options, $jobId, $user) {
                     try {
-                        Log::info('Iniciando generación asíncrona de reporte de entregas de bienestar', [
+                        Log::debug('Iniciando generación asíncrona de reporte de entregas de bienestar', [
                             'job_id' => $jobId,
                             'include_firmas' => true,
                             'user_id' => $user?->id,

@@ -67,7 +67,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
         $tempPdfPath = null;
 
         try {
-            Log::info('Iniciando envío de correo de convenio manual', [
+            Log::debug('Iniciando envío de correo de convenio manual', [
                 'documento' => $this->documento,
                 'nombre_archivo' => $this->nombreArchivo,
                 'nombre_convenio' => $this->nombreConvenio,

@@ -39,7 +39,7 @@ class CertificadoConvenioAutomaticoService
     {
         $documento = $requestForm->document_number;
 
-        Log::info('evaluarElegibilidadCompensaciones: Iniciando verificación', [
+        Log::debug('evaluarElegibilidadCompensaciones: Iniciando verificación', [
             'request_id' => $requestForm->id,
             'documento' => $documento,
         ]);
@@ -176,7 +176,7 @@ class CertificadoConvenioAutomaticoService
         DB::beginTransaction();
 
         try {
-            Log::info('Iniciando procesamiento automático de certificado con compensaciones', [
+            Log::debug('Iniciando procesamiento automático de certificado con compensaciones', [
                 'request_id' => $requestForm->id,
                 'documento' => $requestForm->document_number,
                 'tiene_compensaciones' => ! empty($compensaciones),
@@ -198,7 +198,7 @@ class CertificadoConvenioAutomaticoService
             // Verificar si es tipo "otros"
             $esOtros = $this->esOtros($requestForm);
 
-            Log::info('Valor de dirigidoAEntidad extraído del payload', [
+            Log::debug('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'esParaBancolombia' => $esParaBancolombia,
@@ -306,7 +306,7 @@ class CertificadoConvenioAutomaticoService
         DB::beginTransaction();
 
         try {
-            Log::info('Iniciando procesamiento automático de certificado con RequestForm existente', [
+            Log::debug('Iniciando procesamiento automático de certificado con RequestForm existente', [
                 'request_id' => $requestForm->id,
                 'documento' => $requestForm->document_number,
             ]);
@@ -326,7 +326,7 @@ class CertificadoConvenioAutomaticoService
             // Verificar si es tipo "otros"
             $esOtros = $this->esOtros($requestForm);
 
-            Log::info('Valor de dirigidoAEntidad extraído del payload', [
+            Log::debug('Valor de dirigidoAEntidad extraído del payload', [
                 'request_id' => $requestForm->id,
                 'dirigidoAEntidad' => $dirigidoAEntidad,
                 'esParaBancolombia' => $esParaBancolombia,
@@ -411,7 +411,7 @@ class CertificadoConvenioAutomaticoService
             // 1. Crear RequestForm para trazabilidad
             $requestForm = $this->crearRequestForm($solicitudData);
 
-            Log::info('RequestForm creado para certificado automático', [
+            Log::debug('RequestForm creado para certificado automático', [
                 'request_id' => $requestForm->id,
                 'documento' => $solicitudData['documento'],
             ]);
@@ -1009,7 +1009,7 @@ class CertificadoConvenioAutomaticoService
         $dirigidoBancolombiaRaw = $infoCertificado['dirigidoBancolombia'] ?? false;
         $dirigidoBancolombia = $requestForm->parseBooleanValue($dirigidoBancolombiaRaw);
 
-        Log::info('esParaBancolombia: Verificando opción dirigidoBancolombia', [
+        Log::debug('esParaBancolombia: Verificando opción dirigidoBancolombia', [
             'request_id' => $requestForm->id,
             'dirigidoBancolombia_raw' => $dirigidoBancolombiaRaw,
             'dirigidoBancolombia_parsed' => $dirigidoBancolombia,
@@ -1054,7 +1054,7 @@ class CertificadoConvenioAutomaticoService
         $paraSubsidioViviendaRaw = $infoCertificado['paraSubsidioVivienda'] ?? false;
         $paraSubsidioVivienda = $requestForm->parseBooleanValue($paraSubsidioViviendaRaw);
 
-        Log::info('esParaSubsidioVivienda: Verificando opción paraSubsidioVivienda', [
+        Log::debug('esParaSubsidioVivienda: Verificando opción paraSubsidioVivienda', [
             'request_id' => $requestForm->id,
             'paraSubsidioVivienda_raw' => $paraSubsidioViviendaRaw,
             'paraSubsidioVivienda_parsed' => $paraSubsidioVivienda,
@@ -1099,7 +1099,7 @@ class CertificadoConvenioAutomaticoService
         $paraSubsidioDesempleoRaw = $infoCertificado['paraSubsidioDesempleo'] ?? false;
         $paraSubsidioDesempleo = $requestForm->parseBooleanValue($paraSubsidioDesempleoRaw);
 
-        Log::info('esParaSubsidioDesempleo: Verificando opción paraSubsidioDesempleo', [
+        Log::debug('esParaSubsidioDesempleo: Verificando opción paraSubsidioDesempleo', [
             'request_id' => $requestForm->id,
             'paraSubsidioDesempleo_raw' => $paraSubsidioDesempleoRaw,
             'paraSubsidioDesempleo_parsed' => $paraSubsidioDesempleo,
@@ -1144,7 +1144,7 @@ class CertificadoConvenioAutomaticoService
         $otrosRaw = $infoCertificado['otros'] ?? false;
         $otros = $requestForm->parseBooleanValue($otrosRaw);
 
-        Log::info('esOtros: Verificando opción otros', [
+        Log::debug('esOtros: Verificando opción otros', [
             'request_id' => $requestForm->id,
             'otros_raw' => $otrosRaw,
             'otros_parsed' => $otros,

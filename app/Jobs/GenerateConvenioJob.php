@@ -53,7 +53,7 @@ class GenerateConvenioJob implements ShouldQueue
             set_time_limit($this->timeout);
             ini_set('max_execution_time', (string) $this->timeout);
 
-            Log::info('[CONVENIO JOB] Iniciando generación de convenio desde job asíncrono', [
+            Log::debug('[CONVENIO JOB] Iniciando generación de convenio desde job asíncrono', [
                 'documento' => $this->convenioData['numero_documento'] ?? null,
                 'send_email' => $this->sendEmail,
                 'email' => $this->email,

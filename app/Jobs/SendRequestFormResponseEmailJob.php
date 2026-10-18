@@ -50,7 +50,7 @@ class SendRequestFormResponseEmailJob implements ShouldQueue
     public function handle(): void
     {
         try {
-            Log::info('Iniciando envío de correo de respuesta de solicitud', [
+            Log::debug('Iniciando envío de correo de respuesta de solicitud', [
                 'request_id' => $this->requestFormId,
                 'email_to' => $this->recipientEmail,
                 'status' => $this->status,

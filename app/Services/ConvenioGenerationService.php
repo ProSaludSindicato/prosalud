@@ -34,7 +34,7 @@ class ConvenioGenerationService
         $documento = $this->normalizeDocumento($data['numero_documento'] ?? '');
         $nombreCompleto = trim(($data['apellidos'] ?? '').' '.($data['nombres'] ?? ''));
 
-        Log::info('[CONVENIO GENERATION] Iniciando generación de convenio', [
+        Log::debug('[CONVENIO GENERATION] Iniciando generación de convenio', [
             'documento' => $documento,
             'nombre_completo' => $nombreCompleto,
             'proceso' => $data['proceso'] ?? null,
@@ -67,7 +67,7 @@ class ConvenioGenerationService
             $afiliadoData = $this->obtenerDatosAfiliado($documento);
 
             if ($afiliadoData) {
-                Log::info('[CONVENIO GENERATION] Datos de afiliado encontrados', [
+                Log::debug('[CONVENIO GENERATION] Datos de afiliado encontrados', [
                     'documento' => $documento,
                     'tiene_direccion' => ! empty($afiliadoData['direccion']),
                     'tiene_celular' => ! empty($afiliadoData['celular']),
@@ -150,7 +150,7 @@ class ConvenioGenerationService
 
         if (! is_dir($outputDir)) {
             $creado = mkdir($outputDir, 0755, true);
-            Log::info('[CONVENIO GENERATION] Intento de creación de directorio de salida', [
+            Log::debug('[CONVENIO GENERATION] Intento de creación de directorio de salida', [
                 'output_dir' => $outputDir,
                 'creado' => $creado,
                 'existe_despues' => is_dir($outputDir),
@@ -616,7 +616,7 @@ class ConvenioGenerationService
             }
         }
 
-        Log::info('[CONVENIO GENERATION] Compensación básica redactada generada automáticamente', [
+        Log::debug('[CONVENIO GENERATION] Compensación básica redactada generada automáticamente', [
             'patron_usado' => $patronUsado ?? 'Ninguno (texto vacío)',
             'tiene_valores_hora' => $tieneValoresHora,
             'tiene_auxilios_especiales' => $tieneAuxiliosEspeciales,
@@ -682,7 +682,7 @@ class ConvenioGenerationService
                     return null;
                 }
 
-                Log::info('[CONVENIO GENERATION] Datos de contacto obtenidos desde API ProSanet', [
+                Log::debug('[CONVENIO GENERATION] Datos de contacto obtenidos desde API ProSanet', [
                     'documento' => $documento,
                     'tiene_direccion' => ($fromApi['direccion'] ?? '') !== '',
                     'tiene_celular' => ($fromApi['celular'] ?? '') !== '',
@@ -770,7 +770,7 @@ class ConvenioGenerationService
                             unset($spreadsheet);
                             @unlink($tempPath);
 
-                            Log::info('[CONVENIO GENERATION] Datos de contacto obtenidos desde Excel (fallback)', [
+                            Log::debug('[CONVENIO GENERATION] Datos de contacto obtenidos desde Excel (fallback)', [
                                 'documento' => $documento,
                                 'disk' => $disk,
                             ]);
@@ -1053,7 +1053,7 @@ class ConvenioGenerationService
             @unlink($pdfTmpPath);
         }
 
-        Log::info('[CONVENIO GENERATION] Convenio convertido a PDF', [
+        Log::debug('[CONVENIO GENERATION] Convenio convertido a PDF', [
             'nombre_archivo' => $nombrePdf,
             'ruta' => $rutaFinal,
             'tamaño_bytes' => filesize($rutaFinal),

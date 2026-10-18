@@ -22,7 +22,7 @@ class SendWellnessActivityReminderJob implements ShouldQueue
     public function handle(): void
     {
         try {
-            Log::info('Iniciando envío de recordatorios de actividades de bienestar');
+            Log::debug('Iniciando envío de recordatorios de actividades de bienestar');
 
             // Obtener la fecha de ayer (día anterior a hoy)
             $yesterday = now()->subDay()->format('Y-m-d');

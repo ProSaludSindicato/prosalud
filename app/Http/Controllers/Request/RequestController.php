@@ -71,7 +71,7 @@ class RequestController extends Controller
         // usarse una vez, por lo que no debemos verificar nuevamente aquí.
         // Si llegamos a este punto, significa que la validación pasó exitosamente.
 
-        Log::info('Procesando solicitud después de validación exitosa de reCAPTCHA', [
+        Log::debug('Procesando solicitud después de validación exitosa de reCAPTCHA', [
             'request_type' => $request->input('request_type'),
             'ip' => $request->ip(),
             'has_recaptcha_token' => $request->has('recaptcha_token'),
@@ -210,7 +210,7 @@ class RequestController extends Controller
         // Procesar automáticamente certificados de convenio simples (solo fecha ingreso/retiro y/o dirigido a entidad)
         // O con compensaciones si el afiliado está activo y tiene registro en el Excel
         if ($requestForm->request_type === RequestTypes::CERTIFICADO_CONVENIO) {
-            Log::info('RequestController: Verificando procesamiento automático para certificado de convenio', [
+            Log::debug('RequestController: Verificando procesamiento automático para certificado de convenio', [
                 'request_id' => $requestForm->id,
                 'document_number' => $requestForm->document_number,
                 'payload' => $requestForm->payload,
@@ -220,7 +220,7 @@ class RequestController extends Controller
             $tieneValorCompensaciones = $this->tieneValorCompensaciones($requestForm);
             $esParaSubsidioVivienda = $this->esParaSubsidioVivienda($requestForm);
 
-            Log::info('RequestController: Resultados de verificación de procesamiento automático', [
+            Log::debug('RequestController: Resultados de verificación de procesamiento automático', [
                 'request_id' => $requestForm->id,
                 'debeProcesarAutomatico' => $debeProcesarAutomatico,
                 'tieneValorCompensaciones' => $tieneValorCompensaciones,
@@ -744,7 +744,7 @@ class RequestController extends Controller
         // Asegurar que requestId es un string
         $requestId = (string) $requestId;
 
-        Log::info('Redirect subtype - buscando RequestForm', [
+        Log::debug('Redirect subtype - buscando RequestForm', [
             'route_id' => $requestId,
             'route_id_length' => strlen($requestId),
             'route_model_binding_result' => $requestForm ? 'found' : 'not_found',
@@ -768,7 +768,7 @@ class RequestController extends Controller
             ], 404);
         }
 
-        Log::info('Redirect subtype - RequestForm encontrado', [
+        Log::debug('Redirect subtype - RequestForm encontrado', [
             'request_form_id' => $requestForm->id,
             'request_form_exists' => $requestForm->exists,
             'request_type' => $requestForm->request_type,
@@ -943,7 +943,7 @@ class RequestController extends Controller
         // Ensure requestId is a string
         $requestId = (string) $requestId;
 
-        Log::info('Respond to request - buscando RequestForm', [
+        Log::debug('Respond to request - buscando RequestForm', [
             'route_id' => $requestId,
             'route_id_length' => strlen($requestId),
         ]);
@@ -964,7 +964,7 @@ class RequestController extends Controller
             ], 404);
         }
 
-        Log::info('Respond to request - RequestForm encontrado', [
+        Log::debug('Respond to request - RequestForm encontrado', [
             'request_form_id' => $requestForm->id,
             'request_form_exists' => $requestForm->exists,
         ]);
@@ -1748,7 +1748,7 @@ class RequestController extends Controller
         $user = auth()->user();
         $userId = $user ? $user->id : null;
 
-        Log::info('Iniciando proceso de respuesta a solicitud', [
+        Log::debug('Iniciando proceso de respuesta a solicitud', [
             'request_id' => $requestFormId,
             'request_type' => $requestForm->request_type,
             'user_id' => $userId,
@@ -2085,7 +2085,7 @@ class RequestController extends Controller
         // Ensure requestId is a string
         $requestId = (string) $requestId;
 
-        Log::info('Respond with compensaciones - buscando RequestForm', [
+        Log::debug('Respond with compensaciones - buscando RequestForm', [
             'route_id' => $requestId,
             'route_id_length' => strlen($requestId),
         ]);
@@ -2352,7 +2352,7 @@ class RequestController extends Controller
         $oldStatus = $requestForm->status;
 
         $fuenteCompensaciones = $compensacionesConstruidasDesdeValores ? 'construido' : (isset($compensaciones['mensaje_compensaciones_parte1']) ? 'redactado' : ($compensacionesManuales ? 'manual' : 'excel'));
-        Log::info('Iniciando proceso de respuesta con compensaciones', [
+        Log::debug('Iniciando proceso de respuesta con compensaciones', [
             'request_id' => $requestId,
             'request_type' => $requestForm->request_type,
             'user_id' => $userId,
@@ -3453,7 +3453,7 @@ class RequestController extends Controller
         $paraSubsidioVivienda = $requestForm->parseBooleanValue($infoCertificado['paraSubsidioVivienda'] ?? false);
         $otros = $requestForm->parseBooleanValue($infoCertificado['otros'] ?? false);
 
-        Log::info('debeProcesarCertificadoAutomatico: Verificando opciones del certificado', [
+        Log::debug('debeProcesarCertificadoAutomatico: Verificando opciones del certificado', [
             'request_id' => $requestForm->id,
             'fechaIngresoRetiro' => $fechaIngresoRetiro,
             'dirigidoAEntidad' => $dirigidoAEntidad,
@@ -3528,7 +3528,7 @@ class RequestController extends Controller
 
         // Si tiene fechaIngresoRetiro o dirigidoAEntidad activo, procesar automáticamente
         $resultado = $fechaIngresoRetiro || $dirigidoAEntidad;
-        Log::info('debeProcesarCertificadoAutomatico: Resultado final', [
+        Log::debug('debeProcesarCertificadoAutomatico: Resultado final', [
             'request_id' => $requestForm->id,
             'puede_procesar_automatico' => $resultado,
             'fechaIngresoRetiro' => $fechaIngresoRetiro,
@@ -4366,7 +4366,7 @@ class RequestController extends Controller
     public function retryCertificateGeneration(Request $request, string $requestId): JsonResponse
     {
         try {
-            Log::info('Iniciando reintento de generación de certificado', [
+            Log::debug('Iniciando reintento de generación de certificado', [
                 'request_id' => $requestId,
                 'ip' => $request->ip(),
                 'user_agent' => $request->userAgent(),

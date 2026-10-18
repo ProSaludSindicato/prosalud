@@ -20,7 +20,7 @@ class LiquidacionService
         $startTime = microtime(true);
 
         try {
-            Log::info('Iniciando búsqueda en archivo de liquidaciones', [
+            Log::debug('Iniciando búsqueda en archivo de liquidaciones', [
                 'tipo' => $tipo,
                 'numero_documento' => $numeroDocumento,
                 'fecha_expedicion' => $fechaExpedicion,

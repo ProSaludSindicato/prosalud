@@ -320,7 +320,7 @@ class CertificadoConvenioController extends Controller
                 'dirigido_a_entidad' => $request->input('dirigido_a_entidad', ''),
             ];
 
-            Log::info('Iniciando solicitud automática de certificado de convenio', [
+            Log::debug('Iniciando solicitud automática de certificado de convenio', [
                 'documento' => $solicitudData['documento'],
                 'ip' => $request->ip(),
             ]);

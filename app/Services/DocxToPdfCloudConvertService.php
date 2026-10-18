@@ -86,7 +86,7 @@ class DocxToPdfCloudConvertService implements DocxToPdfConverter
         }
 
         try {
-            Log::info('Iniciando conversión DOCX a PDF con CloudConvert', [
+            Log::debug('Iniciando conversión DOCX a PDF con CloudConvert', [
                 'archivo' => $docxPath,
                 'tamaño' => $this->formatBytes($fileSize),
             ]);

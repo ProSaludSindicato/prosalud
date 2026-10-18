@@ -20,7 +20,7 @@ class IncapacidadService
         $startTime = microtime(true);
 
         try {
-            Log::info('Iniciando búsqueda en archivo de incapacidades', [
+            Log::debug('Iniciando búsqueda en archivo de incapacidades', [
                 'tipo' => $tipo,
                 'numero_documento' => $numeroDocumento,
                 'fecha_expedicion' => $fechaExpedicion,

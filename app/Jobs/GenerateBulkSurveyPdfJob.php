@@ -33,7 +33,7 @@ class GenerateBulkSurveyPdfJob implements ShouldQueue
     {
         set_time_limit($this->timeout);
 
-        Log::info('[BULK PDF JOB] Iniciando orquestación de PDF masivo de encuestas sociodemográficas', [
+        Log::debug('[BULK PDF JOB] Iniciando orquestación de PDF masivo de encuestas sociodemográficas', [
             'job_id' => $this->jobId,
             'user_id' => $this->userId,
             'filters' => $this->filters,

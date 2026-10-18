@@ -111,7 +111,7 @@ class WellnessEventController extends Controller
     {
         try {
             // Log incoming request data
-            Log::info('Iniciando creación de evento de bienestar', [
+            Log::debug('Iniciando creación de evento de bienestar', [
                 'request_data' => $request->except(['images']), // Exclude images from log for security
                 'images_count' => count($request->file('images', [])),
                 'user_id' => $request->user()?->id,
@@ -254,7 +254,7 @@ class WellnessEventController extends Controller
     {
         try {
             // Log incoming request data
-            Log::info('Iniciando actualización de evento de bienestar', [
+            Log::debug('Iniciando actualización de evento de bienestar', [
                 'event_id' => $wellnessEvent->id,
                 'method' => $request->method(),
                 'content_type' => $request->header('Content-Type'),
@@ -419,7 +419,7 @@ class WellnessEventController extends Controller
                 ]);
 
                 // Delete existing images
-                Log::info('Iniciando eliminación de imágenes existentes', [
+                Log::debug('Iniciando eliminación de imágenes existentes', [
                     'event_id' => $wellnessEvent->id,
                     'images_to_delete_count' => $currentImagesCount,
                 ]);
@@ -429,7 +429,7 @@ class WellnessEventController extends Controller
                 ]);
 
                 // Upload new images
-                Log::info('Iniciando carga de nuevas imágenes', [
+                Log::debug('Iniciando carga de nuevas imágenes', [
                     'event_id' => $wellnessEvent->id,
                     'new_images_count' => count($images),
                 ]);
@@ -580,7 +580,7 @@ class WellnessEventController extends Controller
     {
         try {
             // Log incoming request data
-            Log::info('Iniciando eliminación de evento de bienestar', [
+            Log::debug('Iniciando eliminación de evento de bienestar', [
                 'event_id' => $wellnessEvent->id,
                 'title' => $wellnessEvent->title,
                 'category' => $wellnessEvent->category,
@@ -922,7 +922,7 @@ class WellnessEventController extends Controller
         $disk = 'prosalud-public';
         $fallbackDisk = 'public';
 
-        Log::info('handleImageUploads - Iniciando procesamiento', [
+        Log::debug('handleImageUploads - Iniciando procesamiento', [
             'event_id' => $event->id,
             'images_count' => count($images),
             'images_types' => array_map('gettype', $images),
@@ -1076,7 +1076,7 @@ class WellnessEventController extends Controller
         $fallbackDisk = 'public';
 
         $imagesCount = $event->images()->count();
-        Log::info('deleteEventImages - Iniciando eliminación', [
+        Log::debug('deleteEventImages - Iniciando eliminación', [
             'event_id' => $event->id,
             'images_to_delete_count' => $imagesCount,
             'timestamp' => now()->toISOString(),
@@ -1206,7 +1206,7 @@ class WellnessEventController extends Controller
         $filename = $this->generateDescriptiveFilenameForAttendanceList($file, $eventId, $extension);
         $directory = 'wellness-events/listados/' . date('Y/m');
 
-        Log::info('Iniciando almacenamiento de listado de asistencia', [
+        Log::debug('Iniciando almacenamiento de listado de asistencia', [
             'event_id' => $eventId,
             'filename' => $filename,
             'file_size' => $file->getSize(),

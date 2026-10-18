@@ -160,7 +160,7 @@ class ComfenalcoEventController extends Controller
     public function update(UpdateComfenalcoEventRequest $request, ComfenalcoEvent $comfenalcoEvent): \Illuminate\Http\JsonResponse
     {
         try {
-            Log::info('Iniciando actualización de evento Comfenalco', [
+            Log::debug('Iniciando actualización de evento Comfenalco', [
                 'event_id' => $comfenalcoEvent->id,
                 'request_data' => $request->except(['banner_image']), // Exclude image from log for security
                 'has_banner_image' => $request->hasFile('banner_image'),
@@ -291,7 +291,7 @@ class ComfenalcoEventController extends Controller
     {
         try {
             // Log incoming request data
-            Log::info('Iniciando eliminación de evento Comfenalco', [
+            Log::debug('Iniciando eliminación de evento Comfenalco', [
                 'event_id' => $comfenalcoEvent->id,
                 'user_id' => $request->user()?->id,
                 'ip_address' => $request->ip(),

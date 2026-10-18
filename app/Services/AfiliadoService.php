@@ -214,7 +214,7 @@ class AfiliadoService
         string $fechaExpedicion,
     ): ?array {
         // Log de entrada al método
-        Log::info('[AFILIADO SERVICE] Iniciando autenticación de afiliado', [
+        Log::debug('[AFILIADO SERVICE] Iniciando autenticación de afiliado', [
             'documento' => $documento,
             'tipo_documento' => $tipoDocumento,
             'fecha_expedicion' => $fechaExpedicion,
@@ -721,7 +721,7 @@ class AfiliadoService
         ?string $fechaExpedicion = null,
     ): ?array {
         // Log de entrada al método
-        Log::info('[AFILIADO SERVICE] Iniciando obtención de información completa de afiliado', [
+        Log::debug('[AFILIADO SERVICE] Iniciando obtención de información completa de afiliado', [
             'documento' => $documento,
             'tipo_documento' => $tipoDocumento,
             'fecha_expedicion' => $fechaExpedicion,

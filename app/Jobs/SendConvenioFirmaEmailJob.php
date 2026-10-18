@@ -45,7 +45,7 @@ class SendConvenioFirmaEmailJob implements ShouldQueue
     public function handle(AfiliadoService $afiliadoService): void
     {
         try {
-            Log::info('Iniciando envío de correo de convenio para firmar', [
+            Log::debug('Iniciando envío de correo de convenio para firmar', [
                 'documento' => $this->documento,
                 'nombre_archivo' => $this->nombreArchivo,
             ]);

@@ -1536,7 +1536,7 @@ class ExcelReaderService
     public function buscarCompensacionPorDocumento(string $documento): ?array
     {
         try {
-            Log::info('Iniciando búsqueda de compensación por documento', [
+            Log::debug('Iniciando búsqueda de compensación por documento', [
                 'documento_original' => $documento,
             ]);
 

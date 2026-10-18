@@ -44,7 +44,7 @@ class SendRequestFormReceivedEmailJob implements ShouldQueue
     public function handle(): void
     {
         try {
-            Log::info('Iniciando envío de correo de confirmación de recepción', [
+            Log::debug('Iniciando envío de correo de confirmación de recepción', [
                 'request_id' => $this->requestFormId,
             ]);
 

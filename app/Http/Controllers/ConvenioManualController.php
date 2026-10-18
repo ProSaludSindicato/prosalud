@@ -1878,7 +1878,7 @@ class ConvenioManualController extends Controller
         Request $request,
         ConvenioDuplicateDetectionService $duplicateDetection,
     ): JsonResponse {
-        Log::info('[CONVENIO API] Iniciando importación masiva - Validando request', [
+        Log::debug('[CONVENIO API] Iniciando importación masiva - Validando request', [
             'has_file' => $request->hasFile('file'),
             'send_email' => $request->input('send_email'),
         ]);
@@ -1965,7 +1965,7 @@ class ConvenioManualController extends Controller
         ]);
 
         try {
-            Log::info('[CONVENIO API] Iniciando importación masiva desde Excel', [
+            Log::debug('[CONVENIO API] Iniciando importación masiva desde Excel', [
                 'filename' => $file->getClientOriginalName(),
                 'size' => $file->getSize(),
                 'send_email' => $sendEmail,
@@ -2113,7 +2113,7 @@ class ConvenioManualController extends Controller
                 ], 422);
             }
 
-            Log::info('[CONVENIO API] Iniciando procesamiento de filas', [
+            Log::debug('[CONVENIO API] Iniciando procesamiento de filas', [
                 'total_filas' => $highestRow,
                 'filas_a_procesar' => $highestRow - 1, // Excluyendo encabezado
             ]);

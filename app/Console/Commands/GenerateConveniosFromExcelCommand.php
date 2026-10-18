@@ -52,7 +52,7 @@ class GenerateConveniosFromExcelCommand extends Command
     {
         $startTime = microtime(true);
         
-        Log::info('[CONVENIO EXCEL COMMAND] Iniciando generación de convenios desde Excel', [
+        Log::debug('[CONVENIO EXCEL COMMAND] Iniciando generación de convenios desde Excel', [
             'limit' => $this->option('limit'),
             'skip' => $this->option('skip'),
             'dry_run' => $this->option('dry-run'),
@@ -140,7 +140,7 @@ class GenerateConveniosFromExcelCommand extends Command
             $startRow = 2 + $skip; // Saltar header y filas especificadas
             $endRow = $limit ? min($startRow + $limit - 1, $highestRow) : $highestRow;
 
-            Log::info('[CONVENIO EXCEL COMMAND] Iniciando procesamiento de filas', [
+            Log::debug('[CONVENIO EXCEL COMMAND] Iniciando procesamiento de filas', [
                 'total_filas' => $highestRow,
                 'fila_inicio' => $startRow,
                 'fila_fin' => $endRow,

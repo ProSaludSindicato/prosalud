@@ -183,7 +183,7 @@ class VaccinationSurveyController extends Controller
             $excelExportService = $this->excelExportService;
             dispatch(function () use ($excelExportService, $filters, $jobId, $user) {
                 try {
-                    Log::info('[Encuesta vacunación] Iniciando generación asíncrona de reporte Excel', [
+                    Log::debug('[Encuesta vacunación] Iniciando generación asíncrona de reporte Excel', [
                         'job_id' => $jobId,
                         'user_id' => $user?->id,
                     ]);

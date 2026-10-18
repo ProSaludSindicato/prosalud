@@ -237,7 +237,7 @@ class SstDeliveryReportController extends Controller
 
         dispatch(function () use ($reportService, $filters, $options, $jobId) {
             try {
-                Log::info('Iniciando generación asíncrona de reporte de entregas SST', [
+                Log::debug('Iniciando generación asíncrona de reporte de entregas SST', [
                     'job_id' => $jobId,
                     'include_signatures' => $options['includeSignatures'] ?? false,
                 ]);

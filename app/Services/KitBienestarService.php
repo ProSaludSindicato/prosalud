@@ -38,7 +38,7 @@ class KitBienestarService
         string $documento,
         string $fechaExpedicion,
     ): ?array {
-        Log::info('[KIT BIENESTAR SERVICE] Iniciando autenticación', [
+        Log::debug('[KIT BIENESTAR SERVICE] Iniciando autenticación', [
             'documento' => $documento,
             'fecha_expedicion' => $fechaExpedicion,
         ]);

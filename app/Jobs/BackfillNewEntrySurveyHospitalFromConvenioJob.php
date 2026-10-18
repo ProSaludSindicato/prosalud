@@ -73,7 +73,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioJob implements ShouldQueue
             return;
         }
 
-        Log::info('Backfill new-entry survey hospital: iniciando job', [
+        Log::debug('Backfill new-entry survey hospital: iniciando job', [
             'total_candidatas' => $totalCandidatas,
             'total_new_entry' => $totalNewEntry,
             'limit' => $this->limit,

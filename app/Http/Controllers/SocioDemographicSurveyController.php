@@ -808,7 +808,7 @@ class SocioDemographicSurveyController extends Controller
                 $auditLogService = $this->auditLogService;
                 dispatch(function () use ($excelExportService, $auditLogService, $filters, $jobId, $user) {
                     try {
-                        Log::info('Iniciando generación asíncrona de reporte de encuestas sociodemográficas', [
+                        Log::debug('Iniciando generación asíncrona de reporte de encuestas sociodemográficas', [
                             'job_id' => $jobId,
                             'include_signatures' => true,
                             'user_id' => $user?->id,

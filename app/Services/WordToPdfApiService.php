@@ -53,7 +53,7 @@ class WordToPdfApiService implements DocxToPdfConverter
         $startTime = microtime(true);
         $shouldProtectPdf = $protectPdf ?? $this->protectPdf;
 
-        Log::info('Iniciando conversión DOCX a PDF con WordToPdf API', [
+        Log::debug('Iniciando conversión DOCX a PDF con WordToPdf API', [
             'archivo' => basename($docxPath),
             'tamaño' => $this->formatBytes($fileSize),
             'protect_pdf' => $shouldProtectPdf,

@@ -33,7 +33,7 @@ class ProcessCertificadoConvenioJob implements ShouldQueue
         ini_set('max_execution_time', (string) $this->timeout);
 
         try {
-            Log::info('Iniciando procesamiento automático de certificado desde Job', [
+            Log::debug('Iniciando procesamiento automático de certificado desde Job', [
                 'request_id' => $this->requestFormId,
                 'resolver_compensaciones' => $this->resolverCompensaciones,
                 'tiene_compensaciones' => $this->compensaciones !== null,
