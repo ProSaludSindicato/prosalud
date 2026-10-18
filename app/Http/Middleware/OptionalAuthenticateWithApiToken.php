@@ -6,6 +6,7 @@ use App\Models\ApiToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Intenta autenticar por cookie de token o por Authorization: Bearer (misma lógica que auth.token) pero sin exigirla.
@@ -18,7 +19,7 @@ class OptionalAuthenticateWithApiToken
     {
         $token = $this->getTokenFromRequest($request);
 
-        if (!$token) {
+        if (! $token) {
             return $next($request);
         }
 
@@ -27,7 +28,7 @@ class OptionalAuthenticateWithApiToken
             ->where('token', $hashedToken)
             ->first();
 
-        if (!$apiToken || !$apiToken->user || $apiToken->isExpired() || $apiToken->user->is_active === false) {
+        if (! $apiToken || ! $apiToken->user || $apiToken->isExpired() || $apiToken->user->is_active === false) {
             return $next($request);
         }
 
@@ -39,6 +40,7 @@ class OptionalAuthenticateWithApiToken
         if ($userPermissions === null) {
             $userPermissions = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($user) {
                 $user->loadMissing(['roles', 'permissions', 'roles.permissions']);
+
                 return $user->getAllPermissions()->pluck('name')->toArray();
             });
         }
@@ -46,6 +48,7 @@ class OptionalAuthenticateWithApiToken
         $user->loadMissing(['roles', 'permissions']);
 
         Auth::setUser($user);
+        Log::withContext(['user_id' => $user->id]);
         $request->setUserResolver(fn () => $user);
 
         return $next($request);

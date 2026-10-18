@@ -43,11 +43,6 @@ class WordToPdfApiService implements DocxToPdfConverter
         $this->protectPdf = (bool) config('wordtopdf.protect_pdf', true);
         $this->apiKey = config('wordtopdf.api_key') ?: null;
 
-        Log::info('WordToPdf API service inicializado', LogSanitizationService::sanitize([
-            'base_url' => $this->baseUrl,
-            'api_key_configured' => ! empty($this->apiKey),
-            'protect_pdf' => $this->protectPdf,
-        ]));
     }
 
     public function convert(string $docxPath, bool $saveToStorage = true, ?bool $protectPdf = null): array

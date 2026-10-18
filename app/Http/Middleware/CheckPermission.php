@@ -41,10 +41,6 @@ class CheckPermission
         if ($cachedPermissions !== null) {
             $userPermissions = $cachedPermissions;
         } else {
-            Log::debug('[CACHE MISS] Consultando permisos desde BD', [
-                'cache_key' => $cacheKey,
-                'user_id' => $user->id,
-            ]);
 
             $userPermissions = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($user) {
                 // Forzar recarga de roles y permisos si no están cargados
@@ -62,11 +58,6 @@ class CheckPermission
                 return $user->getAllPermissions()->pluck('name')->toArray();
             });
 
-            Log::debug('[CACHE STORED] Permisos guardados en caché', [
-                'cache_key' => $cacheKey,
-                'user_id' => $user->id,
-                'permissions_count' => count($userPermissions),
-            ]);
         }
 
         $requiredPermissions = str_contains($permission, '|')

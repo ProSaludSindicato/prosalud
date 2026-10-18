@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Models\KitBienestarFileVersion;
-use Illuminate\Support\Facades\{Cache, Log, Storage};
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
-use PhpOffice\PhpSpreadsheet\{Exception as SpreadsheetException, IOFactory};
+use PhpOffice\PhpSpreadsheet\Exception as SpreadsheetException;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class KitBienestarService
 {
@@ -13,11 +16,17 @@ class KitBienestarService
 
     // Column indexes (0-based)
     private const COL_CC = 0; // Número de documento
+
     private const COL_NOMBRE = 1;
+
     private const COL_HOSPITAL = 2;
+
     private const COL_FECHA_EXPEDICION = 3;
+
     private const COL_BENEFICIARIO = 4;
+
     private const COL_PARENTESCO = 5;
+
     private const COL_EDAD = 6;
 
     /**
@@ -44,25 +53,11 @@ class KitBienestarService
             md5($normalizedFechaExpedicion ?? '')
         );
 
-        Log::debug('[KIT BIENESTAR SERVICE] Clave de caché generada', [
-            'cache_key' => $cacheKey,
-            'documento' => $documento,
-        ]);
-
         // Verificar si existe en caché
         $cachedData = Cache::tags(['kit_bienestar'])->get($cacheKey);
         if ($cachedData !== null) {
-            Log::info('[CACHE HIT] Kit bienestar obtenido desde caché', [
-                'cache_key' => $cacheKey,
-                'documento' => $documento,
-            ]);
             return $cachedData;
         }
-
-        Log::info('[CACHE MISS] Consultando kit bienestar desde Excel', [
-            'cache_key' => $cacheKey,
-            'documento' => $documento,
-        ]);
 
         $result = Cache::tags(['kit_bienestar'])->remember($cacheKey, now()->addHours(24), function () use ($documento, $fechaExpedicion) {
             return $this->withExcelFile(function (string $excelPath) use ($documento, $fechaExpedicion) {
@@ -87,10 +82,11 @@ class KitBienestarService
                     // Obtener la primera hoja (asumimos que es la única hoja o la principal)
                     $sheet = $spreadsheet->getActiveSheet();
 
-                    if (!$sheet) {
+                    if (! $sheet) {
                         Log::error('Hoja no encontrada en archivo de kits escolares');
                         $spreadsheet->disconnectWorksheets();
                         unset($spreadsheet);
+
                         return null;
                     }
 
@@ -112,6 +108,7 @@ class KitBienestarService
 
                         $spreadsheet->disconnectWorksheets();
                         unset($spreadsheet);
+
                         return null;
                     }
 
@@ -134,7 +131,7 @@ class KitBienestarService
                                 'hospital' => $kitBienestar[0]['hospital'],
                                 'fecha_expedicion' => $kitBienestar[0]['fecha_expedicion'],
                             ],
-                            'beneficiarios' => array_map(function($record) {
+                            'beneficiarios' => array_map(function ($record) {
                                 return [
                                     'beneficiario' => $record['beneficiario'],
                                     'parentesco' => $record['parentesco'],
@@ -169,10 +166,10 @@ class KitBienestarService
                     return null;
                 } finally {
                     // Restaurar límites originales
-                    if (false !== $originalMemoryLimit && null !== $originalMemoryLimit) {
+                    if ($originalMemoryLimit !== false && $originalMemoryLimit !== null) {
                         ini_set('memory_limit', (string) $originalMemoryLimit);
                     }
-                    if (false !== $originalMaxExecutionTime && null !== $originalMaxExecutionTime) {
+                    if ($originalMaxExecutionTime !== false && $originalMaxExecutionTime !== null) {
                         set_time_limit((int) $originalMaxExecutionTime);
                     }
                 }
@@ -181,11 +178,6 @@ class KitBienestarService
 
         // Log cuando se guarda en caché (solo si se obtuvo resultado)
         if ($result !== null) {
-            Log::info('[CACHE STORED] Kit bienestar guardado en caché', [
-                'cache_key' => $cacheKey,
-                'documento' => $documento,
-                'ttl_hours' => 24,
-            ]);
         }
 
         return $result;
@@ -199,15 +191,17 @@ class KitBienestarService
     {
         // Primero intentar obtener versión activa desde S3
         $activeVersion = KitBienestarFileVersion::getActiveVersion();
-        
+
         if ($activeVersion) {
             // Usar disco prosalud-private por defecto
             $disk = Storage::disk('prosalud-private');
+
             return $disk->exists($activeVersion->s3_path);
         }
 
         // Fallback a archivo local para compatibilidad
         $filePath = base_path(self::EXCEL_FILE_PATH);
+
         return file_exists($filePath) && is_readable($filePath);
     }
 
@@ -217,29 +211,29 @@ class KitBienestarService
      *
      * @template T
      *
-     * @param callable(string):T $callback
-     * @param T|null                     $default
-     *
+     * @param  callable(string):T  $callback
+     * @param  T|null  $default
      * @return T|null
      */
     private function withExcelFile(callable $callback, $default = null)
     {
         // Primero intentar obtener versión activa desde S3
         $activeVersion = KitBienestarFileVersion::getActiveVersion();
-        
+
         if ($activeVersion) {
             // Usar disco prosalud-private por defecto
             $disk = Storage::disk('prosalud-private');
-            
+
             if ($disk->exists($activeVersion->s3_path)) {
                 // Descargar archivo temporalmente para procesarlo
                 $tempFilePath = $this->downloadFileToTemp($activeVersion);
-                
+
                 if ($tempFilePath && file_exists($tempFilePath)) {
                     try {
                         $result = $callback($tempFilePath);
                         // Limpiar archivo temporal después de usarlo
                         @unlink($tempFilePath);
+
                         return $result;
                     } catch (\Throwable $e) {
                         // Limpiar archivo temporal en caso de error
@@ -249,6 +243,7 @@ class KitBienestarService
                             's3_path' => $activeVersion->s3_path,
                             'file_version_id' => $activeVersion->id,
                         ]);
+
                         return $default;
                     }
                 }
@@ -258,11 +253,12 @@ class KitBienestarService
         // Fallback a archivo local para compatibilidad
         $filePath = base_path(self::EXCEL_FILE_PATH);
 
-        if (!file_exists($filePath) || !is_readable($filePath)) {
+        if (! file_exists($filePath) || ! is_readable($filePath)) {
             Log::error('Archivo de kits escolares no encontrado o no es legible', [
                 'file_path' => $filePath,
                 'has_active_version' => $activeVersion !== null,
             ]);
+
             return $default;
         }
 
@@ -273,6 +269,7 @@ class KitBienestarService
                 'error' => $e->getMessage(),
                 'file_path' => $filePath,
             ]);
+
             return $default;
         }
     }
@@ -286,16 +283,17 @@ class KitBienestarService
             // Usar disco prosalud-private por defecto
             $disk = Storage::disk('prosalud-private');
             $fileContent = $disk->get($version->s3_path);
-            
+
             if ($fileContent === false) {
                 Log::error('No se pudo descargar archivo desde S3', [
                     's3_path' => $version->s3_path,
                 ]);
+
                 return null;
             }
 
             // Crear archivo temporal
-            $tempFilePath = tempnam(sys_get_temp_dir(), 'kit_bienestar_') . '.xlsx';
+            $tempFilePath = tempnam(sys_get_temp_dir(), 'kit_bienestar_').'.xlsx';
             file_put_contents($tempFilePath, $fileContent);
 
             return $tempFilePath;
@@ -304,6 +302,7 @@ class KitBienestarService
                 'error' => $e->getMessage(),
                 's3_path' => $version->s3_path,
             ]);
+
             return null;
         }
     }
@@ -327,16 +326,16 @@ class KitBienestarService
         $highestRow = $sheet->getHighestRow();
 
         // Iterate through rows (skip header row at row 1)
-        for ($rowIndex = 2; $rowIndex <= $highestRow; ++$rowIndex) {
+        for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
             // Read CC column (documento)
             $colLetter = Coordinate::stringFromColumnIndex(self::COL_CC + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowDocumentoRaw = $this->getCellValue($cell);
             $rowDocumento = $this->normalizeValue($rowDocumentoRaw);
 
             // Read FECHA EXPEDICION column
             $colLetter = Coordinate::stringFromColumnIndex(self::COL_FECHA_EXPEDICION + 1);
-            $cell = $sheet->getCell($colLetter . $rowIndex);
+            $cell = $sheet->getCell($colLetter.$rowIndex);
             $rowFechaExpedicionRaw = $this->getCellValue($cell);
             $rowFechaExpedicion = $this->normalizeDate($rowFechaExpedicionRaw);
 
@@ -347,9 +346,9 @@ class KitBienestarService
 
             // Check if this looks like a header row
             if ($rowDocumento && (
-                false !== stripos($rowDocumento, 'cc')
-                || false !== stripos($rowDocumento, 'documento')
-                || false !== stripos($rowDocumento, 'número')
+                stripos($rowDocumento, 'cc') !== false
+                || stripos($rowDocumento, 'documento') !== false
+                || stripos($rowDocumento, 'número') !== false
             )) {
                 continue;
             }
@@ -362,9 +361,9 @@ class KitBienestarService
                 $highestColumn = $sheet->getHighestColumn();
                 $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
 
-                for ($colIndex = 0; $colIndex < $highestColumnIndex; ++$colIndex) {
+                for ($colIndex = 0; $colIndex < $highestColumnIndex; $colIndex++) {
                     $colLetter = Coordinate::stringFromColumnIndex($colIndex + 1);
-                    $cell = $sheet->getCell($colLetter . $rowIndex);
+                    $cell = $sheet->getCell($colLetter.$rowIndex);
                     $rowData[] = $this->getCellValue($cell);
                 }
 
@@ -404,7 +403,7 @@ class KitBienestarService
         }
 
         // Handle numeric values (convert to string to maintain consistency)
-        if (is_numeric($value) && !is_string($value)) {
+        if (is_numeric($value) && ! is_string($value)) {
             return (string) $value;
         }
 
@@ -416,13 +415,13 @@ class KitBienestarService
      */
     private function normalizeValue($value): ?string
     {
-        if (null === $value || '' === $value) {
+        if ($value === null || $value === '') {
             return null;
         }
 
         $normalized = trim((string) $value);
 
-        return '' === $normalized ? null : $normalized;
+        return $normalized === '' ? null : $normalized;
     }
 
     /**
@@ -437,7 +436,7 @@ class KitBienestarService
 
         $dateStr = trim((string) $date);
 
-        if ('' === $dateStr) {
+        if ($dateStr === '') {
             return null;
         }
 
@@ -469,6 +468,7 @@ class KitBienestarService
             // Try Excel serial date (numeric)
             if (is_numeric($dateStr)) {
                 $excelBaseDate = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $dateStr);
+
                 return $excelBaseDate->format('d/m/y');
             }
 
@@ -484,4 +484,3 @@ class KitBienestarService
         }
     }
 }
-

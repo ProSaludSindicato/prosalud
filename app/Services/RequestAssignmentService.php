@@ -2,9 +2,15 @@
 
 namespace App\Services;
 
-use App\Constants\{RequestSubtypes, RequestTypes};
-use App\Models\{RequestForm, RequestSubtypeAssignment, RequestTypeAssignment, User};
-use Illuminate\Support\Facades\{Cache, DB, Log};
+use App\Constants\RequestSubtypes;
+use App\Constants\RequestTypes;
+use App\Models\RequestForm;
+use App\Models\RequestSubtypeAssignment;
+use App\Models\RequestTypeAssignment;
+use App\Models\User;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class RequestAssignmentService
@@ -73,7 +79,7 @@ class RequestAssignmentService
                 }
             }
 
-            if (!empty($typeAssignmentData)) {
+            if (! empty($typeAssignmentData)) {
                 RequestTypeAssignment::insert($typeAssignmentData);
             }
 
@@ -93,7 +99,7 @@ class RequestAssignmentService
                 }
             }
 
-            if (!empty($subtypeAssignmentData)) {
+            if (! empty($subtypeAssignmentData)) {
                 RequestSubtypeAssignment::insert($subtypeAssignmentData);
             }
 
@@ -163,7 +169,7 @@ class RequestAssignmentService
 
         $userId = $user->id;
         $requestType = $requestForm->request_type;
-        
+
         // Normalize request type to handle aliases/variants
         $normalizedRequestType = RequestTypes::normalize($requestType);
 
@@ -171,11 +177,11 @@ class RequestAssignmentService
         $assignments = $this->getUserAssignments($userId);
 
         // Check if user has direct type assignment (check both original and normalized)
-        $hasTypeAssignment = in_array($requestType, $assignments['types']) 
+        $hasTypeAssignment = in_array($requestType, $assignments['types'])
             || in_array($normalizedRequestType, $assignments['types']);
-        
+
         // Also check if the assignment has aliases that match this request type
-        if (!$hasTypeAssignment) {
+        if (! $hasTypeAssignment) {
             foreach ($assignments['types'] as $assignedType) {
                 $normalizedAssigned = RequestTypes::normalize($assignedType);
                 // Check if the normalized assigned type matches the normalized request type
@@ -184,13 +190,13 @@ class RequestAssignmentService
                     break;
                 }
                 // Also check aliases: if assigned type is incapacidades-licencias, also match incapacidad-licencia
-                if ($assignedType === RequestTypes::INCAPACIDADES_LICENCIAS 
+                if ($assignedType === RequestTypes::INCAPACIDADES_LICENCIAS
                     && in_array($requestType, ['incapacidad-licencia', 'incapacidad-laboral'])) {
                     $hasTypeAssignment = true;
                     break;
                 }
                 // Also check aliases: if assigned type is solicitud-retiro-sindical, also match retiro-sindical
-                if ($assignedType === RequestTypes::SOLICITUD_RETIRO_SINDICAL 
+                if ($assignedType === RequestTypes::SOLICITUD_RETIRO_SINDICAL
                     && $requestType === 'retiro-sindical') {
                     $hasTypeAssignment = true;
                     break;
@@ -209,25 +215,25 @@ class RequestAssignmentService
         if (RequestTypes::hasSubtypes($requestType)) {
             $subtype = $this->getSubtypeFromRequest($requestForm);
 
-            if (!empty($subtype)) {
+            if (! empty($subtype)) {
                 // Check if user has this specific subtype assigned
                 // Use flexible comparison to handle variations in casing and format
                 $normalizedSubtype = $this->normalizeSubtypeValue($subtype);
                 $userSubtypes = $assignments['subtypes'][$requestType] ?? [];
-                
+
                 foreach ($userSubtypes as $userSubtype) {
                     $normalizedUserSubtype = $this->normalizeSubtypeValue($userSubtype);
                     // Check if they match exactly or if one contains the other (for variations)
-                    if ($normalizedSubtype === $normalizedUserSubtype 
+                    if ($normalizedSubtype === $normalizedUserSubtype
                         || str_contains($normalizedSubtype, $normalizedUserSubtype)
                         || str_contains($normalizedUserSubtype, $normalizedSubtype)) {
                         return true;
                     }
                 }
-                
+
                 return false;
             }
-            
+
             // If request has no subtype but user only has subtype assignments (no type assignment),
             // they cannot access requests without subtypes
             return false;
@@ -243,24 +249,13 @@ class RequestAssignmentService
     private function getUserAssignments(int $userId): array
     {
         $cacheKey = "user:{$userId}:request_assignments";
-        
+
         // Verificar si existe en caché
         $cachedAssignments = Cache::get($cacheKey);
         if ($cachedAssignments !== null) {
-            Log::debug('[CACHE HIT] Asignaciones obtenidas desde caché', [
-                'cache_key' => $cacheKey,
-                'user_id' => $userId,
-                'types_count' => count($cachedAssignments['types'] ?? []),
-                'subtypes_count' => count($cachedAssignments['subtypes'] ?? []),
-            ]);
             return $cachedAssignments;
         }
 
-        Log::debug('[CACHE MISS] Consultando asignaciones desde BD', [
-            'cache_key' => $cacheKey,
-            'user_id' => $userId,
-        ]);
-        
         $assignments = Cache::remember($cacheKey, now()->addHours(1), function () use ($userId) {
             $typeAssignments = RequestTypeAssignment::where('user_id', $userId)
                 ->pluck('request_type')
@@ -280,14 +275,7 @@ class RequestAssignmentService
                 'subtypes' => $subtypeAssignments,
             ];
         });
-        
-        Log::debug('[CACHE STORED] Asignaciones guardadas en caché', [
-            'cache_key' => $cacheKey,
-            'user_id' => $userId,
-            'types_count' => count($assignments['types'] ?? []),
-            'subtypes_count' => count($assignments['subtypes'] ?? []),
-        ]);
-        
+
         return $assignments;
     }
 
@@ -306,6 +294,7 @@ class RequestAssignmentService
                 $normalized[$normalizedType] = $userIds;
             }
         }
+
         return $normalized;
     }
 
@@ -319,6 +308,7 @@ class RequestAssignmentService
             $normalizedType = RequestTypes::normalize($requestType);
             $normalized[$normalizedType] = $subtypes;
         }
+
         return $normalized;
     }
 
@@ -338,35 +328,38 @@ class RequestAssignmentService
         $requestTypesWithoutSubtypes = array_diff($validRequestTypes, $requestTypesWithSubtypes);
 
         foreach ($requestTypesWithoutSubtypes as $requestType) {
-            if (!isset($assignments[$requestType]) || empty($assignments[$requestType])) {
+            if (! isset($assignments[$requestType]) || empty($assignments[$requestType])) {
                 $errors["assignments.{$requestType}"] = ['Debe tener al menos un usuario asignado'];
             }
         }
 
         // Validate all assigned request types are valid
         foreach (array_keys($assignments) as $requestType) {
-            if (!in_array($requestType, $validRequestTypes)) {
+            if (! in_array($requestType, $validRequestTypes)) {
                 $errors["assignments.{$requestType}"] = ['Tipo de solicitud no válido'];
             }
         }
 
         // Validate subtype assignments
         foreach ($subtypeAssignments as $requestType => $subtypes) {
-            if (!in_array($requestType, $validRequestTypes)) {
+            if (! in_array($requestType, $validRequestTypes)) {
                 $errors["subtype_assignments.{$requestType}"] = ['Tipo de solicitud no válido'];
+
                 continue;
             }
 
-            if (!RequestTypes::hasSubtypes($requestType)) {
+            if (! RequestTypes::hasSubtypes($requestType)) {
                 $errors["subtype_assignments.{$requestType}"] = ['Este tipo de solicitud no tiene subtipos'];
+
                 continue;
             }
 
             // Validate all subtypes for this request type
             foreach ($subtypes as $subtype => $userIds) {
                 // Validate subtype is valid
-                if (!RequestSubtypes::isValid($requestType, $subtype)) {
+                if (! RequestSubtypes::isValid($requestType, $subtype)) {
                     $errors["subtype_assignments.{$requestType}.{$subtype}"] = ['Subtipo no válido para este tipo de solicitud'];
+
                     continue;
                 }
 
@@ -377,9 +370,9 @@ class RequestAssignmentService
             }
 
             // For request types with subtypes, ensure all subtypes have assignments
-            if (RequestTypes::VERIFICACION_PAGOS === $requestType) {
+            if ($requestType === RequestTypes::VERIFICACION_PAGOS) {
                 foreach ($validSubtypes as $subtype) {
-                    if (!isset($subtypes[$subtype]) || empty($subtypes[$subtype])) {
+                    if (! isset($subtypes[$subtype]) || empty($subtypes[$subtype])) {
                         $errors["subtype_assignments.{$requestType}.{$subtype}"] = ['Debe tener al menos un usuario asignado'];
                     }
                 }
@@ -429,7 +422,7 @@ class RequestAssignmentService
             }
         }
 
-        if (!empty($errors)) {
+        if (! empty($errors)) {
             throw ValidationException::withMessages($errors);
         }
     }
@@ -465,7 +458,7 @@ class RequestAssignmentService
                 ];
             })
             ->toArray();
-        
+
         // Luego usuarios con asignación específica de subtipo
         $subtypeAssignedUsers = RequestSubtypeAssignment::where('request_type', $requestType)
             ->where('subtype', $subtype)
@@ -483,19 +476,19 @@ class RequestAssignmentService
                 ];
             })
             ->toArray();
-        
+
         // Combinar y eliminar duplicados
         $allUsers = array_merge($typeAssignedUsers, $subtypeAssignedUsers);
         $uniqueUsers = [];
         $seenIds = [];
-        
+
         foreach ($allUsers as $user) {
-            if (!in_array($user['id'], $seenIds)) {
+            if (! in_array($user['id'], $seenIds)) {
                 $uniqueUsers[] = $user;
                 $seenIds[] = $user['id'];
             }
         }
-        
+
         return $uniqueUsers;
     }
 
@@ -507,13 +500,13 @@ class RequestAssignmentService
     {
         // Normalize to uppercase and trim
         $normalized = mb_strtoupper(trim($subtype));
-        
+
         // Remove common variations that don't affect matching
         // For example: "Y/O DESCANSO" variations
         $normalized = preg_replace('/\s*Y\/O\s*DESCANSO\s*/i', '', $normalized);
         $normalized = preg_replace('/\s+/', ' ', $normalized); // Normalize multiple spaces
         $normalized = trim($normalized);
-        
+
         return $normalized;
     }
 }

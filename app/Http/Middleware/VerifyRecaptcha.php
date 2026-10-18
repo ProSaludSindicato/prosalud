@@ -82,11 +82,6 @@ class VerifyRecaptcha
 
         // Log de verificación exitosa (solo en modo debug para no saturar logs)
         if (config('app.debug')) {
-            Log::debug('reCAPTCHA verificado exitosamente', [
-                'endpoint' => $request->path(),
-                'score' => $result['score'] ?? null,
-                'action' => $result['action'] ?? null,
-            ]);
         }
 
         // Agregar información de reCAPTCHA al request para uso posterior

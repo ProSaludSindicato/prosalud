@@ -25,6 +25,7 @@ class ConvenioClientErrorReportTest extends TestCase
 
         $loggedFrontendError = false;
 
+        Log::shouldReceive('withContext')->zeroOrMoreTimes();
         Log::shouldReceive('error')
             ->zeroOrMoreTimes()
             ->andReturnUsing(function (string $message, array $context = []) use (&$loggedFrontendError, $payload): void {

@@ -232,28 +232,12 @@ class AfiliadoService
             md5($normalizedFechaExpedicion ?? '')
         );
 
-        Log::debug('[AFILIADO SERVICE] Clave de caché generada', [
-            'cache_key' => $cacheKey,
-            'documento' => $documento,
-        ]);
-
         // Verificar si existe en caché
         $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
         if ($cachedData !== null) {
-            Log::info('[CACHE HIT] Afiliado obtenido desde caché', [
-                'cache_key' => $cacheKey,
-                'documento' => $documento,
-                'tipo_documento' => $tipoDocumento,
-            ]);
 
             return $cachedData;
         }
-
-        Log::info('[CACHE MISS] Consultando afiliado (API primero, Excel respaldo)', [
-            'cache_key' => $cacheKey,
-            'documento' => $documento,
-            'tipo_documento' => $tipoDocumento,
-        ]);
 
         $result = Cache::tags(['afiliados'])->remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
             $fromApi = $this->tryAuthenticateAndGetAfiliadoFromApi($tipoDocumento, $documento, $fechaExpedicion);
@@ -369,12 +353,6 @@ class AfiliadoService
 
         // Log cuando se guarda en caché (solo si se obtuvo resultado)
         if ($result !== null) {
-            Log::info('[CACHE STORED] Afiliado guardado en caché', [
-                'cache_key' => $cacheKey,
-                'documento' => $documento,
-                'tipo_documento' => $tipoDocumento,
-                'ttl_hours' => 24,
-            ]);
         }
 
         return $result;
@@ -761,28 +739,12 @@ class AfiliadoService
             md5($normalizedFechaExpedicion ?? '')
         );
 
-        Log::debug('[AFILIADO SERVICE] Clave de caché generada para información completa', [
-            'cache_key' => $cacheKey,
-            'documento' => $documento,
-        ]);
-
         // Verificar si existe en caché
         $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
         if ($cachedData !== null) {
-            Log::info('[CACHE HIT] Información completa de afiliado obtenida desde caché', [
-                'cache_key' => $cacheKey,
-                'documento' => $documento,
-                'tipo_documento' => $tipoDocumento,
-            ]);
 
             return $cachedData;
         }
-
-        Log::info('[CACHE MISS] Consultando información completa de afiliado desde Excel', [
-            'cache_key' => $cacheKey,
-            'documento' => $documento,
-            'tipo_documento' => $tipoDocumento,
-        ]);
 
         $result = Cache::tags(['afiliados'])->remember($cacheKey, now()->addHours(24), function () use ($tipoDocumento, $documento, $fechaExpedicion) {
             $fromApi = $this->tryGetCompleteAfiliadoInfoFromApi($tipoDocumento, $documento, $fechaExpedicion);
@@ -898,12 +860,6 @@ class AfiliadoService
 
         // Log cuando se guarda en caché (solo si se obtuvo resultado)
         if ($result !== null) {
-            Log::info('[CACHE STORED] Información completa de afiliado guardada en caché', [
-                'cache_key' => $cacheKey,
-                'documento' => $documento,
-                'tipo_documento' => $tipoDocumento,
-                'ttl_hours' => 24,
-            ]);
         }
 
         return $result;

@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{StoreComfenalcoEventRequest, UpdateComfenalcoEventRequest};
+use App\Http\Requests\StoreComfenalcoEventRequest;
+use App\Http\Requests\UpdateComfenalcoEventRequest;
 use App\Models\ComfenalcoEvent;
-use Illuminate\Http\{Request, Response};
-use Illuminate\Support\Facades\{Cache, Log, Storage};
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ComfenalcoEventController extends Controller
@@ -16,31 +20,17 @@ class ComfenalcoEventController extends Controller
     public function index(): \Illuminate\Http\JsonResponse
     {
         $cacheKey = 'comfenalco_events:list';
-        
+
         // Verificar si existe en caché
         $cachedData = Cache::get($cacheKey);
         if ($cachedData !== null) {
-            Log::info('[CACHE HIT] Lista de eventos Comfenalco obtenida desde caché', [
-                'cache_key' => $cacheKey,
-                'events_count' => count($cachedData),
-            ]);
             return response()->json($cachedData);
         }
 
-        Log::info('[CACHE MISS] Consultando eventos Comfenalco desde BD', [
-            'cache_key' => $cacheKey,
-        ]);
-        
         // Cache por 24 horas (1 día)
         $events = Cache::remember($cacheKey, now()->addDay(), function () {
             return ComfenalcoEvent::orderBy('created_at', 'desc')->get();
         });
-        
-        Log::info('[CACHE STORED] Lista de eventos Comfenalco guardada en caché', [
-            'cache_key' => $cacheKey,
-            'events_count' => count($events),
-            'expires_at' => now()->addDay()->toISOString(),
-        ]);
 
         return response()->json($events);
     }
@@ -60,7 +50,7 @@ class ComfenalcoEventController extends Controller
             // Handle banner image upload
             if ($request->hasFile('banner_image')) {
                 $bannerImage = $request->file('banner_image');
-                $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
+                $filename = 'comfenalco_events/'.Str::uuid().'.'.$bannerImage->getClientOriginalExtension();
 
                 Log::info('Intentando guardar imagen en disco', [
                     'filename' => $filename,
@@ -73,7 +63,7 @@ class ComfenalcoEventController extends Controller
                     $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
 
                     // If S3 fails (returns false), try local disk
-                    if (false === $storedPath) {
+                    if ($storedPath === false) {
                         Log::warning('S3 upload failed, trying local disk', [
                             's3_disk' => $disk,
                             'fallback_disk' => $fallbackDisk,
@@ -115,9 +105,6 @@ class ComfenalcoEventController extends Controller
 
             // Invalidar cache de lista de eventos
             Cache::forget('comfenalco_events:list');
-            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de crear evento', [
-                'event_id' => $event->id,
-            ]);
 
             Log::info('Evento Comfenalco creado', [
                 'event_id' => $event->id,
@@ -203,7 +190,7 @@ class ComfenalcoEventController extends Controller
                     try {
                         // Try to determine which disk the old image is on
                         $oldDisk = $disk;
-                        if (!Storage::disk($disk)->exists($comfenalcoEvent->banner_image)) {
+                        if (! Storage::disk($disk)->exists($comfenalcoEvent->banner_image)) {
                             $oldDisk = $fallbackDisk;
                         }
 
@@ -219,14 +206,14 @@ class ComfenalcoEventController extends Controller
                 }
 
                 $bannerImage = $request->file('banner_image');
-                $filename = 'comfenalco_events/' . Str::uuid() . '.' . $bannerImage->getClientOriginalExtension();
+                $filename = 'comfenalco_events/'.Str::uuid().'.'.$bannerImage->getClientOriginalExtension();
 
                 try {
                     // Store the file using putFileAs for S3 storage
                     $storedPath = Storage::disk($disk)->putFileAs('comfenalco_events', $bannerImage, basename($filename));
 
                     // If S3 fails (returns false), try local disk
-                    if (false === $storedPath) {
+                    if ($storedPath === false) {
                         Log::warning('S3 upload failed, trying local disk', [
                             's3_disk' => $disk,
                             'fallback_disk' => $fallbackDisk,
@@ -261,9 +248,6 @@ class ComfenalcoEventController extends Controller
 
             // Invalidar cache de lista de eventos
             Cache::forget('comfenalco_events:list');
-            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de actualizar evento', [
-                'event_id' => $comfenalcoEvent->id,
-            ]);
 
             Log::info('Evento Comfenalco actualizado exitosamente', [
                 'event_id' => $comfenalcoEvent->id,
@@ -329,9 +313,6 @@ class ComfenalcoEventController extends Controller
 
             // Invalidar cache de lista de eventos
             Cache::forget('comfenalco_events:list');
-            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de eliminar evento', [
-                'event_id' => $comfenalcoEvent->id,
-            ]);
 
             Log::info('Evento Comfenalco eliminado exitosamente', [
                 'event_id' => $comfenalcoEvent->id,
@@ -378,9 +359,6 @@ class ComfenalcoEventController extends Controller
 
             // Invalidar cache de lista de eventos
             Cache::forget('comfenalco_events:list');
-            Log::info('[CACHE INVALIDATED] Cache de eventos Comfenalco invalidado después de cambiar visibilidad', [
-                'event_id' => $comfenalcoEvent->id,
-            ]);
 
             Log::info('Visibilidad de evento Comfenalco cambiada', [
                 'event_id' => $comfenalcoEvent->id,

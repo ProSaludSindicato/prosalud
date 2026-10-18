@@ -32,9 +32,12 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\SecurityHeaders::class,
         ]);
 
+        $middleware->api(prepend: [
+            \App\Http\Middleware\AssignRequestId::class,
+        ]);
+
         $middleware->api(append: [
             \App\Http\Middleware\SecurityHeaders::class,
-            \App\Http\Middleware\RequestLoggingMiddleware::class,
         ]);
 
         $middleware->alias([

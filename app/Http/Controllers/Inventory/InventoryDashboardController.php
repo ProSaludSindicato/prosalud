@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InventoryCategoryResource;
-use App\Models\{HospitalRequest, InventoryCategory, InventoryProduct};
+use App\Models\HospitalRequest;
+use App\Models\InventoryCategory;
+use App\Models\InventoryProduct;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\{Cache, Log};
+use Illuminate\Support\Facades\Cache;
 
 class InventoryDashboardController extends Controller
 {
@@ -16,7 +18,7 @@ class InventoryDashboardController extends Controller
     public function index(): JsonResponse
     {
         $cacheKey = 'inventory:dashboard:metrics';
-        
+
         // Verificar si existe en caché
         $cachedData = Cache::get($cacheKey);
         if ($cachedData !== null) {
@@ -26,10 +28,6 @@ class InventoryDashboardController extends Controller
             ]);
         }
 
-        Log::info('[CACHE MISS] Calculando métricas del dashboard desde BD', [
-            'cache_key' => $cacheKey,
-        ]);
-        
         $data = Cache::remember($cacheKey, now()->addMinutes(10), function () {
             // Get categories with aggregated stock information
             $categories = InventoryCategory::with(['products.variants'])
@@ -104,11 +102,6 @@ class InventoryDashboardController extends Controller
                 'requests_summary' => $requestsSummary,
             ];
         });
-        
-        Log::info('[CACHE STORED] Dashboard de inventario guardado en caché', [
-            'cache_key' => $cacheKey,
-            'categories_count' => count($data['categories'] ?? []),
-        ]);
 
         return response()->json([
             'success' => true,

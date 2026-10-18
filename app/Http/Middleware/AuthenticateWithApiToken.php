@@ -4,15 +4,18 @@ namespace App\Http\Middleware;
 
 use App\Models\ApiToken;
 use App\Services\LogSanitizationService;
-use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{Auth, Cache, Log};
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class AuthenticateWithApiToken
 {
     /**
      * Handle an incoming request.
      *
-     * @param \Closure(Request): (\Symfony\Component\HttpFoundation\Response) $next
+     * @param  \Closure(Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
     public function handle(Request $request, \Closure $next)
     {
@@ -20,11 +23,11 @@ class AuthenticateWithApiToken
         $token = $request->cookie('prosalud_auth_token');
 
         // Logging para diagnóstico
-        if (!$token) {
+        if (! $token) {
             $cookieNames = array_keys($request->cookies->all());
             $hasCookieHeader = $request->headers->has('Cookie');
             $cookieCount = count($request->cookies->all());
-            
+
             Log::warning('[API TOKEN AUTH] Cookie de autenticación no encontrada', LogSanitizationService::sanitize([
                 'reason' => 'Cookie prosalud_auth_token ausente en la petición',
                 'ip_address' => $request->ip(),
@@ -42,7 +45,7 @@ class AuthenticateWithApiToken
                 'content_type' => $request->header('Content-Type'),
                 'timestamp' => now()->toISOString(),
             ]));
-            
+
             return $this->unauthorizedResponse('Cookie de autenticación no encontrada', $request, [
                 'cookie_count' => $cookieCount,
                 'has_cookie_header' => $hasCookieHeader,
@@ -58,7 +61,7 @@ class AuthenticateWithApiToken
             ->where('token', $hashedToken)
             ->first();
 
-        if (!$apiToken) {
+        if (! $apiToken) {
             return $this->unauthorizedResponse('Token inválido o no encontrado en la base de datos', $request, [
                 'token_length' => $tokenLength,
                 'token_hash_preview' => $tokenHash,
@@ -67,7 +70,7 @@ class AuthenticateWithApiToken
             ]);
         }
 
-        if (!$apiToken->user) {
+        if (! $apiToken->user) {
             return $this->unauthorizedResponse('Token sin usuario asociado', $request, [
                 'token_id' => $apiToken->id,
                 'token_hash_preview' => $tokenHash,
@@ -90,7 +93,7 @@ class AuthenticateWithApiToken
             ]);
         }
 
-        if (false === $apiToken->user->is_active) {
+        if ($apiToken->user->is_active === false) {
             $apiToken->delete();
 
             return $this->unauthorizedResponse('Usuario inactivo', $request, [
@@ -107,23 +110,19 @@ class AuthenticateWithApiToken
 
         // Cachear permisos del usuario para evitar múltiples consultas a la BD
         $cacheKey = "user:{$user->id}:permissions";
-        
+
         // Verificar si existe en caché
         $cachedPermissions = Cache::get($cacheKey);
         if ($cachedPermissions !== null) {
             $userPermissions = $cachedPermissions;
         } else {
-            Log::debug('[CACHE MISS] Consultando permisos desde BD (API Token)', [
-                'cache_key' => $cacheKey,
-                'user_id' => $user->id,
-            ]);
-            
+
             $userPermissions = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($user) {
                 // Asegurar que los roles y permisos estén cargados
-                if (!$user->relationLoaded('roles')) {
+                if (! $user->relationLoaded('roles')) {
                     $user->load('roles');
                 }
-                if (!$user->relationLoaded('permissions')) {
+                if (! $user->relationLoaded('permissions')) {
                     $user->load('permissions');
                 }
                 // Cargar permisos de los roles también
@@ -132,23 +131,19 @@ class AuthenticateWithApiToken
                 // Obtener todos los permisos del usuario (directos y a través de roles)
                 return $user->getAllPermissions()->pluck('name')->toArray();
             });
-            
-            Log::debug('[CACHE STORED] Permisos guardados en caché (API Token)', [
-                'cache_key' => $cacheKey,
-                'user_id' => $user->id,
-                'permissions_count' => count($userPermissions),
-            ]);
+
         }
 
         // Cargar relaciones básicas para compatibilidad con el resto del código
-        if (!$user->relationLoaded('roles')) {
+        if (! $user->relationLoaded('roles')) {
             $user->load('roles');
         }
-        if (!$user->relationLoaded('permissions')) {
+        if (! $user->relationLoaded('permissions')) {
             $user->load('permissions');
         }
 
         Auth::setUser($user);
+        Log::withContext(['user_id' => $user->id]);
         $request->setUserResolver(fn () => $user);
 
         return $next($request);
