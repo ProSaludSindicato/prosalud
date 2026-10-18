@@ -17,7 +17,9 @@ class BackfillNewEntrySurveyHospitalFromConvenioJob implements ShouldQueue
 
     public $tries = 1;
 
-    public $timeout = 7200;
+    public $timeout = 840;
+
+    private const TIME_BUDGET_SECONDS = 780;
 
     /**
      * Hospitales "legacy" que se consideran para actualizar. Solo encuestas con uno de estos
@@ -48,6 +50,8 @@ class BackfillNewEntrySurveyHospitalFromConvenioJob implements ShouldQueue
     {
         set_time_limit($this->timeout);
         ini_set('max_execution_time', (string) $this->timeout);
+
+        $startedAt = microtime(true);
 
         $baseQuery = SocioDemographicSurvey::query()
             ->where('survey_type', 'new_entry')
@@ -153,7 +157,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioJob implements ShouldQueue
                 return false;
             }
 
-            return true;
+            return (microtime(true) - $startedAt) < self::TIME_BUDGET_SECONDS;
         });
 
         Log::info('Backfill de hospital en encuestas de nuevo ingreso desde convenios ejecutado', [
