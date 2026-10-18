@@ -14,7 +14,6 @@
         "php": "^8.3",
         "ext-zip": "*",
         "barryvdh/laravel-dompdf": "^3.1",
-        "docusign/esign-client": "^8.6",
         "laravel/framework": "^12.0",
         "laravel/octane": "^2.13",
         "laravel/reverb": "^1.6",
@@ -24,7 +23,6 @@
         "phpoffice/phpspreadsheet": "^5.10",
         "phpoffice/phpword": "^1.4",
         "predis/predis": "^2.2",
-        "signnow/api-php-sdk": "v3.5.1",
         "smalot/pdfparser": "^2.12",
         "spatie/laravel-permission": "^6.21"
     },

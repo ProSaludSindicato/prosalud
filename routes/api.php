@@ -23,9 +23,6 @@ use App\Http\Controllers\ConvenioManualController;
 use App\Http\Controllers\ConvenioPublicSigningController;
 use App\Http\Controllers\DelegadosController;
 use App\Http\Controllers\DelegadosFileController;
-use App\Http\Controllers\DocumentSigningAdminController;
-use App\Http\Controllers\DocuSignController;
-use App\Http\Controllers\DocuSignWebhookController;
 use App\Http\Controllers\DotacionEppController;
 use App\Http\Controllers\IncapacidadesController;
 use App\Http\Controllers\IncapacidadesFileController;
@@ -195,42 +192,6 @@ Route::prefix('certificados')->group(function () {
         Route::get('/convenio/estadisticas', [CertificadoConvenioController::class, 'estadisticas']);
     });
 });
-
-// ============================================================================
-// DOCUSIGN AUTOMATIC SIGNING ROUTES - TEMPORARILY DISABLED DUE TO COSTS
-// ============================================================================
-// Estas rutas están comentadas porque se optó por no implementar la funcionalidad
-// de generación automática de firmas por ahora debido a costos.
-// TODO: Descomentar cuando se decida implementar la funcionalidad de DocuSign
-
-// DocuSign Embedded Signing routes (públicas, sin autenticación)
-// Rate limiting: 20 requests per minute
-// Route::post('/firma', [DocuSignController::class, 'createSignature'])
-//     ->middleware('throttle:public-endpoints');
-
-// DocuSign Webhook (público, sin autenticación, sin CSRF)
-// No rate limiting - DocuSign needs reliable delivery
-// Route::post('/webhooks/docusign', [DocuSignWebhookController::class, 'handle'])
-//     ->withoutMiddleware(['csrf', 'auth.token']);
-
-// Document Signing Admin routes (requieren autenticación)
-// Route::middleware(['auth.token', 'ensure.api.user'])->prefix('document-signing')->group(function () {
-//     // Bulk email sending
-//     Route::post('/send-bulk-emails', [DocumentSigningAdminController::class, 'sendBulkEmails'])
-//         ->middleware('permission:document_signing.manage');
-//
-//     // Email history and tracking
-//     Route::get('/email-history', [DocumentSigningAdminController::class, 'listEmailHistory'])
-//         ->middleware('permission:document_signing.view');
-//
-//     // Resend emails
-//     Route::post('/resend-emails', [DocumentSigningAdminController::class, 'resendEmails'])
-//         ->middleware('permission:document_signing.manage');
-//
-//     // Statistics
-//     Route::get('/statistics', [DocumentSigningAdminController::class, 'getStatistics'])
-//         ->middleware('permission:document_signing.view');
-// });
 
 // ============================================================================
 // MANUAL CONVENIO EMAIL ROUTES - ACTIVE (NO COST)

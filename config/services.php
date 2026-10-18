@@ -62,34 +62,6 @@ return [
         'project_id' => env('RECAPTCHA_PROJECT_ID'),
     ],
 
-    'docusign' => [
-        'integration_key' => env('DOCUSIGN_INTEGRATION_KEY'),
-        'user_id' => env('DOCUSIGN_USER_ID'),
-        'account_id' => env('DOCUSIGN_ACCOUNT_ID'),
-        'base_path' => env('DOCUSIGN_BASE_PATH', 'https://demo.docusign.net/restapi'),
-        'auth_server' => env('DOCUSIGN_AUTH_SERVER', 'https://account-d.docusign.com'),
-        'private_key' => env('DOCUSIGN_PRIVATE_KEY'),
-        'webhook_secret' => env('DOCUSIGN_WEBHOOK_SECRET'),
-    ],
-
-    'signnow' => [
-        'access_token' => env('SIGNNOW_ACCESS_TOKEN'),
-        'base_url' => env('SIGNNOW_BASE_URL', 'https://api.signnow.com'),
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Document Signing Provider Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Configure which document signing provider to use.
-    | Options: 'docusign' or 'signnow'
-    |
-    */
-    'document_signing' => [
-        'provider' => env('DOCUMENT_SIGNING_PROVIDER', 'docusign'),
-    ],
-
     'firma_digital' => [
         'app_url' => env('FIRMA_DIGITAL_APP_URL', 'http://localhost:5173'),
         'sign_path' => env('FIRMA_DIGITAL_SIGN_PATH', '/sign'),

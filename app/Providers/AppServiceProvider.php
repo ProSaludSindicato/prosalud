@@ -27,16 +27,6 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
-        // Registrar el servicio de firma de documentos según configuración
-        $this->app->singleton(\App\Contracts\DocumentSigningServiceInterface::class, function ($app) {
-            $provider = config('services.document_signing.provider', 'docusign');
-
-            return match ($provider) {
-                'signnow' => new \App\Services\SignNowService,
-                'docusign' => new \App\Services\DocuSignService,
-                default => new \App\Services\DocuSignService,
-            };
-        });
     }
 
     /**

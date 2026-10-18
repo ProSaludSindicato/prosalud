@@ -61,7 +61,7 @@
                                     <strong style="color:#00529B;">Autenticarse</strong> con número de documento y fecha de expedición.
                                 </li>
                                 <li style="margin-bottom:20px; padding-left:8px;">
-                                    Serás <strong>redirigido al sitio de DocuSign</strong> para la firma del contrato.
+                                    Serás <strong>redirigido al sitio de firma</strong> del contrato.
                                 </li>
                                 <li style="margin-bottom:20px; padding-left:8px;">
                                     <strong style="color:#00529B;">Diligenciar los campos indicados:</strong>
