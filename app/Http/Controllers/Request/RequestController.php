@@ -233,8 +233,7 @@ class RequestController extends Controller
                     'documento' => $requestForm->document_number,
                 ]);
 
-                ProcessCertificadoConvenioJob::dispatch($requestForm->id, resolverCompensaciones: true)
-                    ->afterResponse();
+                ProcessCertificadoConvenioJob::dispatch($requestForm->id, resolverCompensaciones: true);
 
                 return response()->json($response, 201);
             }
@@ -245,16 +244,14 @@ class RequestController extends Controller
                     'documento' => $requestForm->document_number,
                 ]);
 
-                ProcessCertificadoConvenioJob::dispatch($requestForm->id, resolverCompensaciones: true)
-                    ->afterResponse();
+                ProcessCertificadoConvenioJob::dispatch($requestForm->id, resolverCompensaciones: true);
             } elseif ($debeProcesarAutomatico) {
                 Log::info('Certificado de convenio simple detectado, encolando procesamiento automático en background', [
                     'request_id' => $requestForm->id,
                     'documento' => $requestForm->document_number,
                 ]);
 
-                ProcessCertificadoConvenioJob::dispatch($requestForm->id)
-                    ->afterResponse();
+                ProcessCertificadoConvenioJob::dispatch($requestForm->id);
             }
         }
 
