@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Assembly;
 
 use App\Events\VoteRegistered;
 use App\Http\Controllers\Controller;
+use App\Models\AssemblyAttendance;
 use App\Models\AssemblyQuestion;
 use App\Models\AssemblyVote;
+use App\Services\VoterSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +15,8 @@ use Illuminate\Support\Facades\Log;
 
 class AssemblyVoteController extends Controller
 {
+    public function __construct(private VoterSessionService $voterSessionService) {}
+
     /**
      * Submit a vote
      */
@@ -21,7 +25,7 @@ class AssemblyVoteController extends Controller
         try {
             $question = AssemblyQuestion::with('options')->find($questionId);
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pregunta no encontrada',
@@ -29,16 +33,24 @@ class AssemblyVoteController extends Controller
             }
 
             // Validate question is open
-            if (!$question->isOpen()) {
+            if (! $question->isOpen()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'La pregunta no está abierta para votación',
                 ], 400);
             }
 
+            $session = $this->resolveVoterSession($request, $question->assembly_id);
+
+            if ($session === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Su sesión de votación no es válida o expiró. Valide nuevamente su documento.',
+                    'error_code' => 'VOTER_SESSION_INVALID',
+                ], 401);
+            }
+
             $validated = $request->validate([
-                'voterId' => 'required|string|max:255',
-                'voterName' => 'required|string|max:255',
                 'selectedOptions' => 'required|array|size:1',
                 'selectedOptions.*' => 'required|string',
             ]);
@@ -47,7 +59,7 @@ class AssemblyVoteController extends Controller
             $allowedOptions = AssemblyQuestion::defaultOptionKeys();
             $invalidOptions = array_diff($selectedOptionKeys, $allowedOptions);
 
-            if (!empty($invalidOptions)) {
+            if (! empty($invalidOptions)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Una o más opciones seleccionadas no son válidas',
@@ -57,6 +69,9 @@ class AssemblyVoteController extends Controller
                 ], 400);
             }
 
+            $validated['voterId'] = $session['document_number'];
+            $validated['voterName'] = $session['name'] !== '' ? $session['name'] : $session['document_number'];
+
             DB::beginTransaction();
 
             // Check if user already voted
@@ -65,8 +80,9 @@ class AssemblyVoteController extends Controller
                 ->first();
 
             if ($existingVote) {
-                if (!$question->allow_change_vote) {
+                if (! $question->allow_change_vote) {
                     DB::rollBack();
+
                     return response()->json([
                         'success' => false,
                         'message' => 'No se permite cambiar el voto',
@@ -150,15 +166,23 @@ class AssemblyVoteController extends Controller
     public function getMyVote(Request $request, string $questionId): JsonResponse
     {
         try {
-            $request->validate([
-                'voterId' => 'required|string',
-            ]);
+            $question = AssemblyQuestion::find($questionId);
+            $session = $question ? $this->resolveVoterSession($request, $question->assembly_id) : null;
+
+            if ($session === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Su sesión de votación no es válida o expiró. Valide nuevamente su documento.',
+                    'error_code' => 'VOTER_SESSION_INVALID',
+                    'data' => null,
+                ], 401);
+            }
 
             $vote = AssemblyVote::where('question_id', $questionId)
-                ->where('voter_id', $request->input('voterId'))
+                ->where('voter_id', $session['document_number'])
                 ->first();
 
-            if (!$vote) {
+            if (! $vote) {
                 return response()->json([
                     'success' => false,
                     'data' => null,
@@ -203,7 +227,7 @@ class AssemblyVoteController extends Controller
         try {
             $question = AssemblyQuestion::with('options')->find($questionId);
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pregunta no encontrada',
@@ -278,5 +302,33 @@ class AssemblyVoteController extends Controller
             'majorityAchieved' => $majorityAchieved,
             'majorityType' => $question->majority_type,
         ];
+    }
+
+    /**
+     * Resolve the voter identity from the signed session token and confirm attendance was recorded.
+     *
+     * @return array{document_type: string, document_number: string, hospital: string, name: string, scope: string}|null
+     */
+    private function resolveVoterSession(Request $request, int|string|null $assemblyId): ?array
+    {
+        if ($assemblyId === null) {
+            return null;
+        }
+
+        $session = $this->voterSessionService->verify(
+            $request->header(VoterSessionService::HEADER),
+            $this->voterSessionService->assemblyScope($assemblyId)
+        );
+
+        if ($session === null) {
+            return null;
+        }
+
+        $attended = AssemblyAttendance::query()
+            ->where('assembly_id', $assemblyId)
+            ->where('document_number', $session['document_number'])
+            ->exists();
+
+        return $attended ? $session : null;
     }
 }

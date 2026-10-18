@@ -78,6 +78,19 @@ class ActivosController extends Controller
             ];
 
             if ($afiliado) {
+                $assembly = Assembly::getCurrent();
+                $cedula = trim((string) ($afiliado['cedula'] ?? $documento));
+
+                if ($assembly !== null && $cedula !== '') {
+                    $response['voter_token'] = $this->voterSessionService->issue(
+                        'DOC',
+                        $cedula,
+                        '',
+                        $this->voterSessionService->assemblyScope($assembly->id),
+                        trim((string) ($afiliado['nombre_apellidos'] ?? ''))
+                    );
+                }
+
                 $this->attendanceService->record(
                     $afiliado['cedula'] ?? $documento,
                     $afiliado['nombre_apellidos'] ?? null,

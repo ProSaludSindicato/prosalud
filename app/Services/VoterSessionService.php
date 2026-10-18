@@ -14,19 +14,20 @@ class VoterSessionService
     /**
      * Issue an encrypted, short-lived token that binds a validated voter to a scope.
      */
-    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope): string
+    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope, string $name = ''): string
     {
         return Crypt::encryptString(json_encode([
             'document_type' => $documentType,
             'document_number' => $documentNumber,
             'hospital' => $hospital,
+            'name' => $name,
             'scope' => $scope,
             'expires_at' => now()->addMinutes(self::TTL_MINUTES)->getTimestamp(),
         ], JSON_THROW_ON_ERROR));
     }
 
     /**
-     * @return array{document_type: string, document_number: string, hospital: string, scope: string}|null
+     * @return array{document_type: string, document_number: string, hospital: string, name: string, scope: string}|null
      */
     public function verify(?string $token, string $scope): ?array
     {
@@ -56,6 +57,7 @@ class VoterSessionService
             'document_type' => $payload['document_type'],
             'document_number' => $payload['document_number'],
             'hospital' => $payload['hospital'],
+            'name' => is_string($payload['name'] ?? null) ? $payload['name'] : '',
             'scope' => $payload['scope'],
         ];
     }
@@ -63,5 +65,10 @@ class VoterSessionService
     public function candidateScope(string $electionKey): string
     {
         return 'candidate:'.$electionKey;
+    }
+
+    public function assemblyScope(int|string $assemblyId): string
+    {
+        return 'assembly:'.$assemblyId;
     }
 }
