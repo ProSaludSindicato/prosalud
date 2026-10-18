@@ -45,7 +45,7 @@ class UserController extends Controller
         $paginationRequested = $request->has('per_page');
 
         if ($paginationRequested) {
-            $users = $query->with('roles')->paginate($perPage);
+            $users = $query->with('roles')->paginate(min(max((int) $perPage, 1), 1000));
 
             Log::info('Lista de usuarios consultada', [
                 'total_users' => $users->total(),

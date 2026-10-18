@@ -265,45 +265,29 @@ class RequestController extends Controller
         $query = $this->requestListService->buildFilteredQuery($user, $filters);
         $this->requestListService->applyListEagerLoads($query);
 
-        if ($request->filled('page') || $request->filled('per_page')) {
-            $perPage = min(max((int) $request->input('per_page', 15), 1), 100);
-            $paginator = $query->paginate($perPage);
-
-            Log::info('Lista de solicitudes consultada', [
-                'total_requests' => $paginator->total(),
-                'filters' => $filters,
-                'page' => $paginator->currentPage(),
-                'per_page' => $paginator->perPage(),
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'data' => $paginator->getCollection()->map(
-                    fn (RequestForm $requestForm) => $this->requestListService->formatListItem($requestForm)
-                )->values(),
-                'pagination' => [
-                    'total' => $paginator->total(),
-                    'per_page' => $paginator->perPage(),
-                    'current_page' => $paginator->currentPage(),
-                    'last_page' => $paginator->lastPage(),
-                    'from' => $paginator->firstItem(),
-                    'to' => $paginator->lastItem(),
-                ],
-            ]);
-        }
-
-        $requests = $query->get();
+        $perPage = min(max((int) $request->input('per_page', 15), 1), 100);
+        $paginator = $query->paginate($perPage);
 
         Log::info('Lista de solicitudes consultada', [
-            'total_requests' => $requests->count(),
+            'total_requests' => $paginator->total(),
             'filters' => $filters,
+            'page' => $paginator->currentPage(),
+            'per_page' => $paginator->perPage(),
         ]);
 
         return response()->json([
             'success' => true,
-            'data' => $requests->map(
+            'data' => $paginator->getCollection()->map(
                 fn (RequestForm $requestForm) => $this->requestListService->formatListItem($requestForm)
             )->values(),
+            'pagination' => [
+                'total' => $paginator->total(),
+                'per_page' => $paginator->perPage(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
         ]);
     }
 

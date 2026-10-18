@@ -99,6 +99,7 @@ class BackfillNewEntrySurveyHospitalFromConvenioJob implements ShouldQueue
             &$skippedNoConvenio,
             &$skippedSameHospital,
             &$updatedSurveys,
+            $startedAt,
         ) {
             foreach ($surveys as $survey) {
                 if ($this->limit > 0 && $processed >= $this->limit) {

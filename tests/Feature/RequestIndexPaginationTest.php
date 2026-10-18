@@ -81,6 +81,24 @@ class RequestIndexPaginationTest extends TestCase
         $this->assertEmpty(array_intersect($pageOneIds, $pageTwoIds));
     }
 
+    public function test_index_paginates_by_default_and_caps_per_page(): void
+    {
+        RequestForm::factory()->count(20)->create([
+            'request_type' => RequestTypes::CERTIFICADO_CONVENIO,
+            'status' => RequestStatuses::PENDING,
+        ]);
+
+        $this->authenticatedGet('/api/requests', $this->admin)
+            ->assertOk()
+            ->assertJsonPath('pagination.total', 20)
+            ->assertJsonPath('pagination.per_page', 15)
+            ->assertJsonCount(15, 'data');
+
+        $this->authenticatedGet('/api/requests?per_page=100000', $this->admin)
+            ->assertOk()
+            ->assertJsonPath('pagination.per_page', 100);
+    }
+
     public function test_index_filters_by_status_and_search(): void
     {
         RequestForm::factory()->create([
