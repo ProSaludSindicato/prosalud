@@ -21,7 +21,7 @@
         "laravel/sanctum": "^4.2",
         "laravel/tinker": "^2.10.1",
         "league/flysystem-aws-s3-v3": "^3.0",
-        "phpoffice/phpspreadsheet": "5.1",
+        "phpoffice/phpspreadsheet": "^5.10",
         "phpoffice/phpword": "^1.4",
         "predis/predis": "^2.2",
         "signnow/api-php-sdk": "v3.5.1",
