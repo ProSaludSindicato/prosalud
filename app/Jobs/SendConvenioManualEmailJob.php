@@ -17,6 +17,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -78,7 +79,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
 
             $tracking = $this->existingTrackingId
                 ? ConvenioEmailTracking::find($this->existingTrackingId)
-                : null;
+                : $this->findTrackingCreatedByEarlierAttempt();
 
             if ($this->existingTrackingId !== null && $tracking === null) {
                 Log::error('SendConvenioManualEmailJob: tracking existente no encontrado', [
@@ -225,57 +226,60 @@ class SendConvenioManualEmailJob implements ShouldQueue
                 return;
             }
 
-            if (ConvenioRateLimiter::tooManyEmailAttempts()) {
-                $this->release(ConvenioRateLimiter::emailAvailableIn());
+            if (! $this->wasSentByEarlierAttempt()) {
+                if (ConvenioRateLimiter::tooManyEmailAttempts()) {
+                    $this->release(ConvenioRateLimiter::emailAvailableIn());
 
-                return;
-            }
-
-            $signingUrl = null;
-            if (config('convenio_signing.enabled', true)) {
-                try {
-                    $plainToken = ConvenioDigitalSigningService::generatePlainToken();
-                    $trackingUpdate = [
-                        'signing_token_hash' => ConvenioDigitalSigningService::hashPlainToken($plainToken),
-                        'token_expires_at' => $convenioDigitalSigningService->tokenExpiresAt(),
-                        'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA,
-                    ];
-                    if ($isTest) {
-                        $trackingUpdate['viewer_header_title'] = '[TEST] '.(string) config('convenio_signing.viewer_header_title');
-                    }
-                    $tracking->update($trackingUpdate);
-                    $signingUrl = $convenioDigitalSigningService->buildSigningUrl($plainToken);
-                } catch (\Throwable $e) {
-                    Log::error('[CONVENIO DIGITAL] No se pudo preparar enlace de firma; se enviará PDF adjunto', [
-                        'tracking_id' => $tracking->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                    $signingUrl = null;
+                    return;
                 }
-            }
 
-            $mailable = new ConvenioManualNotification(
-                $nombreCompleto ?? '',
-                $this->documento,
-                $this->nombreConvenio,
-                $signingUrl,
-                $isTest,
-            );
+                $signingUrl = null;
+                if (config('convenio_signing.enabled', true)) {
+                    try {
+                        $plainToken = ConvenioDigitalSigningService::generatePlainToken();
+                        $trackingUpdate = [
+                            'signing_token_hash' => ConvenioDigitalSigningService::hashPlainToken($plainToken),
+                            'token_expires_at' => $convenioDigitalSigningService->tokenExpiresAt(),
+                            'signing_estado' => ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA,
+                        ];
+                        if ($isTest) {
+                            $trackingUpdate['viewer_header_title'] = '[TEST] '.(string) config('convenio_signing.viewer_header_title');
+                        }
+                        $tracking->update($trackingUpdate);
+                        $signingUrl = $convenioDigitalSigningService->buildSigningUrl($plainToken);
+                    } catch (\Throwable $e) {
+                        Log::error('[CONVENIO DIGITAL] No se pudo preparar enlace de firma; se enviará PDF adjunto', [
+                            'tracking_id' => $tracking->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                        $signingUrl = null;
+                    }
+                }
 
-            if ($signingUrl === null) {
-                $mailable->attachPdfFromPath($pdfPathForSend);
-            }
+                $mailable = new ConvenioManualNotification(
+                    $nombreCompleto ?? '',
+                    $this->documento,
+                    $this->nombreConvenio,
+                    $signingUrl,
+                    $isTest,
+                );
 
-            Mail::to($email)->send($mailable);
-            ConvenioRateLimiter::hitEmail();
+                if ($signingUrl === null) {
+                    $mailable->attachPdfFromPath($pdfPathForSend);
+                }
 
-            if (is_string($signingUrl) && $signingUrl !== '') {
-                Log::info('[CONVENIO DIGITAL] Enlace de firma generado', [
-                    'tracking_id' => $tracking->id,
-                    'documento' => $this->documento,
-                    'email' => $email,
-                    'is_test' => $isTest,
-                ]);
+                Mail::to($email)->send($mailable);
+                $this->markSentForRetries();
+                ConvenioRateLimiter::hitEmail();
+
+                if (is_string($signingUrl) && $signingUrl !== '') {
+                    Log::info('[CONVENIO DIGITAL] Enlace de firma generado', [
+                        'tracking_id' => $tracking->id,
+                        'documento' => $this->documento,
+                        'email' => $email,
+                        'is_test' => $isTest,
+                    ]);
+                }
             }
 
             $tracking->marcarComoEnviado();
@@ -460,6 +464,50 @@ class SendConvenioManualEmailJob implements ShouldQueue
         return $parsed['nombre_afiliado'] ?? '';
     }
 
+    private function wasSentByEarlierAttempt(): bool
+    {
+        $key = $this->retryCacheKey();
+
+        return $key !== null && Cache::has($key.':sent');
+    }
+
+    private function markSentForRetries(): void
+    {
+        $key = $this->retryCacheKey();
+
+        if ($key !== null) {
+            Cache::put($key.':sent', true, now()->addHours(3));
+        }
+    }
+
+    private function retryCacheKey(): ?string
+    {
+        $uuid = $this->job?->uuid();
+
+        return is_string($uuid) && $uuid !== '' ? 'convenio-email-job-tracking:'.$uuid : null;
+    }
+
+    /**
+     * A released or retried job gets its original payload back, so the tracking row it created on a
+     * previous attempt is remembered by job uuid to avoid one orphan "pendiente" row per attempt.
+     */
+    private function findTrackingCreatedByEarlierAttempt(): ?ConvenioEmailTracking
+    {
+        $key = $this->retryCacheKey();
+        $trackingId = $key !== null ? Cache::get($key) : null;
+
+        return $trackingId !== null ? ConvenioEmailTracking::find($trackingId) : null;
+    }
+
+    private function rememberTrackingForRetries(ConvenioEmailTracking $tracking): void
+    {
+        $key = $this->retryCacheKey();
+
+        if ($key !== null) {
+            Cache::put($key, $tracking->id, now()->addHours(3));
+        }
+    }
+
     private function createTrackingRecord(?array $afiliado, ?string $errorMessage, string $nombreFromFile, bool $isTest): ConvenioEmailTracking
     {
         $emailAfiliado = $afiliado['correo_personal'] ?? null;
@@ -490,7 +538,7 @@ class SendConvenioManualEmailJob implements ShouldQueue
 
         $generatedByUserId = $this->generatedByUserId ?? $parentTracking?->generated_by_user_id;
 
-        return ConvenioEmailTracking::create([
+        $tracking = ConvenioEmailTracking::create([
             'documento' => $this->documento,
             'nombre_afiliado' => $nombreAfiliado ?: 'No disponible',
             'email_afiliado' => $emailToStore ?: 'No disponible',
@@ -508,6 +556,10 @@ class SendConvenioManualEmailJob implements ShouldQueue
             'generated_by_user_id' => $generatedByUserId,
             'is_test' => $isTest,
         ]);
+
+        $this->rememberTrackingForRetries($tracking);
+
+        return $tracking;
     }
 
     public function failed(\Throwable $exception): void
