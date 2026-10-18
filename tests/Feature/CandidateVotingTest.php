@@ -257,7 +257,7 @@ class CandidateVotingTest extends TestCase
     {
         $headers = $this->voterHeaders();
 
-        $this->travel(31)->minutes();
+        $this->travel(121)->minutes();
 
         $this->postJson('/api/votes', $this->votePayload(), $headers)
             ->assertStatus(401)

@@ -9,7 +9,7 @@ class VoterSessionService
 {
     public const HEADER = 'X-Voter-Token';
 
-    private const TTL_MINUTES = 30;
+    private const TTL_MINUTES = 120;
 
     /**
      * Issue an encrypted, short-lived token that binds a validated voter to a scope.
