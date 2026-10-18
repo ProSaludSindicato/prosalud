@@ -173,7 +173,15 @@ class RequestController extends Controller
             $mail->cc('comunicaciones@sindicatoprosalud.com');
         }
 
-        $mail->send($mailable);
+        try {
+            $mail->send($mailable);
+        } catch (\Throwable $e) {
+            Log::error('No se pudo enviar el correo de confirmación de la solicitud; la solicitud quedó registrada', [
+                'request_id' => $requestForm->id,
+                'request_type' => $requestForm->request_type,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         $response = [
             'success' => true,
@@ -1846,7 +1854,11 @@ class RequestController extends Controller
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
-                // Continue without compressed file URLs - files won't be linked in email
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudieron guardar los archivos comprimidos de la respuesta. No se envió el correo ni se cambió el estado de la solicitud; intente nuevamente.',
+                ], 500);
             }
         }
 
