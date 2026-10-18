@@ -4,15 +4,25 @@ namespace App\Services;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Psr\Log\LoggerInterface;
 
 class AuditLogService
 {
+    /**
+     * Who did what (logins, admin actions, security events, business processes) goes to its own
+     * long-retention channel so it is not buried by operational noise.
+     */
+    private function auditChannel(): LoggerInterface
+    {
+        return Log::channel(config('logging.audit_channel', 'audit'));
+    }
+
     /**
      * Log user authentication events.
      */
     public function logAuthentication(string $action, array $context = []): void
     {
-        Log::info("Audit: Authentication {$action}", array_merge([
+        $this->auditChannel()->info("Audit: Authentication {$action}", array_merge([
             'action' => $action,
             'type' => 'authentication',
             'timestamp' => now()->toISOString(),
@@ -37,7 +47,7 @@ class AuditLogService
      */
     public function logAdministrativeAction(string $action, array $context = []): void
     {
-        Log::info('Audit: Administrative Action', array_merge([
+        $this->auditChannel()->info('Audit: Administrative Action', array_merge([
             'action' => $action,
             'type' => 'administrative',
             'timestamp' => now()->toISOString(),
@@ -64,7 +74,7 @@ class AuditLogService
      */
     public function logSecurityEvent(string $event, array $context = []): void
     {
-        Log::warning('Audit: Security Event', array_merge([
+        $this->auditChannel()->warning('Audit: Security Event', array_merge([
             'event' => $event,
             'type' => 'security',
             'timestamp' => now()->toISOString(),
@@ -76,7 +86,7 @@ class AuditLogService
      */
     public function logBusinessProcess(string $process, string $action, array $context = []): void
     {
-        Log::info('Audit: Business Process', array_merge([
+        $this->auditChannel()->info('Audit: Business Process', array_merge([
             'process' => $process,
             'action' => $action,
             'type' => 'business_process',
