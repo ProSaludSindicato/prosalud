@@ -286,4 +286,43 @@ class UserAccountSecurityTest extends TestCase
 
         $this->postJson('/api/auth/set-password', ['token' => 'invalid'])->assertStatus(429);
     }
+
+    public function test_non_admin_cannot_take_over_an_account_with_more_permissions(): void
+    {
+        $actor = $this->userWithPermissions('users.edit');
+        $privileged = $this->userWithPermissions('roles.manage', 'users.edit');
+        $originalHash = $privileged->password;
+
+        $this->actingWithToken($actor)->putJson("/api/users/{$privileged->id}", [
+            'password' => self::STRONG_PASSWORD,
+            'password_confirmation' => self::STRONG_PASSWORD,
+        ])->assertForbidden();
+
+        $this->actingWithToken($actor)->putJson("/api/users/{$privileged->id}", [
+            'email' => 'tomado@example.com',
+        ])->assertForbidden();
+
+        $this->assertSame($originalHash, $privileged->fresh()->password);
+        $this->assertNotSame('tomado@example.com', $privileged->fresh()->email);
+    }
+
+    public function test_non_admin_cannot_deactivate_an_account_with_more_permissions(): void
+    {
+        $actor = $this->userWithPermissions('users.change_status');
+        $privileged = $this->userWithPermissions('roles.manage');
+
+        $this->actingWithToken($actor)->patchJson("/api/users/{$privileged->id}/status", ['is_active' => false])
+            ->assertForbidden();
+    }
+
+    public function test_non_admin_can_still_edit_an_account_with_equal_or_fewer_permissions(): void
+    {
+        $actor = $this->userWithPermissions('users.edit', 'requests.view');
+        $peer = $this->userWithPermissions('requests.view');
+
+        $this->actingWithToken($actor)->putJson("/api/users/{$peer->id}", ['name' => 'Nombre Nuevo'])
+            ->assertOk();
+
+        $this->assertSame('Nombre Nuevo', $peer->fresh()->name);
+    }
 }

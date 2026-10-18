@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Models\WellnessRequest;
+use App\Services\WellnessRequestVisibilityService;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -13,7 +15,10 @@ class PublishToGalleryRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return true;
+        $wellnessRequest = WellnessRequest::query()->find($this->route('wellness_request_id'));
+
+        return $wellnessRequest === null
+            || app(WellnessRequestVisibilityService::class)->canViewRequest($this->user(), $wellnessRequest);
     }
 
     /**

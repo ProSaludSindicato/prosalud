@@ -11,7 +11,9 @@ class UserPolicy
 
     /**
      * Whether the actor may modify the target account (profile, status or deletion).
-     * Only admins may touch other admins.
+     * Only admins may touch other admins, and non-admins may only touch accounts whose
+     * permissions they already hold (otherwise changing a password or email would take over a
+     * more privileged account).
      */
     public function manage(User $actor, User $target): bool
     {
@@ -19,7 +21,18 @@ class UserPolicy
             return true;
         }
 
-        return ! $target->hasRole(self::ADMIN_ROLE);
+        if ($target->hasRole(self::ADMIN_ROLE)) {
+            return false;
+        }
+
+        return $actor->is($target) || $this->holdsAllPermissionsOf($actor, $target);
+    }
+
+    private function holdsAllPermissionsOf(User $actor, User $target): bool
+    {
+        return $target->getAllPermissions()->pluck('name')
+            ->diff($actor->getAllPermissions()->pluck('name'))
+            ->isEmpty();
     }
 
     /**
