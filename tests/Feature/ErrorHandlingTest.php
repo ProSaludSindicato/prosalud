@@ -2,7 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Services\{IncapacidadService, LiquidacionService};
+use App\Services\IncapacidadService;
+use App\Services\LiquidacionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -24,7 +25,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test incapacidades API handles service exceptions gracefully.
      */
-    public function testIncapacidadesApiHandlesServiceExceptions()
+    public function test_incapacidades_api_handles_service_exceptions()
     {
         $mockService = \Mockery::mock(IncapacidadService::class);
         $mockService->shouldReceive('searchByDocument')
@@ -40,15 +41,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(500)
-                ->assertJsonFragment([
-                    'message' => 'Service error',
-                ]);
+            ->assertJsonMissing(['message' => 'Service error']);
     }
 
     /**
      * Test liquidaciones API handles service exceptions gracefully.
      */
-    public function testLiquidacionesApiHandlesServiceExceptions()
+    public function test_liquidaciones_api_handles_service_exceptions()
     {
         $mockService = \Mockery::mock(LiquidacionService::class);
         $mockService->shouldReceive('searchByDocument')
@@ -64,15 +63,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(500)
-                ->assertJsonFragment([
-                    'message' => 'Service error',
-                ]);
+            ->assertJsonMissing(['message' => 'Service error']);
     }
 
     /**
      * Test API handles malformed JSON gracefully.
      */
-    public function testApiHandlesMalformedJson()
+    public function test_api_handles_malformed_json()
     {
         $response = $this->post('/api/incapacidades/search', [], [
             'Content-Type' => 'application/json',
@@ -84,7 +81,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test API handles oversized requests.
      */
-    public function testApiHandlesOversizedRequests()
+    public function test_api_handles_oversized_requests()
     {
         $largeString = str_repeat('A', 10000);
 
@@ -95,13 +92,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['numero_documento']);
+            ->assertJsonValidationErrors(['numero_documento']);
     }
 
     /**
      * Test API handles special characters in input.
      */
-    public function testApiHandlesSpecialCharacters()
+    public function test_api_handles_special_characters()
     {
         $specialChars = [
             'tipo' => 'CC',
@@ -111,14 +108,15 @@ class ErrorHandlingTest extends TestCase
 
         $response = $this->postJson('/api/incapacidades/search', $specialChars);
 
-        // Should handle special characters gracefully
-        $this->assertContains($response->getStatusCode(), [200, 404, 500]);
+        // Should handle special characters gracefully (422 = affiliate validation failed)
+        $this->assertContains($response->getStatusCode(), [200, 404, 422, 500]);
+        $response->assertJsonMissingValidationErrors();
     }
 
     /**
      * Test API handles null values.
      */
-    public function testApiHandlesNullValues()
+    public function test_api_handles_null_values()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => null,
@@ -127,13 +125,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['tipo', 'numero_documento', 'fecha_expedicion']);
+            ->assertJsonValidationErrors(['tipo', 'numero_documento', 'fecha_expedicion']);
     }
 
     /**
      * Test API handles array values instead of strings.
      */
-    public function testApiHandlesArrayValues()
+    public function test_api_handles_array_values()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => ['CC'],
@@ -142,13 +140,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['tipo', 'numero_documento', 'fecha_expedicion']);
+            ->assertJsonValidationErrors(['tipo', 'numero_documento', 'fecha_expedicion']);
     }
 
     /**
      * Test API handles numeric values for string fields.
      */
-    public function testApiHandlesNumericValuesForStringFields()
+    public function test_api_handles_numeric_values_for_string_fields()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 123,
@@ -157,13 +155,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['tipo', 'numero_documento']);
+            ->assertJsonValidationErrors(['tipo', 'numero_documento']);
     }
 
     /**
      * Test API handles extremely long field values.
      */
-    public function testApiHandlesExtremelyLongFieldValues()
+    public function test_api_handles_extremely_long_field_values()
     {
         $longString = str_repeat('A', 1000);
 
@@ -174,13 +172,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['tipo']);
+            ->assertJsonValidationErrors(['tipo']);
     }
 
     /**
      * Test API handles invalid HTTP methods.
      */
-    public function testApiHandlesInvalidHttpMethods()
+    public function test_api_handles_invalid_http_methods()
     {
         $response = $this->get('/api/incapacidades/search');
         $response->assertStatus(405); // Method Not Allowed
@@ -195,7 +193,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test API handles missing Content-Type header.
      */
-    public function testApiHandlesMissingContentType()
+    public function test_api_handles_missing_content_type()
     {
         $response = $this->post('/api/incapacidades/search', [
             'tipo' => 'CC',
@@ -210,7 +208,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test API handles invalid Content-Type.
      */
-    public function testApiHandlesInvalidContentType()
+    public function test_api_handles_invalid_content_type()
     {
         $response = $this->call('POST', '/api/incapacidades/search', [
             'tipo' => 'CC',
@@ -227,7 +225,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test API handles concurrent requests with same data.
      */
-    public function testApiHandlesConcurrentIdenticalRequests()
+    public function test_api_handles_concurrent_identical_requests()
     {
         $requestData = [
             'tipo' => 'CC',
@@ -237,7 +235,7 @@ class ErrorHandlingTest extends TestCase
 
         // Simulate multiple identical requests
         $responses = [];
-        for ($i = 0; $i < 3; ++$i) {
+        for ($i = 0; $i < 3; $i++) {
             $responses[] = $this->postJson('/api/incapacidades/search', $requestData);
         }
 
@@ -250,7 +248,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test API handles requests with extra fields.
      */
-    public function testApiHandlesExtraFields()
+    public function test_api_handles_extra_fields()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
@@ -267,7 +265,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test API handles requests with nested data.
      */
-    public function testApiHandlesNestedData()
+    public function test_api_handles_nested_data()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
@@ -286,7 +284,7 @@ class ErrorHandlingTest extends TestCase
     /**
      * Test API handles requests with boolean values.
      */
-    public function testApiHandlesBooleanValues()
+    public function test_api_handles_boolean_values()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => true,
@@ -295,13 +293,13 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['tipo', 'numero_documento']);
+            ->assertJsonValidationErrors(['tipo', 'numero_documento']);
     }
 
     /**
      * Test API handles requests with object values.
      */
-    public function testApiHandlesObjectValues()
+    public function test_api_handles_object_values()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => (object) ['value' => 'CC'],
@@ -310,6 +308,6 @@ class ErrorHandlingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonValidationErrors(['tipo', 'numero_documento']);
+            ->assertJsonValidationErrors(['tipo', 'numero_documento']);
     }
 }

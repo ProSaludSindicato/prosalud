@@ -2,8 +2,13 @@
 
 namespace Tests\Feature;
 
-use App\Services\{DateFormatterService, ExcelReaderService, IncapacidadService, LiquidacionService};
+use App\Services\AfiliadoService;
+use App\Services\DateFormatterService;
+use App\Services\ExcelReaderService;
+use App\Services\IncapacidadService;
+use App\Services\LiquidacionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class PerformanceTest extends TestCase
@@ -18,13 +23,13 @@ class PerformanceTest extends TestCase
     /**
      * Test Excel file reading performance.
      */
-    public function testExcelFileReadingPerformance()
+    public function test_excel_file_reading_performance()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
-        $excelReader = new ExcelReaderService();
+        $excelReader = new ExcelReaderService;
 
         $startTime = microtime(true);
         $data = $excelReader->readIncapacidadesFile();
@@ -40,13 +45,13 @@ class PerformanceTest extends TestCase
     /**
      * Test liquidaciones Excel file reading performance.
      */
-    public function testLiquidacionesExcelFileReadingPerformance()
+    public function test_liquidaciones_excel_file_reading_performance()
     {
-        if (!file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
+        if (! file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
-        $excelReader = new ExcelReaderService();
+        $excelReader = new ExcelReaderService;
 
         $startTime = microtime(true);
         $data = $excelReader->readLiquidacionesFile();
@@ -62,19 +67,19 @@ class PerformanceTest extends TestCase
     /**
      * Test date formatting performance with large dataset.
      */
-    public function testDateFormattingPerformance()
+    public function test_date_formatting_performance()
     {
-        $dateFormatter = new DateFormatterService();
+        $dateFormatter = new DateFormatterService;
 
         // Create a large dataset of dates to format
         $dates = [];
-        for ($i = 0; $i < 1000; ++$i) {
+        for ($i = 0; $i < 1000; $i++) {
             $dates[] = [
                 'fecha recibido' => '1/15/2024',
                 'Fecha Incio Incapacidad' => '2/20/2024',
                 'Fecha Fin Incapacidad' => '3/25/2024',
                 'FECHA ENVIO' => '15-Mar-24',
-                'Nombres' => 'Juan Pérez ' . $i,
+                'Nombres' => 'Juan Pérez '.$i,
             ];
         }
 
@@ -94,15 +99,15 @@ class PerformanceTest extends TestCase
     /**
      * Test incapacidades service performance.
      */
-    public function testIncapacidadesServicePerformance()
+    public function test_incapacidades_service_performance()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
-        $excelReader = new ExcelReaderService();
-        $dateFormatter = new DateFormatterService();
-        $service = new IncapacidadService($excelReader, $dateFormatter);
+        $excelReader = new ExcelReaderService;
+        $dateFormatter = new DateFormatterService;
+        $service = new IncapacidadService($excelReader, $dateFormatter, $afiliadoService);
 
         $startTime = microtime(true);
         $result = $service->searchByDocument('CC', '1000644432', '2025-01-01');
@@ -118,15 +123,15 @@ class PerformanceTest extends TestCase
     /**
      * Test liquidaciones service performance.
      */
-    public function testLiquidacionesServicePerformance()
+    public function test_liquidaciones_service_performance()
     {
-        if (!file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
+        if (! file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
-        $excelReader = new ExcelReaderService();
-        $dateFormatter = new DateFormatterService();
-        $service = new LiquidacionService($excelReader, $dateFormatter);
+        $excelReader = new ExcelReaderService;
+        $dateFormatter = new DateFormatterService;
+        $service = new LiquidacionService($excelReader, $dateFormatter, $afiliadoService);
 
         $startTime = microtime(true);
         $result = $service->searchByDocument('CC', '1121949803', '2020-01-01');
@@ -142,9 +147,9 @@ class PerformanceTest extends TestCase
     /**
      * Test API endpoint performance.
      */
-    public function testApiEndpointPerformance()
+    public function test_api_endpoint_performance()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -167,15 +172,15 @@ class PerformanceTest extends TestCase
     /**
      * Test memory usage during Excel processing.
      */
-    public function testMemoryUsageDuringExcelProcessing()
+    public function test_memory_usage_during_excel_processing()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
         $initialMemory = memory_get_usage();
 
-        $excelReader = new ExcelReaderService();
+        $excelReader = new ExcelReaderService;
         $data = $excelReader->readIncapacidadesFile();
 
         $finalMemory = memory_get_usage();
@@ -189,9 +194,9 @@ class PerformanceTest extends TestCase
     /**
      * Test concurrent API requests performance.
      */
-    public function testConcurrentApiRequestsPerformance()
+    public function test_concurrent_api_requests_performance()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -199,7 +204,7 @@ class PerformanceTest extends TestCase
 
         // Simulate 5 concurrent requests
         $responses = [];
-        for ($i = 0; $i < 5; ++$i) {
+        for ($i = 0; $i < 5; $i++) {
             $responses[] = $this->postJson('/api/incapacidades/search', [
                 'tipo' => 'CC',
                 'numero_documento' => '1000644432',
@@ -222,9 +227,9 @@ class PerformanceTest extends TestCase
     /**
      * Test date validation performance with various formats.
      */
-    public function testDateValidationPerformance()
+    public function test_date_validation_performance()
     {
-        $dateFormatter = new DateFormatterService();
+        $dateFormatter = new DateFormatterService;
 
         $testDates = [
             '1/1/2025',
@@ -253,14 +258,17 @@ class PerformanceTest extends TestCase
     /**
      * Test Excel file availability check performance.
      */
-    public function testExcelFileAvailabilityCheckPerformance()
+    public function test_excel_file_availability_check_performance()
     {
-        $excelReader = new ExcelReaderService();
+        Storage::fake('prosalud-private');
+        Storage::fake('local');
+
+        $excelReader = new ExcelReaderService;
 
         $startTime = microtime(true);
 
         // Check file availability multiple times
-        for ($i = 0; $i < 100; ++$i) {
+        for ($i = 0; $i < 100; $i++) {
             $excelReader->isFileAvailable();
             $excelReader->isLiquidacionesFileAvailable();
         }
@@ -275,16 +283,18 @@ class PerformanceTest extends TestCase
     /**
      * Test service instantiation performance.
      */
-    public function testServiceInstantiationPerformance()
+    public function test_service_instantiation_performance()
     {
+        $afiliadoService = $this->app->make(AfiliadoService::class);
+
         $startTime = microtime(true);
 
         // Create multiple service instances
-        for ($i = 0; $i < 100; ++$i) {
-            $excelReader = new ExcelReaderService();
-            $dateFormatter = new DateFormatterService();
-            $incapacidadService = new IncapacidadService($excelReader, $dateFormatter);
-            $liquidacionService = new LiquidacionService($excelReader, $dateFormatter);
+        for ($i = 0; $i < 100; $i++) {
+            $excelReader = new ExcelReaderService;
+            $dateFormatter = new DateFormatterService;
+            $incapacidadService = new IncapacidadService($excelReader, $dateFormatter, $afiliadoService);
+            $liquidacionService = new LiquidacionService($excelReader, $dateFormatter, $afiliadoService);
         }
 
         $endTime = microtime(true);
@@ -297,9 +307,9 @@ class PerformanceTest extends TestCase
     /**
      * Test API response size performance.
      */
-    public function testApiResponseSizePerformance()
+    public function test_api_response_size_performance()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -317,7 +327,7 @@ class PerformanceTest extends TestCase
         // Should generate response in reasonable time
         $this->assertLessThan(6, $executionTime, 'API response generation should be fast');
 
-        if (200 === $response->getStatusCode()) {
+        if ($response->getStatusCode() === 200) {
             $responseSize = strlen($response->getContent());
 
             // Response should be reasonable size (less than 1MB)

@@ -308,8 +308,7 @@ class ConvenioDeliveryModeTest extends TestCase
         $this->assertSame('1234567890', $signingLinkLogs[0]->context['documento'] ?? null);
         $this->assertSame('tester@example.com', $signingLinkLogs[0]->context['email'] ?? null);
         $this->assertTrue($signingLinkLogs[0]->context['is_test'] ?? false);
-        $this->assertIsString($signingLinkLogs[0]->context['signing_url'] ?? null);
-        $this->assertStringContainsString('https://firma.test/sign/', (string) $signingLinkLogs[0]->context['signing_url']);
+        $this->assertArrayNotHasKey('signing_url', $signingLinkLogs[0]->context);
         $this->assertTrue($tracking->is_test);
         $this->assertSame(ConvenioEmailTracking::SIGNING_PENDIENTE_FIRMA, $tracking->signing_estado);
         $this->assertNotNull($tracking->signing_token_hash);

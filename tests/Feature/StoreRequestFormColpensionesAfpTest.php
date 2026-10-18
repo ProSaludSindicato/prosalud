@@ -20,6 +20,7 @@ class StoreRequestFormColpensionesAfpTest extends TestCase
         Mail::fake();
 
         $this->mock(RecaptchaService::class, function ($mock) {
+            $mock->shouldReceive('isEnabled')->andReturn(true);
             $mock->shouldReceive('verify')->andReturn(['success' => true]);
         });
     }

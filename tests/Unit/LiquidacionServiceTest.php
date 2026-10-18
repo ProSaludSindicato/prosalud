@@ -2,14 +2,21 @@
 
 namespace Tests\Unit;
 
-use App\Services\{DateFormatterService, ExcelReaderService, LiquidacionService};
+use App\Services\AfiliadoService;
+use App\Services\DateFormatterService;
+use App\Services\ExcelReaderService;
+use App\Services\LiquidacionService;
 use Tests\TestCase;
 
 class LiquidacionServiceTest extends TestCase
 {
     private LiquidacionService $service;
+
     private $excelReader;
+
     private $dateFormatter;
+
+    private $afiliadoService;
 
     protected function setUp(): void
     {
@@ -17,7 +24,16 @@ class LiquidacionServiceTest extends TestCase
 
         $this->excelReader = \Mockery::mock(ExcelReaderService::class);
         $this->dateFormatter = \Mockery::mock(DateFormatterService::class);
-        $this->service = new LiquidacionService($this->excelReader, $this->dateFormatter);
+        $this->afiliadoService = \Mockery::mock(AfiliadoService::class);
+        $this->service = new LiquidacionService($this->excelReader, $this->dateFormatter, $this->afiliadoService);
+    }
+
+    private function expectValidAfiliado(): void
+    {
+        $this->afiliadoService
+            ->shouldReceive('authenticateAndGetAfiliado')
+            ->once()
+            ->andReturn(['documento' => 'validated']);
     }
 
     protected function tearDown(): void
@@ -26,7 +42,7 @@ class LiquidacionServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function testSearchByDocumentReturnsSuccessWhenRecordsFound()
+    public function test_search_by_document_returns_success_when_records_found()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'HOSPITAL', 'PROCESO', 'FECHA INGRESO', 'FECHA RETIRO', 'ESTADO BD', 'REVISION', 'FORMATO DE REVISION FISICO', 'CONVENIOS', 'N° CONVENIOS FIRMADOS', 'N° CONVENIOS PENDIENTES', 'SOLICITUD AFILIACION', 'ACTA DE ENTENDIMIENTO', 'ACTA DE COMPROMISO', 'MOTIVO DE RETIRO', 'CARTA RETIRO', 'DTOS PENDIENTES', 'OBSERVACIONES', 'FECHA DE ENTREGA A CAMILA', 'RESPONSABLE DE ENTREGA CONTABILIDAD'],
@@ -41,6 +57,8 @@ class LiquidacionServiceTest extends TestCase
         $this->dateFormatter
             ->shouldReceive('isDateField')
             ->andReturn(false);
+
+        $this->expectValidAfiliado();
 
         $result = $this->service->searchByDocument('CC', '1121949803', '2020-01-01');
 
@@ -55,7 +73,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertArrayNotHasKey('FORMATO DE REVISION FISICO', $record);
     }
 
-    public function testSearchByDocumentReturnsNotFoundWhenNoRecords()
+    public function test_search_by_document_returns_not_found_when_no_records()
     {
         $this->excelReader
             ->shouldReceive('readLiquidacionesFile')
@@ -68,7 +86,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertStringContainsString('No se pudo leer', $result['message']);
     }
 
-    public function testSearchByDocumentHandlesExcelReaderException()
+    public function test_search_by_document_handles_excel_reader_exception()
     {
         $this->excelReader
             ->shouldReceive('readLiquidacionesFile')
@@ -81,7 +99,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertStringContainsString('Error interno', $result['message']);
     }
 
-    public function testInternalFieldsAreFilteredFromResponse()
+    public function test_internal_fields_are_filtered_from_response()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'HOSPITAL', 'PROCESO', 'FECHA INGRESO', 'FECHA RETIRO', 'ESTADO BD', 'REVISION', 'FORMATO DE REVISION FISICO', 'CONVENIOS', 'N° CONVENIOS FIRMADOS', 'N° CONVENIOS PENDIENTES', 'SOLICITUD AFILIACION', 'ACTA DE ENTENDIMIENTO', 'ACTA DE COMPROMISO', 'MOTIVO DE RETIRO', 'CARTA RETIRO', 'DTOS PENDIENTES', 'OBSERVACIONES', 'FECHA DE ENTREGA A CAMILA', 'RESPONSABLE DE ENTREGA CONTABILIDAD'],
@@ -96,6 +114,8 @@ class LiquidacionServiceTest extends TestCase
         $this->dateFormatter
             ->shouldReceive('isDateField')
             ->andReturn(false);
+
+        $this->expectValidAfiliado();
 
         $result = $this->service->searchByDocument('CC', '1121949803', '2020-01-01');
 
@@ -116,7 +136,7 @@ class LiquidacionServiceTest extends TestCase
         $this->assertEquals('Retirado', $record['ESTADO BD']);
     }
 
-    public function testDateConversionWithLiquidacionesFormat()
+    public function test_date_conversion_with_liquidaciones_format()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE', 'FECHA INGRESO', 'FECHA RETIRO'],
@@ -173,22 +193,25 @@ class LiquidacionServiceTest extends TestCase
             ->with('7/31/2025')
             ->andReturn('31/07/2025');
 
+        $this->expectValidAfiliado();
+
         $result = $this->service->searchByDocument('CC', '1121949803', '2020-01-01');
 
         $this->assertEquals('success', $result['status']);
         $record = $result['data'][0];
 
-        $this->assertEquals('01/01/2020', $record['FECHA EXPEDICION']);
+        $this->assertArrayNotHasKey('FECHA EXPEDICION', $record);
         $this->assertEquals('01/07/2023', $record['FECHA INGRESO']);
         $this->assertEquals('31/07/2025', $record['FECHA RETIRO']);
     }
 
-    public function testSearchByDocumentWithDateValidationFiltersMismatchedDates()
+    public function test_search_by_document_returns_all_records_of_validated_afiliado()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE'],
             ['CC', '1121949803', '1/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID'],
             ['CC', '1121949803', '2/1/2020', 'RAMIREZ MORALES CRISTIAN DAVID OTRO'],
+            ['CC', '987654321', '2/1/2020', 'MARIA GARCIA'],
         ];
 
         $this->excelReader
@@ -200,15 +223,17 @@ class LiquidacionServiceTest extends TestCase
             ->shouldReceive('isDateField')
             ->andReturn(false);
 
-        // Search with date that only matches first record
+        $this->expectValidAfiliado();
+
         $result = $this->service->searchByDocument('CC', '1121949803', '2020-01-01');
 
         $this->assertEquals('success', $result['status']);
-        $this->assertCount(1, $result['data']); // Only one record should match
-        $this->assertEquals('1/1/2020', $result['data'][0]['FECHA EXPEDICION']);
+        $this->assertCount(2, $result['data']);
+        $this->assertEquals('RAMIREZ MORALES CRISTIAN DAVID', $result['data'][0]['NOMBRE']);
+        $this->assertEquals('RAMIREZ MORALES CRISTIAN DAVID OTRO', $result['data'][1]['NOMBRE']);
     }
 
-    public function testSearchByDocumentWithDateValidationReturnsNotFoundWhenNoMatchingDates()
+    public function test_search_by_document_returns_error_when_afiliado_validation_fails()
     {
         $excelData = [
             ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE'],
@@ -220,12 +245,33 @@ class LiquidacionServiceTest extends TestCase
             ->once()
             ->andReturn($excelData);
 
-        $this->dateFormatter
-            ->shouldReceive('isDateField')
-            ->andReturn(false);
+        $this->afiliadoService
+            ->shouldReceive('authenticateAndGetAfiliado')
+            ->once()
+            ->with('CC', '1121949803', '2000-01-02')
+            ->andReturn(null);
 
-        // Search with date that doesn't match
-        $result = $this->service->searchByDocument('CC', '1121949803', '2020-01-02');
+        $result = $this->service->searchByDocument('CC', '1121949803', '2000-01-02');
+
+        $this->assertEquals('error', $result['status']);
+        $this->assertStringContainsString('no son válidos', $result['message']);
+    }
+
+    public function test_search_by_document_returns_not_found_when_validated_afiliado_has_no_records()
+    {
+        $excelData = [
+            ['TIPO DE DOCUMENTO', 'N° DOCUMENTO', 'FECHA EXPEDICION', 'NOMBRE'],
+            ['CC', '987654321', '2/1/2020', 'MARIA GARCIA'],
+        ];
+
+        $this->excelReader
+            ->shouldReceive('readLiquidacionesFile')
+            ->once()
+            ->andReturn($excelData);
+
+        $this->expectValidAfiliado();
+
+        $result = $this->service->searchByDocument('CC', '1121949803', '2020-01-01');
 
         $this->assertEquals('not_found', $result['status']);
         $this->assertStringContainsString('No se encontraron', $result['message']);

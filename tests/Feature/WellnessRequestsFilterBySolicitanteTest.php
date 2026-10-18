@@ -50,7 +50,7 @@ class WellnessRequestsFilterBySolicitanteTest extends TestCase
         ]);
 
         // Filtro solo por nombre de solicitante
-        $response = $this->getJson('/api/wellness-requests?solicitante=María');
+        $response = $this->getJson('/api/wellness-requests?'.http_build_query(['solicitante' => 'María']));
         $response->assertStatus(200);
         $response->assertJson([
             'success' => true,
@@ -62,7 +62,10 @@ class WellnessRequestsFilterBySolicitanteTest extends TestCase
         $this->assertGreaterThanOrEqual(1, $response->json('pagination.total'));
 
         // Filtro combinado: solicitante + actividades no realizadas
-        $response = $this->getJson('/api/wellness-requests?solicitante=María&actividadesRealizadas=no_realizadas');
+        $response = $this->getJson('/api/wellness-requests?'.http_build_query([
+            'solicitante' => 'María',
+            'actividadesRealizadas' => 'no_realizadas',
+        ]));
         $response->assertStatus(200);
         $this->assertSame(1, $response->json('pagination.total'));
     }

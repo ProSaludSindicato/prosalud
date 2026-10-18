@@ -59,7 +59,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('auth')->group(function () {
     // Endpoints de autenticación con rate limiting + reCAPTCHA
     Route::post('/login', [ApiAuthController::class, 'login'])
-        ->middleware(['throttle:5,1']);
+        ->middleware(['throttle:5,1', 'recaptcha:login']);
     Route::post('/set-password', [ApiAuthController::class, 'setPasswordFromInvitation'])
         ->middleware(['throttle:5,1']);
     Route::post('/forgot-password', [ApiAuthController::class, 'forgotPassword'])

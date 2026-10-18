@@ -4,11 +4,13 @@ namespace Tests\Feature;
 
 use App\Constants\RequestStatuses;
 use App\Constants\RequestTypes;
+use App\Models\ApiToken;
 use App\Models\RequestForm;
 use App\Models\RequestStatusLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class RequestValidationTest extends TestCase
@@ -20,9 +22,22 @@ class RequestValidationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
         $this->user = User::factory()->create();
-        $this->actingAs($this->user);
+        $this->user->assignRole('admin');
+        $this->user->givePermissionTo('requests.respond');
+
+        $plainToken = 'test-plain-'.Str::random(48);
+        ApiToken::query()->create([
+            'user_id' => $this->user->id,
+            'name' => 'phpunit',
+            'token' => hash('sha256', $plainToken),
+            'expires_at' => now()->addDay(),
+        ]);
+
+        $this->withCredentials()->withUnencryptedCookie('prosalud_auth_token', $plainToken);
     }
 
     public function test_validation_changes_status_to_in_review_automatically()
@@ -145,18 +160,22 @@ class RequestValidationTest extends TestCase
             'validated_by' => null,
         ]);
 
-        // Change status
-        $response = $this->patchJson("/api/requests/{$request->id}/status", [
+        $payload = [
             'status' => $status,
             'status_reason' => 'Test status change',
-        ]);
+        ];
+
+        if ($status === RequestStatuses::REJECTED) {
+            $payload['rejection_reason'] = 'Test rejection reason';
+        }
+
+        // Change status
+        $response = $this->patchJson("/api/requests/{$request->id}/status", $payload);
 
         // Assert successful response with auto-validation message
         $response->assertStatus(200)
-            ->assertJson([
-                'success' => true,
-                'auto_validated' => true,
-            ]);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.auto_validated', true);
 
         // Assert request was validated
         $request->refresh();
@@ -189,10 +208,8 @@ class RequestValidationTest extends TestCase
 
             // Assert successful response but NOT auto-validated
             $response->assertStatus(200)
-                ->assertJson([
-                    'success' => true,
-                    'auto_validated' => false,
-                ]);
+                ->assertJsonPath('success', true)
+                ->assertJsonPath('data.auto_validated', false);
 
             // Assert request was NOT validated
             $request->refresh();
@@ -219,10 +236,8 @@ class RequestValidationTest extends TestCase
 
         // Assert successful response but NOT auto-validated (already was)
         $response->assertStatus(200)
-            ->assertJson([
-                'success' => true,
-                'auto_validated' => false,
-            ]);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.auto_validated', false);
 
         // Assert validation info unchanged
         $request->refresh();

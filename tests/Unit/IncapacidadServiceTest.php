@@ -2,14 +2,21 @@
 
 namespace Tests\Unit;
 
-use App\Services\{DateFormatterService, ExcelReaderService, IncapacidadService};
+use App\Services\AfiliadoService;
+use App\Services\DateFormatterService;
+use App\Services\ExcelReaderService;
+use App\Services\IncapacidadService;
 use Tests\TestCase;
 
 class IncapacidadServiceTest extends TestCase
 {
     private IncapacidadService $service;
+
     private $excelReader;
+
     private $dateFormatter;
+
+    private $afiliadoService;
 
     protected function setUp(): void
     {
@@ -17,7 +24,16 @@ class IncapacidadServiceTest extends TestCase
 
         $this->excelReader = \Mockery::mock(ExcelReaderService::class);
         $this->dateFormatter = \Mockery::mock(DateFormatterService::class);
-        $this->service = new IncapacidadService($this->excelReader, $this->dateFormatter);
+        $this->afiliadoService = \Mockery::mock(AfiliadoService::class);
+        $this->service = new IncapacidadService($this->excelReader, $this->dateFormatter, $this->afiliadoService);
+    }
+
+    private function expectValidAfiliado(): void
+    {
+        $this->afiliadoService
+            ->shouldReceive('authenticateAndGetAfiliado')
+            ->once()
+            ->andReturn(['documento' => 'validated']);
     }
 
     protected function tearDown(): void
@@ -26,7 +42,7 @@ class IncapacidadServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function testSearchByDocumentReturnsSuccessWhenRecordsFound()
+    public function test_search_by_document_returns_success_when_records_found()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI'],
@@ -43,6 +59,8 @@ class IncapacidadServiceTest extends TestCase
             ->shouldReceive('isDateField')
             ->andReturn(false);
 
+        $this->expectValidAfiliado();
+
         $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
         $this->assertEquals('success', $result['status']);
@@ -54,7 +72,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertArrayNotHasKey('REPORTE VIVI', $record);
     }
 
-    public function testSearchByDocumentReturnsNotFoundWhenNoRecords()
+    public function test_search_by_document_returns_not_found_when_no_records()
     {
         $this->excelReader
             ->shouldReceive('readIncapacidadesFile')
@@ -67,7 +85,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertStringContainsString('No se pudo leer', $result['message']);
     }
 
-    public function testSearchByDocumentHandlesExcelReaderException()
+    public function test_search_by_document_handles_excel_reader_exception()
     {
         $this->excelReader
             ->shouldReceive('readIncapacidadesFile')
@@ -80,7 +98,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertStringContainsString('Error interno', $result['message']);
     }
 
-    public function testInternalFieldsAreFilteredFromResponse()
+    public function test_internal_fields_are_filtered_from_response()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'REPORTE FACTURA', 'REPORTE VIVI', 'estado'],
@@ -95,6 +113,8 @@ class IncapacidadServiceTest extends TestCase
         $this->dateFormatter
             ->shouldReceive('isDateField')
             ->andReturn(false);
+
+        $this->expectValidAfiliado();
 
         $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
@@ -111,7 +131,7 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('PAGADA', $record['estado']);
     }
 
-    public function testDateConversionWithEnglishFormat()
+    public function test_date_conversion_with_english_format()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres', 'FECHA ENVIO', 'Fecha Incio Incapacidad'],
@@ -183,6 +203,8 @@ class IncapacidadServiceTest extends TestCase
             ->with('1/1/2025')
             ->andReturn('01/01/2025');
 
+        $this->expectValidAfiliado();
+
         $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
         $this->assertEquals('success', $result['status']);
@@ -193,12 +215,13 @@ class IncapacidadServiceTest extends TestCase
         $this->assertEquals('01/01/2025', $record['Fecha Expedicion']);  // Fecha Expedicion converted
     }
 
-    public function testSearchByDocumentWithDateValidationFiltersMismatchedDates()
+    public function test_search_by_document_returns_all_records_of_validated_afiliado()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
             ['001', '12/09/24', 'CC', '123456789', '1/1/2025', 'Juan Pérez'],
             ['002', '23/10/24', 'CC', '123456789', '2/1/2025', 'Juan Pérez Otro'],
+            ['003', '23/10/24', 'CC', '987654321', '2/1/2025', 'María García'],
         ];
 
         $this->excelReader
@@ -210,15 +233,17 @@ class IncapacidadServiceTest extends TestCase
             ->shouldReceive('isDateField')
             ->andReturn(false);
 
-        // Search with date that only matches first record
+        $this->expectValidAfiliado();
+
         $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
         $this->assertEquals('success', $result['status']);
-        $this->assertCount(1, $result['data']); // Only one record should match
+        $this->assertCount(2, $result['data']);
         $this->assertEquals('001', $result['data'][0]['N° Radicado']);
+        $this->assertEquals('002', $result['data'][1]['N° Radicado']);
     }
 
-    public function testSearchByDocumentWithDateValidationReturnsNotFoundWhenNoMatchingDates()
+    public function test_search_by_document_returns_error_when_afiliado_validation_fails()
     {
         $excelData = [
             ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
@@ -230,12 +255,33 @@ class IncapacidadServiceTest extends TestCase
             ->once()
             ->andReturn($excelData);
 
-        $this->dateFormatter
-            ->shouldReceive('isDateField')
-            ->andReturn(false);
+        $this->afiliadoService
+            ->shouldReceive('authenticateAndGetAfiliado')
+            ->once()
+            ->with('CC', '123456789', '2000-01-02')
+            ->andReturn(null);
 
-        // Search with date that doesn't match
-        $result = $this->service->searchByDocument('CC', '123456789', '2025-01-02');
+        $result = $this->service->searchByDocument('CC', '123456789', '2000-01-02');
+
+        $this->assertEquals('error', $result['status']);
+        $this->assertStringContainsString('no son válidos', $result['message']);
+    }
+
+    public function test_search_by_document_returns_not_found_when_validated_afiliado_has_no_records()
+    {
+        $excelData = [
+            ['N° Radicado', 'fecha recibido', 'Tipo', 'Numero Documento', 'Fecha Expedicion', 'Nombres'],
+            ['003', '23/10/24', 'CC', '987654321', '2/1/2025', 'María García'],
+        ];
+
+        $this->excelReader
+            ->shouldReceive('readIncapacidadesFile')
+            ->once()
+            ->andReturn($excelData);
+
+        $this->expectValidAfiliado();
+
+        $result = $this->service->searchByDocument('CC', '123456789', '2025-01-01');
 
         $this->assertEquals('not_found', $result['status']);
         $this->assertStringContainsString('No se encontraron', $result['message']);

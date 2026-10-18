@@ -17,9 +17,9 @@ class ApiIntegrationTest extends TestCase
     /**
      * Test complete incapacidades API flow with real Excel file.
      */
-    public function testIncapacidadesApiCompleteFlow()
+    public function test_incapacidades_api_complete_flow()
     {
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -30,31 +30,31 @@ class ApiIntegrationTest extends TestCase
         ]);
 
         $response->assertStatus(200)
-                ->assertJsonStructure([
-                    'status',
-                    'data' => [
-                        '*' => [
-                            'N° Radicado',
-                            'Tipo',
-                            'Numero Documento',
-                            'Fecha Expedicion',
-                            'Nombres',
-                        ],
+            ->assertJsonStructure([
+                'status',
+                'data' => [
+                    '*' => [
+                        'N° Radicado',
+                        'Tipo',
+                        'Numero Documento',
+                        'Fecha Expedicion',
+                        'Nombres',
                     ],
-                ])
-                ->assertJsonMissing([
-                    'REPORTE FACTURA',
-                    'REPORTE VIVI',
-                ]);
+                ],
+            ])
+            ->assertJsonMissing([
+                'REPORTE FACTURA',
+                'REPORTE VIVI',
+            ]);
     }
 
     /**
      * Test complete liquidaciones API flow with real Excel file.
      */
-    public function testLiquidacionesApiCompleteFlow()
+    public function test_liquidaciones_api_complete_flow()
     {
         // Skip if Excel file doesn't exist
-        if (!file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
+        if (! file_exists(public_path('data/LIQUIDACIONES PENDIENTES.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -65,31 +65,31 @@ class ApiIntegrationTest extends TestCase
         ]);
 
         $response->assertStatus(200)
-                ->assertJsonStructure([
-                    'status',
-                    'data' => [
-                        '*' => [
-                            'TIPO DE DOCUMENTO',
-                            'N° DOCUMENTO',
-                            'FECHA EXPEDICION',
-                            'NOMBRE',
-                            'HOSPITAL',
-                            'PROCESO',
-                        ],
+            ->assertJsonStructure([
+                'status',
+                'data' => [
+                    '*' => [
+                        'TIPO DE DOCUMENTO',
+                        'N° DOCUMENTO',
+                        'FECHA EXPEDICION',
+                        'NOMBRE',
+                        'HOSPITAL',
+                        'PROCESO',
                     ],
-                ])
-                ->assertJsonMissing([
-                    'FECHA DE ENTREGA A CAMILA',
-                    'RESPONSABLE DE ENTREGA CONTABILIDAD',
-                    'REVISION',
-                    'FORMATO DE REVISION FISICO',
-                ]);
+                ],
+            ])
+            ->assertJsonMissing([
+                'FECHA DE ENTREGA A CAMILA',
+                'RESPONSABLE DE ENTREGA CONTABILIDAD',
+                'REVISION',
+                'FORMATO DE REVISION FISICO',
+            ]);
     }
 
     /**
      * Test API error handling when Excel files are missing.
      */
-    public function testApiErrorHandlingMissingFiles()
+    public function test_api_error_handling_missing_files()
     {
         // Test incapacidades with missing file
         $response = $this->postJson('/api/incapacidades/search', [
@@ -98,10 +98,11 @@ class ApiIntegrationTest extends TestCase
             'fecha_expedicion' => '2025-01-01',
         ]);
 
-        // Should return either 404 (not found) or 500 (error) depending on file availability
-        $this->assertContains($response->getStatusCode(), [404, 500]);
+        // 404 (not found), 422 (affiliate validation failed) or 500 (error) depending on file availability
+        $this->assertContains($response->getStatusCode(), [404, 422, 500]);
+        $response->assertJsonMissingValidationErrors();
 
-        if (500 === $response->getStatusCode()) {
+        if (in_array($response->getStatusCode(), [422, 500], true)) {
             $response->assertJson([
                 'status' => 'error',
             ]);
@@ -115,7 +116,7 @@ class ApiIntegrationTest extends TestCase
     /**
      * Test API validation with various invalid inputs.
      */
-    public function testApiValidationComprehensive()
+    public function test_api_validation_comprehensive()
     {
         $invalidInputs = [
             // Missing required fields
@@ -156,17 +157,17 @@ class ApiIntegrationTest extends TestCase
             $response = $this->postJson('/api/incapacidades/search', $testCase['data']);
 
             $response->assertStatus(422)
-                    ->assertJsonValidationErrors($testCase['expected_errors']);
+                ->assertJsonValidationErrors($testCase['expected_errors']);
         }
     }
 
     /**
      * Test API performance with large datasets.
      */
-    public function testApiPerformance()
+    public function test_api_performance()
     {
         // Skip if Excel file doesn't exist
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -189,10 +190,10 @@ class ApiIntegrationTest extends TestCase
     /**
      * Test API with different document types.
      */
-    public function testApiWithDifferentDocumentTypes()
+    public function test_api_with_different_document_types()
     {
         // Skip if Excel file doesn't exist
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -213,7 +214,7 @@ class ApiIntegrationTest extends TestCase
     /**
      * Test API with various date formats in request.
      */
-    public function testApiWithVariousDateFormats()
+    public function test_api_with_various_date_formats()
     {
         $dateFormats = [
             '2025-01-01', // Valid format
@@ -229,15 +230,15 @@ class ApiIntegrationTest extends TestCase
                 'fecha_expedicion' => $date,
             ]);
 
-            // Should not return validation error for valid dates
-            $this->assertNotEquals(422, $response->getStatusCode(), "Date '{$date}' should be valid");
+            // Should not return a request validation error for valid dates
+            $response->assertJsonMissingValidationErrors(['fecha_expedicion']);
         }
     }
 
     /**
      * Test API error messages are in Spanish.
      */
-    public function testApiErrorMessagesSpanish()
+    public function test_api_error_messages_spanish()
     {
         $response = $this->postJson('/api/incapacidades/search', [
             'tipo' => 'CC',
@@ -246,31 +247,31 @@ class ApiIntegrationTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                ->assertJsonFragment([
-                    'message' => 'Los datos proporcionados no son válidos.',
-                ])
-                ->assertJsonFragment([
-                    'fecha_expedicion' => [
-                        'La fecha de expedición debe ser una fecha válida.',
-                        'La fecha de expedición debe tener el formato YYYY-MM-DD.',
-                    ],
-                ]);
+            ->assertJsonFragment([
+                'message' => 'Los datos proporcionados no son válidos.',
+            ])
+            ->assertJsonFragment([
+                'fecha_expedicion' => [
+                    'La fecha de expedición debe ser una fecha válida.',
+                    'La fecha de expedición debe tener el formato YYYY-MM-DD.',
+                ],
+            ]);
     }
 
     /**
      * Test API handles concurrent requests.
      */
-    public function testApiConcurrentRequests()
+    public function test_api_concurrent_requests()
     {
         // Skip if Excel file doesn't exist
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
         $requests = [];
 
         // Simulate multiple concurrent requests
-        for ($i = 0; $i < 5; ++$i) {
+        for ($i = 0; $i < 5; $i++) {
             $requests[] = $this->postJson('/api/incapacidades/search', [
                 'tipo' => 'CC',
                 'numero_documento' => '1000644432',
@@ -287,10 +288,10 @@ class ApiIntegrationTest extends TestCase
     /**
      * Test API response structure consistency.
      */
-    public function testApiResponseStructureConsistency()
+    public function test_api_response_structure_consistency()
     {
         // Skip if Excel file doesn't exist
-        if (!file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
+        if (! file_exists(public_path('data/_RELACION INCAPACIDADES 2025.xlsx'))) {
             $this->markTestSkipped('Excel file not found');
         }
 
@@ -300,7 +301,7 @@ class ApiIntegrationTest extends TestCase
             'fecha_expedicion' => '2025-01-01',
         ]);
 
-        if (200 === $response->getStatusCode()) {
+        if ($response->getStatusCode() === 200) {
             $response->assertJsonStructure([
                 'status',
                 'data' => [
