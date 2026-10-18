@@ -1402,7 +1402,9 @@ class RequestController extends Controller
                             'error_trace' => $e->getTraceAsString(),
                         ]);
 
-                        // Si falla la generación, continuar con el flujo normal pero registrar el error
+                        if ($failureResponse = $this->certificateGenerationFailedResponse($status)) {
+                            return $failureResponse;
+                        }
                     }
                 } else {
                     // No se encontraron compensaciones ni manuales ni en Excel
@@ -1572,8 +1574,9 @@ class RequestController extends Controller
                     'error_trace' => $e->getTraceAsString(),
                 ]);
 
-                // No fallar toda la solicitud, pero registrar el error
-                // El usuario aún puede responder sin el certificado adjunto
+                if ($failureResponse = $this->certificateGenerationFailedResponse($status)) {
+                    return $failureResponse;
+                }
             }
         }
 
@@ -1640,8 +1643,9 @@ class RequestController extends Controller
                     'error_trace' => $e->getTraceAsString(),
                 ]);
 
-                // Don't fail the entire request, but log the error
-                // The user can still respond without the certificate attached
+                if ($failureResponse = $this->certificateGenerationFailedResponse($status)) {
+                    return $failureResponse;
+                }
             }
         }
 
@@ -3373,6 +3377,22 @@ class RequestController extends Controller
         ]);
 
         return $tieneCorreo;
+    }
+
+    /**
+     * A completed response promises the certificate, so a generation failure stops the response
+     * before the email is sent or the status changes. Other statuses do not depend on it.
+     */
+    private function certificateGenerationFailedResponse(string $status): ?JsonResponse
+    {
+        if ($status !== RequestStatuses::COMPLETED) {
+            return null;
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'No se pudo generar el certificado. No se envió el correo ni se cambió el estado de la solicitud; intente nuevamente o adjunte el certificado manualmente.',
+        ], 500);
     }
 
     /**

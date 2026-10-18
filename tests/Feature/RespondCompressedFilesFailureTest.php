@@ -7,6 +7,7 @@ use App\Models\ApiToken;
 use App\Models\RequestForm;
 use App\Models\RequestResponse;
 use App\Models\User;
+use App\Services\CertificadoConvenioService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
@@ -59,5 +60,58 @@ class RespondCompressedFilesFailureTest extends TestCase
 
         Mail::assertNothingSent();
         $this->assertSame(RequestStatuses::PENDING, $form->fresh()->status);
+    }
+
+    private function certificateForm(): RequestForm
+    {
+        return RequestForm::factory()->create([
+            'request_type' => 'certificado-convenio',
+            'status' => RequestStatuses::PENDING,
+            'payload' => [
+                'proceso' => 'Proceso',
+                'dondeRealizaProceso' => 'Hospital',
+                'infoCertificado' => ['adicionarActividades' => true],
+            ],
+        ]);
+    }
+
+    public function test_completed_response_stops_when_the_certificate_cannot_be_generated(): void
+    {
+        $this->actingAsAdmin();
+        $form = $this->certificateForm();
+
+        $this->mock(CertificadoConvenioService::class, function ($mock) {
+            $mock->shouldReceive('generarCertificadoPDFConActividades')->andThrow(new \RuntimeException('prosanet down'));
+        });
+
+        $this->postJson("/api/requests/{$form->id}/respond", [
+            'status' => 'COMPLETED',
+            'email_subject' => 'Certificado',
+            'email_body' => 'Adjunto su certificado.',
+            'actividades' => ['Actividad uno'],
+        ])->assertStatus(500)->assertJsonPath('success', false);
+
+        Mail::assertNothingSent();
+        $this->assertSame(RequestStatuses::PENDING, $form->fresh()->status);
+        $this->assertDatabaseCount('request_responses', 0);
+    }
+
+    public function test_rejected_response_does_not_depend_on_certificate_generation(): void
+    {
+        $this->actingAsAdmin();
+        $form = $this->certificateForm();
+
+        $this->mock(CertificadoConvenioService::class, function ($mock) {
+            $mock->shouldReceive('generarCertificadoPDFConActividades')->never();
+        });
+
+        $this->postJson("/api/requests/{$form->id}/respond", [
+            'status' => 'REJECTED',
+            'rejection_reason' => 'Datos incompletos',
+            'email_subject' => 'Solicitud rechazada',
+            'email_body' => 'No es posible atender su solicitud.',
+        ])->assertOk();
+
+        $this->assertSame(RequestStatuses::REJECTED, $form->fresh()->status);
     }
 }
