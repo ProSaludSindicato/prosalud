@@ -3,13 +3,16 @@
 namespace App\Models;
 
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ApiToken extends Model
 {
     use HasFactory;
+    use Prunable;
 
     protected $fillable = [
         'user_id',
@@ -29,6 +32,16 @@ class ApiToken extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Tokens expired for more than a week are no longer useful for auditing sessions.
+     *
+     * @return Builder<static>
+     */
+    public function prunable(): Builder
+    {
+        return static::query()->where('expires_at', '<', now()->subWeek());
     }
 
     public function isExpired(): bool
