@@ -90,8 +90,6 @@ class CheckPermission
 
             return response()->json([
                 'message' => 'Acceso denegado. Permisos insuficientes.',
-                'required_permission' => $permission,
-                'required_permissions' => $requiredPermissions,
             ], 403);
         }
 

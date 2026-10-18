@@ -170,7 +170,6 @@ class AuthenticateWithApiToken
 
         return response()->json([
             'message' => 'No autorizado',
-            'reason' => $message,
         ], 401);
     }
 }

@@ -12,8 +12,7 @@ class InventoryReportController extends Controller
 {
     public function __construct(
         protected InventoryReportService $reportService
-    ) {
-    }
+    ) {}
 
     /**
      * Generate Excel report for inventory.
@@ -29,10 +28,9 @@ class InventoryReportController extends Controller
         ];
 
         foreach ($requiredPermissions as $permission) {
-            if (!$user->can($permission)) {
+            if (! $user->can($permission)) {
                 return response()->json([
                     'message' => 'Acceso denegado. Permisos insuficientes para generar reportes.',
-                    'required_permissions' => $requiredPermissions,
                 ], 403);
             }
         }
@@ -44,9 +42,8 @@ class InventoryReportController extends Controller
             return $this->reportService->generateReport($reportType, $dateRange);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Error al generar el reporte: ' . $e->getMessage(),
+                'message' => 'Error al generar el reporte: '.$e->getMessage(),
             ], 500);
         }
     }
 }
-
