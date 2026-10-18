@@ -48,7 +48,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'assembly.voting.enabled' => \App\Http\Middleware\EnsureAssemblyVotingEnabled::class,
         ]);
 
-        // La configuraci?n de rate limiters ahora est? en AppServiceProvider::boot()
+        // La configuración de rate limiters ahora está en AppServiceProvider::boot()
         // para evitar el error "A facade root has not been set"
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -59,7 +59,7 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Demasiadas solicitudes. Intenta nuevamente m?s tarde.',
+                    'message' => 'Demasiadas solicitudes. Intenta nuevamente más tarde.',
                     'error' => 'rate_limit_exceeded',
                 ], 429);
             }
@@ -78,7 +78,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return response()->json([
                 'success' => false,
-                'message' => "El archivo supera el l?mite de carga del servidor ({$serverLimit}). La aplicaci?n permite ZIP de hasta {$maxMb}MB. Aumente post_max_size y upload_max_filesize en PHP, o reduzca el tama?o del ZIP.",
+                'message' => "El archivo supera el límite de carga del servidor ({$serverLimit}). La aplicación permite ZIP de hasta {$maxMb}MB. Aumente post_max_size y upload_max_filesize en PHP, o reduzca el tamaño del ZIP.",
                 'error' => 'payload_too_large',
             ], 413);
         });
@@ -94,7 +94,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof ValidationException) {
                 return response()->json([
-                    'message' => 'Los datos proporcionados no son v?lidos.',
+                    'message' => 'Los datos proporcionados no son válidos.',
                     'errors' => $e->errors(),
                 ], $e->status);
             }
@@ -107,7 +107,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof AuthorizationException) {
                 return response()->json([
-                    'message' => 'No tienes permisos para realizar esta acci?n.',
+                    'message' => 'No tienes permisos para realizar esta acción.',
                 ], 403);
             }
 
@@ -119,7 +119,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof QueryException) {
                 return response()->json([
-                    'message' => 'Ocurri? un error al procesar la solicitud. Intenta nuevamente m?s tarde.',
+                    'message' => 'Ocurrió un error al procesar la solicitud. Intenta nuevamente más tarde.',
                 ], 500);
             }
 
@@ -127,25 +127,23 @@ return Application::configure(basePath: dirname(__DIR__))
                 $status = $e->getStatusCode();
 
                 $defaultMessages = [
-                    400 => 'Solicitud inv?lida.',
+                    400 => 'Solicitud inválida.',
                     401 => 'No autorizado.',
-                    403 => 'No tienes permisos para realizar esta acci?n.',
+                    403 => 'No tienes permisos para realizar esta acción.',
                     404 => 'Recurso no encontrado.',
-                    405 => 'M?todo no permitido.',
-                    429 => 'Demasiadas solicitudes. Intenta nuevamente m?s tarde.',
+                    405 => 'Método no permitido.',
+                    429 => 'Demasiadas solicitudes. Intenta nuevamente más tarde.',
                 ];
 
-                $message = $defaultMessages[$status] ?? 'Ocurri? un error al procesar la solicitud.';
+                $message = $defaultMessages[$status] ?? 'Ocurrió un error al procesar la solicitud.';
 
                 return response()->json([
                     'message' => $message,
                 ], $status);
             }
 
-            report($e);
-
             return response()->json([
-                'message' => 'Ha ocurrido un error inesperado. Intenta nuevamente m?s tarde.',
+                'message' => 'Ha ocurrido un error inesperado. Intenta nuevamente más tarde.',
             ], 500);
         });
     })->create();

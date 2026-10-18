@@ -55,7 +55,7 @@
                             <ol style="margin:0 0 32px; padding-left:24px; color:#1f2937; font-size:15px; line-height:1.8;">
                                 <li style="margin-bottom:20px; padding-left:8px;">
                                     <strong style="color:#00529B;">Ingresar al siguiente enlace:</strong><br>
-                                    <a href="https://192.168.1.52:8080/servicios/firma-convenio" style="color:#00529B; text-decoration:none; font-weight:500; word-break:break-all; margin-top:4px; display:inline-block;">https://192.168.1.52:8080/servicios/firma-convenio</a>
+                                    <a href="{{ rtrim((string) config('services.frontend.url'), '/') }}/servicios/firma-convenio" style="color:#00529B; text-decoration:none; font-weight:500; word-break:break-all; margin-top:4px; display:inline-block;">{{ rtrim((string) config('services.frontend.url'), '/') }}/servicios/firma-convenio</a>
                                 </li>
                                 <li style="margin-bottom:20px; padding-left:8px;">
                                     <strong style="color:#00529B;">Autenticarse</strong> con número de documento y fecha de expedición.
@@ -94,7 +94,7 @@
                             <table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 28px;">
                                 <tr>
                                     <td align="center" style="padding:0;">
-                                        <a href="https://192.168.1.52:8080/servicios/firma-convenio" style="display:inline-block; background: linear-gradient(135deg, #00529B 0%, #0ea5e9 100%); color:#ffffff; text-decoration:none; padding:16px 32px; border-radius:12px; font-weight:600; font-size:16px; box-shadow: 0 4px 12px rgba(0,82,155,0.3);">
+                                        <a href="{{ rtrim((string) config('services.frontend.url'), '/') }}/servicios/firma-convenio" style="display:inline-block; background: linear-gradient(135deg, #00529B 0%, #0ea5e9 100%); color:#ffffff; text-decoration:none; padding:16px 32px; border-radius:12px; font-weight:600; font-size:16px; box-shadow: 0 4px 12px rgba(0,82,155,0.3);">
                                             Ir a Firmar Convenio
                                         </a>
                                     </td>
