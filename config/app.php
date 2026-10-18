@@ -67,6 +67,13 @@ return [
     'timezone' => 'America/Bogota',
 
     /*
+    | Proxies de confianza (IPs/CIDR separados por coma, o "*"). Necesario para que
+    | request()->ip() sea la IP real del cliente detrás de Cloudflare/balanceador.
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------

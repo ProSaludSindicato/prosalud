@@ -412,8 +412,21 @@ class VoteController extends Controller
                 ]);
             }
 
-            $hasVoted = Vote::where('voter_document_type', $request->input('document_type'))
-                ->where('voter_document_number', $request->input('document_number'))
+            $session = $this->voterSessionService->verify(
+                $request->header(VoterSessionService::HEADER),
+                $this->voterSessionService->candidateScope($candidateElectionKey)
+            );
+
+            if ($session === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Su sesión de votación no es válida o expiró. Valide nuevamente su documento.',
+                    'error_code' => 'VOTER_SESSION_INVALID',
+                ], 401);
+            }
+
+            $hasVoted = Vote::where('voter_document_type', $session['document_type'])
+                ->where('voter_document_number', $session['document_number'])
                 ->where('candidate_election_key', $candidateElectionKey)
                 ->exists();
 

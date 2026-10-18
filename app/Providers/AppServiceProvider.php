@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Services\RateLimitIdentity;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -34,16 +36,40 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $trustedProxies = config('app.trusted_proxies');
+
+        if (filled($trustedProxies)) {
+            TrustProxies::at($trustedProxies === '*' ? '*' : array_map('trim', explode(',', (string) $trustedProxies)));
+        }
+
+        $tooManyRequests = fn (Request $request, array $headers) => response()->json([
+            'success' => false,
+            'message' => 'Demasiadas solicitudes. Intenta nuevamente más tarde.',
+            'error' => 'rate_limit_exceeded',
+        ], 429, $headers);
+
+        RateLimiter::for('public-reads', fn (Request $request) => Limit::perMinute(600)
+            ->by('public-reads:'.$request->ip())
+            ->response($tooManyRequests));
+
+        RateLimiter::for('identity', function (Request $request) use ($tooManyRequests) {
+            $limits = [Limit::perMinute(300)->by('identity:ip:'.$request->ip())->response($tooManyRequests)];
+            $document = RateLimitIdentity::document($request);
+
+            if ($document !== null) {
+                $key = RateLimitIdentity::documentKey('identity', $document);
+                $limits[] = Limit::perMinute(10)->by($key.':m')->response($tooManyRequests);
+                $limits[] = Limit::perHour(40)->by($key.':h')->response($tooManyRequests);
+            }
+
+            return $limits;
+        });
+
         // Configurar rate limiters personalizados para seguridad con fingerprinting mejorado
         RateLimiter::for('critical-endpoints', function (Request $request) {
             // Fingerprinting: IP + User-Agent + documento (si está presente)
             // Esto previene ataques distribuidos usando múltiples IPs
-            $documento = $request->input('documento');
-            $fingerprint = md5(
-                $request->ip().
-                $request->userAgent().
-                ($documento ?? '')
-            );
+            $fingerprint = md5($request->ip().(RateLimitIdentity::document($request) ?? ''));
 
             return Limit::perMinute(5)
                 ->by($fingerprint)
@@ -65,9 +91,9 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('convenio-signing-public', function (Request $request) {
-            $fingerprint = md5($request->ip().$request->userAgent());
+            $fingerprint = md5($request->ip());
 
-            return Limit::perMinute(60)
+            return Limit::perMinute(120)
                 ->by($fingerprint)
                 ->response(function (Request $request, array $headers) {
                     return response()->json([
@@ -79,8 +105,8 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('voting', function (Request $request) {
-            return Limit::perMinute(120)
-                ->by('voting:'.md5($request->ip().$request->userAgent()))
+            return Limit::perMinute(300)
+                ->by('voting:'.md5($request->ip()))
                 ->response(function (Request $request, array $headers) {
                     \App\Services\SecurityAlertService::logRateLimitExceeded(
                         'voting',
@@ -99,12 +125,9 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('public-endpoints', function (Request $request) {
             // Fingerprinting: IP + User-Agent para endpoints públicos
-            $fingerprint = md5(
-                $request->ip().
-                $request->userAgent()
-            );
+            $fingerprint = md5($request->ip());
 
-            return Limit::perMinute(20)
+            return Limit::perMinute(60)
                 ->by($fingerprint)
                 ->response(function (Request $request, array $headers) {
                     \App\Services\SecurityAlertService::logRateLimitExceeded(

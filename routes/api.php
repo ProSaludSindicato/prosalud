@@ -70,7 +70,7 @@ Route::prefix('auth')->group(function () {
 });
 
 // Request management routes - Rate limiting: 20 requests per minute
-Route::middleware('throttle:public-endpoints')->group(function () {
+Route::middleware(['throttle:public-endpoints', 'throttle:identity'])->group(function () {
     Route::post('/chatbot-conversations', [ChatbotConversationController::class, 'store']);
     Route::post('/incapacidades/search', [IncapacidadesController::class, 'search']);
     Route::post('/liquidaciones/search', [LiquidacionesController::class, 'search']);
@@ -94,8 +94,11 @@ if (config('convenio_signing.enabled', true)) {
 }
 
 // Voting mode - public read endpoint
-Route::get('/voting/mode', [VotingModeController::class, 'show']);
-Route::get('/candidate-voting-periods/current', [CandidateVotingPeriodController::class, 'current']);
+Route::middleware('throttle:public-reads')->group(function () {
+    Route::get('/voting/mode', [VotingModeController::class, 'show']);
+    Route::get('/candidate-voting-periods/current', [CandidateVotingPeriodController::class, 'current']);
+    Route::get('/survey-config/public', [SurveyConfigController::class, 'show']);
+});
 
 // Public read-only endpoints
 Route::get('/comfenalco-events', [ComfenalcoEventController::class, 'index']);
@@ -106,7 +109,7 @@ Route::get('/public/wellness-events/{wellness_event}', [WellnessEventController:
 
 // Private API - Wellness Events (requires authentication and permissions)
 // These routes are moved inside the authenticated group below
-Route::middleware(['candidate.voting.enabled', 'throttle:voting'])->group(function () {
+Route::middleware(['candidate.voting.enabled', 'throttle:voting', 'throttle:identity'])->group(function () {
     Route::post('/votes', [VoteController::class, 'store']);
     Route::get('/votes/check', [VoteController::class, 'checkVote']);
     Route::get('/delegados', [DelegadosController::class, 'index']);
@@ -116,14 +119,14 @@ Route::middleware(['candidate.voting.enabled', 'throttle:voting'])->group(functi
 });
 
 // Afiliados authentication routes - Rate limiting aplicado
-Route::middleware('throttle:public-endpoints')->group(function () {
+Route::middleware(['throttle:public-endpoints', 'throttle:identity'])->group(function () {
     Route::post('/afiliados/authenticate', [AfiliadoController::class, 'authenticate']);
     Route::post('/afiliados/authenticate-for-data-update', [AfiliadoController::class, 'authenticateForDataUpdate']);
     Route::post('/afiliados/verify-otp', [AfiliadoController::class, 'verifyOtp']);
 });
 
 // Kit Bienestar authentication routes - Rate limiting aplicado
-Route::middleware('throttle:public-endpoints')->group(function () {
+Route::middleware(['throttle:public-endpoints', 'throttle:identity'])->group(function () {
     Route::post('/kit-bienestar/authenticate', [KitBienestarController::class, 'authenticate']);
     Route::get('/kit-bienestar/current-type', [KitBienestarController::class, 'currentType']);
     // auth.token.optional: si el panel envía la cookie de sesión, se detecta el usuario y en modo abierto se crea como "entregado" con entregado_por
@@ -165,10 +168,9 @@ Route::post('/afiliados/request-otp', [AfiliadoController::class, 'requestOtp'])
     ->middleware(['dual-rate-limit:otp', 'recaptcha:request_otp']);
 
 // Public route for creating requests (used by affiliates from public site) - Rate limiting: 20 requests per minute
-Route::post('/requests', [RequestController::class, 'store'])->middleware('throttle:public-endpoints');
+Route::post('/requests', [RequestController::class, 'store'])->middleware(['throttle:public-endpoints', 'throttle:identity']);
 
 // Public route for getting survey configuration (to check if bulk entry mode is enabled)
-Route::get('/survey-config/public', [SurveyConfigController::class, 'show']);
 
 // Public route for creating socio-demographic surveys (used by affiliates from public site) - Rate limiting: 20 requests per minute
 Route::post('/socio-demographic-surveys', [SocioDemographicSurveyController::class, 'store'])->middleware('throttle:public-endpoints');
@@ -187,7 +189,7 @@ Route::prefix('certificados')->group(function () {
     });
 
     // Endpoints menos críticos con rate limiting moderado (20 por minuto)
-    Route::middleware('throttle:public-endpoints')->group(function () {
+    Route::middleware(['throttle:public-endpoints', 'throttle:identity'])->group(function () {
         Route::post('/convenio/consultar', [CertificadoConvenioController::class, 'consultar']);
         Route::get('/convenio/estadisticas', [CertificadoConvenioController::class, 'estadisticas']);
     });
@@ -306,21 +308,17 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('convenios-manual')
 // Assembly Voting System Routes
 Route::prefix('assembly')->group(function () {
     // Public routes - Questions (read-only for voters)
-    Route::get('/questions', [AssemblyQuestionController::class, 'index']);
-    Route::get('/questions/{id}', [AssemblyQuestionController::class, 'show']);
+    Route::middleware('throttle:public-reads')->group(function () {
+        Route::get('/questions', [AssemblyQuestionController::class, 'index']);
+        Route::get('/questions/{id}', [AssemblyQuestionController::class, 'show']);
+        Route::get('/questions/{questionId}/votes/me', [AssemblyVoteController::class, 'getMyVote']);
+        Route::get('/questions/{questionId}/results', [AssemblyVoteController::class, 'getResults']);
+        Route::get('/quorum', [QuorumController::class, 'index']);
+        Route::get('/current', [AssemblyController::class, 'current']);
+    });
 
     // Public routes - Votes (protected by assembly voting enabled gate)
     Route::post('/questions/{questionId}/votes', [AssemblyVoteController::class, 'store'])->middleware(['assembly.voting.enabled', 'throttle:voting']);
-    Route::get('/questions/{questionId}/votes/me', [AssemblyVoteController::class, 'getMyVote']);
-
-    // Public routes - Results
-    Route::get('/questions/{questionId}/results', [AssemblyVoteController::class, 'getResults']);
-
-    // Public routes - Quorum
-    Route::get('/quorum', [QuorumController::class, 'index']);
-
-    // Public routes - Current Assembly
-    Route::get('/current', [AssemblyController::class, 'current']);
 
     Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
         // Admin routes - Assembly management

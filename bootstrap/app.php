@@ -88,6 +88,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
+            if ($e instanceof \Illuminate\Http\Exceptions\HttpResponseException) {
+                return $e->getResponse();
+            }
+
             if ($e instanceof ValidationException) {
                 return response()->json([
                     'message' => 'Los datos proporcionados no son v?lidos.',
