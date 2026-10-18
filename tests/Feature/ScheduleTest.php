@@ -25,6 +25,18 @@ class ScheduleTest extends TestCase
         }
     }
 
+    public function test_wellness_reminders_run_daily_at_eight_bogota_time(): void
+    {
+        $event = collect(app(Schedule::class)->events())
+            ->first(fn ($e) => str_contains($e->command, 'wellness:send-activity-reminders'));
+
+        $this->assertNotNull($event);
+        $this->assertSame('0 8 * * *', $event->expression);
+        $this->assertSame('America/Bogota', (string) $event->timezone);
+        $this->assertTrue($event->withoutOverlapping);
+        $this->assertTrue($event->onOneServer);
+    }
+
     public function test_only_tokens_expired_for_over_a_week_are_pruned(): void
     {
         $user = User::factory()->create();
