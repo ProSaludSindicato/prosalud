@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\SearchCandidateVotingRequest;
 use App\Models\Assembly;
+use App\Models\VotingSetting;
 use App\Services\AfiliadoService;
 use App\Services\AssemblyAttendanceService;
 use App\Services\ExcelReaderService;
+use App\Services\VoterSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +19,7 @@ class ActivosController extends Controller
         private ExcelReaderService $excelReaderService,
         private AssemblyAttendanceService $attendanceService,
         private AfiliadoService $afiliadoService,
+        private VoterSessionService $voterSessionService,
     ) {}
 
     /**
@@ -184,6 +187,17 @@ class ActivosController extends Controller
                 'data' => $afiliadoData,
                 'found' => $afiliadoData !== null,
             ];
+
+            $electionKey = trim((string) VotingSetting::current()->active_candidate_election_key);
+
+            if ($afiliadoData !== null && $electionKey !== '') {
+                $response['voter_token'] = $this->voterSessionService->issue(
+                    $tipoDocumento,
+                    $documento,
+                    $afiliadoData['hospital'],
+                    $this->voterSessionService->candidateScope($electionKey)
+                );
+            }
 
             Log::info('Resultado de búsqueda de afiliado (candidatos)', [
                 'documento' => $documento,

@@ -6,19 +6,19 @@ use App\Http\Requests\StoreVoteRequest;
 use App\Models\Vote;
 use App\Models\VotingSetting;
 use App\Services\ExcelReaderService;
+use App\Services\VoterSessionService;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class VoteController extends Controller
 {
-    private ExcelReaderService $excelReaderService;
-
-    public function __construct(ExcelReaderService $excelReaderService)
-    {
-        $this->excelReaderService = $excelReaderService;
-    }
+    public function __construct(
+        private ExcelReaderService $excelReaderService,
+        private VoterSessionService $voterSessionService,
+    ) {}
 
     /**
      * Store a new vote.
@@ -42,6 +42,35 @@ class VoteController extends Controller
                     'error_code' => 'CANDIDATE_ELECTION_PERIOD_INACTIVE',
                 ], 422);
             }
+
+            $session = $this->voterSessionService->verify(
+                $request->header(VoterSessionService::HEADER),
+                $this->voterSessionService->candidateScope($activeElectionKey)
+            );
+
+            if ($session === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Su sesión de votación no es válida o expiró. Valide nuevamente su documento.',
+                    'error_code' => 'VOTER_SESSION_INVALID',
+                ], 401);
+            }
+
+            if ($session['document_type'] !== $voter['documentType']
+                || $session['document_number'] !== $voter['documentNumber']) {
+                Log::warning('Intento de voto con documento distinto al de la sesión validada', [
+                    'ip_address' => $request->ip(),
+                    'candidate_election_key' => $activeElectionKey,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El documento no corresponde a la sesión de votación.',
+                    'error_code' => 'VOTER_SESSION_MISMATCH',
+                ], 403);
+            }
+
+            $voter['hospital'] = $session['hospital'];
 
             if (Vote::query()
                 ->where('voter_document_type', $voter['documentType'])
@@ -103,21 +132,28 @@ class VoteController extends Controller
             $candidatePosition = trim((string) ($delegado['proceso'] ?? ''));
             $candidateHospital = trim((string) ($delegado['sede'] ?? ''));
 
-            // Create the vote
-            $vote = Vote::create([
-                'voter_document_type' => $voter['documentType'],
-                'voter_document_number' => $voter['documentNumber'],
-                'voter_hospital' => $voter['hospital'],
-                'voter_position' => $voter['position'],
-                'candidate_election_key' => $activeElectionKey,
-                'candidate_id' => (string) ($delegado['cedula'] ?? $candidate['id']),
-                'candidate_name' => $candidateName !== '' ? $candidateName : $candidate['name'],
-                'candidate_position' => $candidatePosition !== '' ? $candidatePosition : $candidate['position'],
-                'candidate_hospital' => $candidateHospital !== '' ? $candidateHospital : $candidate['hospital'],
-                'vote_timestamp' => $timestamp,
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-            ]);
+            try {
+                $vote = Vote::create([
+                    'voter_document_type' => $voter['documentType'],
+                    'voter_document_number' => $voter['documentNumber'],
+                    'voter_hospital' => $voter['hospital'],
+                    'voter_position' => $voter['position'],
+                    'candidate_election_key' => $activeElectionKey,
+                    'candidate_id' => (string) ($delegado['cedula'] ?? $candidate['id']),
+                    'candidate_name' => $candidateName !== '' ? $candidateName : $candidate['name'],
+                    'candidate_position' => $candidatePosition !== '' ? $candidatePosition : $candidate['position'],
+                    'candidate_hospital' => $candidateHospital !== '' ? $candidateHospital : $candidate['hospital'],
+                    'vote_timestamp' => $timestamp,
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ya registró su voto en esta elección.',
+                    'error_code' => 'ALREADY_VOTED',
+                ], 409);
+            }
 
             // Log successful vote
             Log::info('Voto registrado exitosamente', [
@@ -147,7 +183,6 @@ class VoteController extends Controller
             Log::error('Error al registrar voto', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'request_data' => $request->all(),
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
             ]);
@@ -855,7 +890,6 @@ class VoteController extends Controller
             Log::error('Error al cambiar candidato del voto', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'request_data' => $request->all(),
                 'ip_address' => $request->ip(),
                 'timestamp' => now()->toISOString(),
             ]);
