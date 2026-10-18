@@ -59,6 +59,7 @@ class RequestIndexPaginationTest extends TestCase
         RequestForm::factory()->count(12)->create([
             'request_type' => RequestTypes::CERTIFICADO_CONVENIO,
             'status' => RequestStatuses::PENDING,
+            'created_at' => now()->startOfSecond(),
         ]);
 
         $pageOne = $this->authenticatedGet('/api/requests?page=1&per_page=5', $this->admin);

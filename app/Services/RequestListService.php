@@ -309,11 +309,11 @@ class RequestListService
 
         if ($sortBy === 'name') {
             $query->orderBy('name', $sortOrder)->orderBy('last_name', $sortOrder);
-
-            return;
+        } else {
+            $query->orderBy('created_at', $sortOrder);
         }
 
-        $query->orderBy('created_at', $sortOrder);
+        $query->orderBy('id', $sortOrder);
     }
 
     private function applySubtypeMatch(Builder $query, string $subtype): void
