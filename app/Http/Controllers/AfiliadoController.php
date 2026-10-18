@@ -2,19 +2,28 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\{AfiliadoRequestOtpRequest, AfiliadoVerifyOtpRequest};
+use App\Http\Requests\AfiliadoRequestOtpRequest;
+use App\Http\Requests\AfiliadoVerifyOtpRequest;
 use App\Mail\AfiliadoOtpCode;
-use App\Services\{AfiliadoService, LogSanitizationService, ObfuscationService, OtpService};
-use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\{Log, Mail};
+use App\Services\AfiliadoService;
+use App\Services\LogSanitizationService;
+use App\Services\ObfuscationService;
+use App\Services\OtpService;
+use App\Services\VoterSessionService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class AfiliadoController extends Controller
 {
     private AfiliadoService $afiliadoService;
+
     public function __construct(
         AfiliadoService $afiliadoService,
         OtpService $otpService,
         ObfuscationService $obfuscationService,
+        private VoterSessionService $voterSessionService,
     ) {
         $this->afiliadoService = $afiliadoService;
         $this->otpService = $otpService;
@@ -28,7 +37,7 @@ class AfiliadoController extends Controller
     {
         // Increase execution time limit for Excel processing
         set_time_limit(120);
-        
+
         try {
             // Validate input
             $request->validate([
@@ -52,7 +61,7 @@ class AfiliadoController extends Controller
             ]));
 
             // Check if the file is available
-            if (!$this->afiliadoService->isFileAvailable()) {
+            if (! $this->afiliadoService->isFileAvailable()) {
                 Log::error('Archivo de afiliados no disponible');
 
                 return response()->json([
@@ -163,7 +172,7 @@ class AfiliadoController extends Controller
             ]));
 
             // Check rate limiting
-            if (!$this->otpService->checkRateLimit($documento)) {
+            if (! $this->otpService->checkRateLimit($documento)) {
                 Log::warning('Rate limit excedido para solicitud OTP', LogSanitizationService::sanitize([
                     'documento' => $documento,
                     'ip_address' => $request->ip(),
@@ -176,7 +185,7 @@ class AfiliadoController extends Controller
             }
 
             // Check if the file is available
-            if (!$this->afiliadoService->isFileAvailable()) {
+            if (! $this->afiliadoService->isFileAvailable()) {
                 Log::error('Archivo de afiliados no disponible para solicitud OTP');
 
                 return response()->json([
@@ -192,7 +201,7 @@ class AfiliadoController extends Controller
                 $fechaExpedicion
             );
 
-            if (null === $afiliadoData) {
+            if ($afiliadoData === null) {
                 Log::warning('Solicitud OTP fallida - credenciales inválidas o sin correo', LogSanitizationService::sanitize([
                     'tipo_documento' => $tipoDocumento,
                     'documento' => $documento,
@@ -276,7 +285,7 @@ class AfiliadoController extends Controller
     {
         // Increase execution time limit for Excel processing
         set_time_limit(120);
-        
+
         try {
             $tipoDocumento = trim($request->input('tipo_documento'));
             $documento = trim($request->input('documento'));
@@ -296,7 +305,7 @@ class AfiliadoController extends Controller
             // Verify OTP
             $isValid = $this->otpService->verifyOtp($documento, $sessionId, $otp);
 
-            if (!$isValid) {
+            if (! $isValid) {
                 Log::warning('Verificación OTP fallida', LogSanitizationService::sanitize([
                     'documento' => $documento,
                     'session_id' => $sessionId,
@@ -311,7 +320,7 @@ class AfiliadoController extends Controller
             }
 
             // Check if the file is available
-            if (!$this->afiliadoService->isFileAvailable()) {
+            if (! $this->afiliadoService->isFileAvailable()) {
                 Log::error('Archivo de afiliados no disponible para verificación OTP');
 
                 return response()->json([
@@ -327,7 +336,7 @@ class AfiliadoController extends Controller
                 $fechaExpedicion
             );
 
-            if (null === $afiliadoInfo) {
+            if ($afiliadoInfo === null) {
                 Log::error('Error al obtener información completa del afiliado después de verificación OTP', LogSanitizationService::sanitize([
                     'documento' => $documento,
                     'session_id' => $sessionId,
@@ -372,6 +381,13 @@ class AfiliadoController extends Controller
                 'success' => true,
                 'message' => 'Autenticación exitosa',
                 'data' => $afiliadoInfo,
+                'affiliate_token' => $this->voterSessionService->issue(
+                    $tipoDocumento,
+                    $documento,
+                    '',
+                    $this->voterSessionService->affiliateDataUpdateScope(),
+                    ttlMinutes: 120
+                ),
             ]);
         } catch (\Exception $e) {
             Log::error('Error inesperado en verificación de OTP', LogSanitizationService::sanitize([
@@ -400,7 +416,7 @@ class AfiliadoController extends Controller
     {
         // Increase execution time limit for Excel processing
         set_time_limit(120);
-        
+
         try {
             // Validate input
             $request->validate([
@@ -424,7 +440,7 @@ class AfiliadoController extends Controller
             ]));
 
             // Check if the file is available
-            if (!$this->afiliadoService->isFileAvailable()) {
+            if (! $this->afiliadoService->isFileAvailable()) {
                 Log::error('Archivo de afiliados no disponible para autenticación de actualización de datos');
 
                 return response()->json([
@@ -471,8 +487,9 @@ class AfiliadoController extends Controller
                 $fechaExpedicion
             );
 
-            if (null === $afiliadoInfo) {
+            if ($afiliadoInfo === null) {
                 Log::error('Afiliado autenticado pero getCompleteAfiliadoInfo retornó null');
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Error al obtener información del afiliado',
@@ -548,7 +565,7 @@ class AfiliadoController extends Controller
      */
     private function obfuscateEmail(string $email): string
     {
-        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if (empty($email) || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return '***@***.***';
         }
 
@@ -561,14 +578,14 @@ class AfiliadoController extends Controller
         // If very short (1-2 characters), show only asterisks
         if ($length <= 2) {
             $obfuscatedLocal = '***';
-        } elseif (3 === $length) {
+        } elseif ($length === 3) {
             // For 3 chars: show first and last
-            $obfuscatedLocal = substr($localPartClean, 0, 1) . '***' . substr($localPartClean, -1);
+            $obfuscatedLocal = substr($localPartClean, 0, 1).'***'.substr($localPartClean, -1);
         } else {
             // For 4+ chars: show first and last character only
-            $obfuscatedLocal = substr($localPartClean, 0, 1) . '***' . substr($localPartClean, -1);
+            $obfuscatedLocal = substr($localPartClean, 0, 1).'***'.substr($localPartClean, -1);
         }
 
-        return $obfuscatedLocal . '@' . $domain;
+        return $obfuscatedLocal.'@'.$domain;
     }
 }

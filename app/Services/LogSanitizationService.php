@@ -7,7 +7,7 @@ class LogSanitizationService
     /**
      * Sanitize an array of log data by ofuscating sensitive information.
      *
-     * @param array $data The log data to sanitize
+     * @param  array  $data  The log data to sanitize
      * @return array The sanitized log data
      */
     public static function sanitize(array $data): array
@@ -15,7 +15,7 @@ class LogSanitizationService
         $sanitized = [];
 
         foreach ($data as $key => $value) {
-            $lowerKey = strtolower($key);
+            $lowerKey = strtolower((string) $key);
 
             // Skip sensitive keys entirely or sanitize them
             if (self::isSensitiveKey($lowerKey)) {
@@ -34,13 +34,14 @@ class LogSanitizationService
     /**
      * Check if a key represents sensitive information.
      *
-     * @param string $key The key to check (should be lowercase)
-     * @return bool
+     * @param  string  $key  The key to check (should be lowercase)
      */
     private static function isSensitiveKey(string $key): bool
     {
         $sensitivePatterns = [
             'documento',
+            'document_number',
+            'id_number',
             'fecha_expedicion',
             'fecha_expedición',
             'correo',
@@ -55,6 +56,12 @@ class LogSanitizationService
             'header',
             'headers',
             'otp',
+            'cuenta',
+            'telefono',
+            'celular',
+            'phone',
+            'direccion',
+            'signature',
             'session_id',
             'sessionid',
         ];
@@ -71,9 +78,8 @@ class LogSanitizationService
     /**
      * Sanitize a sensitive value based on its key.
      *
-     * @param string $key The key name
-     * @param mixed $value The value to sanitize
-     * @return string|array|null
+     * @param  string  $key  The key name
+     * @param  mixed  $value  The value to sanitize
      */
     private static function sanitizeValue(string $key, $value): string|array|null
     {
@@ -82,6 +88,15 @@ class LogSanitizationService
         }
 
         $lowerKey = strtolower($key);
+
+        if (is_array($value) && str_contains($lowerKey, 'header')) {
+            return self::sanitizeHeaders($value);
+        }
+
+        if (is_array($value) || (is_object($value) && ! $value instanceof \Stringable)) {
+            return '[REDACTED: '.gettype($value).']';
+        }
+
         $stringValue = (string) $value;
 
         // Documento: Show only last 4 digits + hash
@@ -91,6 +106,7 @@ class LogSanitizationService
             }
             $last4 = substr($stringValue, -4);
             $hash = substr(hash('sha256', $stringValue), 0, 8);
+
             return "****{$last4} ({$hash})";
         }
 
@@ -100,6 +116,7 @@ class LogSanitizationService
             if (preg_match('/(\d{4})/', $stringValue, $matches)) {
                 return "****-{$matches[1]}";
             }
+
             return '****';
         }
 
@@ -114,6 +131,7 @@ class LogSanitizationService
             str_contains($lowerKey, 'authorization')) {
             $length = strlen($stringValue);
             $hash = substr(hash('sha256', $stringValue), 0, 8);
+
             return "[REDACTED: length={$length}, hash={$hash}]";
         }
 
@@ -121,6 +139,7 @@ class LogSanitizationService
         if (str_contains($lowerKey, 'api_key') || str_contains($lowerKey, 'apikey')) {
             $length = strlen($stringValue);
             $hash = substr(hash('sha256', $stringValue), 0, 8);
+
             return "[REDACTED: length={$length}, hash={$hash}]";
         }
 
@@ -132,6 +151,7 @@ class LogSanitizationService
         // Session ID: Show only hash
         if (str_contains($lowerKey, 'session')) {
             $hash = substr(hash('sha256', $stringValue), 0, 12);
+
             return "[REDACTED: session_hash={$hash}]";
         }
 
@@ -147,18 +167,16 @@ class LogSanitizationService
 
         // Default: Show only hash for unknown sensitive values
         $hash = substr(hash('sha256', $stringValue), 0, 8);
+
         return "[REDACTED: hash={$hash}]";
     }
 
     /**
      * Obfuscate an email address.
-     *
-     * @param string $email
-     * @return string
      */
     private static function obfuscateEmail(string $email): string
     {
-        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if (empty($email) || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return '[REDACTED: invalid_email]';
         }
 
@@ -171,17 +189,14 @@ class LogSanitizationService
         } else {
             $first = substr($localPart, 0, 1);
             $last = substr($localPart, -1);
-            $obfuscatedLocal = $first . '***' . $last;
+            $obfuscatedLocal = $first.'***'.$last;
         }
 
-        return $obfuscatedLocal . '@' . $domain;
+        return $obfuscatedLocal.'@'.$domain;
     }
 
     /**
      * Sanitize HTTP headers by removing sensitive ones.
-     *
-     * @param array $headers
-     * @return array
      */
     private static function sanitizeHeaders(array $headers): array
     {
@@ -218,4 +233,3 @@ class LogSanitizationService
         return $sanitized;
     }
 }
-

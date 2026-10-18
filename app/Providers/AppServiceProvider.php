@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Logging\SanitizeLogContext;
 use App\Services\RateLimitIdentity;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Middleware\TrustProxies;
@@ -36,6 +37,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        foreach (array_keys((array) config('logging.channels')) as $channel) {
+            $taps = (array) config("logging.channels.{$channel}.tap", []);
+
+            if (! in_array(SanitizeLogContext::class, $taps, true)) {
+                config(["logging.channels.{$channel}.tap" => [...$taps, SanitizeLogContext::class]]);
+            }
+        }
+
         $trustedProxies = config('app.trusted_proxies');
 
         if (filled($trustedProxies)) {

@@ -14,7 +14,7 @@ class VoterSessionService
     /**
      * Issue an encrypted, short-lived token that binds a validated voter to a scope.
      */
-    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope, string $name = ''): string
+    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope, string $name = '', int $ttlMinutes = self::TTL_MINUTES): string
     {
         return Crypt::encryptString(json_encode([
             'document_type' => $documentType,
@@ -22,7 +22,7 @@ class VoterSessionService
             'hospital' => $hospital,
             'name' => $name,
             'scope' => $scope,
-            'expires_at' => now()->addMinutes(self::TTL_MINUTES)->getTimestamp(),
+            'expires_at' => now()->addMinutes($ttlMinutes)->getTimestamp(),
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -65,6 +65,11 @@ class VoterSessionService
     public function candidateScope(string $electionKey): string
     {
         return 'candidate:'.$electionKey;
+    }
+
+    public function affiliateDataUpdateScope(): string
+    {
+        return 'affiliate-data-update';
     }
 
     public function assemblyScope(int|string $assemblyId): string

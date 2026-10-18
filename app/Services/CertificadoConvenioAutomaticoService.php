@@ -684,7 +684,7 @@ class CertificadoConvenioAutomaticoService
         // NO sanitizar contenido binario (PDF) - se codificará en base64
         $finalEmailSubject = mb_convert_encoding($finalEmailSubject, 'UTF-8', 'UTF-8');
         $finalEmailBody = mb_convert_encoding($finalEmailBody, 'UTF-8', 'UTF-8');
-        $recipientEmail = mb_convert_encoding($requestForm->email, 'UTF-8', 'UTF-8');
+        $recipientEmail = mb_convert_encoding($this->resolveRecipientEmail($requestForm), 'UTF-8', 'UTF-8');
         $nombreArchivoAdjunto = $this->generarNombreArchivoAdjunto($requestForm->document_number, $consecutivo);
 
         // Si el estado es IN_REVIEW, es un estado interno - no enviar correo ni crear RequestResponse
@@ -848,6 +848,38 @@ class CertificadoConvenioAutomaticoService
                 @unlink($archivoTemporal->getRealPath());
             }
         }
+    }
+
+    /**
+     * Destination for the certificate: the personal email registered in ProSaNet for the document.
+     * The email typed in the public form is only used when no registered email exists, so a third party
+     * cannot redirect an affiliate's certificate to an address of their choosing.
+     */
+    public function resolveRecipientEmail(RequestForm $requestForm): string
+    {
+        $registered = null;
+
+        try {
+            $datos = $this->certificadoService->obtenerDatosAfiliado((string) $requestForm->document_number);
+            $candidate = trim((string) ($datos['afiliado']['correo_personal'] ?? ''));
+
+            if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL) !== false) {
+                $registered = $candidate;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo resolver el correo registrado del afiliado; se usa el del formulario', [
+                'request_id' => $requestForm->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        if ($registered !== null && strcasecmp($registered, (string) $requestForm->email) !== 0) {
+            Log::info('Certificado enviado al correo registrado y no al del formulario', [
+                'request_id' => $requestForm->id,
+            ]);
+        }
+
+        return $registered ?? (string) $requestForm->email;
     }
 
     /**

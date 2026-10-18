@@ -33,6 +33,7 @@ use App\Services\RequestAssignmentService;
 use App\Services\RequestExcelExportService;
 use App\Services\RequestFileNamingService;
 use App\Services\RequestListService;
+use App\Services\VoterSessionService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -60,6 +61,7 @@ class RequestController extends Controller
         private BulkRequestResponseService $bulkResponseService,
         private RequestListService $requestListService,
         private RequestFileNamingService $requestFileNamingService,
+        private VoterSessionService $voterSessionService,
     ) {}
 
     public function store(StoreRequestFormRequest $request): JsonResponse
@@ -74,6 +76,35 @@ class RequestController extends Controller
             'ip' => $request->ip(),
             'has_recaptcha_token' => $request->has('recaptcha_token'),
         ]);
+
+        if ($request->input('request_type') === RequestTypes::ACTUALIZAR_DATOS_PERSONALES) {
+            $session = $this->voterSessionService->verify(
+                $request->header(VoterSessionService::HEADER),
+                $this->voterSessionService->affiliateDataUpdateScope()
+            );
+
+            if ($session === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Su sesión expiró. Valide nuevamente su documento para actualizar sus datos.',
+                    'error_code' => 'AFFILIATE_SESSION_INVALID',
+                ], 401);
+            }
+
+            $normalize = fn (mixed $value): string => preg_replace('/[^0-9a-z]/', '', strtolower((string) $value)) ?? '';
+
+            if ($normalize($session['document_number']) !== $normalize($request->input('id_number'))) {
+                Log::warning('Solicitud de actualización de datos con documento distinto al de la sesión validada', [
+                    'ip' => $request->ip(),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El documento no corresponde a la sesión validada.',
+                    'error_code' => 'AFFILIATE_SESSION_MISMATCH',
+                ], 403);
+            }
+        }
 
         $dto = RequestFormDTO::fromArray($request->validated());
         $requestData = $dto->toArray();
