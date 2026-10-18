@@ -47,6 +47,4 @@ jobs:
           files=$(git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD -- '*.php')
           if [ -n "$files" ]; then echo "$files" | xargs vendor/bin/pint --test; fi
       - run: php artisan test --compact
-      # Informativo: hoy reporta psy/psysh (vía laravel/tinker, severidad media). Quitar continue-on-error al actualizarlo.
-      - run: composer audit --no-dev
-        continue-on-error: true
+      - run: composer audit
