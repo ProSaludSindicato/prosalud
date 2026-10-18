@@ -66,6 +66,7 @@ Route::prefix('auth')->group(function () {
     Route::middleware('auth.token')->group(function () {
         Route::post('/logout', [ApiAuthController::class, 'logout']);
         Route::get('/me', [ApiAuthController::class, 'me']);
+        Route::post('/change-password', [ApiAuthController::class, 'changePassword'])->middleware('throttle:5,1');
     });
 });
 

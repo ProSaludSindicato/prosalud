@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ChangePasswordRequest;
 use App\Http\Resources\Auth\UserAuthResource;
 use App\Models\ApiToken;
 use App\Models\User;
@@ -11,6 +12,7 @@ use App\Services\UserInvitationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -276,6 +278,32 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Tu contraseña ha sido restablecida exitosamente. Ya puedes iniciar sesión.',
+        ]);
+    }
+
+    /**
+     * Change the authenticated user's password. Every other session of the user is revoked.
+     */
+    public function changePassword(ChangePasswordRequest $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        if (! Hash::check($request->input('current_password'), $user->password)) {
+            return response()->json([
+                'message' => 'La contraseña actual no es correcta.',
+                'errors' => ['current_password' => ['La contraseña actual no es correcta.']],
+            ], 422);
+        }
+
+        $user->password = $request->input('password');
+        $user->save();
+
+        $currentToken = hash('sha256', (string) $request->cookie('prosalud_auth_token'));
+        $user->apiTokens()->where('token', '!=', $currentToken)->delete();
+
+        return response()->json([
+            'message' => 'Tu contraseña ha sido actualizada.',
         ]);
     }
 }

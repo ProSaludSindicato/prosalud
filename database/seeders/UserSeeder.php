@@ -13,6 +13,12 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
+        if (app()->isProduction()) {
+            $this->command->warn('UserSeeder omitido en producción: cree el administrador con una contraseña propia.');
+
+            return;
+        }
+
         $admin = User::firstOrCreate(
             ['email' => 'admin@prosalud.com'],
             [
