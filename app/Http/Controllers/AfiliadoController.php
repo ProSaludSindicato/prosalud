@@ -17,18 +17,12 @@ use Illuminate\Support\Facades\Mail;
 
 class AfiliadoController extends Controller
 {
-    private AfiliadoService $afiliadoService;
-
     public function __construct(
-        AfiliadoService $afiliadoService,
-        OtpService $otpService,
-        ObfuscationService $obfuscationService,
+        private AfiliadoService $afiliadoService,
+        private OtpService $otpService,
+        private ObfuscationService $obfuscationService,
         private VoterSessionService $voterSessionService,
-    ) {
-        $this->afiliadoService = $afiliadoService;
-        $this->otpService = $otpService;
-        $this->obfuscationService = $obfuscationService;
-    }
+    ) {}
 
     /**
      * Authenticate and get affiliate information.
@@ -528,6 +522,13 @@ class AfiliadoController extends Controller
                 'success' => true,
                 'message' => 'Autenticación exitosa',
                 'data' => $afiliadoInfo,
+                'affiliate_token' => $this->voterSessionService->issue(
+                    $tipoDocumento,
+                    $documento,
+                    '',
+                    $this->voterSessionService->affiliateDataUpdateScope(),
+                    ttlMinutes: 120
+                ),
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::warning('Validación fallida en autenticación de afiliado para actualización de datos', LogSanitizationService::sanitize([
