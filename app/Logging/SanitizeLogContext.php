@@ -4,6 +4,7 @@ namespace App\Logging;
 
 use App\Services\LogSanitizationService;
 use Illuminate\Log\Logger;
+use Monolog\Handler\ProcessableHandlerInterface;
 use Monolog\LogRecord;
 
 class SanitizeLogContext
@@ -14,7 +15,9 @@ class SanitizeLogContext
     public function __invoke(Logger $logger): void
     {
         foreach ($logger->getLogger()->getHandlers() as $handler) {
-            $handler->pushProcessor($this->process(...));
+            if ($handler instanceof ProcessableHandlerInterface) {
+                $handler->pushProcessor($this->process(...));
+            }
         }
     }
 

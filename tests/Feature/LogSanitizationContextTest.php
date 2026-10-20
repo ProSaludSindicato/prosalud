@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Logging\SanitizeLogContext;
+use Illuminate\Log\Logger as LaravelLogger;
 use Illuminate\Support\Facades\Log;
+use Monolog\Handler\NullHandler;
+use Monolog\Logger;
 use Tests\TestCase;
 
 class LogSanitizationContextTest extends TestCase
@@ -62,6 +65,15 @@ class LogSanitizationContextTest extends TestCase
         Log::channel('sanitize_test')->warning('probe-array', ['documento' => ['1', '2'], 'otp' => new \stdClass]);
 
         $this->assertStringContainsString('probe-array', $this->contents());
+    }
+
+    public function test_tap_skips_handlers_that_cannot_hold_processors(): void
+    {
+        $monolog = new Logger('probe', [new NullHandler]);
+
+        (new SanitizeLogContext)(new LaravelLogger($monolog));
+
+        $this->assertCount(1, $monolog->getHandlers());
     }
 
     public function test_every_configured_channel_gets_the_sanitizing_tap(): void
