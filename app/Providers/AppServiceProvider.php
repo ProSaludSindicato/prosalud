@@ -57,7 +57,7 @@ class AppServiceProvider extends ServiceProvider
             'error' => 'rate_limit_exceeded',
         ], 429, $headers);
 
-        RateLimiter::for('public-reads', fn (Request $request) => Limit::perMinute(600)
+        RateLimiter::for('public-reads', fn (Request $request) => Limit::perMinute(max(1, (int) config('app.public_reads_per_minute')))
             ->by('public-reads:'.$request->ip())
             ->response($tooManyRequests));
 

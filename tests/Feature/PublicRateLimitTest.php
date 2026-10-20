@@ -10,6 +10,7 @@ use App\Services\RateLimitIdentity;
 use App\Services\VoterSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
 class PublicRateLimitTest extends TestCase
@@ -117,5 +118,27 @@ class PublicRateLimitTest extends TestCase
         $this->getJson('/api/votes/check?document_type=CC&document_number=1111111111', $headers('2222222222'))
             ->assertOk()
             ->assertJsonPath('has_voted', false);
+    }
+
+    public function test_public_reads_default_limit_covers_an_assembly_sharing_one_ip(): void
+    {
+        $limit = RateLimiter::limiter('public-reads')(Request::create('/api/assembly/current'));
+
+        $this->assertGreaterThanOrEqual(15000, $limit->maxAttempts);
+    }
+
+    public function test_public_reads_limit_is_configurable_and_enforced_per_ip(): void
+    {
+        config(['app.public_reads_per_minute' => 3]);
+
+        foreach (range(1, 3) as $attempt) {
+            $this->getJson('/api/voting/mode')->assertOk();
+        }
+
+        $this->getJson('/api/voting/mode')
+            ->assertStatus(429)
+            ->assertJsonPath('error', 'rate_limit_exceeded');
+
+        $this->getJson('/api/voting/mode', ['REMOTE_ADDR' => '10.0.0.2'])->assertOk();
     }
 }

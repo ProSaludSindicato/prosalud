@@ -74,6 +74,14 @@ return [
     'trusted_proxies' => env('TRUSTED_PROXIES'),
 
     /*
+    | Lecturas públicas por minuto y por IP (asamblea, modo de votación). En la asamblea presencial
+    | muchos delegados comparten la IP del Wi-Fi y, sin Reverb, cada uno consulta cada 5 s
+    | (~150/min con 10 preguntas): el valor por defecto cubre ~100 delegados por IP.
+    */
+
+    'public_reads_per_minute' => (int) env('PUBLIC_READS_PER_MINUTE', 15000),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
