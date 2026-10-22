@@ -383,7 +383,7 @@ class ExcelReaderService
         return $this->withStoredExcel(self::DELEGADOS_FILE_PATH, function (string $localPath, string $disk) {
             try {
                 $spreadsheet = IOFactory::load($localPath);
-                $worksheet = $spreadsheet->getActiveSheet();
+                $worksheet = $spreadsheet->getSheet(0);
                 $data = $worksheet->toArray();
 
                 Log::info('Archivo de delegados leído exitosamente', [
