@@ -50,4 +50,34 @@ class DelegadosBySedeJsonTest extends TestCase
         $this->assertCount(2, $delegados);
         $this->assertCount(2, array_values($delegados));
     }
+
+    public function test_by_sede_reads_first_sheet_even_when_another_sheet_is_active(): void
+    {
+        Storage::fake('prosalud-private');
+        VotingSetting::current()->update(['active_mode' => 'candidate']);
+
+        $spreadsheet = new Spreadsheet;
+        $spreadsheet->getActiveSheet()->fromArray([
+            ['NOMBRE Y APELLIDOS', 'CEDULA', 'SEDE', 'PROCESO'],
+            ['A Uno', '1111111111', 'Bello', 'P1'],
+        ], null, 'A1');
+        $notes = $spreadsheet->createSheet();
+        $notes->fromArray([
+            ['NOMBRE Y APELLIDOS', 'CEDULA', 'SEDE', 'PROCESO'],
+            ['Otro Nombre', '9999999999', 'Bello', 'P1'],
+        ], null, 'A1');
+        $spreadsheet->setActiveSheetIndex(1);
+
+        $path = storage_path('framework/testing/delegados-by-sede-'.Str::uuid().'.xlsx');
+        (new Xlsx($spreadsheet))->save($path);
+        $content = (string) file_get_contents($path);
+        @unlink($path);
+        Storage::disk('prosalud-private')->put('data/DELEGADOS.xlsx', $content);
+
+        $response = $this->getJson('/api/delegados/by-sede?sede=Bello');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'delegados');
+        $response->assertJsonPath('delegados.0.cedula', '1111111111');
+    }
 }
