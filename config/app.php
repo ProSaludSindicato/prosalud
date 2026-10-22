@@ -82,6 +82,13 @@ return [
     'public_reads_per_minute' => (int) env('PUBLIC_READS_PER_MINUTE', 15000),
 
     /*
+    | Duración en minutos del token de sesión de votante (votación de delegados y asamblea).
+    | Debe cubrir una jornada completa de asamblea para que nadie tenga que volver a autenticarse.
+    */
+
+    'voter_session_ttl_minutes' => (int) env('VOTER_SESSION_TTL_MINUTES', 360),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------

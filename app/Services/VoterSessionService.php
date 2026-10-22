@@ -9,13 +9,13 @@ class VoterSessionService
 {
     public const HEADER = 'X-Voter-Token';
 
-    private const TTL_MINUTES = 120;
-
     /**
      * Issue an encrypted, short-lived token that binds a validated voter to a scope.
      */
-    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope, string $name = '', int $ttlMinutes = self::TTL_MINUTES): string
+    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope, string $name = '', ?int $ttlMinutes = null): string
     {
+        $ttlMinutes ??= max(1, (int) config('app.voter_session_ttl_minutes'));
+
         return Crypt::encryptString(json_encode([
             'document_type' => $documentType,
             'document_number' => $documentNumber,

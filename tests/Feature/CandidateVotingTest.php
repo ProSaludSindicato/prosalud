@@ -257,11 +257,32 @@ class CandidateVotingTest extends TestCase
     {
         $headers = $this->voterHeaders();
 
-        $this->travel(121)->minutes();
+        $this->travel(361)->minutes();
 
         $this->postJson('/api/votes', $this->votePayload(), $headers)
             ->assertStatus(401)
             ->assertJsonPath('error_code', 'VOTER_SESSION_INVALID');
+    }
+
+    public function test_voter_token_remains_valid_after_five_hours(): void
+    {
+        $service = app(VoterSessionService::class);
+        $scope = $service->candidateScope('delegados-2026-1');
+        $token = $service->issue('CC', '1111111111', 'Bello', $scope);
+
+        $this->travel(5)->hours();
+
+        $this->assertSame('1111111111', $service->verify($token, $scope)['document_number'] ?? null);
+    }
+
+    public function test_voter_token_lifetime_follows_configuration(): void
+    {
+        config(['app.voter_session_ttl_minutes' => 30]);
+        $headers = $this->voterHeaders();
+
+        $this->travel(31)->minutes();
+
+        $this->postJson('/api/votes', $this->votePayload(), $headers)->assertStatus(401);
     }
 
     public function test_store_vote_returns_403_when_document_differs_from_token(): void
