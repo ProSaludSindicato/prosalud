@@ -177,6 +177,10 @@ class ExcelReaderService
         return [
             'exists' => false,
             'path' => self::INCAPACIDADES_FILE_PATH,
+            'disk' => null,
+            'size' => null,
+            'modified' => null,
+            'readable' => false,
         ];
     }
 
