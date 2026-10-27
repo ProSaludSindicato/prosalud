@@ -136,8 +136,9 @@ class VoteController extends Controller
                 $vote = Vote::create([
                     'voter_document_type' => $voter['documentType'],
                     'voter_document_number' => $voter['documentNumber'],
+                    'voter_full_name' => $session['name'] !== '' ? $session['name'] : null,
                     'voter_hospital' => $voter['hospital'],
-                    'voter_position' => $voter['position'],
+                    'voter_position' => $session['position'] !== '' ? $session['position'] : null,
                     'candidate_election_key' => $activeElectionKey,
                     'candidate_id' => (string) ($delegado['cedula'] ?? $candidate['id']),
                     'candidate_name' => $candidateName !== '' ? $candidateName : $candidate['name'],
@@ -553,53 +554,8 @@ class VoteController extends Controller
                 ->take($perPage)
                 ->get();
 
-            // Build a map of document -> full name from ACTIVOS2.xlsx for efficiency
-            $nameMap = [];
-            if ($this->excelReaderService->isActivosFileAvailable()) {
-                try {
-                    $activosData = $this->excelReaderService->readActivosFile();
-                    if (! empty($activosData)) {
-                        $rows = array_slice($activosData, 1); // Skip header
-                        foreach ($rows as $row) {
-                            if (count($row) >= 4) {
-                                $tipoDocumento = trim($row[0] ?? '');
-                                $documento = trim($row[1] ?? '');
-                                $nombres = trim($row[2] ?? '');
-                                $apellidos = trim($row[3] ?? '');
-
-                                if (! empty($tipoDocumento) && ! empty($documento)) {
-                                    $key = $tipoDocumento.'|'.$documento;
-
-                                    // Build full name
-                                    $fullName = null;
-                                    if (! empty($nombres) && ! empty($apellidos)) {
-                                        $fullName = trim($nombres.' '.$apellidos);
-                                    } elseif (! empty($nombres)) {
-                                        $fullName = $nombres;
-                                    } elseif (! empty($apellidos)) {
-                                        $fullName = $apellidos;
-                                    }
-
-                                    if ($fullName) {
-                                        $nameMap[$key] = $fullName;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Error al construir mapa de nombres para auditoría', [
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
             // Transform votes for response (with voter and candidate information)
-            $votesData = $votes->map(function ($vote) use ($nameMap) {
-                // Get full name from map
-                $key = $vote->voter_document_type.'|'.$vote->voter_document_number;
-                $fullName = $nameMap[$key] ?? null;
-
+            $votesData = $votes->map(function ($vote) {
                 return [
                     'vote_id' => $vote->id,
                     'voter' => [
@@ -607,7 +563,7 @@ class VoteController extends Controller
                         'document_number' => $vote->voter_document_number,
                         'hospital' => $vote->voter_hospital,
                         'position' => $vote->voter_position,
-                        'full_name' => $fullName,
+                        'full_name' => $vote->voter_full_name,
                     ],
                     'candidate' => [
                         'id' => $vote->candidate_id,
@@ -881,6 +837,7 @@ class VoteController extends Controller
                         'document_number' => $vote->voter_document_number,
                         'hospital' => $vote->voter_hospital,
                         'position' => $vote->voter_position,
+                        'full_name' => $vote->voter_full_name,
                     ],
                     'candidate' => [
                         'id' => $vote->candidate_id,

@@ -12,7 +12,7 @@ class VoterSessionService
     /**
      * Issue an encrypted, short-lived token that binds a validated voter to a scope.
      */
-    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope, string $name = '', ?int $ttlMinutes = null): string
+    public function issue(string $documentType, string $documentNumber, string $hospital, string $scope, string $name = '', ?int $ttlMinutes = null, string $position = ''): string
     {
         $ttlMinutes ??= max(1, (int) config('app.voter_session_ttl_minutes'));
 
@@ -21,13 +21,14 @@ class VoterSessionService
             'document_number' => $documentNumber,
             'hospital' => $hospital,
             'name' => $name,
+            'position' => $position,
             'scope' => $scope,
             'expires_at' => now()->addMinutes($ttlMinutes)->getTimestamp(),
         ], JSON_THROW_ON_ERROR));
     }
 
     /**
-     * @return array{document_type: string, document_number: string, hospital: string, name: string, scope: string}|null
+     * @return array{document_type: string, document_number: string, hospital: string, name: string, position: string, scope: string}|null
      */
     public function verify(?string $token, string $scope): ?array
     {
@@ -58,6 +59,7 @@ class VoterSessionService
             'document_number' => $payload['document_number'],
             'hospital' => $payload['hospital'],
             'name' => is_string($payload['name'] ?? null) ? $payload['name'] : '',
+            'position' => is_string($payload['position'] ?? null) ? $payload['position'] : '',
             'scope' => $payload['scope'],
         ];
     }

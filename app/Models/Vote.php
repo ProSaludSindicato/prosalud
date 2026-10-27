@@ -13,6 +13,7 @@ class Vote extends Model
     protected $fillable = [
         'voter_document_type',
         'voter_document_number',
+        'voter_full_name',
         'voter_hospital',
         'voter_position',
         'candidate_election_key',

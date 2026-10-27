@@ -26,7 +26,7 @@ class StoreVoteRequest extends FormRequest
             'voter.documentType' => 'required|string|max:10',
             'voter.documentNumber' => 'required|string|max:20',
             'voter.hospital' => 'required|string|max:100',
-            'voter.position' => 'required|string|max:100',
+            'voter.position' => 'nullable|string|max:100',
 
             // Candidate information
             'candidate.id' => 'required|string|max:20',
@@ -48,7 +48,6 @@ class StoreVoteRequest extends FormRequest
             'voter.documentType.required' => 'El tipo de documento del votante es obligatorio.',
             'voter.documentNumber.required' => 'El número de documento del votante es obligatorio.',
             'voter.hospital.required' => 'El hospital del votante es obligatorio.',
-            'voter.position.required' => 'El cargo del votante es obligatorio.',
 
             'candidate.id.required' => 'El ID del candidato es obligatorio.',
             'candidate.name.required' => 'El nombre del candidato es obligatorio.',

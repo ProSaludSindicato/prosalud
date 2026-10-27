@@ -180,6 +180,7 @@ class ActivosController extends Controller
             );
 
             $afiliadoData = null;
+            $cargo = '';
 
             if ($afiliadoRaw !== null) {
                 $nombres = trim((string) ($afiliadoRaw['nombres'] ?? ''));
@@ -192,6 +193,7 @@ class ActivosController extends Controller
                         'nombre_apellidos' => $nombreApellidos,
                         'hospital' => $hospital,
                     ];
+                    $cargo = trim((string) ($afiliadoRaw['convenios'][0]['proceso'] ?? ''));
                 }
             }
 
@@ -208,7 +210,9 @@ class ActivosController extends Controller
                     $tipoDocumento,
                     $documento,
                     $afiliadoData['hospital'],
-                    $this->voterSessionService->candidateScope($electionKey)
+                    $this->voterSessionService->candidateScope($electionKey),
+                    name: $afiliadoData['nombre_apellidos'],
+                    position: $cargo,
                 );
             }
 

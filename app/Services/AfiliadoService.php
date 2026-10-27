@@ -3075,6 +3075,59 @@ class AfiliadoService
     }
 
     /**
+     * Nombre completo y cargo (proceso del convenio más reciente) desde la API de detalle de ProSanet.
+     * No usa el archivo Excel como respaldo.
+     *
+     * @return array{nombre_completo: string|null, cargo: string|null}|false|null null cuando no se encuentra; false cuando la API no está disponible
+     */
+    public function getVoterAuditInfoFromApi(string $documento): array|false|null
+    {
+        $normalizedDocumento = $this->normalizeValue($documento) ?? '';
+        if ($normalizedDocumento === '') {
+            return null;
+        }
+
+        if (! $this->proSanetApiService->isEnabled()) {
+            return false;
+        }
+
+        $cacheKey = sprintf('afiliado:voter_audit:v1:%s', md5($normalizedDocumento));
+        $cachedData = Cache::tags(['afiliados'])->get($cacheKey);
+        if ($cachedData !== null) {
+            return $cachedData;
+        }
+
+        try {
+            $items = $this->fetchDetailItemsByDocumentFromApi($normalizedDocumento);
+        } catch (ProSanetApiException $e) {
+            $this->logProsanetFallback('getVoterAuditInfo', $e);
+
+            return false;
+        }
+
+        if ($items === []) {
+            return null;
+        }
+
+        $afiliadoFull = $this->proSanetAfiliadoMapper->mapDetailItemToAfiliadoFull($items[0]);
+        $selected = $this->selectMostRecentConvenio(
+            $this->proSanetAfiliadoMapper->mapDetailItemToConveniosFull($items[0], $normalizedDocumento)
+        );
+
+        $nombreCompleto = trim(($afiliadoFull['nombres'] ?? '').' '.($afiliadoFull['apellidos'] ?? ''));
+        $cargo = trim((string) ($selected[0]['proceso'] ?? ''));
+
+        $result = [
+            'nombre_completo' => $nombreCompleto !== '' ? $nombreCompleto : null,
+            'cargo' => $cargo !== '' ? $cargo : null,
+        ];
+
+        Cache::tags(['afiliados'])->put($cacheKey, $result, now()->addHours(24));
+
+        return $result;
+    }
+
+    /**
      * @return list<array<string, mixed>>|false
      */
     private function tryGetAllAfiliadosBasicFromApi(): array|false

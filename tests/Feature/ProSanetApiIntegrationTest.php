@@ -469,4 +469,77 @@ class ProSanetApiIntegrationTest extends TestCase
         $this->assertNull($service->resolveDocumentTypeId('PA'));
         $this->assertNull($service->resolveDocumentTypeId('XX'));
     }
+
+    public function test_afiliado_service_returns_voter_audit_info_from_detail_api(): void
+    {
+        Http::fake([
+            'https://api.prosanet.test/index.php?r=erpuser/login' => Http::response([
+                'access_token' => 'audit-token',
+                'expireIn' => (string) (time() + 3600),
+            ]),
+            'https://api.prosanet.test/index.php*' => Http::response([
+                'items' => [
+                    [
+                        'personal_information' => [
+                            'document_type_label' => 'CC',
+                            'document_number' => '1005061664',
+                            'first_name' => 'DANIELA ALEJANDRA',
+                            'last_name' => 'ROZO PIMENTEL',
+                            'status' => 'Activo',
+                        ],
+                        'covenants' => [
+                            [
+                                'admission_date' => '2020-01-10',
+                                'end_date' => '2022-01-10',
+                                'client_business_name' => 'HMFS - BELLO',
+                                'charge_name' => 'AUXILIAR',
+                            ],
+                            [
+                                'admission_date' => '2023-12-14',
+                                'end_date' => null,
+                                'client_business_name' => 'HMFS - BELLO',
+                                'charge_name' => 'ENFERMERO(A)',
+                            ],
+                        ],
+                        'beneficiaries' => [],
+                    ],
+                ],
+                'pagination' => ['page' => 1, 'pageSize' => 20, 'totalCount' => 1, 'pageCount' => 1],
+            ]),
+        ]);
+
+        $service = app(AfiliadoService::class);
+
+        $this->assertSame([
+            'nombre_completo' => 'DANIELA ALEJANDRA ROZO PIMENTEL',
+            'cargo' => 'ENFERMERO(A)',
+        ], $service->getVoterAuditInfoFromApi('1005061664'));
+
+        $service->getVoterAuditInfoFromApi('1005061664');
+
+        Http::assertSentCount(2);
+    }
+
+    public function test_afiliado_service_voter_audit_info_returns_false_when_api_fails(): void
+    {
+        Http::fake([
+            'https://api.prosanet.test/index.php?r=erpuser/login' => Http::response([
+                'access_token' => 'audit-token',
+                'expireIn' => (string) (time() + 3600),
+            ]),
+            'https://api.prosanet.test/index.php*' => Http::response(['message' => 'error'], 500),
+        ]);
+
+        $this->assertFalse(app(AfiliadoService::class)->getVoterAuditInfoFromApi('1005061664'));
+    }
+
+    public function test_afiliado_service_voter_audit_info_returns_false_when_api_disabled(): void
+    {
+        config(['services.prosanet.enabled' => false]);
+        Http::fake();
+
+        $this->assertFalse(app(AfiliadoService::class)->getVoterAuditInfoFromApi('1005061664'));
+
+        Http::assertNothingSent();
+    }
 }

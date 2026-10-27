@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\ApiToken;
 use App\Models\CandidateVotingPeriod;
+use App\Models\User;
 use App\Models\Vote;
 use App\Models\VotingSetting;
 use App\Services\AfiliadoService;
@@ -10,6 +12,7 @@ use App\Services\ExcelReaderService;
 use App\Services\VoterSessionService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class CandidateVotingTest extends TestCase
@@ -46,7 +49,7 @@ class CandidateVotingTest extends TestCase
     /**
      * @return array<string, string>
      */
-    private function voterHeaders(string $documentNumber = '1111111111', string $hospital = 'Bello'): array
+    private function voterHeaders(string $documentNumber = '1111111111', string $hospital = 'Bello', string $name = '', string $position = ''): array
     {
         $service = app(VoterSessionService::class);
 
@@ -54,7 +57,9 @@ class CandidateVotingTest extends TestCase
             'CC',
             $documentNumber,
             $hospital,
-            $service->candidateScope('delegados-2026-1')
+            $service->candidateScope('delegados-2026-1'),
+            name: $name,
+            position: $position,
         )];
     }
 
@@ -101,6 +106,7 @@ class CandidateVotingTest extends TestCase
                     'nombres' => 'Juan',
                     'apellidos' => 'Pérez',
                     'hospital' => 'Bello',
+                    'convenios' => [['proceso' => 'ENFERMERO(A)']],
                 ]);
         });
 
@@ -116,6 +122,14 @@ class CandidateVotingTest extends TestCase
                     'hospital' => 'Bello',
                 ],
             ]);
+
+        $session = app(VoterSessionService::class)->verify(
+            $response->json('voter_token'),
+            app(VoterSessionService::class)->candidateScope('delegados-2026-1')
+        );
+
+        $this->assertSame('Juan Pérez', $session['name']);
+        $this->assertSame('ENFERMERO(A)', $session['position']);
     }
 
     public function test_store_vote_returns_409_when_voter_already_voted(): void
@@ -353,5 +367,120 @@ class CandidateVotingTest extends TestCase
         Vote::query()->create($attributes + ['candidate_election_key' => 'delegados-2027-1']);
 
         $this->assertDatabaseCount('votes', 2);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function auditTrailVoters(): array
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $auditor = User::factory()->create();
+        $auditor->givePermissionTo('votes.audit.view');
+
+        $plainToken = 'test-plain-'.Str::random(48);
+        ApiToken::query()->create([
+            'user_id' => $auditor->id,
+            'name' => 'phpunit',
+            'token' => hash('sha256', $plainToken),
+            'expires_at' => now()->addDay(),
+        ]);
+
+        return $this->withCredentials()
+            ->withUnencryptedCookie('prosalud_auth_token', $plainToken)
+            ->getJson('/api/votes/audit-trail')
+            ->assertOk()
+            ->json('votes');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function voteAttributes(string $documentNumber, ?string $voterPosition): array
+    {
+        return [
+            'voter_document_type' => 'CC',
+            'voter_document_number' => $documentNumber,
+            'voter_hospital' => 'Bello',
+            'voter_position' => $voterPosition,
+            'candidate_election_key' => 'delegados-2026-1',
+            'candidate_id' => '888',
+            'candidate_name' => 'Candidato Uno',
+            'candidate_position' => 'Proceso',
+            'candidate_hospital' => 'Bello',
+            'vote_timestamp' => now(),
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'phpunit',
+        ];
+    }
+
+    public function test_store_vote_saves_voter_name_and_position_from_token_not_from_body(): void
+    {
+        $this->mock(ExcelReaderService::class, function ($mock) {
+            $mock->shouldReceive('isDelegadosFileAvailable')->once()->andReturn(true);
+            $mock->shouldReceive('getDelegadoByCedula')->once()->andReturn([
+                'cedula' => '888',
+                'nombre_apellidos' => 'Candidato Uno',
+                'sede' => 'Bello',
+                'proceso' => 'Proceso',
+            ]);
+        });
+
+        $payload = $this->votePayload();
+        $payload['voter']['position'] = 'NOMBRE ENVIADO POR EL FRONT';
+
+        $this->postJson('/api/votes', $payload, $this->voterHeaders(name: 'DANIELA ROZO', position: 'ENFERMERO(A)'))
+            ->assertCreated();
+
+        $this->assertDatabaseHas('votes', [
+            'voter_document_number' => '1111111111',
+            'voter_full_name' => 'DANIELA ROZO',
+            'voter_position' => 'ENFERMERO(A)',
+        ]);
+    }
+
+    public function test_store_vote_accepts_missing_voter_position_and_token_without_identity(): void
+    {
+        $this->mock(ExcelReaderService::class, function ($mock) {
+            $mock->shouldReceive('isDelegadosFileAvailable')->once()->andReturn(true);
+            $mock->shouldReceive('getDelegadoByCedula')->once()->andReturn([
+                'cedula' => '888',
+                'nombre_apellidos' => 'Candidato Uno',
+                'sede' => 'Bello',
+                'proceso' => 'Proceso',
+            ]);
+        });
+
+        $payload = $this->votePayload();
+        unset($payload['voter']['position']);
+
+        $this->postJson('/api/votes', $payload, $this->voterHeaders())->assertCreated();
+
+        $this->assertDatabaseHas('votes', [
+            'voter_document_number' => '1111111111',
+            'voter_full_name' => null,
+            'voter_position' => null,
+        ]);
+    }
+
+    public function test_audit_trail_returns_stored_voter_name_and_position(): void
+    {
+        $this->mock(ExcelReaderService::class, function ($mock) {
+            $mock->shouldNotReceive('isActivosFileAvailable');
+            $mock->shouldNotReceive('readActivosFile');
+        });
+        $this->mock(AfiliadoService::class, function ($mock) {
+            $mock->shouldNotReceive('getVoterAuditInfoFromApi');
+        });
+
+        Vote::query()->create($this->voteAttributes('1005061664', 'ENFERMERO(A)') + [
+            'voter_full_name' => 'DANIELA ALEJANDRA ROZO PIMENTEL',
+        ]);
+
+        $voter = $this->auditTrailVoters()[0]['voter'];
+
+        $this->assertSame('DANIELA ALEJANDRA ROZO PIMENTEL', $voter['full_name']);
+        $this->assertSame('ENFERMERO(A)', $voter['position']);
     }
 }
