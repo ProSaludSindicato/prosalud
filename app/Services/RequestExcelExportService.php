@@ -16,6 +16,7 @@ use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
 use PhpOffice\PhpSpreadsheet\Chart\Legend;
 use PhpOffice\PhpSpreadsheet\Chart\PlotArea;
 use PhpOffice\PhpSpreadsheet\Chart\Title;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -668,12 +669,14 @@ class RequestExcelExportService
             'Número Documento',
             'Tipo',
             'Detalles Específicos',
+            'Fecha Inicio Descanso',
+            'Fecha Fin Descanso',
         ];
 
         $sheet->fromArray([$headers], null, 'A1');
 
         // Estilizar encabezados
-        $headerRange = 'A1:F1';
+        $headerRange = 'A1:H1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -696,6 +699,8 @@ class RequestExcelExportService
         $sheet->getColumnDimension('D')->setWidth(20); // Número Documento
         $sheet->getColumnDimension('E')->setWidth(30); // Tipo
         $sheet->getColumnDimension('F')->setWidth(80); // Detalles Específicos
+        $sheet->getColumnDimension('G')->setWidth(22); // Fecha Inicio Descanso
+        $sheet->getColumnDimension('H')->setWidth(22); // Fecha Fin Descanso
 
         $row = 2;
 
@@ -716,6 +721,10 @@ class RequestExcelExportService
 
             $sheet->fromArray([$rowData], null, "A{$row}");
 
+            $payload = is_array($request->payload) ? $request->payload : [];
+            $this->setExcelDateCell($sheet, "G{$row}", $payload['fechaInicioDescanso'] ?? null);
+            $this->setExcelDateCell($sheet, "H{$row}", $payload['fechaFinalizacionDescanso'] ?? null);
+
             // Configurar formato de texto para la columna de payload (para que el JSON se vea mejor)
             $sheet->getStyle("F{$row}")->getAlignment()->setWrapText(true);
             $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
@@ -725,7 +734,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = 'A1:F'.($row - 1);
+            $dataRange = 'A1:H'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -736,7 +745,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter('A1:F'.($row - 1));
+            $sheet->setAutoFilter('A1:H'.($row - 1));
         }
 
         // Congelar primera fila
@@ -994,6 +1003,27 @@ class RequestExcelExportService
         }
 
         return $date->format('d/m/Y');
+    }
+
+    /**
+     * Escribir una fecha como valor de fecha nativo de Excel para permitir filtrar y ordenar.
+     */
+    private function setExcelDateCell(Worksheet $sheet, string $cell, mixed $value): void
+    {
+        if (! is_string($value) || $value === '') {
+            return;
+        }
+
+        try {
+            $date = Carbon::parse($value)->startOfDay();
+        } catch (\Exception $e) {
+            $sheet->setCellValue($cell, $value);
+
+            return;
+        }
+
+        $sheet->setCellValue($cell, ExcelDate::PHPToExcel($date));
+        $sheet->getStyle($cell)->getNumberFormat()->setFormatCode('dd/mm/yyyy');
     }
 
     /**
