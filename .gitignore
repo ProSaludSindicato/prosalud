@@ -29,3 +29,7 @@ Thumbs.db
 **/caddy
 frankenphp
 frankenphp-worker.php
+
+# PDFs de convenios (datos personales): carpeta de trabajo local de los comandos convenios:*, nunca versionar
+/resources/convenios/*
+!/resources/convenios/.gitkeep
