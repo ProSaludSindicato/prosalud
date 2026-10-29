@@ -560,6 +560,6 @@ Route::middleware(['auth.token', 'ensure.api.user'])->group(function () {
 
         Route::get('/stock-movements', [InventoryStockMovementController::class, 'index'])->middleware('permission:inventory.stock_movements.view');
 
-        Route::post('/reports/excel', [InventoryReportController::class, 'generateExcel']);
+        Route::post('/reports/excel', [InventoryReportController::class, 'generateExcel'])->middleware('permission:inventory.view_dashboard');
     });
 });
