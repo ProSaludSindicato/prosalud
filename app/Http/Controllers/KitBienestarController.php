@@ -13,6 +13,7 @@ use App\Services\AfiliadoService;
 use App\Services\KitBienestarService;
 use App\Services\LogSanitizationService;
 use App\Services\WellnessDeliveryExcelExportService;
+use App\Services\WellnessDeliveryListService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,14 +33,18 @@ class KitBienestarController extends Controller
 
     private AfiliadoService $afiliadoService;
 
+    private WellnessDeliveryListService $listService;
+
     public function __construct(
         KitBienestarService $kitBienestarService,
         WellnessDeliveryExcelExportService $excelExportService,
-        AfiliadoService $afiliadoService
+        AfiliadoService $afiliadoService,
+        WellnessDeliveryListService $listService
     ) {
         $this->kitBienestarService = $kitBienestarService;
         $this->excelExportService = $excelExportService;
         $this->afiliadoService = $afiliadoService;
+        $this->listService = $listService;
     }
 
     /**
@@ -54,66 +59,107 @@ class KitBienestarController extends Controller
         ]);
 
         $documento = trim($request->query('documento'));
+        $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
+        $anoActual = (int) Carbon::parse($hoy, config('app.timezone', 'America/Bogota'))->format('Y');
+        $tiposActivos = WellnessDeliveryType::getActivosParaFecha($hoy);
 
-        if (! $this->afiliadoService->isFileAvailable()) {
+        /** @var array<int, array<string, mixed>|null> $cuposPorTipo */
+        $cuposPorTipo = [];
+        foreach ($tiposActivos as $tipo) {
+            if ($tipo->esEntregaConListado()) {
+                $cuposPorTipo[$tipo->id] = $this->listService->quotaFor($tipo, $documento);
+            }
+        }
+        $cupoListado = collect($cuposPorTipo)->filter()->first();
+
+        $afiliado = null;
+        if ($this->afiliadoService->isFileAvailable()) {
+            $afiliado = $this->afiliadoService->getAfiliadoByDocumentoOnly($documento);
+        } elseif ($cupoListado === null) {
             return response()->json([
                 'success' => false,
                 'message' => 'Servicio temporalmente no disponible. El archivo de afiliados no está disponible.',
             ], 503);
         }
 
-        $afiliado = $this->afiliadoService->getAfiliadoByDocumentoOnly($documento);
-
-        if ($afiliado === null) {
+        if ($afiliado === null && $cupoListado === null) {
             return response()->json([
                 'success' => false,
                 'message' => 'No se encontró un afiliado con el documento indicado.',
             ], 404);
         }
 
-        $estado = isset($afiliado['estado']) ? trim((string) $afiliado['estado']) : null;
-        if ($estado === null || strcasecmp($estado, 'Activo') !== 0) {
+        $estado = $afiliado !== null && isset($afiliado['estado']) ? trim((string) $afiliado['estado']) : null;
+        if ($afiliado !== null && ($estado === null || strcasecmp($estado, 'Activo') !== 0)) {
             return response()->json([
                 'success' => false,
                 'message' => 'El afiliado no tiene estado Activo. Solo los afiliados activos pueden recibir entregas de bienestar.',
             ], 403);
         }
 
-        $hoy = now(config('app.timezone', 'America/Bogota'))->toDateString();
-        $anoActual = (int) Carbon::parse($hoy, config('app.timezone', 'America/Bogota'))->format('Y');
-        $tiposActivos = WellnessDeliveryType::getActivosParaFecha($hoy);
-
-        $activeTypesPayload = $tiposActivos->map(function (WellnessDeliveryType $tipo) use ($documento, $anoActual) {
-            $solicitudExistente = WellnessDeliveryRequest::where('documento_afiliado', $documento)
-                ->where('wellness_delivery_type_id', $tipo->id)
-                ->whereIn('estado', ['pendiente', 'entregado'])
-                ->whereYear('created_at', $anoActual)
-                ->first();
-
-            return [
+        $activeTypesPayload = $tiposActivos->map(function (WellnessDeliveryType $tipo) use ($documento, $anoActual, $afiliado, $cuposPorTipo) {
+            $base = [
                 'id' => $tipo->id,
                 'nombre' => $tipo->nombre,
                 'modo_acceso' => $tipo->modo_acceso,
                 'fecha_desde' => $tipo->fecha_desde?->format('Y-m-d'),
                 'fecha_hasta' => $tipo->fecha_hasta?->format('Y-m-d'),
                 'siempre_activo' => $tipo->isSiempreActivo(),
+            ];
+
+            if ($tipo->esEntregaConListado()) {
+                $cupo = $cuposPorTipo[$tipo->id] ?? null;
+                $agotado = $cupo !== null && $cupo['cupo_disponible'] === 0;
+
+                return $base + [
+                    'tiene_solicitud' => $agotado,
+                    'solicitud_estado' => $agotado ? 'entregado' : null,
+                    'solicitud_id' => null,
+                    'disponible' => $cupo !== null && ! $agotado,
+                    'motivo_no_disponible' => match (true) {
+                        $cupo === null => 'El afiliado no está en el listado de esta campaña.',
+                        $agotado => "El afiliado ya recibió todas sus entregas de esta campaña ({$cupo['cupo_entregado']} de {$cupo['cupo_total']}).",
+                        default => null,
+                    },
+                    'listado' => $cupo,
+                ];
+            }
+
+            $solicitudExistente = WellnessDeliveryRequest::where('documento_afiliado', $documento)
+                ->where('wellness_delivery_type_id', $tipo->id)
+                ->whereIn('estado', ['pendiente', 'entregado'])
+                ->whereYear('created_at', $anoActual)
+                ->first();
+
+            return $base + [
                 'tiene_solicitud' => $solicitudExistente !== null,
                 'solicitud_estado' => $solicitudExistente?->estado,
                 'solicitud_id' => $solicitudExistente?->id,
+                'disponible' => $solicitudExistente === null && $afiliado !== null,
+                'motivo_no_disponible' => match (true) {
+                    $solicitudExistente !== null => 'Ya tiene una solicitud '.($solicitudExistente->estado === 'entregado' ? 'entregada' : 'pendiente').' para esta campaña.',
+                    $afiliado === null => 'El afiliado no se encontró en la base de afiliados.',
+                    default => null,
+                },
+                'listado' => null,
             ];
         })->values()->all();
 
-        $algunaSolicitudExistente = $tiposActivos->isNotEmpty() && collect($activeTypesPayload)->contains('tiene_solicitud', true);
-        $tiposSinSolicitud = collect($activeTypesPayload)->where('tiene_solicitud', false);
-        $puedeRegistrarOtroTipo = $tiposSinSolicitud->isNotEmpty();
-        $primeraConSolicitud = collect($activeTypesPayload)->firstWhere('tiene_solicitud', true);
+        $tiposNoListado = collect($activeTypesPayload)->where('modo_acceso', '!=', WellnessDeliveryType::MODO_ENTREGA_LISTADO);
+        $algunaSolicitudExistente = $tiposNoListado->contains('tiene_solicitud', true);
+        $puedeRegistrarOtroTipo = collect($activeTypesPayload)->contains('disponible', true);
+        $primeraConSolicitud = $tiposNoListado->firstWhere('tiene_solicitud', true);
 
         $data = [
             'documento_afiliado' => $afiliado['documento'] ?? $documento,
             'tipo_documento' => $afiliado['tipo_documento'] ?? null,
-            'nombre_afiliado' => $afiliado['nombre_completo'] ?? trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? '')),
+            'nombre_afiliado' => $afiliado !== null
+                ? ($afiliado['nombre_completo'] ?? trim(($afiliado['nombres'] ?? '').' '.($afiliado['apellidos'] ?? '')))
+                : ($cupoListado['nombre_afiliado'] ?? ''),
             'estado' => $estado,
-            'hospital' => isset($afiliado['hospital']) && (string) $afiliado['hospital'] !== '' ? trim((string) $afiliado['hospital']) : null,
+            'hospital' => $afiliado !== null && isset($afiliado['hospital']) && (string) $afiliado['hospital'] !== ''
+                ? trim((string) $afiliado['hospital'])
+                : ($cupoListado['hospital'] ?? null),
             'beneficiarios' => [],
             'tipos_activos' => $activeTypesPayload,
             'solicitud_existente' => $algunaSolicitudExistente,
@@ -130,6 +176,11 @@ class KitBienestarController extends Controller
             } else {
                 $data['solicitud_existente_mensaje'] = "Ya existe una solicitud {$estadoText} para este documento y este tipo de entrega («{$data['tipo_entrega_nombre']}»). No se pueden crear solicitudes duplicadas.";
             }
+        }
+
+        if (! $puedeRegistrarOtroTipo) {
+            $data['mensaje_bloqueo'] = collect($activeTypesPayload)->pluck('motivo_no_disponible')->filter()->unique()->implode(' ')
+                ?: 'No hay campañas disponibles para este documento.';
         }
 
         return response()->json([
@@ -194,6 +245,14 @@ class KitBienestarController extends Controller
                     'message' => $tiposActivos->count() > 1
                         ? 'Hay varias campañas activas. Indique el tipo de entrega (wellness_delivery_type_id).'
                         : 'Tipo de entrega no válido o no activo para la fecha actual.',
+                    'data' => null,
+                ], 422);
+            }
+
+            if ($tipoActivo->esEntregaConListado()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "La campaña «{$tipoActivo->nombre}» se entrega directamente por el personal de bienestar; no requiere inscripción.",
                     'data' => null,
                 ], 422);
             }
@@ -387,6 +446,13 @@ class KitBienestarController extends Controller
                     'message' => $activos->count() > 1
                         ? 'Debe seleccionar un tipo de entrega. Hay varias campañas activas.'
                         : 'Tipo de entrega no válido o no activo para la fecha actual.',
+                ], 422);
+            }
+
+            if ($tipoActivo->esEntregaConListado()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "La campaña «{$tipoActivo->nombre}» se registra con la entrega directa con listado (POST /api/wellness-delivery-requests/list-delivery).",
                 ], 422);
             }
 

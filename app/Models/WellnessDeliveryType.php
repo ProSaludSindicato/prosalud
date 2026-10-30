@@ -17,7 +17,10 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $nombre
  * @property bool $activo
- * @property string $modo_acceso 'listado' | 'abierto'
+ * @property string $modo_acceso 'listado' | 'abierto' | 'entrega_listado'
+ * @property string|null $listado_archivo_nombre
+ * @property Carbon|null $listado_cargado_at
+ * @property int|null $listado_cargado_por
  * @property Carbon|null $fecha_desde
  * @property Carbon|null $fecha_hasta
  * @property int|null $created_by
@@ -25,6 +28,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon $updated_at
  * @property-read User|null $createdBy
  * @property-read \Illuminate\Database\Eloquent\Collection<int, WellnessDeliveryRequest> $requests
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, WellnessDeliveryListEntry> $listEntries
  */
 class WellnessDeliveryType extends Model
 {
@@ -32,19 +36,31 @@ class WellnessDeliveryType extends Model
 
     protected $table = 'wellness_delivery_types';
 
+    public const MODO_LISTADO = 'listado';
+
+    public const MODO_ABIERTO = 'abierto';
+
+    public const MODO_ENTREGA_LISTADO = 'entrega_listado';
+
     /**
-     * listado = con registro: requiere Excel con lista de afiliados permitidos; se valida al reclamar.
-     * abierto = público: cualquier afiliado puede reclamar sin listado (ej. día de la mujer).
+     * listado = inscripción: el afiliado se inscribe y luego se le entrega; valida contra el Excel general.
+     * abierto = cualquier afiliado activo; el personal registra la entrega en el acto (ej. día de la mujer).
+     * entrega_listado = el personal registra la entrega en el acto, validando contra el listado de la campaña
+     *                   y controlando los cupos por afiliado/beneficiario (ej. dulces de halloween).
      */
     public const MODOS_ACCESO = [
-        'listado' => 'Con listado (requiere Excel de afiliados permitidos)',
-        'abierto' => 'Abierto (cualquier afiliado activo)',
+        self::MODO_LISTADO => 'Inscripción con listado (el afiliado se inscribe y luego recibe)',
+        self::MODO_ABIERTO => 'Abierto (cualquier afiliado activo)',
+        self::MODO_ENTREGA_LISTADO => 'Entrega directa con listado (cupos por afiliado)',
     ];
 
     protected $fillable = [
         'nombre',
         'activo',
         'modo_acceso',
+        'listado_archivo_nombre',
+        'listado_cargado_at',
+        'listado_cargado_por',
         'fecha_desde',
         'fecha_hasta',
         'created_by',
@@ -54,6 +70,7 @@ class WellnessDeliveryType extends Model
         'activo' => 'boolean',
         'fecha_desde' => 'date',
         'fecha_hasta' => 'date',
+        'listado_cargado_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -114,12 +131,28 @@ class WellnessDeliveryType extends Model
     /** True si este tipo requiere cargar Excel y validar que el afiliado esté en el listado. */
     public function requiereListado(): bool
     {
-        return $this->modo_acceso === 'listado';
+        return $this->modo_acceso === self::MODO_LISTADO;
+    }
+
+    /** True si el personal entrega en el acto validando contra el listado propio de la campaña. */
+    public function esEntregaConListado(): bool
+    {
+        return $this->modo_acceso === self::MODO_ENTREGA_LISTADO;
     }
 
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function listadoCargadoPor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'listado_cargado_por');
+    }
+
+    public function listEntries(): HasMany
+    {
+        return $this->hasMany(WellnessDeliveryListEntry::class, 'wellness_delivery_type_id');
     }
 
     public function requests(): HasMany

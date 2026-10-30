@@ -48,6 +48,7 @@ use App\Http\Controllers\VaccinationSurveyController;
 use App\Http\Controllers\VoteController;
 use App\Http\Controllers\VotingModeController;
 use App\Http\Controllers\WellnessActivityRealizedController;
+use App\Http\Controllers\WellnessDeliveryListController;
 use App\Http\Controllers\WellnessDeliveryTypeController;
 use App\Http\Controllers\WellnessEventController;
 use App\Http\Controllers\WellnessRequestController;
@@ -139,6 +140,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-
     Route::get('/affiliate-lookup', [KitBienestarController::class, 'affiliateLookup'])->middleware('permission:wellness_delivery.view');
     Route::post('/', [KitBienestarController::class, 'store'])->middleware('permission:wellness_delivery.manage');
     Route::post('/open', [KitBienestarController::class, 'storeOpenMode'])->middleware('permission:wellness_delivery.manage');
+    Route::post('/list-delivery', [WellnessDeliveryListController::class, 'storeDelivery'])->middleware('permission:wellness_delivery.manage');
     Route::get('/', [KitBienestarController::class, 'index'])->middleware('permission:wellness_delivery.view');
     Route::get('/{id}', [KitBienestarController::class, 'show'])->middleware('permission:wellness_delivery.view');
     Route::patch('/{id}/status', [KitBienestarController::class, 'updateStatus'])->middleware('permission:wellness_delivery.manage');
@@ -157,6 +159,8 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-
 // Tipos de entrega de bienestar (CRUD) - requieren permiso wellness_delivery.manage para crear/editar
 Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-types')->group(function () {
     Route::get('/', [WellnessDeliveryTypeController::class, 'index'])->middleware('permission:wellness_delivery.view');
+    Route::get('/listado/plantilla', [WellnessDeliveryListController::class, 'template'])->middleware('permission:wellness_delivery.view');
+    Route::post('/{wellness_delivery_type}/listado', [WellnessDeliveryListController::class, 'upload'])->middleware('permission:wellness_delivery.manage');
     Route::get('/{wellness_delivery_type}', [WellnessDeliveryTypeController::class, 'show'])->middleware('permission:wellness_delivery.view');
     Route::post('/', [WellnessDeliveryTypeController::class, 'store'])->middleware('permission:wellness_delivery.manage');
     Route::put('/{wellness_delivery_type}', [WellnessDeliveryTypeController::class, 'update'])->middleware('permission:wellness_delivery.manage');

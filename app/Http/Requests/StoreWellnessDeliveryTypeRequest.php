@@ -16,7 +16,7 @@ class StoreWellnessDeliveryTypeRequest extends FormRequest
         return [
             'nombre' => 'required|string|max:200',
             'activo' => 'boolean',
-            'modo_acceso' => 'required|string|in:listado,abierto',
+            'modo_acceso' => 'required|string|in:listado,abierto,entrega_listado',
             'fecha_desde' => 'nullable|date|date_format:Y-m-d|required_with:fecha_hasta',
             'fecha_hasta' => 'nullable|date|date_format:Y-m-d|required_with:fecha_desde|after_or_equal:fecha_desde',
         ];
@@ -27,8 +27,8 @@ class StoreWellnessDeliveryTypeRequest extends FormRequest
         return [
             'nombre.required' => 'El nombre del tipo de entrega es obligatorio.',
             'nombre.max' => 'El nombre no puede exceder 200 caracteres.',
-            'modo_acceso.required' => 'El modo de acceso es obligatorio (listado o abierto).',
-            'modo_acceso.in' => 'El modo de acceso debe ser "listado" (con Excel de permitidos) o "abierto" (cualquier afiliado).',
+            'modo_acceso.required' => 'El modo de acceso es obligatorio (listado, abierto o entrega_listado).',
+            'modo_acceso.in' => 'El modo de acceso debe ser "listado" (inscripción), "abierto" (cualquier afiliado) o "entrega_listado" (entrega directa con listado).',
             'fecha_desde.required_with' => 'Si indica fecha hasta, debe indicar fecha desde (o deje ambas vacías para tipo siempre activo).',
             'fecha_desde.date_format' => 'La fecha desde debe estar en formato YYYY-MM-DD.',
             'fecha_hasta.required_with' => 'Si indica fecha desde, debe indicar fecha hasta (o deje ambas vacías para tipo siempre activo).',
