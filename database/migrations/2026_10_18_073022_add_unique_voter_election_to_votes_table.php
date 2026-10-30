@@ -14,6 +14,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasIndex('votes', self::INDEX_NAME)) {
+            return;
+        }
+
         $duplicates = DB::table('votes')
             ->select('voter_document_type', 'voter_document_number', 'candidate_election_key')
             ->whereNotNull('candidate_election_key')
