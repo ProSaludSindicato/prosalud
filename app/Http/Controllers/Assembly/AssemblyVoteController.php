@@ -7,7 +7,9 @@ use App\Http\Controllers\Controller;
 use App\Models\AssemblyAttendance;
 use App\Models\AssemblyQuestion;
 use App\Models\AssemblyVote;
+use App\Models\QuorumConfig;
 use App\Services\VoterSessionService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -116,9 +118,7 @@ class AssemblyVoteController extends Controller
 
             DB::commit();
 
-            // Calculate and broadcast results
-            $results = $this->calculateResults($question);
-            event(new VoteRegistered($questionId, $results));
+            $this->broadcastResults($question);
 
             Log::info('Vote registered', [
                 'question_id' => $questionId,
@@ -145,6 +145,14 @@ class AssemblyVoteController extends Controller
                 'message' => 'Datos de entrada inválidos',
                 'errors' => $e->errors(),
             ], 422);
+        } catch (UniqueConstraintViolationException) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Su voto ya fue registrado para esta pregunta',
+                'error_code' => 'VOTE_ALREADY_REGISTERED',
+            ], 409);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error registering vote', [
@@ -254,6 +262,21 @@ class AssemblyVoteController extends Controller
     }
 
     /**
+     * Broadcast updated results without failing the request when the broadcaster or queue is unavailable.
+     */
+    private function broadcastResults(AssemblyQuestion $question): void
+    {
+        try {
+            event(new VoteRegistered($question->id, $this->calculateResults($question)));
+        } catch (\Throwable $e) {
+            Log::warning('Vote saved but results broadcast failed', [
+                'question_id' => $question->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * Calculate results for a question
      */
     private function calculateResults(AssemblyQuestion $question): array
@@ -279,7 +302,10 @@ class AssemblyVoteController extends Controller
         })->toArray();
 
         $maxVotes = $totalVotes > 0 ? max(array_column($optionResults, 'votes')) : 0;
-        $quorum = \App\Models\QuorumConfig::getCurrent();
+        $quorum = QuorumConfig::query()
+            ->where('assembly_id', $question->assembly_id)
+            ->orderByDesc('updated_at')
+            ->first();
         $presentDelegates = $quorum ? $quorum->present_delegates : 0;
 
         $majorityAchieved = false;

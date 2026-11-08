@@ -22,13 +22,13 @@ class AssemblyQuestionController extends Controller
     {
         try {
             $assembly = $this->getAssembly($request);
-            
+
             $query = AssemblyQuestion::with('options');
-            
+
             if ($assembly) {
                 $query->where('assembly_id', $assembly->id);
             }
-            
+
             $questions = $query->orderBy('order')
                 ->get()
                 ->map(function (AssemblyQuestion $question) {
@@ -57,7 +57,7 @@ class AssemblyQuestionController extends Controller
         try {
             $question = AssemblyQuestion::with('options')->find($id);
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pregunta no encontrada',
@@ -97,19 +97,19 @@ class AssemblyQuestionController extends Controller
                 'type' => 'nullable|in:SINGLE',
             ]);
 
-            DB::beginTransaction();
-
             $assembly = $this->getAssembly($request);
-            
-            if (!$assembly) {
+
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay asamblea activa. Por favor, active una asamblea primero.',
                 ], 400);
             }
 
+            DB::beginTransaction();
+
             // Calculate order if not provided
-            if (!isset($validated['order'])) {
+            if (! isset($validated['order'])) {
                 $maxOrder = AssemblyQuestion::where('assembly_id', $assembly->id)->max('order') ?? 0;
                 $validated['order'] = $maxOrder + 1;
             }
@@ -117,7 +117,7 @@ class AssemblyQuestionController extends Controller
             $question = AssemblyQuestion::create([
                 'id' => (string) Str::uuid(),
                 'assembly_id' => $assembly->id,
-                'title' => $validated['title'] ?? 'Pregunta #' . $validated['order'],
+                'title' => $validated['title'] ?? 'Pregunta #'.$validated['order'],
                 'description' => $validated['description'] ?? null,
                 'help_text' => $validated['helpText'] ?? null,
                 'type' => 'SINGLE',
@@ -142,6 +142,7 @@ class AssemblyQuestionController extends Controller
             ], 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Datos de entrada inválidos',
@@ -169,7 +170,7 @@ class AssemblyQuestionController extends Controller
         try {
             $question = AssemblyQuestion::find($id);
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pregunta no encontrada',
@@ -257,7 +258,7 @@ class AssemblyQuestionController extends Controller
         try {
             $question = AssemblyQuestion::find($id);
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pregunta no encontrada',
@@ -293,14 +294,14 @@ class AssemblyQuestionController extends Controller
         try {
             $question = AssemblyQuestion::find($id);
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pregunta no encontrada',
                 ], 404);
             }
 
-            $result = $this->openQuestion($question);
+            $result = DB::transaction(fn () => $this->openQuestion($question));
 
             return response()->json([
                 'success' => true,
@@ -310,6 +311,12 @@ class AssemblyQuestionController extends Controller
                     'openedAt' => $result->opened_at?->toISOString(),
                 ],
             ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => collect($e->errors())->flatten()->first() ?? 'No se pudo abrir la pregunta',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             Log::error('Error opening question', [
                 'id' => $id,
@@ -331,14 +338,14 @@ class AssemblyQuestionController extends Controller
         try {
             $question = AssemblyQuestion::find($id);
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pregunta no encontrada',
                 ], 404);
             }
 
-            if (!$question->isOpen()) {
+            if (! $question->isOpen()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'La pregunta no está abierta',
@@ -440,8 +447,8 @@ class AssemblyQuestionController extends Controller
 
         try {
             $assembly = $this->getAssembly($request);
-            
-            if (!$assembly) {
+
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay asamblea activa. Por favor, active una asamblea primero.',
@@ -454,7 +461,7 @@ class AssemblyQuestionController extends Controller
                 $question = AssemblyQuestion::create([
                     'id' => (string) Str::uuid(),
                     'assembly_id' => $assembly->id,
-                    'title' => $validated['title'] ?? 'Pregunta #' . $nextOrder,
+                    'title' => $validated['title'] ?? 'Pregunta #'.$nextOrder,
                     'description' => null,
                     'help_text' => null,
                     'type' => 'SINGLE',
@@ -501,16 +508,16 @@ class AssemblyQuestionController extends Controller
     {
         try {
             $assembly = $this->getAssembly($request);
-            
+
             $query = AssemblyQuestion::where('status', 'OPEN');
-            
+
             if ($assembly) {
                 $query->where('assembly_id', $assembly->id);
             }
-            
+
             $question = $query->first();
 
-            if (!$question) {
+            if (! $question) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay votaciones abiertas',
@@ -554,7 +561,7 @@ class AssemblyQuestionController extends Controller
 
         if ($question->quorum_required) {
             $quorum = QuorumConfig::getCurrent();
-            if (!$quorum || !$quorum->verified) {
+            if (! $quorum || ! $quorum->verified) {
                 throw ValidationException::withMessages([
                     'quorum' => ['El quórum debe estar verificado para abrir esta pregunta'],
                 ]);
@@ -593,7 +600,7 @@ class AssemblyQuestionController extends Controller
         if ($request->has('assembly_id')) {
             return Assembly::find($request->input('assembly_id'));
         }
-        
+
         // Default to active assembly (no auto-creation)
         return Assembly::getCurrent();
     }

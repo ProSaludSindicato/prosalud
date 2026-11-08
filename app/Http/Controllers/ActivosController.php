@@ -94,7 +94,7 @@ class ActivosController extends Controller
                 $this->attendanceService->record(
                     $afiliado['cedula'] ?? $documento,
                     $afiliado['nombre_apellidos'] ?? null,
-                    $afiliado['fecha_expedicion'] ?? $fechaExpedicion,
+                    $fechaExpedicion,
                     $request,
                     $request->input('signature')
                 );
