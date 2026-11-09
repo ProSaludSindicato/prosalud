@@ -6,25 +6,25 @@ use App\Models\VaccinationSurvey;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class VaccinationSurveyExcelExportService
 {
     private const SIGNATURE_DISK = 'prosalud-private';
-    private const SIGNATURE_WIDTH = 100;
-    private const SIGNATURE_HEIGHT = 50;
-    private const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
 
-    /** @var list<string> */
-    private array $tempImageFiles = [];
+    private const SIGNATURE_WIDTH = 100;
+
+    private const SIGNATURE_HEIGHT = 50;
+
+    public function __construct(
+        private readonly ExcelImageEmbedder $images
+    ) {}
 
     /**
      * Generar reporte Excel con una sola hoja: registros de encuesta de vacunación.
@@ -35,7 +35,9 @@ class VaccinationSurveyExcelExportService
             $this->validateFilters($filters);
             $surveys = $this->getSurveys($filters);
 
-            $spreadsheet = new Spreadsheet();
+            $this->images->prefetchFromDisk(self::SIGNATURE_DISK, $surveys->pluck('firma_path'), self::SIGNATURE_WIDTH, self::SIGNATURE_HEIGHT);
+
+            $spreadsheet = new Spreadsheet;
             $spreadsheet->removeSheetByIndex(0);
 
             $sheet = $spreadsheet->createSheet();
@@ -44,7 +46,7 @@ class VaccinationSurveyExcelExportService
 
             $spreadsheet->setActiveSheetIndex(0);
 
-            $tempFile = tempnam(sys_get_temp_dir(), 'vaccination_survey_report_') . '.xlsx';
+            $tempFile = tempnam(sys_get_temp_dir(), 'vaccination_survey_report_').'.xlsx';
             $writer = new Xlsx($spreadsheet);
             $writer->save($tempFile);
 
@@ -65,7 +67,7 @@ class VaccinationSurveyExcelExportService
     private function validateFilters(array $filters): void
     {
         $dateRange = $filters['date_range'] ?? [];
-        if (!($dateRange['include_all'] ?? true)) {
+        if (! ($dateRange['include_all'] ?? true)) {
             if (isset($dateRange['start_date']) && isset($dateRange['end_date'])) {
                 $startDate = Carbon::parse($dateRange['start_date']);
                 $endDate = Carbon::parse($dateRange['end_date']);
@@ -81,7 +83,7 @@ class VaccinationSurveyExcelExportService
         $query = VaccinationSurvey::query();
 
         $dateRange = $filters['date_range'] ?? [];
-        if (!($dateRange['include_all'] ?? true)) {
+        if (! ($dateRange['include_all'] ?? true)) {
             if (isset($dateRange['start_date'])) {
                 $startDate = Carbon::parse($dateRange['start_date'])->startOfDay();
                 $query->where('created_at', '>=', $startDate);
@@ -96,9 +98,13 @@ class VaccinationSurveyExcelExportService
     }
 
     private const TITLE_ROW = 1;
+
     private const DESC_START_ROW = 2;
+
     private const DESC_END_ROW = 3;
+
     private const HEADER_ROW = 4;
+
     private const LIGHT_GREEN = 'C6EFCE';
 
     private function buildRegistrosSheet(Worksheet $sheet, Collection $surveys): void
@@ -113,9 +119,9 @@ class VaccinationSurveyExcelExportService
 
         // --- Título (fila 1, fusionada, centrado, negrita, fondo verde, bordes) ---
         $titleText = 'REVISIÓN Y VERIFICACIÓN DEL ESTADO DE VACUNACIÓN DEL PERSONAL DE LA INSTITUCIÓN CONTRA FIEBRE AMARILLA Y SARAMPIÓN, EN CUMPLIMIENTO DE LAS NORMATIVAS VIGENTES PARA INSTITUCIONES DE SALUD.';
-        $sheet->mergeCells('A' . self::TITLE_ROW . ':L' . self::TITLE_ROW);
-        $sheet->setCellValue('A' . self::TITLE_ROW, $titleText);
-        $sheet->getStyle('A' . self::TITLE_ROW . ':L' . self::TITLE_ROW)->applyFromArray([
+        $sheet->mergeCells('A'.self::TITLE_ROW.':L'.self::TITLE_ROW);
+        $sheet->setCellValue('A'.self::TITLE_ROW, $titleText);
+        $sheet->getStyle('A'.self::TITLE_ROW.':L'.self::TITLE_ROW)->applyFromArray([
             'font' => ['bold' => true],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
@@ -125,9 +131,9 @@ class VaccinationSurveyExcelExportService
 
         // --- Descripción (filas 2-3, fusionada, dos filas, centrada, fondo verde, bordes) ---
         $descText = 'En cumplimiento de los lineamientos del Programa Ampliado de Inmunizaciones (PAI) 2026, en especial lo establecido en la Circular 016 de febrero de 2025 sobre el fortalecimiento de la vacunación contra sarampión, rubéola y síndrome de rubéola congénita (SRC) en todo el territorio nacional y el inicio del plan de preparación ante eventos masivos por la Copa Mundial FIFA 2026; la Circular 012 y la Resolución 691 de 2025 relacionadas con las directrices por alerta de fiebre amarilla.';
-        $sheet->mergeCells('A' . self::DESC_START_ROW . ':L' . self::DESC_END_ROW);
-        $sheet->setCellValue('A' . self::DESC_START_ROW, $descText);
-        $sheet->getStyle('A' . self::DESC_START_ROW . ':L' . self::DESC_END_ROW)->applyFromArray([
+        $sheet->mergeCells('A'.self::DESC_START_ROW.':L'.self::DESC_END_ROW);
+        $sheet->setCellValue('A'.self::DESC_START_ROW, $descText);
+        $sheet->getStyle('A'.self::DESC_START_ROW.':L'.self::DESC_END_ROW)->applyFromArray([
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
             'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
@@ -151,9 +157,9 @@ class VaccinationSurveyExcelExportService
             'L' => 'FIRMA DIGITAL',
         ];
         foreach ($headers as $col => $h) {
-            $sheet->setCellValue($col . self::HEADER_ROW, $h);
+            $sheet->setCellValue($col.self::HEADER_ROW, $h);
         }
-        $sheet->getStyle('A' . self::HEADER_ROW . ':L' . self::HEADER_ROW)->applyFromArray([
+        $sheet->getStyle('A'.self::HEADER_ROW.':L'.self::HEADER_ROW)->applyFromArray([
             'font' => ['bold' => true],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => self::LIGHT_GREEN]],
@@ -165,8 +171,8 @@ class VaccinationSurveyExcelExportService
         $dataStartRow = self::HEADER_ROW + 1;
         $lastDataRow = $dataStartRow + max(0, $surveys->count() - 1);
         if ($lastDataRow >= $dataStartRow) {
-            $sheet->setAutoFilter('A' . self::HEADER_ROW . ':K' . $lastDataRow);
-            $sheet->getStyle('A' . $dataStartRow . ':L' . $lastDataRow)->applyFromArray([
+            $sheet->setAutoFilter('A'.self::HEADER_ROW.':K'.$lastDataRow);
+            $sheet->getStyle('A'.$dataStartRow.':L'.$lastDataRow)->applyFromArray([
                 'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
             ]);
         }
@@ -174,25 +180,25 @@ class VaccinationSurveyExcelExportService
         $firmaCol = 'L';
         $row = $dataStartRow;
         foreach ($surveys as $s) {
-            $sheet->setCellValue('A' . $row, $this->formatFechaConsulta($s->created_at));
-            $sheet->setCellValue('B' . $row, $s->fecha_nacimiento?->format('Y-m-d'));
+            $sheet->setCellValue('A'.$row, $this->formatFechaConsulta($s->created_at));
+            $sheet->setCellValue('B'.$row, $s->fecha_nacimiento?->format('Y-m-d'));
             $sheet->setCellValueExplicit(
-                'C' . $row,
-                trim($s->tipo_documento . ' ' . ($s->numero_documento ?? '')),
+                'C'.$row,
+                trim($s->tipo_documento.' '.($s->numero_documento ?? '')),
                 DataType::TYPE_STRING
             );
-            $sheet->setCellValue('D' . $row, $s->hospital ?? '');
-            $sheet->setCellValue('E' . $row, $s->primer_nombre ?? '');
-            $sheet->setCellValue('F' . $row, $s->segundo_nombre ?? '');
-            $sheet->setCellValue('G' . $row, $s->primer_apellido ?? '');
-            $sheet->setCellValue('H' . $row, $s->segundo_apellido ?? '');
-            $sheet->setCellValue('I' . $row, $this->formatFechaLegible($s->fecha_aplicacion_srp));
-            $sheet->setCellValue('J' . $row, $this->formatFechaLegible($s->fecha_aplicacion_sr));
-            $sheet->setCellValue('K' . $row, $this->formatFechaLegible($s->fecha_aplicacion_fiebre_amarilla));
+            $sheet->setCellValue('D'.$row, $s->hospital ?? '');
+            $sheet->setCellValue('E'.$row, $s->primer_nombre ?? '');
+            $sheet->setCellValue('F'.$row, $s->segundo_nombre ?? '');
+            $sheet->setCellValue('G'.$row, $s->primer_apellido ?? '');
+            $sheet->setCellValue('H'.$row, $s->segundo_apellido ?? '');
+            $sheet->setCellValue('I'.$row, $this->formatFechaLegible($s->fecha_aplicacion_srp));
+            $sheet->setCellValue('J'.$row, $this->formatFechaLegible($s->fecha_aplicacion_sr));
+            $sheet->setCellValue('K'.$row, $this->formatFechaLegible($s->fecha_aplicacion_fiebre_amarilla));
 
-            if (!empty($s->firma_path)) {
+            if (! empty($s->firma_path)) {
                 try {
-                    $this->embedSignature($sheet, $s, $firmaCol . $row);
+                    $this->embedSignature($sheet, $s, $firmaCol.$row);
                     $sheet->getRowDimension($row)->setRowHeight(max(60, self::SIGNATURE_HEIGHT + 10));
                 } catch (\Throwable $e) {
                     Log::warning('No se pudo embebir firma en reporte encuesta vacunación', [
@@ -200,10 +206,10 @@ class VaccinationSurveyExcelExportService
                         'path' => $s->firma_path,
                         'error' => $e->getMessage(),
                     ]);
-                    $sheet->setCellValue('L' . $row, 'No disponible');
+                    $sheet->setCellValue('L'.$row, 'No disponible');
                 }
             } else {
-                $sheet->setCellValue('L' . $row, '');
+                $sheet->setCellValue('L'.$row, '');
             }
             $row++;
         }
@@ -217,6 +223,7 @@ class VaccinationSurveyExcelExportService
         if ($date === null) {
             return '';
         }
+
         return $date->setTimezone('America/Bogota')->locale('es')->translatedFormat('d \d\e F \d\e Y H:i');
     }
 
@@ -228,60 +235,26 @@ class VaccinationSurveyExcelExportService
         if ($date === null) {
             return '';
         }
+
         return $date->locale('es')->translatedFormat('d \d\e F \d\e Y');
     }
 
     private function embedSignature(Worksheet $sheet, VaccinationSurvey $survey, string $cell): void
     {
-        if (!$survey->firma_path) {
-            return;
-        }
+        $signatureFile = $this->images->prepareFromDisk(
+            [self::SIGNATURE_DISK, 'local'],
+            $survey->firma_path,
+            self::SIGNATURE_WIDTH,
+            self::SIGNATURE_HEIGHT
+        );
 
-        $disk = Storage::disk(self::SIGNATURE_DISK);
-        if (!$disk->exists($survey->firma_path)) {
-            $disk = Storage::disk('local');
+        if (! $this->images->embed($sheet, $signatureFile, $cell, self::SIGNATURE_WIDTH, self::SIGNATURE_HEIGHT)) {
+            throw new \Exception('Firma no disponible');
         }
-        if (!$disk->exists($survey->firma_path)) {
-            throw new \Exception('Firma no encontrada en almacenamiento');
-        }
-
-        $imageContent = $disk->get($survey->firma_path);
-        if (strlen($imageContent) > self::MAX_IMAGE_SIZE) {
-            throw new \Exception('Imagen excede el tamaño máximo permitido');
-        }
-
-        $extension = strtolower(pathinfo($survey->firma_path, PATHINFO_EXTENSION));
-        if (!in_array($extension, ['png', 'jpg', 'jpeg'])) {
-            $imageInfo = @getimagesizefromstring($imageContent);
-            if ($imageInfo && isset($imageInfo['mime'])) {
-                $mime = $imageInfo['mime'];
-                $extension = ($mime === 'image/png') ? 'png' : (in_array($mime, ['image/jpeg', 'image/jpg']) ? 'jpg' : 'png');
-            } else {
-                $extension = 'png';
-            }
-        }
-
-        $tempImageFile = tempnam(sys_get_temp_dir(), 'vaccination_signature_') . '.' . $extension;
-        file_put_contents($tempImageFile, $imageContent);
-        $this->tempImageFiles[] = $tempImageFile;
-
-        $drawing = new Drawing();
-        $drawing->setPath($tempImageFile);
-        $drawing->setCoordinates($cell);
-        $drawing->setWidth(self::SIGNATURE_WIDTH);
-        $drawing->setHeight(self::SIGNATURE_HEIGHT);
-        $drawing->setOffsetX(5);
-        $drawing->setOffsetY(5);
-        $drawing->setWorksheet($sheet);
     }
 
     private function cleanupTempFiles(): void
     {
-        foreach ($this->tempImageFiles as $file) {
-            if (is_file($file)) {
-                @unlink($file);
-            }
-        }
-        $this->tempImageFiles = [];
+        $this->images->cleanup();
     }
 }

@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ExcelReport;
 use App\Http\Requests\ExportVaccinationSurveysExcelRequest;
 use App\Http\Requests\StoreVaccinationSurveyRequest;
+use App\Jobs\GenerateExcelReportJob;
 use App\Models\VaccinationSurvey;
 use App\Services\VaccinationSurveyExcelExportService;
 use Illuminate\Http\JsonResponse;
@@ -169,79 +171,7 @@ class VaccinationSurveyController extends Controller
                 ],
             ];
 
-            $jobId = Str::uuid()->toString();
-
-            cache()->put(
-                "vaccination_survey_report:{$jobId}",
-                [
-                    'status' => 'processing',
-                    'created_at' => now()->toIso8601String(),
-                ],
-                now()->addHours(24)
-            );
-
-            $excelExportService = $this->excelExportService;
-            dispatch(function () use ($excelExportService, $filters, $jobId, $user) {
-                try {
-                    Log::debug('[Encuesta vacunación] Iniciando generación asíncrona de reporte Excel', [
-                        'job_id' => $jobId,
-                        'user_id' => $user?->id,
-                    ]);
-
-                    $filePath = $excelExportService->generateReport($filters);
-
-                    if (! file_exists($filePath)) {
-                        throw new \Exception('El archivo del reporte no fue creado');
-                    }
-
-                    $fileName = 'Reporte_Encuesta_Vacunacion_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
-                    $storagePath = 'reports/vaccination-surveys/'.$jobId.'/'.$fileName;
-                    $disk = Storage::disk('local');
-                    $disk->put($storagePath, file_get_contents($filePath));
-
-                    @unlink($filePath);
-
-                    cache()->put(
-                        "vaccination_survey_report:{$jobId}",
-                        [
-                            'status' => 'completed',
-                            'file_path' => $storagePath,
-                            'file_name' => $fileName,
-                            'created_at' => now()->toIso8601String(),
-                        ],
-                        now()->addHours(24)
-                    );
-
-                    Log::info('[Encuesta vacunación] Reporte Excel generado exitosamente', [
-                        'job_id' => $jobId,
-                        'file_path' => $storagePath,
-                        'user_id' => $user?->id,
-                    ]);
-                } catch (\Throwable $e) {
-                    Log::error('[Encuesta vacunación] Error generando reporte Excel (background)', [
-                        'job_id' => $jobId,
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
-                        'user_id' => $user?->id,
-                    ]);
-
-                    cache()->put(
-                        "vaccination_survey_report:{$jobId}",
-                        [
-                            'status' => 'failed',
-                            'error' => $e->getMessage(),
-                            'created_at' => now()->toIso8601String(),
-                        ],
-                        now()->addHours(24)
-                    );
-                }
-            })->afterResponse();
-
-            Log::info('[Encuesta vacunación] Export Excel encolado para generación asíncrona', [
-                'job_id' => $jobId,
-                'user_id' => $user?->id,
-                'filters' => $filters,
-            ]);
+            $jobId = GenerateExcelReportJob::start(ExcelReport::VaccinationSurvey, $filters, [], $user?->id);
 
             return response()->json([
                 'success' => true,
@@ -279,8 +209,7 @@ class VaccinationSurveyController extends Controller
      */
     public function checkStatus(string $jobId): JsonResponse
     {
-        $cacheKey = "vaccination_survey_report:{$jobId}";
-        $status = cache()->get($cacheKey);
+        $status = GenerateExcelReportJob::status(ExcelReport::VaccinationSurvey, $jobId);
 
         if (! $status) {
             return response()->json([
@@ -311,8 +240,7 @@ class VaccinationSurveyController extends Controller
      */
     public function downloadReport(string $jobId): StreamedResponse|JsonResponse
     {
-        $cacheKey = "vaccination_survey_report:{$jobId}";
-        $status = cache()->get($cacheKey);
+        $status = GenerateExcelReportJob::status(ExcelReport::VaccinationSurvey, $jobId);
 
         if (! $status) {
             return response()->json([
@@ -339,7 +267,7 @@ class VaccinationSurveyController extends Controller
             ], 404);
         }
 
-        $disk = Storage::disk('local');
+        $disk = Storage::disk($status['disk'] ?? 'local');
 
         if (! $disk->exists($filePath)) {
             return response()->json([
@@ -349,16 +277,13 @@ class VaccinationSurveyController extends Controller
         }
 
         try {
-            $fileContent = $disk->get($filePath);
 
             Log::info('[Encuesta vacunación] Reporte Excel descargado', [
                 'job_id' => $jobId,
                 'file_name' => $fileName,
             ]);
 
-            return response()->streamDownload(function () use ($fileContent) {
-                echo $fileContent;
-            }, $fileName, [
+            return $disk->download($filePath, $fileName, [
                 'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ]);
         } catch (\Exception $e) {

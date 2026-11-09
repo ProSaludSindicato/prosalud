@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ExcelReport;
 use App\Http\Requests\ExportWellnessExcelRequest;
 use App\Http\Requests\StoreWellnessRequestRequest;
 use App\Http\Requests\UpdateWellnessRequestRequest;
+use App\Jobs\GenerateExcelReportJob;
 use App\Mail\WellnessRequestReceived;
 use App\Mail\WellnessRequestUpdated;
 use App\Models\User;
@@ -20,6 +22,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WellnessRequestController extends Controller
 {
@@ -682,6 +685,19 @@ class WellnessRequestController extends Controller
                 'include_images' => $request->boolean('include_images', false),
             ];
 
+            // Con imágenes el reporte descarga muchas evidencias, se genera en segundo plano
+            if ($options['include_images']) {
+                $jobId = GenerateExcelReportJob::start(ExcelReport::WellnessRequest, $filters, $options, $user?->id);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'El reporte se está generando. Use el job_id para verificar el estado.',
+                    'job_id' => $jobId,
+                    'status' => 'processing',
+                    'check_status_url' => url("/api/wellness-requests/export/status/{$jobId}"),
+                ], 202);
+            }
+
             // Generar reporte
             $filePath = $this->excelExportService->generateReport($filters, $options);
 
@@ -739,6 +755,73 @@ class WellnessRequestController extends Controller
                 'message' => 'Error al generar el reporte. Por favor, intente nuevamente.',
             ], 500);
         }
+    }
+
+    /**
+     * Check the status of an async wellness Excel report job.
+     */
+    public function checkExportStatus(string $jobId): JsonResponse
+    {
+        $status = GenerateExcelReportJob::status(ExcelReport::WellnessRequest, $jobId);
+
+        if (! $status) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Job no encontrado o expirado',
+            ], 404);
+        }
+
+        $response = [
+            'success' => true,
+            'job_id' => $jobId,
+            'status' => $status['status'],
+        ];
+
+        if ($status['status'] === 'completed') {
+            $response['download_url'] = url("/api/wellness-requests/export/download/{$jobId}");
+            $response['file_name'] = $status['file_name'] ?? null;
+        } elseif ($status['status'] === 'failed') {
+            $response['error'] = $status['error'] ?? 'Error desconocido';
+        }
+
+        return response()->json($response);
+    }
+
+    /**
+     * Download a completed async wellness Excel report.
+     */
+    public function downloadExport(string $jobId): StreamedResponse|JsonResponse
+    {
+        $status = GenerateExcelReportJob::status(ExcelReport::WellnessRequest, $jobId);
+
+        if (! $status) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Job no encontrado o expirado',
+            ], 404);
+        }
+
+        if ($status['status'] !== 'completed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'El reporte aún no está listo. Estado: '.$status['status'],
+                'status' => $status['status'],
+            ], 400);
+        }
+
+        $disk = Storage::disk($status['disk'] ?? 'local');
+        $filePath = $status['file_path'] ?? null;
+
+        if (! $filePath || ! $disk->exists($filePath)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El archivo no existe en el almacenamiento',
+            ], 404);
+        }
+
+        return $disk->download($filePath, $status['file_name'] ?? 'Reporte_Bienestar_ProSalud.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     /**

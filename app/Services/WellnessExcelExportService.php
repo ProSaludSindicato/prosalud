@@ -18,7 +18,6 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -63,10 +62,15 @@ class WellnessExcelExportService
         'Admon' => 'Administración',
     ];
 
-    /**
-     * Archivos temporales de imágenes para limpiar después de la generación.
-     */
-    private array $tempImageFiles = [];
+    private const MAX_EVIDENCE_IMAGES = 3;
+
+    private const EVIDENCE_IMAGE_WIDTH = 100;
+
+    private const EVIDENCE_IMAGE_HEIGHT = 75;
+
+    public function __construct(
+        private readonly ExcelImageEmbedder $images
+    ) {}
 
     /**
      * Generar reporte Excel con hojas de resumen, detalle y métricas.
@@ -79,6 +83,16 @@ class WellnessExcelExportService
 
             // Obtener solicitudes con filtros aplicados (cargar evidencias si se necesitan imágenes)
             $requests = $this->getRequests($filters, $options);
+
+            if ($options['include_images'] ?? false) {
+                $this->images->prefetchUrls(
+                    $requests->flatMap(fn (WellnessRequest $request) => $request->activityRealized?->evidences
+                        ?->take(self::MAX_EVIDENCE_IMAGES)
+                        ->pluck('image_url') ?? []),
+                    self::EVIDENCE_IMAGE_WIDTH,
+                    self::EVIDENCE_IMAGE_HEIGHT
+                );
+            }
 
             // Crear spreadsheet
             $spreadsheet = new Spreadsheet;
@@ -1501,86 +1515,20 @@ class WellnessExcelExportService
             return;
         }
 
-        $maxImages = 3; // Máximo de imágenes a embebar por fila
-        $imageWidth = 100;
-        $imageHeight = 75;
+        $maxImages = self::MAX_EVIDENCE_IMAGES;
+        $imageWidth = self::EVIDENCE_IMAGE_WIDTH;
+        $imageHeight = self::EVIDENCE_IMAGE_HEIGHT;
         $spacing = 5;
 
         $imagesEmbedded = 0;
         $currentOffsetX = 5;
 
         foreach ($realized->evidences->take($maxImages) as $evidence) {
-            if ($imagesEmbedded >= $maxImages) {
-                break;
-            }
+            $imageFile = $this->images->prepareFromUrl($evidence->image_url, $imageWidth, $imageHeight);
 
-            try {
-                // Obtener la imagen desde la URL
-                $imageUrl = $evidence->image_url;
-                if (! $imageUrl) {
-                    continue;
-                }
-
-                // Descargar la imagen
-                $imageContent = @file_get_contents($imageUrl);
-                if ($imageContent === false) {
-                    Log::warning('No se pudo descargar imagen de evidencia', [
-                        'evidence_id' => $evidence->id,
-                        'image_url' => $imageUrl,
-                    ]);
-
-                    continue;
-                }
-
-                // Verificar tamaño (máximo 2MB)
-                if (strlen($imageContent) > 2 * 1024 * 1024) {
-                    Log::warning('Imagen de evidencia excede el tamaño máximo', [
-                        'evidence_id' => $evidence->id,
-                        'size' => strlen($imageContent),
-                    ]);
-
-                    continue;
-                }
-
-                // Detectar tipo de imagen
-                $imageInfo = @getimagesizefromstring($imageContent);
-                if (! $imageInfo) {
-                    continue;
-                }
-
-                $mime = $imageInfo['mime'] ?? 'image/jpeg';
-                $extension = match ($mime) {
-                    'image/png' => 'png',
-                    'image/jpeg', 'image/jpg' => 'jpg',
-                    'image/gif' => 'gif',
-                    'image/webp' => 'webp',
-                    default => 'jpg',
-                };
-
-                // Crear archivo temporal
-                $tempImageFile = tempnam(sys_get_temp_dir(), 'wellness_evidence_').'.'.$extension;
-                file_put_contents($tempImageFile, $imageContent);
-                $this->tempImageFiles[] = $tempImageFile;
-
-                // Crear objeto Drawing
-                $drawing = new Drawing;
-                $drawing->setPath($tempImageFile);
-                $drawing->setCoordinates($startCell);
-                $drawing->setWidth($imageWidth);
-                $drawing->setHeight($imageHeight);
-                $drawing->setOffsetX($currentOffsetX);
-                $drawing->setOffsetY(5);
-                $drawing->setWorksheet($sheet);
-
+            if ($this->images->embed($sheet, $imageFile, $startCell, $imageWidth, $imageHeight, $currentOffsetX)) {
                 $imagesEmbedded++;
                 $currentOffsetX += $imageWidth + $spacing;
-            } catch (\Exception $e) {
-                Log::warning('Error embebiendo imagen de evidencia', [
-                    'evidence_id' => $evidence->id,
-                    'error' => $e->getMessage(),
-                ]);
-
-                continue;
             }
         }
 
@@ -1600,11 +1548,6 @@ class WellnessExcelExportService
      */
     private function cleanupTempFiles(): void
     {
-        foreach ($this->tempImageFiles as $file) {
-            if (file_exists($file)) {
-                @unlink($file);
-            }
-        }
-        $this->tempImageFiles = [];
+        $this->images->cleanup();
     }
 }

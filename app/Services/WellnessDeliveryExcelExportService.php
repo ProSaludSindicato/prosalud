@@ -17,16 +17,18 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class WellnessDeliveryExcelExportService
 {
-    /**
-     * Archivos temporales de imágenes para limpiar después de la generación.
-     */
-    private array $tempImageFiles = [];
+    private const SIGNATURE_WIDTH = 150;
+
+    private const SIGNATURE_HEIGHT = 50;
+
+    public function __construct(
+        private readonly ExcelImageEmbedder $images
+    ) {}
 
     /**
      * Generar reporte Excel de entregas de bienestar.
@@ -981,37 +983,13 @@ class WellnessDeliveryExcelExportService
                 return;
             }
 
-            // Detectar tipo de imagen
-            $imageInfo = @getimagesizefromstring($imageContent);
-            if (! $imageInfo) {
+            $signatureFile = $this->images->prepareFromContent(md5($firma), $imageContent, self::SIGNATURE_WIDTH, self::SIGNATURE_HEIGHT);
+
+            if (! $this->images->embed($sheet, $signatureFile, $cell, self::SIGNATURE_WIDTH, self::SIGNATURE_HEIGHT)) {
                 $sheet->setCellValue($cell, substr($firma, 0, 100));
 
                 return;
             }
-
-            $mime = $imageInfo['mime'] ?? 'image/jpeg';
-            $extension = match ($mime) {
-                'image/png' => 'png',
-                'image/jpeg', 'image/jpg' => 'jpg',
-                'image/gif' => 'gif',
-                'image/webp' => 'webp',
-                default => 'jpg',
-            };
-
-            // Crear archivo temporal
-            $tempImageFile = tempnam(sys_get_temp_dir(), 'wellness_delivery_signature_').'.'.$extension;
-            file_put_contents($tempImageFile, $imageContent);
-            $this->tempImageFiles[] = $tempImageFile;
-
-            // Crear objeto Drawing
-            $drawing = new Drawing;
-            $drawing->setPath($tempImageFile);
-            $drawing->setCoordinates($cell);
-            $drawing->setWidth(150);
-            $drawing->setHeight(50);
-            $drawing->setOffsetX(5);
-            $drawing->setOffsetY(5);
-            $drawing->setWorksheet($sheet);
 
             // Ajustar altura de la fila
             $sheet->getRowDimension($row)->setRowHeight(60);
@@ -1064,11 +1042,6 @@ class WellnessDeliveryExcelExportService
      */
     private function cleanupTempFiles(): void
     {
-        foreach ($this->tempImageFiles as $file) {
-            if (file_exists($file)) {
-                @unlink($file);
-            }
-        }
-        $this->tempImageFiles = [];
+        $this->images->cleanup();
     }
 }

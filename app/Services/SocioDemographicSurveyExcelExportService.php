@@ -7,12 +7,10 @@ use App\Models\SocioDemographicSurvey;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -20,12 +18,13 @@ class SocioDemographicSurveyExcelExportService
 {
     private const SIGNATURE_DISK = 'prosalud-private';
 
-    private const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
+    private const SIGNATURE_WIDTH = 100;
 
-    /**
-     * Temporary image files to clean up after report generation.
-     */
-    private array $tempImageFiles = [];
+    private const SIGNATURE_HEIGHT = 50;
+
+    public function __construct(
+        private readonly ExcelImageEmbedder $images
+    ) {}
 
     /**
      * Generar reporte Excel con información completa de las encuestas.
@@ -38,6 +37,10 @@ class SocioDemographicSurveyExcelExportService
 
             // Obtener encuestas con filtros aplicados
             $surveys = $this->getSurveys($filters);
+
+            if ($filters['include_signatures'] ?? false) {
+                $this->images->prefetchFromDisk(self::SIGNATURE_DISK, $surveys->pluck('firma_path'), self::SIGNATURE_WIDTH, self::SIGNATURE_HEIGHT);
+            }
 
             // Crear spreadsheet
             $spreadsheet = new Spreadsheet;
@@ -903,8 +906,8 @@ class SocioDemographicSurveyExcelExportService
     private function buildDetailSheet(Worksheet $sheet, Collection $surveys, array $filters = []): void
     {
         $includeSignatures = $filters['include_signatures'] ?? false;
-        $signatureWidth = 100;
-        $signatureHeight = 50;
+        $signatureWidth = self::SIGNATURE_WIDTH;
+        $signatureHeight = self::SIGNATURE_HEIGHT;
 
         $row = 1;
 
@@ -2094,58 +2097,11 @@ class SocioDemographicSurveyExcelExportService
         int $width,
         int $height
     ): void {
-        if (! $survey->firma_path) {
-            return;
+        $signatureFile = $this->images->prepareFromDisk(self::SIGNATURE_DISK, $survey->firma_path, $width, $height);
+
+        if (! $this->images->embed($sheet, $signatureFile, $cell, $width, $height)) {
+            throw new \Exception('Firma no disponible');
         }
-
-        $disk = Storage::disk(self::SIGNATURE_DISK);
-
-        if (! $disk->exists($survey->firma_path)) {
-            throw new \Exception('Firma no encontrada en almacenamiento');
-        }
-
-        // Get file content
-        $imageContent = $disk->get($survey->firma_path);
-
-        // Check size
-        if (strlen($imageContent) > self::MAX_IMAGE_SIZE) {
-            throw new \Exception('Imagen excede el tamaño máximo permitido');
-        }
-
-        // Detect image type
-        $extension = strtolower(pathinfo($survey->firma_path, PATHINFO_EXTENSION));
-        if (! in_array($extension, ['png', 'jpg', 'jpeg'])) {
-            $imageInfo = @getimagesizefromstring($imageContent);
-            if ($imageInfo && isset($imageInfo['mime'])) {
-                $mime = $imageInfo['mime'];
-                if ($mime === 'image/png') {
-                    $extension = 'png';
-                } elseif (in_array($mime, ['image/jpeg', 'image/jpg'])) {
-                    $extension = 'jpg';
-                } else {
-                    $extension = 'png'; // Default
-                }
-            } else {
-                $extension = 'png'; // Default
-            }
-        }
-
-        // Create temporary file for image
-        $tempImageFile = tempnam(sys_get_temp_dir(), 'survey_signature_').'.'.$extension;
-        file_put_contents($tempImageFile, $imageContent);
-
-        // Track temp file for cleanup
-        $this->tempImageFiles[] = $tempImageFile;
-
-        // Create drawing object
-        $drawing = new Drawing;
-        $drawing->setPath($tempImageFile);
-        $drawing->setCoordinates($cell);
-        $drawing->setWidth($width);
-        $drawing->setHeight($height);
-        $drawing->setOffsetX(5);
-        $drawing->setOffsetY(5);
-        $drawing->setWorksheet($sheet);
     }
 
     /**
@@ -2161,11 +2117,6 @@ class SocioDemographicSurveyExcelExportService
      */
     private function cleanupTempFiles(): void
     {
-        foreach ($this->tempImageFiles as $file) {
-            if (file_exists($file)) {
-                @unlink($file);
-            }
-        }
-        $this->tempImageFiles = [];
+        $this->images->cleanup();
     }
 }

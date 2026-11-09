@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ExcelReport;
 use App\Http\Requests\ExportWellnessDeliveryExcelRequest;
 use App\Http\Requests\StoreKitBienestarRequest;
 use App\Http\Requests\UpdateWellnessDeliveryRequestStatusRequest;
 use App\Http\Requests\UploadKitBienestarFileRequest;
+use App\Jobs\GenerateExcelReportJob;
 use App\Models\KitBienestarFileVersion;
 use App\Models\WellnessDeliveryRequest;
 use App\Models\WellnessDeliveryType;
@@ -21,7 +23,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\BinaryFileResponse as SymfonyBinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -1010,90 +1011,7 @@ class KitBienestarController extends Controller
 
             // If signatures are included, generate report asynchronously
             if ($includeFirmas) {
-                $jobId = Str::uuid()->toString();
-
-                // Store initial status in cache
-                cache()->put(
-                    "wellness_delivery_report:{$jobId}",
-                    [
-                        'status' => 'processing',
-                        'created_at' => now()->toIso8601String(),
-                    ],
-                    now()->addHours(24)
-                );
-
-                // Generate report asynchronously after response (no workers needed)
-                $excelExportService = $this->excelExportService;
-                dispatch(function () use ($excelExportService, $filters, $options, $jobId, $user) {
-                    try {
-                        Log::debug('Iniciando generación asíncrona de reporte de entregas de bienestar', [
-                            'job_id' => $jobId,
-                            'include_firmas' => true,
-                            'user_id' => $user?->id,
-                        ]);
-
-                        // Generate report
-                        $filePath = $excelExportService->generateReport($filters, $options);
-
-                        if (! file_exists($filePath)) {
-                            throw new \Exception('El archivo del reporte no fue creado');
-                        }
-
-                        // Generate file name
-                        $fileName = 'Reporte_Entregas_Bienestar_ProSalud_'.now()->setTimezone('America/Bogota')->format('Y-m-d_His').'.xlsx';
-
-                        // Store file in storage for later download
-                        $storagePath = 'reports/wellness-delivery/'.$jobId.'/'.$fileName;
-                        $disk = Storage::disk('local');
-                        $disk->put($storagePath, file_get_contents($filePath));
-
-                        // Clean up temporary file
-                        @unlink($filePath);
-
-                        // Store metadata in cache for retrieval
-                        cache()->put(
-                            "wellness_delivery_report:{$jobId}",
-                            [
-                                'status' => 'completed',
-                                'file_path' => $storagePath,
-                                'file_name' => $fileName,
-                                'created_at' => now()->toIso8601String(),
-                            ],
-                            now()->addHours(24) // Keep for 24 hours
-                        );
-
-                        Log::info('Reporte de entregas de bienestar generado exitosamente', [
-                            'job_id' => $jobId,
-                            'file_path' => $storagePath,
-                            'file_name' => $fileName,
-                            'user_id' => $user?->id,
-                        ]);
-                    } catch (\Throwable $e) {
-                        Log::error('Error generando reporte de entregas de bienestar (background)', [
-                            'job_id' => $jobId,
-                            'error' => $e->getMessage(),
-                            'trace' => $e->getTraceAsString(),
-                            'user_id' => $user?->id,
-                        ]);
-
-                        // Store error in cache
-                        cache()->put(
-                            "wellness_delivery_report:{$jobId}",
-                            [
-                                'status' => 'failed',
-                                'error' => $e->getMessage(),
-                                'created_at' => now()->toIso8601String(),
-                            ],
-                            now()->addHours(24)
-                        );
-                    }
-                })->afterResponse();
-
-                Log::info('Reporte de entregas de bienestar encolado para generación asíncrona', [
-                    'job_id' => $jobId,
-                    'include_firmas' => true,
-                    'user_id' => $user?->id,
-                ]);
+                $jobId = GenerateExcelReportJob::start(ExcelReport::WellnessDelivery, $filters, $options, $user?->id);
 
                 return response()->json([
                     'success' => true,
@@ -1161,8 +1079,7 @@ class KitBienestarController extends Controller
      */
     public function checkStatus(string $jobId): JsonResponse
     {
-        $cacheKey = "wellness_delivery_report:{$jobId}";
-        $status = cache()->get($cacheKey);
+        $status = GenerateExcelReportJob::status(ExcelReport::WellnessDelivery, $jobId);
 
         if (! $status) {
             return response()->json([
@@ -1193,8 +1110,7 @@ class KitBienestarController extends Controller
      */
     public function downloadReport(string $jobId): StreamedResponse|JsonResponse
     {
-        $cacheKey = "wellness_delivery_report:{$jobId}";
-        $status = cache()->get($cacheKey);
+        $status = GenerateExcelReportJob::status(ExcelReport::WellnessDelivery, $jobId);
 
         if (! $status) {
             return response()->json([
@@ -1221,7 +1137,7 @@ class KitBienestarController extends Controller
             ], 404);
         }
 
-        $disk = Storage::disk('local');
+        $disk = Storage::disk($status['disk'] ?? 'local');
 
         if (! $disk->exists($filePath)) {
             return response()->json([
@@ -1231,16 +1147,13 @@ class KitBienestarController extends Controller
         }
 
         try {
-            $fileContent = $disk->get($filePath);
 
             Log::info('Reporte de entregas de bienestar descargado', [
                 'job_id' => $jobId,
                 'file_name' => $fileName,
             ]);
 
-            return response()->streamDownload(function () use ($fileContent) {
-                echo $fileContent;
-            }, $fileName, [
+            return $disk->download($filePath, $fileName, [
                 'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ]);
         } catch (\Exception $e) {

@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\GenerateSstDeliveryReportJob;
+use App\Enums\ExcelReport;
+use App\Jobs\GenerateExcelReportJob;
 use App\Models\SstDeliveryRecord;
 use App\Models\SstReturnRecord;
 use App\Services\SstDeliveryReportService;
@@ -10,7 +11,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SstDeliveryReportController extends Controller
@@ -90,7 +90,7 @@ class SstDeliveryReportController extends Controller
                 ],
             ];
 
-            $jobId = $this->enqueueReportGeneration($filters, $options);
+            $jobId = GenerateExcelReportJob::start(ExcelReport::SstDelivery, $filters, $options, $request->user()?->id);
 
             return response()->json([
                 'success' => true,
@@ -122,8 +122,7 @@ class SstDeliveryReportController extends Controller
      */
     public function checkStatus(string $jobId): JsonResponse
     {
-        $cacheKey = GenerateSstDeliveryReportJob::cacheKey($jobId);
-        $status = cache()->get($cacheKey);
+        $status = GenerateExcelReportJob::status(ExcelReport::SstDelivery, $jobId);
 
         if (! $status) {
             return response()->json([
@@ -154,8 +153,7 @@ class SstDeliveryReportController extends Controller
      */
     public function downloadReport(string $jobId): StreamedResponse|JsonResponse
     {
-        $cacheKey = GenerateSstDeliveryReportJob::cacheKey($jobId);
-        $status = cache()->get($cacheKey);
+        $status = GenerateExcelReportJob::status(ExcelReport::SstDelivery, $jobId);
 
         if (! $status) {
             return response()->json([
@@ -182,7 +180,7 @@ class SstDeliveryReportController extends Controller
             ], 404);
         }
 
-        $disk = Storage::disk('local');
+        $disk = Storage::disk($status['disk'] ?? 'local');
 
         if (! $disk->exists($filePath)) {
             return response()->json([
@@ -199,32 +197,5 @@ class SstDeliveryReportController extends Controller
         return $disk->download($filePath, $fileName, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
-    }
-
-    /**
-     * @param  array<string, mixed>  $filters
-     * @param  array<string, mixed>  $options
-     */
-    private function enqueueReportGeneration(array $filters, array $options): string
-    {
-        $jobId = Str::uuid()->toString();
-
-        cache()->put(
-            GenerateSstDeliveryReportJob::cacheKey($jobId),
-            [
-                'status' => 'processing',
-                'created_at' => now()->toIso8601String(),
-            ],
-            now()->addHours(24)
-        );
-
-        GenerateSstDeliveryReportJob::dispatch($jobId, $filters, $options);
-
-        Log::info('Reporte de entregas SST encolado para generación asíncrona', [
-            'job_id' => $jobId,
-            'include_signatures' => $options['includeSignatures'] ?? false,
-        ]);
-
-        return $jobId;
     }
 }

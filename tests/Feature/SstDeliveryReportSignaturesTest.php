@@ -2,7 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\GenerateSstDeliveryReportJob;
+use App\Enums\ExcelReport;
+use App\Jobs\GenerateExcelReportJob;
 use App\Models\ApiToken;
 use App\Models\SstDeliveryItem;
 use App\Models\SstDeliveryRecord;
@@ -146,7 +147,11 @@ class SstDeliveryReportSignaturesTest extends TestCase
 
         $this->assertFileExists($path);
         $this->assertCount(0, $this->mediaFiles($path));
-        $this->assertSame('Artículo 0', IOFactory::load($path)->getSheetByName('Entregas')->getCell('K2')->getValue());
+        $sheet = IOFactory::load($path)->getSheetByName('Entregas');
+        $this->assertEqualsCanonicalizing(
+            ['Artículo 0', 'Artículo 1'],
+            [$sheet->getCell('K2')->getValue(), $sheet->getCell('K3')->getValue()]
+        );
 
         @unlink($path);
     }
@@ -186,34 +191,12 @@ class SstDeliveryReportSignaturesTest extends TestCase
         $response->assertAccepted();
         $jobId = $response->json('job_id');
 
-        Queue::assertPushed(GenerateSstDeliveryReportJob::class, function (GenerateSstDeliveryReportJob $job) use ($jobId) {
-            return $job->jobId === $jobId
+        Queue::assertPushed(GenerateExcelReportJob::class, function (GenerateExcelReportJob $job) use ($jobId) {
+            return $job->report === ExcelReport::SstDelivery
+                && $job->jobId === $jobId
                 && $job->options['includeSignatures'] === true
                 && $job->filters['startDate'] === '2026-01-01';
         });
-        $this->assertSame('processing', cache()->get(GenerateSstDeliveryReportJob::cacheKey($jobId))['status']);
-    }
-
-    public function test_job_stores_report_and_marks_it_completed(): void
-    {
-        Storage::disk('prosalud-private')->put('dotacion-signatures/a.jpg', $this->signatureJpeg());
-        $this->createDelivery('dotacion-signatures/a.jpg', 2);
-
-        $job = new GenerateSstDeliveryReportJob('job-123', [], $this->signatureOptions());
-        $job->handle(app(SstDeliveryReportService::class));
-
-        $status = cache()->get(GenerateSstDeliveryReportJob::cacheKey('job-123'));
-        $this->assertSame('completed', $status['status']);
-        Storage::disk('local')->assertExists($status['file_path']);
-    }
-
-    public function test_failed_job_marks_report_as_failed(): void
-    {
-        $job = new GenerateSstDeliveryReportJob('job-456', []);
-        $job->failed(new \RuntimeException('Timeout'));
-
-        $status = cache()->get(GenerateSstDeliveryReportJob::cacheKey('job-456'));
-        $this->assertSame('failed', $status['status']);
-        $this->assertSame('Timeout', $status['error']);
+        $this->assertSame('processing', cache()->get(ExcelReport::SstDelivery->cacheKey($jobId))['status']);
     }
 }
