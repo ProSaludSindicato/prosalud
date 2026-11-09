@@ -3,17 +3,25 @@
 namespace App\Services;
 
 use App\Models\AssemblyAttendance;
+use App\Models\AssemblyProxy;
 use App\Models\AssemblyQuestion;
 use App\Models\AssemblyVote;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Chart\Chart;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
+use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
+use PhpOffice\PhpSpreadsheet\Chart\Legend;
+use PhpOffice\PhpSpreadsheet\Chart\PlotArea;
+use PhpOffice\PhpSpreadsheet\Chart\Title;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\{Alignment, Border, Fill};
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
-use PhpOffice\PhpSpreadsheet\Chart\{Chart, DataSeries, DataSeriesValues, Legend, PlotArea, Title};
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class AssemblyReportService
 {
@@ -24,8 +32,8 @@ class AssemblyReportService
 
     /**
      * Generate Excel report with attendance and voting results.
-     * 
-     * @param int|null $assemblyId ID of the assembly to generate report for. If null, uses active assembly.
+     *
+     * @param  int|null  $assemblyId  ID of the assembly to generate report for. If null, uses active assembly.
      */
     public function generateReport(?int $assemblyId = null): string
     {
@@ -33,45 +41,53 @@ class AssemblyReportService
             // If no assembly_id provided, get active assembly
             if ($assemblyId === null) {
                 $assembly = \App\Models\Assembly::getCurrent();
-                if (!$assembly) {
+                if (! $assembly) {
                     throw new \RuntimeException('No hay asamblea activa para generar el reporte');
                 }
                 $assemblyId = $assembly->id;
             } else {
                 // Verify assembly exists
                 $assembly = \App\Models\Assembly::find($assemblyId);
-                if (!$assembly) {
+                if (! $assembly) {
                     throw new \RuntimeException("Asamblea con ID {$assemblyId} no encontrada");
                 }
             }
 
-            $spreadsheet = new Spreadsheet();
-            
+            $spreadsheet = new Spreadsheet;
+
             // Remove default sheet
             $spreadsheet->removeSheetByIndex(0);
-            
+
             // Create attendance sheet
             $attendanceSheet = $spreadsheet->createSheet();
             $attendanceSheet->setTitle('Listado de Asistencia');
             $this->buildAttendanceSheet($attendanceSheet, $assemblyId);
-            
+
             // Create voting results sheet
             $votingSheet = $spreadsheet->createSheet();
             $votingSheet->setTitle('Resultados de Votación');
             $this->buildVotingResultsSheet($votingSheet, $assemblyId);
-            
+
+            $proxiesSheet = $spreadsheet->createSheet();
+            $proxiesSheet->setTitle('Poderes');
+            $this->buildProxiesSheet($proxiesSheet, $assemblyId);
+
+            $voteDetailSheet = $spreadsheet->createSheet();
+            $voteDetailSheet->setTitle('Detalle de Votos');
+            $this->buildVoteDetailSheet($voteDetailSheet, $assemblyId);
+
             // Set first sheet as active
             $spreadsheet->setActiveSheetIndex(0);
-            
+
             // Save to temporary file
-            $tempFile = tempnam(sys_get_temp_dir(), 'assembly_report_') . '.xlsx';
+            $tempFile = tempnam(sys_get_temp_dir(), 'assembly_report_').'.xlsx';
             $writer = new Xlsx($spreadsheet);
             $writer->setIncludeCharts(true);
             $writer->save($tempFile);
-            
+
             // Clean up temporary image files
             $this->cleanupTempFiles();
-            
+
             return $tempFile;
         } catch (\Exception $e) {
             // Clean up temporary image files on error
@@ -79,7 +95,7 @@ class AssemblyReportService
             throw $e;
         }
     }
-    
+
     /**
      * Clean up temporary image files.
      */
@@ -92,7 +108,7 @@ class AssemblyReportService
         }
         $this->tempImageFiles = [];
     }
-    
+
     /**
      * Build attendance sheet with signatures embedded.
      */
@@ -108,12 +124,13 @@ class AssemblyReportService
             'Dirección IP',
             'User Agent',
             'Firma',
+            'Tipo de Asistente',
         ];
-        
+
         $sheet->fromArray([$headers], null, 'A1');
-        
+
         // Style headers
-        $headerRange = 'A1:H1';
+        $headerRange = 'A1:I1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11],
             'fill' => [
@@ -126,93 +143,225 @@ class AssemblyReportService
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
             ],
         ]);
-        
+
         // Get attendance records filtered by assembly_id
         $attendances = AssemblyAttendance::query()
             ->where('assembly_id', $assemblyId)
             ->orderByDesc('authenticated_at')
             ->get();
-        
+
         $row = 2;
-        
+
         foreach ($attendances as $index => $attendance) {
-            $sheet->setCellValue('A' . $row, $index + 1);
-            $sheet->setCellValue('B' . $row, $attendance->document_number);
-            $sheet->setCellValue('C' . $row, $attendance->full_name ?? '');
-            $sheet->setCellValue('D' . $row, $attendance->issue_date_normalized?->format('d/m/Y') ?? '');
-            $sheet->setCellValue('E' . $row, $attendance->authenticated_at->format('d/m/Y H:i:s'));
-            $sheet->setCellValue('F' . $row, $attendance->ip_address ?? '');
-            $sheet->setCellValue('G' . $row, $attendance->user_agent ?? '');
-            
+            $sheet->setCellValue('A'.$row, $index + 1);
+            $sheet->setCellValue('B'.$row, $attendance->document_number);
+            $sheet->setCellValue('C'.$row, $attendance->full_name ?? '');
+            $sheet->setCellValue('D'.$row, $attendance->issue_date_normalized?->format('d/m/Y') ?? '');
+            $sheet->setCellValue('E'.$row, $attendance->authenticated_at->format('d/m/Y H:i:s'));
+            $sheet->setCellValue('F'.$row, $attendance->ip_address ?? '');
+            $sheet->setCellValue('G'.$row, $attendance->user_agent ?? '');
+            $sheet->setCellValue('I'.$row, $attendance->is_delegate ? 'Delegado' : 'Apoderado (no delegado)');
+
             // Embed signature image if available
             if ($attendance->signature_path) {
                 try {
-                    $this->embedSignature($sheet, $attendance, 'H' . $row);
+                    $this->embedSignature($sheet, $attendance, 'H'.$row);
                 } catch (\Exception $e) {
                     Log::warning('No se pudo embebir firma en reporte', [
                         'attendance_id' => $attendance->id,
                         'error' => $e->getMessage(),
                     ]);
-                    $sheet->setCellValue('H' . $row, 'Firma no disponible');
+                    $sheet->setCellValue('H'.$row, 'Firma no disponible');
                 }
             } else {
-                $sheet->setCellValue('H' . $row, 'Sin firma');
+                $sheet->setCellValue('H'.$row, 'Sin firma');
             }
-            
+
             // Style row
-            $rowRange = 'A' . $row . ':H' . $row;
+            $rowRange = 'A'.$row.':I'.$row;
             $sheet->getStyle($rowRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
                 ],
                 'alignment' => ['vertical' => Alignment::VERTICAL_TOP],
             ]);
-            
+
             // Set row height for signature column
             $sheet->getRowDimension($row)->setRowHeight(60);
-            
+
             $row++;
         }
-        
+
         // Auto-size columns
         foreach (range('A', 'G') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
-        
+
         // Set signature column width
         $sheet->getColumnDimension('H')->setWidth(20);
-        
+        $sheet->getColumnDimension('I')->setAutoSize(true);
+
         // Wrap text for user agent column
         if ($row > 2) {
-            $sheet->getStyle('G2:G' . ($row - 1))->getAlignment()->setWrapText(true);
+            $sheet->getStyle('G2:G'.($row - 1))->getAlignment()->setWrapText(true);
         }
-        
+
         // Add autofilter to columns A (N°) and B (Documento)
         if ($row > 2) {
-            $sheet->setAutoFilter('A1:H1');
+            $sheet->setAutoFilter('A1:I1');
         }
-        
+
         // Freeze first row
         $sheet->freezePane('A2');
     }
-    
+
+    /**
+     * Build the sheet listing which delegate represented which delegate.
+     */
+    private function buildProxiesSheet(Worksheet $sheet, int $assemblyId): void
+    {
+        $sheet->fromArray([[
+            'N°',
+            'Documento Apoderado',
+            'Nombre Apoderado',
+            'Documento Representado',
+            'Nombre Representado',
+            'Estado',
+            'Fecha Declaración',
+            'Fecha Revocación',
+            'Motivo Revocación',
+            'Votos Emitidos por Poder',
+        ]], null, 'A1');
+        $this->styleTableHeader($sheet, 'A1:J1', 'ED7D31');
+
+        $proxies = AssemblyProxy::query()
+            ->where('assembly_id', $assemblyId)
+            ->withCount('votes')
+            ->orderBy('proxy_name')
+            ->orderBy('represented_name')
+            ->get();
+
+        $row = 2;
+        foreach ($proxies as $index => $proxy) {
+            $sheet->fromArray([[
+                $index + 1,
+                $proxy->proxy_document,
+                $proxy->proxy_name ?? '',
+                $proxy->represented_document,
+                $proxy->represented_name ?? '',
+                $proxy->isActive() ? 'Activo' : 'Revocado',
+                $proxy->declared_at?->format('d/m/Y H:i:s') ?? '',
+                $proxy->revoked_at?->format('d/m/Y H:i:s') ?? '',
+                $proxy->revoked_reason ?? '',
+                $proxy->votes_count,
+            ]], null, 'A'.$row);
+            $sheet->setCellValueExplicit('B'.$row, $proxy->proxy_document, DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit('D'.$row, $proxy->represented_document, DataType::TYPE_STRING);
+            $row++;
+        }
+
+        $this->finishTable($sheet, 'J', $row);
+    }
+
+    /**
+     * Build the per-vote detail sheet, showing votes cast through a proxy.
+     */
+    private function buildVoteDetailSheet(Worksheet $sheet, int $assemblyId): void
+    {
+        $sheet->fromArray([[
+            'Pregunta',
+            'Documento Votante',
+            'Nombre Votante',
+            'Opción',
+            'Emitido por Apoderado',
+            'Fecha Voto',
+        ]], null, 'A1');
+        $this->styleTableHeader($sheet, 'A1:F1', '7030A0');
+
+        $questions = AssemblyQuestion::with('options')
+            ->where('assembly_id', $assemblyId)
+            ->orderBy('order')
+            ->get();
+
+        $defaultTexts = AssemblyQuestion::defaultOptions()->pluck('text', 'id');
+        $votesByQuestion = AssemblyVote::query()
+            ->where('assembly_id', $assemblyId)
+            ->orderBy('voted_at')
+            ->get()
+            ->groupBy('question_id');
+
+        $row = 2;
+        foreach ($questions as $question) {
+            $optionTexts = $question->options->pluck('text', 'option_key');
+
+            foreach ($votesByQuestion->get($question->id, collect()) as $vote) {
+                $options = collect($vote->selected_options ?? [])
+                    ->map(fn (string $key): string => $optionTexts[$key] ?? $defaultTexts[$key] ?? $key)
+                    ->implode(', ');
+
+                $sheet->setCellValue('A'.$row, $question->title);
+                $sheet->setCellValueExplicit('B'.$row, $vote->voter_id, DataType::TYPE_STRING);
+                $sheet->setCellValue('C'.$row, $vote->voter_name);
+                $sheet->setCellValue('D'.$row, $options);
+                $sheet->setCellValueExplicit('E'.$row, $vote->cast_by_document ?? '', DataType::TYPE_STRING);
+                $sheet->setCellValue('F'.$row, $vote->voted_at?->format('d/m/Y H:i:s') ?? '');
+                $row++;
+            }
+        }
+
+        $this->finishTable($sheet, 'F', $row);
+    }
+
+    private function styleTableHeader(Worksheet $sheet, string $range, string $color): void
+    {
+        $sheet->getStyle($range)->applyFromArray([
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['rgb' => $color],
+            ],
+            'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => [
+                'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+            ],
+        ]);
+    }
+
+    private function finishTable(Worksheet $sheet, string $lastColumn, int $nextRow): void
+    {
+        if ($nextRow > 2) {
+            $sheet->getStyle('A2:'.$lastColumn.($nextRow - 1))->applyFromArray([
+                'borders' => [
+                    'allBorders' => ['borderStyle' => Border::BORDER_THIN],
+                ],
+            ]);
+            $sheet->setAutoFilter('A1:'.$lastColumn.'1');
+        }
+
+        foreach (range('A', $lastColumn) as $column) {
+            $sheet->getColumnDimension($column)->setAutoSize(true);
+        }
+
+        $sheet->freezePane('A2');
+    }
+
     /**
      * Embed signature image in Excel cell.
      */
     private function embedSignature(Worksheet $sheet, AssemblyAttendance $attendance, string $cell): void
     {
         $disk = Storage::disk('prosalud-private');
-        
-        if (!$disk->exists($attendance->signature_path)) {
+
+        if (! $disk->exists($attendance->signature_path)) {
             throw new \Exception('Firma no encontrada en almacenamiento');
         }
-        
+
         // Get file content
         $imageContent = $disk->get($attendance->signature_path);
-        
+
         // Detect image type from path or content
         $extension = strtolower(pathinfo($attendance->signature_path, PATHINFO_EXTENSION));
-        if (!in_array($extension, ['png', 'jpg', 'jpeg'])) {
+        if (! in_array($extension, ['png', 'jpg', 'jpeg'])) {
             // Try to detect from content
             $imageInfo = @getimagesizefromstring($imageContent);
             if ($imageInfo && isset($imageInfo['mime'])) {
@@ -228,16 +377,16 @@ class AssemblyReportService
                 $extension = 'png'; // Default
             }
         }
-        
+
         // Create temporary file for image
-        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_') . '.' . $extension;
+        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_').'.'.$extension;
         file_put_contents($tempImageFile, $imageContent);
-        
+
         // Track temp file for cleanup
         $this->tempImageFiles[] = $tempImageFile;
-        
+
         // Create drawing object
-        $drawing = new Drawing();
+        $drawing = new Drawing;
         $drawing->setPath($tempImageFile);
         $drawing->setCoordinates($cell);
         $drawing->setWidth(150);
@@ -246,7 +395,7 @@ class AssemblyReportService
         $drawing->setOffsetY(5);
         $drawing->setWorksheet($sheet);
     }
-    
+
     /**
      * Build voting results sheet.
      */
@@ -266,9 +415,9 @@ class AssemblyReportService
             'Fecha Apertura',
             'Fecha Cierre',
         ];
-        
+
         $sheet->fromArray([$headers], null, 'A1');
-        
+
         // Style headers
         $headerRange = 'A1:K1';
         $sheet->getStyle($headerRange)->applyFromArray([
@@ -283,27 +432,27 @@ class AssemblyReportService
                 'allBorders' => ['borderStyle' => Border::BORDER_THIN],
             ],
         ]);
-        
+
         // Get questions filtered by assembly_id with their votes
         $questions = AssemblyQuestion::with(['options'])
             ->where('assembly_id', $assemblyId)
             ->orderBy('order')
             ->get();
-        
+
         $row = 2;
         $questionNumber = 1;
         $questionChartData = [];
-        
+
         foreach ($questions as $question) {
             // Get votes filtered by assembly_id for this question
             $votes = AssemblyVote::where('question_id', $question->id)
                 ->where('assembly_id', $assemblyId)
                 ->get();
             $totalVotes = $votes->count();
-            
+
             // Get option texts
             $optionTexts = $question->options->pluck('text', 'option_key')->toArray();
-            
+
             // Calculate results for each option
             $optionResults = [];
             foreach (AssemblyQuestion::defaultOptions() as $defaultOption) {
@@ -311,34 +460,34 @@ class AssemblyReportService
                 $optionVotes = $votes->filter(function ($vote) use ($optionKey) {
                     return in_array($optionKey, $vote->selected_options ?? []);
                 })->count();
-                
+
                 $percentage = $totalVotes > 0 ? ($optionVotes / $totalVotes) * 100 : 0;
-                
+
                 $optionResults[] = [
                     'text' => $optionTexts[$optionKey] ?? $defaultOption['text'],
                     'votes' => $optionVotes,
                     'percentage' => round($percentage, 2),
                 ];
             }
-            
+
             // Calculate if majority was achieved
             $maxVotes = $totalVotes > 0 ? max(array_column($optionResults, 'votes')) : 0;
             $majorityAchieved = $this->calculateMajority($question, $maxVotes, $totalVotes, $assemblyId);
-            
+
             // Map majority type
             $majorityTypeMap = [
                 'SIMPLE' => 'Mayoría Simple',
                 'ABSOLUTE' => 'Mayoría Absoluta',
                 'TWO_THIRDS' => 'Mayoría de Dos Tercios',
             ];
-            
+
             // Map status
             $statusMap = [
                 'PENDING' => 'Pendiente',
                 'OPEN' => 'Abierta',
                 'CLOSED' => 'Cerrada',
             ];
-            
+
             // Store chart data for this question
             $questionChartData[$questionNumber] = [
                 'firstRow' => $row,
@@ -346,82 +495,82 @@ class AssemblyReportService
                 'optionResults' => $optionResults,
                 'questionTitle' => $question->title,
             ];
-            
+
             // Write question data for each option
             $firstOptionRow = $row;
             foreach ($optionResults as $index => $optionResult) {
                 if ($index === 0) {
                     // First row: full question info
-                    $sheet->setCellValue('A' . $row, $questionNumber);
-                    $sheet->setCellValue('B' . $row, $question->title);
-                    $sheet->setCellValue('C' . $row, $majorityTypeMap[$question->majority_type] ?? $question->majority_type);
-                    $sheet->setCellValue('D' . $row, $statusMap[$question->status] ?? $question->status);
-                    $sheet->setCellValue('H' . $row, $totalVotes);
-                    $sheet->setCellValue('I' . $row, $majorityAchieved ? 'Sí' : 'No');
-                    $sheet->setCellValue('J' . $row, $question->opened_at?->format('d/m/Y H:i:s') ?? '');
-                    $sheet->setCellValue('K' . $row, $question->closed_at?->format('d/m/Y H:i:s') ?? '');
+                    $sheet->setCellValue('A'.$row, $questionNumber);
+                    $sheet->setCellValue('B'.$row, $question->title);
+                    $sheet->setCellValue('C'.$row, $majorityTypeMap[$question->majority_type] ?? $question->majority_type);
+                    $sheet->setCellValue('D'.$row, $statusMap[$question->status] ?? $question->status);
+                    $sheet->setCellValue('H'.$row, $totalVotes);
+                    $sheet->setCellValue('I'.$row, $majorityAchieved ? 'Sí' : 'No');
+                    $sheet->setCellValue('J'.$row, $question->opened_at?->format('d/m/Y H:i:s') ?? '');
+                    $sheet->setCellValue('K'.$row, $question->closed_at?->format('d/m/Y H:i:s') ?? '');
                 } else {
                     // Merge cells for question info in subsequent rows
-                    $sheet->mergeCells('A' . $firstOptionRow . ':A' . $row);
-                    $sheet->mergeCells('B' . $firstOptionRow . ':B' . $row);
-                    $sheet->mergeCells('C' . $firstOptionRow . ':C' . $row);
-                    $sheet->mergeCells('D' . $firstOptionRow . ':D' . $row);
-                    $sheet->mergeCells('H' . $firstOptionRow . ':H' . $row);
-                    $sheet->mergeCells('I' . $firstOptionRow . ':I' . $row);
-                    $sheet->mergeCells('J' . $firstOptionRow . ':J' . $row);
-                    $sheet->mergeCells('K' . $firstOptionRow . ':K' . $row);
+                    $sheet->mergeCells('A'.$firstOptionRow.':A'.$row);
+                    $sheet->mergeCells('B'.$firstOptionRow.':B'.$row);
+                    $sheet->mergeCells('C'.$firstOptionRow.':C'.$row);
+                    $sheet->mergeCells('D'.$firstOptionRow.':D'.$row);
+                    $sheet->mergeCells('H'.$firstOptionRow.':H'.$row);
+                    $sheet->mergeCells('I'.$firstOptionRow.':I'.$row);
+                    $sheet->mergeCells('J'.$firstOptionRow.':J'.$row);
+                    $sheet->mergeCells('K'.$firstOptionRow.':K'.$row);
                 }
-                
-                $sheet->setCellValue('E' . $row, $optionResult['text']);
-                $sheet->setCellValue('F' . $row, $optionResult['votes']);
-                $sheet->setCellValue('G' . $row, $optionResult['percentage'] . '%');
-                
+
+                $sheet->setCellValue('E'.$row, $optionResult['text']);
+                $sheet->setCellValue('F'.$row, $optionResult['votes']);
+                $sheet->setCellValue('G'.$row, $optionResult['percentage'].'%');
+
                 // Style row
-                $rowRange = 'A' . $row . ':K' . $row;
+                $rowRange = 'A'.$row.':K'.$row;
                 $sheet->getStyle($rowRange)->applyFromArray([
                     'borders' => [
                         'allBorders' => ['borderStyle' => Border::BORDER_THIN],
                     ],
                     'alignment' => ['vertical' => Alignment::VERTICAL_TOP],
                 ]);
-                
+
                 // Center align numeric columns
-                $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle('F' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle('G' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle('H' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle('I' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                
+                $sheet->getStyle('A'.$row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle('F'.$row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle('G'.$row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle('H'.$row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle('I'.$row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
                 $row++;
             }
-            
+
             $questionNumber++;
         }
-        
+
         // Auto-size columns
         foreach (range('A', 'K') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
-        
+
         // Set specific widths for better readability
         $sheet->getColumnDimension('B')->setWidth(50);
         $sheet->getColumnDimension('E')->setWidth(25);
-        
+
         // Freeze first row
         $sheet->freezePane('A2');
-        
+
         // Wrap text for question column
-        $sheet->getStyle('B2:B' . ($row - 1))->getAlignment()->setWrapText(true);
-        
+        $sheet->getStyle('B2:B'.($row - 1))->getAlignment()->setWrapText(true);
+
         // Add autofilter to columns A (N°) and B (Pregunta)
         if ($row > 2) {
             $sheet->setAutoFilter('A1:K1');
         }
-        
+
         // Add charts for each question
         $this->addChartsToVotingSheet($sheet, $questionChartData, $row);
     }
-    
+
     /**
      * Add charts to voting results sheet.
      */
@@ -430,41 +579,41 @@ class AssemblyReportService
         if (empty($questionChartData)) {
             return;
         }
-        
+
         $chartStartColumn = 'M'; // Start charts after column K
         $chartRow = 2;
         $chartWidth = 8; // 8 columns wide
         $chartHeight = 12; // 12 rows high
-        
+
         // Get sheet name and escape it properly
         $sheetName = $sheet->getTitle();
-        $sheetNameEscaped = "'" . str_replace("'", "''", $sheetName) . "'";
-        
+        $sheetNameEscaped = "'".str_replace("'", "''", $sheetName)."'";
+
         foreach ($questionChartData as $questionNum => $chartData) {
             $firstRow = $chartData['firstRow'];
             $lastRow = $chartData['lastRow'];
             $optionResults = $chartData['optionResults'];
             $questionTitle = $chartData['questionTitle'];
-            
+
             // Skip if no data
             if (empty($optionResults)) {
                 continue;
             }
-            
+
             // Prepare data for chart - use direct values instead of cell references
             $optionLabels = [];
             $voteValues = [];
-            
+
             foreach ($optionResults as $option) {
                 $optionLabels[] = $option['text'];
                 $voteValues[] = $option['votes'];
             }
-            
+
             // Create chart data series with direct values
             $dataSeriesLabels = [
                 new DataSeriesValues(DataSeriesValues::DATASERIES_TYPE_STRING, null, null, 1),
             ];
-            
+
             // X-axis labels (option names) - use direct values
             // Constructor: (dataType, dataSource, formatCode, pointCount, dataValues)
             $xAxisTickValues = [
@@ -476,7 +625,7 @@ class AssemblyReportService
                     $optionLabels
                 ),
             ];
-            
+
             // Y-axis values (vote counts) - use direct values
             $dataSeriesValues = [
                 new DataSeriesValues(
@@ -487,7 +636,7 @@ class AssemblyReportService
                     $voteValues
                 ),
             ];
-            
+
             // Create the data series
             $series = new DataSeries(
                 DataSeries::TYPE_BARCHART,
@@ -497,21 +646,21 @@ class AssemblyReportService
                 $xAxisTickValues,
                 $dataSeriesValues
             );
-            
+
             $series->setPlotDirection(DataSeries::DIRECTION_VERTICAL);
-            
+
             // Create plot area
             $plotArea = new PlotArea(null, [$series]);
-            
+
             // Create legend
             $legend = new Legend(Legend::POSITION_RIGHT, null, false);
-            
+
             // Create title
-            $title = new Title('Pregunta ' . $questionNum . ': ' . mb_substr($questionTitle, 0, 50) . (mb_strlen($questionTitle) > 50 ? '...' : ''));
-            
+            $title = new Title('Pregunta '.$questionNum.': '.mb_substr($questionTitle, 0, 50).(mb_strlen($questionTitle) > 50 ? '...' : ''));
+
             // Create chart
             $chart = new Chart(
-                'chart_' . $questionNum,
+                'chart_'.$questionNum,
                 $title,
                 $legend,
                 $plotArea,
@@ -520,26 +669,26 @@ class AssemblyReportService
                 new Title('Opciones'),
                 new Title('Votos')
             );
-            
+
             // Calculate chart position using proper Excel column calculation
             $chartCol = $chartStartColumn;
-            $chartTopLeft = $chartCol . $chartRow;
-            
+            $chartTopLeft = $chartCol.$chartRow;
+
             // Calculate end column properly
             $startColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($chartCol);
             $endColIndex = $startColIndex + $chartWidth - 1;
             $endCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($endColIndex);
-            $chartBottomRight = $endCol . ($chartRow + $chartHeight - 1);
-            
+            $chartBottomRight = $endCol.($chartRow + $chartHeight - 1);
+
             $chart->setTopLeftPosition($chartTopLeft);
             $chart->setBottomRightPosition($chartBottomRight);
-            
+
             // Add chart to sheet
             $sheet->addChart($chart);
-            
+
             // Move to next chart position (below current chart)
             $chartRow += $chartHeight + 2;
-            
+
             // If we run out of space, move to next column
             if ($chartRow + $chartHeight > $lastDataRow) {
                 $currentColIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($chartStartColumn);
@@ -549,7 +698,7 @@ class AssemblyReportService
             }
         }
     }
-    
+
     /**
      * Calculate if majority was achieved.
      */
@@ -558,7 +707,7 @@ class AssemblyReportService
         // Get quorum config for the specific assembly
         $quorum = \App\Models\QuorumConfig::where('assembly_id', $assemblyId)->first();
         $presentDelegates = $quorum ? $quorum->present_delegates : 0;
-        
+
         switch ($question->majority_type) {
             case 'SIMPLE':
                 return $maxVotes > ($totalVotes - $maxVotes);
@@ -571,4 +720,3 @@ class AssemblyReportService
         }
     }
 }
-

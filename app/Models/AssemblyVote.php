@@ -5,11 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
-use App\Models\Assembly;
 
 class AssemblyVote extends Model
 {
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -18,6 +18,8 @@ class AssemblyVote extends Model
         'assembly_id',
         'voter_id',
         'voter_name',
+        'cast_by_document',
+        'proxy_id',
         'selected_options',
         'voted_at',
     ];
@@ -35,7 +37,7 @@ class AssemblyVote extends Model
 
         static::creating(function ($vote) {
             if (empty($vote->id)) {
-                $vote->id = 'vote-' . Str::random(10);
+                $vote->id = 'vote-'.Str::random(10);
             }
             if (empty($vote->voted_at)) {
                 $vote->voted_at = now();
@@ -52,7 +54,7 @@ class AssemblyVote extends Model
                         $vote->assembly_id = $assembly->id;
                     } else {
                         throw new \RuntimeException(
-                            'No se puede crear un voto sin asamblea. ' .
+                            'No se puede crear un voto sin asamblea. '.
                             'La pregunta debe pertenecer a una asamblea o debe haber una asamblea activa.'
                         );
                     }
@@ -69,5 +71,10 @@ class AssemblyVote extends Model
     public function assembly(): BelongsTo
     {
         return $this->belongsTo(Assembly::class, 'assembly_id');
+    }
+
+    public function proxy(): BelongsTo
+    {
+        return $this->belongsTo(AssemblyProxy::class, 'proxy_id');
     }
 }

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Assembly\AssemblyAttendanceController;
 use App\Http\Controllers\Assembly\AssemblyController;
 use App\Http\Controllers\Assembly\AssemblyDelegatesFileController;
+use App\Http\Controllers\Assembly\AssemblyProxyController;
 use App\Http\Controllers\Assembly\AssemblyQuestionController;
 use App\Http\Controllers\Assembly\AssemblyReportController;
 use App\Http\Controllers\Assembly\AssemblyVoteController;
@@ -320,7 +321,11 @@ Route::prefix('assembly')->group(function () {
         Route::get('/questions/{questionId}/results', [AssemblyVoteController::class, 'getResults']);
         Route::get('/quorum', [QuorumController::class, 'index']);
         Route::get('/current', [AssemblyController::class, 'current']);
+        Route::get('/proxies/me', [AssemblyProxyController::class, 'mine']);
     });
+
+    // Public routes - Proxy declaration by a validated delegate
+    Route::post('/proxies/declare', [AssemblyProxyController::class, 'declare'])->middleware(['assembly.voting.enabled', 'throttle:voting']);
 
     // Public routes - Votes (protected by assembly voting enabled gate)
     Route::post('/questions/{questionId}/votes', [AssemblyVoteController::class, 'store'])->middleware(['assembly.voting.enabled', 'throttle:voting']);
@@ -351,6 +356,8 @@ Route::prefix('assembly')->group(function () {
         Route::post('/live-question/close', [AssemblyQuestionController::class, 'closeActiveQuestion'])->middleware('permission:assembly.questions.manage');
         Route::get('/attendance', [AssemblyAttendanceController::class, 'index'])->middleware('permission:assembly.questions.manage');
         Route::delete('/attendance/{id}', [AssemblyAttendanceController::class, 'destroy'])->middleware('permission:assembly.questions.manage');
+        Route::get('/proxies', [AssemblyProxyController::class, 'index'])->middleware('permission:assembly.questions.manage');
+        Route::post('/proxies/{id}/revoke', [AssemblyProxyController::class, 'revoke'])->middleware('permission:assembly.questions.manage');
         Route::get('/report/download', [AssemblyReportController::class, 'download'])->middleware('permission:assembly.questions.manage');
 
         // Admin routes - Quorum management

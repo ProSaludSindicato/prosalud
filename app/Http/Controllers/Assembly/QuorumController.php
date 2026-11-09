@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Assembly;
 
 use App\Http\Controllers\Controller;
+use App\Models\Assembly;
 use App\Models\QuorumConfig;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ class QuorumController extends Controller
         try {
             $quorum = QuorumConfig::getCurrent();
 
-            if (!$quorum) {
+            if (! $quorum) {
                 // Return default values if no config exists
                 return response()->json([
                     'success' => true,
@@ -27,6 +28,7 @@ class QuorumController extends Controller
                         'presentDelegates' => 0,
                         'requiredPercentage' => 50,
                         'verified' => false,
+                        'attendance' => $this->attendanceSummary(),
                     ],
                 ]);
             }
@@ -38,6 +40,7 @@ class QuorumController extends Controller
                     'presentDelegates' => $quorum->present_delegates,
                     'requiredPercentage' => $quorum->required_percentage,
                     'verified' => $quorum->verified,
+                    'attendance' => $this->attendanceSummary(),
                 ],
             ]);
         } catch (\Exception $e) {
@@ -65,7 +68,7 @@ class QuorumController extends Controller
             ]);
 
             $assembly = \App\Models\Assembly::getCurrent();
-            if (!$assembly) {
+            if (! $assembly) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay asamblea activa. Por favor, active una asamblea primero.',
@@ -74,8 +77,8 @@ class QuorumController extends Controller
 
             $quorum = QuorumConfig::getCurrent();
 
-            if (!$quorum || $quorum->assembly_id !== $assembly->id) {
-                $quorum = new QuorumConfig();
+            if (! $quorum || $quorum->assembly_id !== $assembly->id) {
+                $quorum = new QuorumConfig;
                 $quorum->assembly_id = $assembly->id;
             }
 
@@ -129,7 +132,7 @@ class QuorumController extends Controller
         try {
             $quorum = QuorumConfig::getCurrent();
 
-            if (!$quorum) {
+            if (! $quorum) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No hay configuración de quórum',
@@ -163,5 +166,25 @@ class QuorumController extends Controller
                 'message' => 'Error al verificar el quórum',
             ], 500);
         }
+    }
+
+    /**
+     * Delegates registered as present in the active assembly, in person or represented by a proxy.
+     * Proxies who are not delegates sign attendance but are not counted as delegates.
+     *
+     * @return array{inPerson: int, byProxy: int, total: int}
+     */
+    private function attendanceSummary(): array
+    {
+        $assembly = Assembly::getCurrent();
+
+        if ($assembly === null) {
+            return ['inPerson' => 0, 'byProxy' => 0, 'total' => 0];
+        }
+
+        $inPerson = $assembly->attendances()->where('is_delegate', true)->count();
+        $byProxy = $assembly->proxies()->active()->count();
+
+        return ['inPerson' => $inPerson, 'byProxy' => $byProxy, 'total' => $inPerson + $byProxy];
     }
 }

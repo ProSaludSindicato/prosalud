@@ -863,7 +863,15 @@ class ExcelReaderService
                     $payload['proceso'] = $rowProceso;
                 }
 
+                $payload['es_delegado'] = true;
+                $payload['representados'] = $this->assemblyDelegatesRepresentedBy($rows, $columnMap, $rowCedula);
+
                 return $payload;
+            }
+
+            $externalProxy = $this->matchAssemblyExternalProxy($rows, $columnMap, $normalizedSoughtDoc, $normalizedInputDate);
+            if ($externalProxy !== null) {
+                return $externalProxy;
             }
 
             $this->logAssemblyDelegateSearchMissDiagnostics(
@@ -887,6 +895,132 @@ class ExcelReaderService
 
             return null;
         }
+    }
+
+    /**
+     * Delegates represented by a proxy according to the "CC APODERADO" column of the current assembly's delegates file.
+     *
+     * @return list<array{cedula: string, nombre_apellidos: string}>
+     */
+    public function getAssemblyRepresentedDelegates(string $cedula, ?Assembly $assembly = null): array
+    {
+        $assembly = $assembly ?? Assembly::getCurrent();
+        if (! $assembly || ! $assembly->delegates_file_path) {
+            return [];
+        }
+
+        $preferredDisk = $assembly->delegates_file_disk ?: self::PRIMARY_STORAGE_DISK;
+        $data = $this->readAssemblyDelegatesFromStoredPath($assembly->delegates_file_path, $preferredDisk);
+
+        if (empty($data)) {
+            return [];
+        }
+
+        try {
+            $columnMap = AssemblyDelegateColumnResolver::resolveOrFail($data[0] ?? []);
+        } catch (\InvalidArgumentException) {
+            return [];
+        }
+
+        return $this->assemblyDelegatesRepresentedBy(
+            array_slice($data, 1),
+            $columnMap,
+            $this->normalizeAssemblyDocumentForMatch($cedula)
+        );
+    }
+
+    /**
+     * Rows whose "CC APODERADO" is the given document: the delegates that person represents.
+     *
+     * @param  array<int, mixed>  $rows
+     * @return list<array{cedula: string, nombre_apellidos: string}>
+     */
+    private function assemblyDelegatesRepresentedBy(array $rows, AssemblyDelegateColumnMap $columnMap, string $proxyCedula): array
+    {
+        if (! $columnMap->hasProxyColumns() || $proxyCedula === '') {
+            return [];
+        }
+
+        $represented = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $rowProxyCedula = $this->normalizeAssemblyDocumentForMatch(
+                $this->assemblyDelegateCellToString($row[$columnMap->apoderadoCedula] ?? null)
+            );
+            $rowCedula = $this->normalizeAssemblyDocumentForMatch(
+                $this->assemblyDelegateCellToString($row[$columnMap->cedula] ?? null)
+            );
+
+            if ($rowCedula === '' || $rowCedula === $proxyCedula || $rowProxyCedula !== $proxyCedula) {
+                continue;
+            }
+
+            $represented[$rowCedula] ??= [
+                'cedula' => $rowCedula,
+                'nombre_apellidos' => $this->assemblyDelegateCellToString($row[$columnMap->nombreApellidos] ?? null),
+            ];
+        }
+
+        return array_values($represented);
+    }
+
+    /**
+     * Authenticate a proxy who is not a delegate with the "CC APODERADO" and "FECHA EXPE APODERADO" columns.
+     *
+     * @param  array<int, mixed>  $rows
+     * @return array{cedula: string, nombre_apellidos: string, estado_bd: string, fecha_expedicion: string, es_delegado: false, representados: list<array{cedula: string, nombre_apellidos: string}>}|null
+     */
+    private function matchAssemblyExternalProxy(array $rows, AssemblyDelegateColumnMap $columnMap, string $normalizedSoughtDoc, string $normalizedInputDate): ?array
+    {
+        if (! $columnMap->hasProxyColumns() || $columnMap->apoderadoFechaExpedicion === null || $normalizedSoughtDoc === '') {
+            return null;
+        }
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $rowProxyCedula = $this->normalizeAssemblyDocumentForMatch(
+                $this->assemblyDelegateCellToString($row[$columnMap->apoderadoCedula] ?? null)
+            );
+
+            if ($rowProxyCedula !== $normalizedSoughtDoc) {
+                continue;
+            }
+
+            $rawDate = $row[$columnMap->apoderadoFechaExpedicion] ?? null;
+            $dateMatches = false;
+            foreach ($this->splitDelegateCellLines($rawDate) as $candidate) {
+                $asString = $this->delegateExcelCellToComparableDateString($candidate);
+                if ($asString !== '' && $this->assemblyNormalizedDatesEquivalent($asString, $normalizedInputDate)) {
+                    $dateMatches = true;
+                    break;
+                }
+            }
+
+            if (! $dateMatches) {
+                continue;
+            }
+
+            $proxyName = $columnMap->apoderadoNombre !== null
+                ? $this->assemblyDelegateCellToString($row[$columnMap->apoderadoNombre] ?? null)
+                : '';
+
+            return [
+                'cedula' => $normalizedSoughtDoc,
+                'nombre_apellidos' => $proxyName !== '' ? $proxyName : $normalizedSoughtDoc,
+                'estado_bd' => '',
+                'fecha_expedicion' => $this->assemblyDelegateCellToString($rawDate),
+                'es_delegado' => false,
+                'representados' => $this->assemblyDelegatesRepresentedBy($rows, $columnMap, $normalizedSoughtDoc),
+            ];
+        }
+
+        return null;
     }
 
     /**
@@ -1140,12 +1274,7 @@ class ExcelReaderService
 
     private function normalizeAssemblyDocumentForMatch(string $documento): string
     {
-        $d = str_replace(["\xC2\xA0", ' '], '', trim($documento));
-        if ($d !== '' && is_numeric($d)) {
-            return (string) (int) round((float) $d);
-        }
-
-        return $d;
+        return AssemblyDelegateDocument::normalize($documento);
     }
 
     /**

@@ -4,10 +4,11 @@ namespace App\Http\Controllers\Assembly;
 
 use App\Events\VoteRegistered;
 use App\Http\Controllers\Controller;
-use App\Models\AssemblyAttendance;
+use App\Models\AssemblyProxy;
 use App\Models\AssemblyQuestion;
 use App\Models\AssemblyVote;
 use App\Models\QuorumConfig;
+use App\Services\AssemblyProxyService;
 use App\Services\VoterSessionService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +18,10 @@ use Illuminate\Support\Facades\Log;
 
 class AssemblyVoteController extends Controller
 {
-    public function __construct(private VoterSessionService $voterSessionService) {}
+    public function __construct(
+        private VoterSessionService $voterSessionService,
+        private AssemblyProxyService $proxyService,
+    ) {}
 
     /**
      * Submit a vote
@@ -71,49 +75,97 @@ class AssemblyVoteController extends Controller
                 ], 400);
             }
 
-            $validated['voterId'] = $session['document_number'];
-            $validated['voterName'] = $session['name'] !== '' ? $session['name'] : $session['document_number'];
+            $voterId = $session['document_number'];
+            $voterName = $session['name'] !== '' ? $session['name'] : $voterId;
+            $proxies = $this->proxyService->activeProxiesFor($question->assembly_id, $voterId);
+
+            $ownBallot = $session['is_delegate'] ? [[
+                'voter_id' => $voterId,
+                'voter_name' => $voterName,
+                'cast_by_document' => null,
+                'proxy_id' => null,
+            ]] : [];
+
+            if ($ownBallot === [] && $proxies->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tiene votos activos: los delegados que representaba ya no están a su cargo.',
+                    'error_code' => 'NO_ACTIVE_VOTES',
+                ], 400);
+            }
+
+            $ballots = collect($ownBallot)->concat($proxies->map(fn (AssemblyProxy $proxy): array => [
+                'voter_id' => $proxy->represented_document,
+                'voter_name' => $proxy->represented_name ?: $proxy->represented_document,
+                'cast_by_document' => $voterId,
+                'proxy_id' => $proxy->id,
+            ]));
 
             DB::beginTransaction();
 
-            // Check if user already voted
-            $existingVote = AssemblyVote::where('question_id', $questionId)
-                ->where('voter_id', $validated['voterId'])
-                ->first();
+            $existingVotes = AssemblyVote::query()
+                ->where('question_id', $questionId)
+                ->whereIn('voter_id', $ballots->pluck('voter_id'))
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('voter_id');
 
-            if ($existingVote) {
-                if (! $question->allow_change_vote) {
-                    DB::rollBack();
+            $createdCount = 0;
+            $updatedCount = 0;
+            $castFor = [];
 
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No se permite cambiar el voto',
-                        'errors' => [
-                            'vote' => ['La pregunta no permite cambiar el voto o ya está cerrada'],
-                        ],
-                    ], 400);
+            foreach ($ballots as $ballot) {
+                $existingVote = $existingVotes->get($ballot['voter_id']);
+
+                if ($existingVote === null) {
+                    AssemblyVote::create([
+                        'question_id' => $questionId,
+                        'assembly_id' => $question->assembly_id,
+                        'voter_id' => $ballot['voter_id'],
+                        'voter_name' => $ballot['voter_name'],
+                        'cast_by_document' => $ballot['cast_by_document'],
+                        'proxy_id' => $ballot['proxy_id'],
+                        'selected_options' => $selectedOptionKeys,
+                        'voted_at' => now(),
+                    ]);
+                    $createdCount++;
+                    $castFor[] = ['document' => $ballot['voter_id'], 'name' => $ballot['voter_name']];
+
+                    continue;
                 }
 
-                // Update existing vote
-                $existingVote->update([
-                    'selected_options' => $selectedOptionKeys,
-                    'voter_name' => $validated['voterName'],
-                    'voted_at' => now(),
-                ]);
+                $castBySameVoter = ($existingVote->cast_by_document ?? $existingVote->voter_id) === $voterId;
 
-                $vote = $existingVote;
-            } else {
-                // Create new vote
-                $vote = AssemblyVote::create([
-                    'question_id' => $questionId,
-                    'assembly_id' => $question->assembly_id,
-                    'voter_id' => $validated['voterId'],
-                    'voter_name' => $validated['voterName'],
-                    'selected_options' => $selectedOptionKeys,
-                    'voted_at' => now(),
-                ]);
+                if ($question->allow_change_vote && $castBySameVoter) {
+                    $existingVote->update([
+                        'selected_options' => $selectedOptionKeys,
+                        'voter_name' => $ballot['voter_name'],
+                        'voted_at' => now(),
+                    ]);
+                    $updatedCount++;
+                    $castFor[] = ['document' => $ballot['voter_id'], 'name' => $ballot['voter_name']];
+                }
+            }
 
-                $question->incrementVotesCount();
+            if ($createdCount === 0 && $updatedCount === 0) {
+                DB::rollBack();
+
+                $ownVote = $existingVotes->get($voterId);
+                $castByProxy = $ownVote !== null && $ownVote->cast_by_document !== null && $ownVote->cast_by_document !== $voterId;
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $castByProxy
+                        ? 'Su voto en esta pregunta ya fue emitido por su apoderado'
+                        : 'No se permite cambiar el voto',
+                    'errors' => [
+                        'vote' => ['La pregunta no permite cambiar el voto o ya está cerrada'],
+                    ],
+                ], 400);
+            }
+
+            if ($createdCount > 0) {
+                $question->incrementVotesCount($createdCount);
             }
 
             DB::commit();
@@ -122,14 +174,17 @@ class AssemblyVoteController extends Controller
 
             Log::info('Vote registered', [
                 'question_id' => $questionId,
-                'voter_id' => $validated['voterId'],
+                'voter_id' => $voterId,
+                'cast_for' => array_column($castFor, 'document'),
             ]);
 
-            $question->refresh();
+            $vote = $this->findVoteCastBy($questionId, $voterId);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Voto registrado exitosamente',
+                'message' => count($castFor) > 1
+                    ? 'Voto registrado exitosamente por '.count($castFor).' delegados'
+                    : 'Voto registrado exitosamente',
                 'data' => [
                     'id' => $vote->id,
                     'questionId' => $vote->question_id,
@@ -137,6 +192,7 @@ class AssemblyVoteController extends Controller
                     'voterName' => $vote->voter_name,
                     'selectedOptions' => $vote->selected_options,
                     'votedAt' => $vote->voted_at->toISOString(),
+                    'castFor' => $castFor,
                 ],
             ], 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -186,9 +242,7 @@ class AssemblyVoteController extends Controller
                 ], 401);
             }
 
-            $vote = AssemblyVote::where('question_id', $questionId)
-                ->where('voter_id', $session['document_number'])
-                ->first();
+            $vote = $this->findVoteCastBy($questionId, $session['document_number']);
 
             if (! $vote) {
                 return response()->json([
@@ -331,30 +385,24 @@ class AssemblyVoteController extends Controller
     }
 
     /**
+     * The voter's own vote on a question or, for a proxy without a vote of their own, one cast on behalf of a represented delegate.
+     */
+    private function findVoteCastBy(string $questionId, string $voterId): ?AssemblyVote
+    {
+        return AssemblyVote::query()
+            ->where('question_id', $questionId)
+            ->where(fn ($query) => $query->where('voter_id', $voterId)->orWhere('cast_by_document', $voterId))
+            ->orderByRaw('voter_id = ? desc', [$voterId])
+            ->first();
+    }
+
+    /**
      * Resolve the voter identity from the signed session token and confirm attendance was recorded.
      *
-     * @return array{document_type: string, document_number: string, hospital: string, name: string, scope: string}|null
+     * @return array{document_type: string, document_number: string, hospital: string, name: string, position: string, scope: string}|null
      */
     private function resolveVoterSession(Request $request, int|string|null $assemblyId): ?array
     {
-        if ($assemblyId === null) {
-            return null;
-        }
-
-        $session = $this->voterSessionService->verify(
-            $request->header(VoterSessionService::HEADER),
-            $this->voterSessionService->assemblyScope($assemblyId)
-        );
-
-        if ($session === null) {
-            return null;
-        }
-
-        $attended = AssemblyAttendance::query()
-            ->where('assembly_id', $assemblyId)
-            ->where('document_number', $session['document_number'])
-            ->exists();
-
-        return $attended ? $session : null;
+        return $this->voterSessionService->verifyAssemblyAttendee($request, $assemblyId);
     }
 }

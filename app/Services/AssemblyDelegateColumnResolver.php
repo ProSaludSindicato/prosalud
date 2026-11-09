@@ -39,6 +39,12 @@ final class AssemblyDelegateColumnResolver
             return null;
         };
 
+        $apoderadoFechaIdx = $pickFirst(fn (string $h): bool => self::headerMatchesApoderado($h) && self::headerMatchesFechaExpedicion($h));
+        $apoderadoCedulaIdx = $pickFirst(fn (string $h): bool => self::headerMatchesApoderado($h) && self::headerMatchesProxyDocument($h));
+        $apoderadoNombreIdx = $pickFirst(fn (string $h): bool => self::headerMatchesApoderadoNombre($h));
+        while ($pickFirst(fn (string $h): bool => self::headerMatchesApoderado($h)) !== null) {
+            // Reserve remaining proxy columns (e.g. "ASISTENCIA APODERADO") so they are not mistaken for delegate columns.
+        }
         $fechaIdx = $pickFirst(fn (string $h): bool => self::headerMatchesFechaExpedicion($h));
         $nombreIdx = $pickFirst(fn (string $h): bool => self::headerMatchesNombreApellidos($h));
         $procesoIdx = $pickFirst(fn (string $h): bool => self::headerMatchesProceso($h));
@@ -79,6 +85,9 @@ final class AssemblyDelegateColumnResolver
                     $estadoIdx,
                     null,
                     $fechaIdx,
+                    $apoderadoCedulaIdx,
+                    $apoderadoNombreIdx,
+                    $apoderadoFechaIdx,
                 );
             }
 
@@ -103,6 +112,9 @@ final class AssemblyDelegateColumnResolver
             $estadoIdx,
             $procesoIdx,
             $fechaIdx,
+            $apoderadoCedulaIdx,
+            $apoderadoNombreIdx,
+            $apoderadoFechaIdx,
         );
     }
 
@@ -115,6 +127,26 @@ final class AssemblyDelegateColumnResolver
             ['a', 'e', 'i', 'o', 'u', 'n', 'u'],
             $lower
         );
+    }
+
+    private static function headerMatchesApoderado(string $normalized): bool
+    {
+        return str_contains($normalized, 'apoderad');
+    }
+
+    private static function headerMatchesProxyDocument(string $normalized): bool
+    {
+        return preg_match('/\b(cc|c\.c\.?)\b/', $normalized) === 1
+            || Str::contains($normalized, ['cedula', 'documento', 'identificacion']);
+    }
+
+    /**
+     * "APODERADO" or "NOMBRE APODERADO", but not other proxy columns such as "ASISTENCIA APODERADO".
+     */
+    private static function headerMatchesApoderadoNombre(string $normalized): bool
+    {
+        return in_array($normalized, ['apoderado', 'apoderada', 'apoderado(a)'], true)
+            || (self::headerMatchesApoderado($normalized) && str_contains($normalized, 'nombre'));
     }
 
     private static function headerMatchesCedula(string $normalized): bool

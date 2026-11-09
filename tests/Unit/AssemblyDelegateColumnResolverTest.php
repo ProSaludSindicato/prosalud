@@ -26,7 +26,29 @@ class AssemblyDelegateColumnResolverTest extends TestCase
         $this->assertSame(3, $map->estadoBd);
         $this->assertSame(4, $map->proceso);
         $this->assertSame(5, $map->fechaExpedicion);
+        $this->assertNull($map->apoderadoCedula);
+        $this->assertFalse($map->hasProxyColumns());
         $this->assertFalse($map->isLegacyFourColumnLayout());
+    }
+
+    public function test_resolves_proxy_columns_of_delegates_assembly_file(): void
+    {
+        $map = AssemblyDelegateColumnResolver::resolveOrFail([
+            'CEDULA', 'NOMBRE Y APELLIDOS', 'FECHA DE EXPEDICION', 'SEDE', 'ESTADO BD', 'PROCESO', 'CORREO',
+            'RESPONSABLE CONVOCATORIA', 'ASISTENCIA', 'VOTACION', 'CC APODERADO', 'APODERADO', 'FECHA EXPE APODERADO',
+            'ASISTENCIA APODERADO', 'OBSERVACIONES', null,
+        ]);
+
+        $this->assertSame(0, $map->cedula);
+        $this->assertSame(1, $map->nombreApellidos);
+        $this->assertSame(2, $map->fechaExpedicion);
+        $this->assertSame(3, $map->sede);
+        $this->assertSame(4, $map->estadoBd);
+        $this->assertSame(5, $map->proceso);
+        $this->assertSame(10, $map->apoderadoCedula);
+        $this->assertSame(11, $map->apoderadoNombre);
+        $this->assertSame(12, $map->apoderadoFechaExpedicion);
+        $this->assertTrue($map->hasProxyColumns());
     }
 
     public function test_resolves_reordered_columns_by_name(): void

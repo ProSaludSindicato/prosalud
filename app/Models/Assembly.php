@@ -51,6 +51,11 @@ class Assembly extends Model
         return $this->hasMany(AssemblyAttendance::class, 'assembly_id');
     }
 
+    public function proxies(): HasMany
+    {
+        return $this->hasMany(AssemblyProxy::class, 'assembly_id');
+    }
+
     public function quorumConfigs(): HasMany
     {
         return $this->hasMany(QuorumConfig::class, 'assembly_id');

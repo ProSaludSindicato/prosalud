@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Assembly;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -26,6 +25,7 @@ class ResetAssemblyDataCommand extends Command
 
         $tables = [
             'assembly_votes' => 'Votos registrados',
+            'assembly_proxies' => 'Poderes de delegados (apoderados)',
             'question_options' => 'Opciones de preguntas',
             'assembly_questions' => 'Preguntas de asamblea',
             'quorum_config' => 'Configuración de quórum',
@@ -37,7 +37,7 @@ class ResetAssemblyDataCommand extends Command
         }
 
         if ($this->option('keep-attendance')) {
-            unset($tables['assembly_attendances']);
+            unset($tables['assembly_attendances'], $tables['assembly_proxies']);
         }
 
         if (empty($tables)) {
@@ -54,8 +54,8 @@ class ResetAssemblyDataCommand extends Command
             return Command::SUCCESS;
         }
 
-        if (!$this->option('force')) {
-            if (!$this->confirm('¿Deseas continuar y eliminar permanentemente estos datos?')) {
+        if (! $this->option('force')) {
+            if (! $this->confirm('¿Deseas continuar y eliminar permanentemente estos datos?')) {
                 $this->info('Operación cancelada.');
 
                 return Command::SUCCESS;
@@ -70,7 +70,7 @@ class ResetAssemblyDataCommand extends Command
                 $this->line("✅ Tabla {$table} limpiada.");
             }
         } catch (\Throwable $e) {
-            $this->error('Error durante la limpieza: ' . $e->getMessage());
+            $this->error('Error durante la limpieza: '.$e->getMessage());
 
             return Command::FAILURE;
         } finally {
@@ -88,4 +88,3 @@ class ResetAssemblyDataCommand extends Command
         return Command::SUCCESS;
     }
 }
-

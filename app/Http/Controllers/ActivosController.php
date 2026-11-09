@@ -7,6 +7,7 @@ use App\Models\Assembly;
 use App\Models\VotingSetting;
 use App\Services\AfiliadoService;
 use App\Services\AssemblyAttendanceService;
+use App\Services\AssemblyProxyService;
 use App\Services\ExcelReaderService;
 use App\Services\VoterSessionService;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ class ActivosController extends Controller
         private AssemblyAttendanceService $attendanceService,
         private AfiliadoService $afiliadoService,
         private VoterSessionService $voterSessionService,
+        private AssemblyProxyService $proxyService,
     ) {}
 
     /**
@@ -71,6 +73,9 @@ class ActivosController extends Controller
                 $fechaExpedicion
             );
 
+            $representedDelegates = $afiliado['representados'] ?? [];
+            unset($afiliado['representados']);
+
             $response = [
                 'success' => true,
                 'data' => $afiliado,
@@ -96,8 +101,21 @@ class ActivosController extends Controller
                     $afiliado['nombre_apellidos'] ?? null,
                     $fechaExpedicion,
                     $request,
-                    $request->input('signature')
+                    $request->input('signature'),
+                    $afiliado['es_delegado'] ?? true
                 );
+
+                if ($assembly !== null && $cedula !== '') {
+                    $this->proxyService->revokeOnPersonalAttendance($assembly, $cedula);
+
+                    $response['proxy'] = [
+                        'listed' => array_map(fn (array $delegate): array => [
+                            'document' => $delegate['cedula'],
+                            'name' => $delegate['nombre_apellidos'],
+                        ], $representedDelegates),
+                        'registered' => $this->proxyService->activeRepresentedFor($assembly->id, $cedula),
+                    ];
+                }
             }
 
             // Log the result

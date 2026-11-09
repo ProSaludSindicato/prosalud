@@ -15,6 +15,7 @@ class AssemblyAttendance extends Model
         'assembly_id',
         'document_number',
         'full_name',
+        'is_delegate',
         'issue_date_normalized',
         'signature_path',
         'ip_address',
@@ -23,6 +24,7 @@ class AssemblyAttendance extends Model
     ];
 
     protected $casts = [
+        'is_delegate' => 'boolean',
         'issue_date_normalized' => 'date',
         'authenticated_at' => 'datetime',
     ];
@@ -43,7 +45,7 @@ class AssemblyAttendance extends Model
                     $attendance->assembly_id = $assembly->id;
                 } else {
                     throw new \RuntimeException(
-                        'No se puede registrar asistencia sin asamblea activa. ' .
+                        'No se puede registrar asistencia sin asamblea activa. '.
                         'Por favor, active una asamblea primero.'
                     );
                 }
@@ -53,7 +55,7 @@ class AssemblyAttendance extends Model
 
     public function getSignatureUrlAttribute(): ?string
     {
-        if (!$this->signature_path) {
+        if (! $this->signature_path) {
             return null;
         }
 
@@ -85,4 +87,3 @@ class AssemblyAttendance extends Model
         return $this->belongsTo(Assembly::class, 'assembly_id');
     }
 }
-

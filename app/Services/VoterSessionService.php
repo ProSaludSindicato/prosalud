@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\AssemblyAttendance;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 
 class VoterSessionService
@@ -62,6 +64,32 @@ class VoterSessionService
             'position' => is_string($payload['position'] ?? null) ? $payload['position'] : '',
             'scope' => $payload['scope'],
         ];
+    }
+
+    /**
+     * Resolve the voter identity from the request's assembly token and confirm attendance was recorded.
+     * `is_delegate` is false for a proxy who attends only on behalf of others and has no vote of their own.
+     *
+     * @return array{document_type: string, document_number: string, hospital: string, name: string, position: string, scope: string, is_delegate: bool}|null
+     */
+    public function verifyAssemblyAttendee(Request $request, int|string|null $assemblyId): ?array
+    {
+        if ($assemblyId === null) {
+            return null;
+        }
+
+        $session = $this->verify($request->header(self::HEADER), $this->assemblyScope($assemblyId));
+
+        if ($session === null) {
+            return null;
+        }
+
+        $attendance = AssemblyAttendance::query()
+            ->where('assembly_id', $assemblyId)
+            ->where('document_number', $session['document_number'])
+            ->first(['id', 'is_delegate']);
+
+        return $attendance !== null ? [...$session, 'is_delegate' => $attendance->is_delegate] : null;
     }
 
     public function candidateScope(string $electionKey): string

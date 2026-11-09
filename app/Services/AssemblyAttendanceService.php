@@ -13,14 +13,15 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 class AssemblyAttendanceService
 {
     /**
-     * Registers an attendance entry for an authenticated delegate.
+     * Registers an attendance entry for an authenticated delegate, or for a proxy who is not a delegate.
      */
     public function record(
         ?string $documentNumber,
         ?string $fullName,
         ?string $issueDate,
         Request $request,
-        ?string $signatureData = null
+        ?string $signatureData = null,
+        bool $isDelegate = true
     ): ?AssemblyAttendance {
         $documentNumber = $this->normalizeDocument($documentNumber);
 
@@ -46,6 +47,7 @@ class AssemblyAttendanceService
         if ($existing !== null) {
             if (filled($existing->signature_path)) {
                 $existing->update([
+                    'is_delegate' => $isDelegate,
                     'authenticated_at' => now(),
                     'ip_address' => $request->ip(),
                     'user_agent' => Str::limit($request->userAgent() ?? '', 512, ''),
@@ -65,6 +67,7 @@ class AssemblyAttendanceService
 
             $existing->update([
                 'full_name' => $this->normalizeName($fullName) ?? $existing->full_name,
+                'is_delegate' => $isDelegate,
                 'issue_date_normalized' => $normalizedIssueDate ?? $existing->issue_date_normalized,
                 'signature_path' => $signaturePath,
                 'ip_address' => $request->ip(),
@@ -87,6 +90,7 @@ class AssemblyAttendanceService
             'assembly_id' => $assembly->id,
             'document_number' => $documentNumber,
             'full_name' => $this->normalizeName($fullName),
+            'is_delegate' => $isDelegate,
             'issue_date_normalized' => $normalizedIssueDate,
             'signature_path' => $signaturePath,
             'ip_address' => $request->ip(),

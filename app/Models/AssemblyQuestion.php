@@ -2,12 +2,10 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Str;
-use App\Models\Assembly;
 
 class AssemblyQuestion extends Model
 {
@@ -17,6 +15,7 @@ class AssemblyQuestion extends Model
     ];
 
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -66,7 +65,7 @@ class AssemblyQuestion extends Model
                     $question->assembly_id = $assembly->id;
                 } else {
                     throw new \RuntimeException(
-                        'No se puede crear una pregunta sin asamblea activa. ' .
+                        'No se puede crear una pregunta sin asamblea activa. '.
                         'Por favor, active una asamblea primero o especifique assembly_id.'
                     );
                 }
@@ -113,9 +112,9 @@ class AssemblyQuestion extends Model
         return $this->isOpen();
     }
 
-    public function incrementVotesCount(): void
+    public function incrementVotesCount(int $amount = 1): void
     {
-        $this->increment('votes_count');
+        $this->increment('votes_count', $amount);
     }
 
     public function decrementVotesCount(): void
