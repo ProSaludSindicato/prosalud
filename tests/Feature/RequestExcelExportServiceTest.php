@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Constants\RequestSubtypes;
 use App\Constants\RequestTypes;
 use App\Models\RequestForm;
 use App\Services\RequestExcelExportService;
@@ -47,9 +48,10 @@ class RequestExcelExportServiceTest extends TestCase
     {
         $sheet = $this->specificDetailsSheet();
 
-        $this->assertSame('Detalles Específicos', $sheet->getCell('F1')->getValue());
-        $this->assertSame('Fecha Inicio Descanso', $sheet->getCell('G1')->getValue());
-        $this->assertSame('Fecha Fin Descanso', $sheet->getCell('H1')->getValue());
+        $this->assertSame('Subtipo de Solicitud', $sheet->getCell('F1')->getValue());
+        $this->assertSame('Detalles Específicos', $sheet->getCell('G1')->getValue());
+        $this->assertSame('Fecha Inicio Descanso', $sheet->getCell('H1')->getValue());
+        $this->assertSame('Fecha Fin Descanso', $sheet->getCell('I1')->getValue());
     }
 
     public function test_rest_compensation_dates_are_exported_as_excel_dates(): void
@@ -66,14 +68,14 @@ class RequestExcelExportServiceTest extends TestCase
         $sheet = $this->specificDetailsSheet();
         $row = $this->rowsById($sheet)[$request->id];
 
-        $start = $sheet->getCell("G{$row}");
-        $end = $sheet->getCell("H{$row}");
+        $start = $sheet->getCell("H{$row}");
+        $end = $sheet->getCell("I{$row}");
 
         $this->assertSame('2026-11-01', ExcelDate::excelToDateTimeObject($start->getValue())->format('Y-m-d'));
         $this->assertSame('2026-11-15', ExcelDate::excelToDateTimeObject($end->getValue())->format('Y-m-d'));
         $this->assertSame('01/11/2026', $start->getFormattedValue());
-        $this->assertStringContainsString('Fecha Inicio Descanso: 01/11/2026', (string) $sheet->getCell("F{$row}")->getValue());
-        $this->assertSame('A1:H2', $sheet->getAutoFilter()->getRange());
+        $this->assertStringContainsString('Fecha Inicio Descanso: 01/11/2026', (string) $sheet->getCell("G{$row}")->getValue());
+        $this->assertSame('A1:I2', $sheet->getAutoFilter()->getRange());
     }
 
     public function test_rest_date_columns_are_empty_for_other_request_types(): void
@@ -85,8 +87,8 @@ class RequestExcelExportServiceTest extends TestCase
         $sheet = $this->specificDetailsSheet();
         $row = $this->rowsById($sheet)[$request->id];
 
-        $this->assertNull($sheet->getCell("G{$row}")->getValue());
         $this->assertNull($sheet->getCell("H{$row}")->getValue());
+        $this->assertNull($sheet->getCell("I{$row}")->getValue());
     }
 
     public function test_invalid_rest_date_is_kept_as_raw_text(): void
@@ -102,7 +104,50 @@ class RequestExcelExportServiceTest extends TestCase
         $sheet = $this->specificDetailsSheet();
         $row = $this->rowsById($sheet)[$request->id];
 
-        $this->assertSame('no-es-fecha', $sheet->getCell("G{$row}")->getValue());
-        $this->assertNull($sheet->getCell("H{$row}")->getValue());
+        $this->assertSame('no-es-fecha', $sheet->getCell("H{$row}")->getValue());
+        $this->assertNull($sheet->getCell("I{$row}")->getValue());
+    }
+
+    public function test_payment_verification_subtype_is_exported_in_its_own_column(): void
+    {
+        $request = RequestForm::factory()->create([
+            'request_type' => RequestTypes::VERIFICACION_PAGOS,
+            'payload' => [
+                'proceso' => 'NUTRICION',
+                'solicitudRelacionadaCon' => RequestSubtypes::INCAPACIDADES,
+            ],
+        ]);
+
+        $sheet = $this->specificDetailsSheet();
+        $row = $this->rowsById($sheet)[$request->id];
+
+        $this->assertSame('Incapacidades', $sheet->getCell("F{$row}")->getValue());
+        $this->assertStringContainsString('NUTRICION', (string) $sheet->getCell("G{$row}")->getValue());
+    }
+
+    public function test_subtype_column_is_empty_for_request_types_without_subtypes(): void
+    {
+        $request = RequestForm::factory()->create([
+            'request_type' => RequestTypes::CERTIFICADO_CONVENIO,
+            'payload' => ['solicitudRelacionadaCon' => RequestSubtypes::INCAPACIDADES],
+        ]);
+
+        $sheet = $this->specificDetailsSheet();
+        $row = $this->rowsById($sheet)[$request->id];
+
+        $this->assertNull($sheet->getCell("F{$row}")->getValue());
+    }
+
+    public function test_payment_verification_without_subtype_leaves_column_empty(): void
+    {
+        $request = RequestForm::factory()->create([
+            'request_type' => RequestTypes::VERIFICACION_PAGOS,
+            'payload' => ['proceso' => 'NUTRICION'],
+        ]);
+
+        $sheet = $this->specificDetailsSheet();
+        $row = $this->rowsById($sheet)[$request->id];
+
+        $this->assertNull($sheet->getCell("F{$row}")->getValue());
     }
 }
