@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Services\CertificadoConvenioService;
 use PhpOffice\PhpWord\TemplateProcessor;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -137,12 +138,60 @@ class CertificadoConvenioTemplateTest extends TestCase
         @unlink($outputPath);
     }
 
+    public function test_subsidio_desempleo_template_replaces_proceso(): void
+    {
+        $outputPath = $this->generarDocumentoDesdePlantilla([
+            'NOMBRE_COMPLETO' => 'ALISSON CARO HOLGUIN',
+            'DOCUMENTO' => '1.000.918.728',
+            'HOSPITAL' => 'E.S.E. Hospital San Vicente',
+            'PROCESO' => 'MEDICO PROCESO GESTION HOLISTICA DE LA CALIDAD',
+            'FECHA_CERTIFICADO' => '9 de noviembre de 2026',
+            'FECHA_HASTA' => '31 de agosto de 2026',
+            'SE_ENCUENTRA_ESTUVO' => 'estuvo',
+            'UN_CONVENIO_VARIOS_CONVENIOS' => 'varios Convenios',
+            'DESARROLLA_ACTUALMENTE_DESARROLLO' => 'desarrolló',
+            'ATIENDE_ATENDIO' => 'atendió',
+            'LISTA_CONVENIOS' => '❖ Hospital San Vicente, desde ene. 01/2025 hasta ago. 31/2026',
+            'DIA_CERTIFICADO' => '9',
+            'MES_CERTIFICADO' => 'noviembre',
+            'ANIO_CERTIFICADO' => '2026',
+            'CONSECUTIVO' => '202611090001',
+        ], 'certificado_convenio_subsidio_desempleo_template.docx');
+
+        $plainText = $this->extraerTextoPlano($this->obtenerDocumentXml($outputPath));
+
+        $this->assertStringContainsString('procesos de MEDICO PROCESO GESTION HOLISTICA DE LA CALIDAD', $plainText);
+        $this->assertStringNotContainsString('{PROCESO}', $plainText);
+
+        @unlink($outputPath);
+    }
+
+    #[DataProvider('plantillasCertificado')]
+    public function test_template_placeholders_use_dollar_brace_syntax(string $templateName): void
+    {
+        $plainText = $this->extraerTextoPlano($this->obtenerDocumentXml(base_path('resources/templates/'.$templateName)));
+
+        $this->assertDoesNotMatchRegularExpression('/(?<!\$)\{[A-Z_]+\}/', $plainText);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function plantillasCertificado(): array
+    {
+        $templates = glob(dirname(__DIR__, 2).'/resources/templates/certificado_convenio*.docx');
+
+        return collect($templates)
+            ->mapWithKeys(fn (string $path): array => [basename($path) => [basename($path)]])
+            ->all();
+    }
+
     /**
      * @param  array<string, string>  $datos
      */
-    private function generarDocumentoDesdePlantilla(array $datos): string
+    private function generarDocumentoDesdePlantilla(array $datos, string $templateName = 'certificado_convenio_template.docx'): string
     {
-        $templatePath = base_path('resources/templates/certificado_convenio_template.docx');
+        $templatePath = base_path('resources/templates/'.$templateName);
 
         $this->assertFileExists($templatePath);
 
