@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GenerateSstDeliveryReportJob;
 use App\Models\SstDeliveryRecord;
 use App\Models\SstReturnRecord;
 use App\Services\SstDeliveryReportService;
@@ -121,7 +122,7 @@ class SstDeliveryReportController extends Controller
      */
     public function checkStatus(string $jobId): JsonResponse
     {
-        $cacheKey = "sst_report:{$jobId}";
+        $cacheKey = GenerateSstDeliveryReportJob::cacheKey($jobId);
         $status = cache()->get($cacheKey);
 
         if (! $status) {
@@ -153,7 +154,7 @@ class SstDeliveryReportController extends Controller
      */
     public function downloadReport(string $jobId): StreamedResponse|JsonResponse
     {
-        $cacheKey = "sst_report:{$jobId}";
+        $cacheKey = GenerateSstDeliveryReportJob::cacheKey($jobId);
         $status = cache()->get($cacheKey);
 
         if (! $status) {
@@ -190,30 +191,14 @@ class SstDeliveryReportController extends Controller
             ], 404);
         }
 
-        try {
-            $fileContent = $disk->get($filePath);
+        Log::info('Reporte de entregas SST descargado', [
+            'job_id' => $jobId,
+            'file_name' => $fileName,
+        ]);
 
-            Log::info('Reporte de entregas SST descargado', [
-                'job_id' => $jobId,
-                'file_name' => $fileName,
-            ]);
-
-            return response()->streamDownload(function () use ($fileContent) {
-                echo $fileContent;
-            }, $fileName, [
-                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error descargando reporte de entregas SST', [
-                'job_id' => $jobId,
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al descargar el archivo: '.$e->getMessage(),
-            ], 500);
-        }
+        return $disk->download($filePath, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     /**
@@ -225,7 +210,7 @@ class SstDeliveryReportController extends Controller
         $jobId = Str::uuid()->toString();
 
         cache()->put(
-            "sst_report:{$jobId}",
+            GenerateSstDeliveryReportJob::cacheKey($jobId),
             [
                 'status' => 'processing',
                 'created_at' => now()->toIso8601String(),
@@ -233,62 +218,7 @@ class SstDeliveryReportController extends Controller
             now()->addHours(24)
         );
 
-        $reportService = $this->reportService;
-
-        dispatch(function () use ($reportService, $filters, $options, $jobId) {
-            try {
-                Log::debug('Iniciando generación asíncrona de reporte de entregas SST', [
-                    'job_id' => $jobId,
-                    'include_signatures' => $options['includeSignatures'] ?? false,
-                ]);
-
-                $filePath = $reportService->generateReport($filters, $options);
-
-                if (! file_exists($filePath)) {
-                    throw new \Exception('El archivo del reporte no fue creado');
-                }
-
-                $fileName = 'reporte-dotacion-epp-'.now()->setTimezone('America/Bogota')->format('Ymd-His').'.xlsx';
-                $storagePath = 'reports/sst-delivery/'.$jobId.'/'.$fileName;
-                $disk = Storage::disk('local');
-                $disk->put($storagePath, file_get_contents($filePath));
-
-                @unlink($filePath);
-
-                cache()->put(
-                    "sst_report:{$jobId}",
-                    [
-                        'status' => 'completed',
-                        'file_path' => $storagePath,
-                        'file_name' => $fileName,
-                        'created_at' => now()->toIso8601String(),
-                    ],
-                    now()->addHours(24)
-                );
-
-                Log::info('Reporte de entregas SST generado exitosamente', [
-                    'job_id' => $jobId,
-                    'file_path' => $storagePath,
-                    'file_name' => $fileName,
-                ]);
-            } catch (\Throwable $e) {
-                Log::error('Error generando reporte de entregas SST (background)', [
-                    'job_id' => $jobId,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-
-                cache()->put(
-                    "sst_report:{$jobId}",
-                    [
-                        'status' => 'failed',
-                        'error' => $e->getMessage(),
-                        'created_at' => now()->toIso8601String(),
-                    ],
-                    now()->addHours(24)
-                );
-            }
-        })->afterResponse();
+        GenerateSstDeliveryReportJob::dispatch($jobId, $filters, $options);
 
         Log::info('Reporte de entregas SST encolado para generación asíncrona', [
             'job_id' => $jobId,

@@ -35,6 +35,11 @@ class SstDeliveryReportService
     private const IMAGE_TIMEOUT = 5; // 5 seconds
 
     /**
+     * Pixels stored per displayed point, so signatures stay sharp when zooming the sheet.
+     */
+    private const SIGNATURE_PIXEL_DENSITY = 3;
+
+    /**
      * Values stored in affiliate_hospital that actually mean "sin hospital asignado".
      * Compared after trimming and uppercasing.
      */
@@ -50,6 +55,13 @@ class SstDeliveryReportService
      * Temporary image files to clean up after report generation.
      */
     private array $tempImageFiles = [];
+
+    /**
+     * Prepared signature files keyed by storage path (null when the signature could not be loaded).
+     *
+     * @var array<string, string|null>
+     */
+    private array $signatureFiles = [];
 
     /**
      * Affiliate lookups keyed by "TIPO-NUMERO" (see lookupAffiliate()).
@@ -1881,7 +1893,7 @@ class SstDeliveryReportService
     }
 
     /**
-     * Embed signature image in Excel cell.
+     * Embed delivery signature image in Excel cell.
      */
     private function embedSignature(
         Worksheet $sheet,
@@ -1890,58 +1902,7 @@ class SstDeliveryReportService
         int $width,
         int $height
     ): void {
-        if (! $record->signature_path) {
-            return;
-        }
-
-        $disk = Storage::disk(self::SIGNATURE_DISK);
-
-        if (! $disk->exists($record->signature_path)) {
-            throw new \Exception('Firma no encontrada en almacenamiento');
-        }
-
-        // Get file content
-        $imageContent = $disk->get($record->signature_path);
-
-        // Check size
-        if (strlen($imageContent) > self::MAX_IMAGE_SIZE) {
-            throw new \Exception('Imagen excede el tamaño máximo permitido');
-        }
-
-        // Detect image type
-        $extension = strtolower(pathinfo($record->signature_path, PATHINFO_EXTENSION));
-        if (! in_array($extension, ['png', 'jpg', 'jpeg'])) {
-            $imageInfo = @getimagesizefromstring($imageContent);
-            if ($imageInfo && isset($imageInfo['mime'])) {
-                $mime = $imageInfo['mime'];
-                if ($mime === 'image/png') {
-                    $extension = 'png';
-                } elseif (in_array($mime, ['image/jpeg', 'image/jpg'])) {
-                    $extension = 'jpg';
-                } else {
-                    $extension = 'png'; // Default
-                }
-            } else {
-                $extension = 'png'; // Default
-            }
-        }
-
-        // Create temporary file for image
-        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_').'.'.$extension;
-        file_put_contents($tempImageFile, $imageContent);
-
-        // Track temp file for cleanup
-        $this->tempImageFiles[] = $tempImageFile;
-
-        // Create drawing object
-        $drawing = new Drawing;
-        $drawing->setPath($tempImageFile);
-        $drawing->setCoordinates($cell);
-        $drawing->setWidth($width);
-        $drawing->setHeight($height);
-        $drawing->setOffsetX(5);
-        $drawing->setOffsetY(5);
-        $drawing->setWorksheet($sheet);
+        $this->embedSignatureImage($sheet, $record->signature_path, $cell, $width, $height);
     }
 
     /**
@@ -1954,58 +1915,134 @@ class SstDeliveryReportService
         int $width,
         int $height
     ): void {
-        if (! $record->signature_path) {
+        $this->embedSignatureImage($sheet, $record->signature_path, $cell, $width, $height);
+    }
+
+    /**
+     * Embed a signature image, downloading and shrinking it only once per signature path.
+     *
+     * Every drawing that points to the same local file is written once into the xlsx media
+     * folder, so deliveries with many item rows do not multiply the file size.
+     */
+    private function embedSignatureImage(
+        Worksheet $sheet,
+        ?string $signaturePath,
+        string $cell,
+        int $width,
+        int $height
+    ): void {
+        if (! $signaturePath) {
             return;
         }
 
-        $disk = Storage::disk(self::SIGNATURE_DISK);
+        if (! array_key_exists($signaturePath, $this->signatureFiles)) {
+            try {
+                $this->signatureFiles[$signaturePath] = $this->prepareSignatureFile($signaturePath, $width, $height);
+            } catch (\Exception $e) {
+                $this->signatureFiles[$signaturePath] = null;
 
-        if (! $disk->exists($record->signature_path)) {
-            throw new \Exception('Firma no encontrada en almacenamiento');
-        }
-
-        // Get file content
-        $imageContent = $disk->get($record->signature_path);
-
-        // Check size
-        if (strlen($imageContent) > self::MAX_IMAGE_SIZE) {
-            throw new \Exception('Imagen excede el tamaño máximo permitido');
-        }
-
-        // Detect image type
-        $extension = strtolower(pathinfo($record->signature_path, PATHINFO_EXTENSION));
-        if (! in_array($extension, ['png', 'jpg', 'jpeg'])) {
-            $imageInfo = @getimagesizefromstring($imageContent);
-            if ($imageInfo && isset($imageInfo['mime'])) {
-                $mime = $imageInfo['mime'];
-                if ($mime === 'image/png') {
-                    $extension = 'png';
-                } elseif (in_array($mime, ['image/jpeg', 'image/jpg'])) {
-                    $extension = 'jpg';
-                } else {
-                    $extension = 'png'; // Default
-                }
-            } else {
-                $extension = 'png'; // Default
+                throw $e;
             }
         }
 
-        // Create temporary file for image
-        $tempImageFile = tempnam(sys_get_temp_dir(), 'signature_return_').'.'.$extension;
-        file_put_contents($tempImageFile, $imageContent);
+        $signatureFile = $this->signatureFiles[$signaturePath];
 
-        // Track temp file for cleanup
-        $this->tempImageFiles[] = $tempImageFile;
+        if ($signatureFile === null) {
+            return;
+        }
 
-        // Create drawing object
         $drawing = new Drawing;
-        $drawing->setPath($tempImageFile);
+        $drawing->setPath($signatureFile);
         $drawing->setCoordinates($cell);
         $drawing->setWidth($width);
         $drawing->setHeight($height);
         $drawing->setOffsetX(5);
         $drawing->setOffsetY(5);
         $drawing->setWorksheet($sheet);
+    }
+
+    /**
+     * Download a signature and store a reduced copy as a temporary file.
+     */
+    private function prepareSignatureFile(string $signaturePath, int $width, int $height): string
+    {
+        $imageContent = Storage::disk(self::SIGNATURE_DISK)->get($signaturePath);
+
+        if ($imageContent === null || $imageContent === '') {
+            throw new \Exception('Firma no encontrada en almacenamiento');
+        }
+
+        if (strlen($imageContent) > self::MAX_IMAGE_SIZE) {
+            throw new \Exception('Imagen excede el tamaño máximo permitido');
+        }
+
+        $resized = $this->shrinkSignature($imageContent, $width * self::SIGNATURE_PIXEL_DENSITY, $height * self::SIGNATURE_PIXEL_DENSITY);
+
+        if ($resized !== null) {
+            $imageContent = $resized;
+            $extension = 'png';
+        } else {
+            $extension = $this->detectImageExtension($signaturePath, $imageContent);
+        }
+
+        $tempBaseFile = tempnam(sys_get_temp_dir(), 'signature_');
+        $tempImageFile = $tempBaseFile.'.'.$extension;
+        file_put_contents($tempImageFile, $imageContent);
+
+        $this->tempImageFiles[] = $tempBaseFile;
+        $this->tempImageFiles[] = $tempImageFile;
+
+        return $tempImageFile;
+    }
+
+    /**
+     * Scale the image down to fit within the given box, returning PNG bytes (null when not possible).
+     */
+    private function shrinkSignature(string $imageContent, int $maxWidth, int $maxHeight): ?string
+    {
+        if (! function_exists('imagecreatefromstring') || $maxWidth <= 0 || $maxHeight <= 0) {
+            return null;
+        }
+
+        $source = @imagecreatefromstring($imageContent);
+
+        if ($source === false) {
+            return null;
+        }
+
+        $sourceWidth = imagesx($source);
+        $sourceHeight = imagesy($source);
+        $scale = min($maxWidth / $sourceWidth, $maxHeight / $sourceHeight, 1);
+        $targetWidth = max(1, (int) round($sourceWidth * $scale));
+        $targetHeight = max(1, (int) round($sourceHeight * $scale));
+
+        $target = imagecreatetruecolor($targetWidth, $targetHeight);
+        imagealphablending($target, false);
+        imagesavealpha($target, true);
+        imagefill($target, 0, 0, imagecolorallocatealpha($target, 255, 255, 255, 127));
+        imagecopyresampled($target, $source, 0, 0, 0, 0, $targetWidth, $targetHeight, $sourceWidth, $sourceHeight);
+
+        ob_start();
+        imagepng($target, null, 9);
+        $png = ob_get_clean();
+
+        imagedestroy($source);
+        imagedestroy($target);
+
+        return $png !== false && $png !== '' ? $png : null;
+    }
+
+    private function detectImageExtension(string $signaturePath, string $imageContent): string
+    {
+        $extension = strtolower(pathinfo($signaturePath, PATHINFO_EXTENSION));
+
+        if (in_array($extension, ['png', 'jpg', 'jpeg'])) {
+            return $extension;
+        }
+
+        $imageInfo = @getimagesizefromstring($imageContent);
+
+        return in_array($imageInfo['mime'] ?? null, ['image/jpeg', 'image/jpg']) ? 'jpg' : 'png';
     }
 
     /**
@@ -2451,5 +2488,6 @@ class SstDeliveryReportService
             }
         }
         $this->tempImageFiles = [];
+        $this->signatureFiles = [];
     }
 }
