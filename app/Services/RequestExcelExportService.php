@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Constants\RequestStatuses;
+use App\Constants\RequestSubtypes;
 use App\Constants\RequestTypes;
 use App\Models\RequestForm;
 use App\Models\User;
@@ -10,6 +11,7 @@ use App\Support\HospitalCatalog;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Chart\Chart;
 use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
 use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
@@ -1069,42 +1071,35 @@ class RequestExcelExportService
 
     /**
      * Obtener etiqueta amigable para subtipo de solicitud.
-     * Convierte valores en mayúsculas a un formato más legible.
+     * Agrupa variantes históricas (tildes, puntuación o etiquetas guardadas en lugar del valor) bajo un mismo subtipo.
      */
     private function getSubtypeLabel(?string $subtype): string
     {
-        if (! $subtype) {
+        if ($subtype === null || trim($subtype) === '') {
             return '';
         }
 
-        // Mapeo de subtipos a etiquetas amigables
         $subtypeLabels = [
-            'COMPENSACIÓN. FINAL (LIQUIDACIÓN)' => 'Compensación Final (Liquidación)',
-            'COMPENSACIÓN ANUAL DIFERIDA Y/O DESCANSO' => 'Compensación Anual Diferida y/o Descanso',
-            'COMPENSACIÓN POR DESCANSO' => 'Compensación por Descanso',
-            'DESCUENTOS SEGURIDAD SOCIAL' => 'Descuentos Seguridad Social',
-            'DUPLICADO COLILLAS' => 'Duplicado de Colillas',
-            'VIATICOS' => 'Viáticos',
-            'Ceiisas' => 'Ceiisas',
-            'COMPENSACIÓN. MENSUAL' => 'Compensación Mensual',
-            'COMPENSACIÓN SEMESTRAL' => 'Compensación Semestral',
-            'INCAPACIDADES' => 'Incapacidades',
-            'SUBSIDIOS' => 'Subsidios',
+            RequestSubtypes::COMPENSACION_FINAL_LIQUIDACION => 'Compensación Final (Liquidación)',
+            RequestSubtypes::COMPENSACION_ANUAL_DIFERIDA_DESCANSO => 'Compensación Anual Diferida y/o Descanso',
+            RequestSubtypes::COMPENSACION_POR_DESCANSO => 'Compensación por Descanso',
+            RequestSubtypes::DESCUENTOS_SEGURIDAD_SOCIAL => 'Descuentos Seguridad Social',
+            RequestSubtypes::DUPLICADO_COLILLAS => 'Duplicado de Colillas',
+            RequestSubtypes::VIATICOS => 'Viáticos',
+            RequestSubtypes::CEIISAS => 'Ceiisas',
+            RequestSubtypes::COMPENSACION_MENSUAL => 'Compensación Mensual',
+            RequestSubtypes::COMPENSACION_SEMESTRAL => 'Compensación Semestral',
+            RequestSubtypes::INCAPACIDADES => 'Incapacidades',
+            RequestSubtypes::SUBSIDIOS => 'Subsidios',
         ];
 
-        // Si existe un mapeo, usarlo
-        if (isset($subtypeLabels[$subtype])) {
-            return $subtypeLabels[$subtype];
+        $canonicalSubtype = RequestSubtypes::normalize($subtype);
+
+        if ($canonicalSubtype !== null) {
+            return $subtypeLabels[$canonicalSubtype];
         }
 
-        // Para otros valores, formatear automáticamente
-        // Convertir a título y limificar espacios
-        $formatted = ucwords(strtolower(trim($subtype)));
-
-        // Reemplazar puntos y caracteres extraños
-        $formatted = str_replace(['.', '  ', '  '], [' ', ' ', ' '], $formatted);
-
-        return $formatted;
+        return Str::of($subtype)->replace('.', ' ')->squish()->lower()->title()->toString();
     }
 
     /**

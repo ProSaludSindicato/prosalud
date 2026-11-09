@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class RequestExcelExportServiceTest extends TestCase
@@ -149,5 +150,39 @@ class RequestExcelExportServiceTest extends TestCase
         $row = $this->rowsById($sheet)[$request->id];
 
         $this->assertNull($sheet->getCell("F{$row}")->getValue());
+    }
+
+    #[DataProvider('legacySubtypeVariants')]
+    public function test_legacy_subtype_variants_are_grouped_under_the_same_label(string $storedSubtype, string $expectedLabel): void
+    {
+        $request = RequestForm::factory()->create([
+            'request_type' => RequestTypes::VERIFICACION_PAGOS,
+            'payload' => ['solicitudRelacionadaCon' => $storedSubtype],
+        ]);
+
+        $sheet = $this->specificDetailsSheet();
+        $row = $this->rowsById($sheet)[$request->id];
+
+        $this->assertSame($expectedLabel, $sheet->getCell("F{$row}")->getValue());
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function legacySubtypeVariants(): array
+    {
+        return [
+            'final canónico' => ['COMPENSACIÓN. FINAL (LIQUIDACIÓN)', 'Compensación Final (Liquidación)'],
+            'final como etiqueta' => ['Compensación Final', 'Compensación Final (Liquidación)'],
+            'final sin tildes' => ['COMPENSACION FINAL', 'Compensación Final (Liquidación)'],
+            'anual canónico' => ['COMPENSACIÓN ANUAL DIFERIDA Y/O DESCANSO', 'Compensación Anual Diferida y/o Descanso'],
+            'anual como etiqueta' => ['Compensación Anual Diferida', 'Compensación Anual Diferida y/o Descanso'],
+            'anual en minúsculas' => ['compensación anual diferida y/o descanso', 'Compensación Anual Diferida y/o Descanso'],
+            'mensual sin punto' => ['COMPENSACIÓN MENSUAL', 'Compensación Mensual'],
+            'colillas como etiqueta' => ['Duplicado Colillas', 'Duplicado de Colillas'],
+            'viáticos con tilde' => ['VIÁTICOS', 'Viáticos'],
+            'ceiisas en mayúsculas' => ['CEIISAS', 'Ceiisas'],
+            'desconocido' => ['OTRO  TIPO.NUEVO', 'Otro Tipo Nuevo'],
+        ];
     }
 }
