@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Constants\RequestStatuses;
+use App\Constants\RequestSubtypes;
 use App\Constants\RequestTypes;
 use App\Models\RequestForm;
 use App\Models\User;
@@ -10,6 +11,7 @@ use App\Support\HospitalCatalog;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Chart\Chart;
 use PhpOffice\PhpSpreadsheet\Chart\DataSeries;
 use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
@@ -668,6 +670,7 @@ class RequestExcelExportService
             'Tipo Documento',
             'Número Documento',
             'Tipo',
+            'Subtipo de Solicitud',
             'Detalles Específicos',
             'Fecha Inicio Descanso',
             'Fecha Fin Descanso',
@@ -676,7 +679,7 @@ class RequestExcelExportService
         $sheet->fromArray([$headers], null, 'A1');
 
         // Estilizar encabezados
-        $headerRange = 'A1:H1';
+        $headerRange = 'A1:I1';
         $sheet->getStyle($headerRange)->applyFromArray([
             'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => [
@@ -698,9 +701,10 @@ class RequestExcelExportService
         $sheet->getColumnDimension('C')->setWidth(18); // Tipo Documento
         $sheet->getColumnDimension('D')->setWidth(20); // Número Documento
         $sheet->getColumnDimension('E')->setWidth(30); // Tipo
-        $sheet->getColumnDimension('F')->setWidth(80); // Detalles Específicos
-        $sheet->getColumnDimension('G')->setWidth(22); // Fecha Inicio Descanso
-        $sheet->getColumnDimension('H')->setWidth(22); // Fecha Fin Descanso
+        $sheet->getColumnDimension('F')->setWidth(35); // Subtipo de Solicitud
+        $sheet->getColumnDimension('G')->setWidth(80); // Detalles Específicos
+        $sheet->getColumnDimension('H')->setWidth(22); // Fecha Inicio Descanso
+        $sheet->getColumnDimension('I')->setWidth(22); // Fecha Fin Descanso
 
         $row = 2;
 
@@ -716,17 +720,18 @@ class RequestExcelExportService
                 $request->document_type ?? '',
                 $request->document_number ?? '',
                 $this->getRequestTypeLabel($request->request_type),
+                $this->getSubtypeLabel($request->request_subtype),
                 $payloadFormatted,
             ];
 
             $sheet->fromArray([$rowData], null, "A{$row}");
 
             $payload = is_array($request->payload) ? $request->payload : [];
-            $this->setExcelDateCell($sheet, "G{$row}", $payload['fechaInicioDescanso'] ?? null);
-            $this->setExcelDateCell($sheet, "H{$row}", $payload['fechaFinalizacionDescanso'] ?? null);
+            $this->setExcelDateCell($sheet, "H{$row}", $payload['fechaInicioDescanso'] ?? null);
+            $this->setExcelDateCell($sheet, "I{$row}", $payload['fechaFinalizacionDescanso'] ?? null);
 
             // Configurar formato de texto para la columna de payload (para que el JSON se vea mejor)
-            $sheet->getStyle("F{$row}")->getAlignment()->setWrapText(true);
+            $sheet->getStyle("G{$row}")->getAlignment()->setWrapText(true);
             $sheet->getRowDimension($row)->setRowHeight(-1); // Auto-height
 
             $row++;
@@ -734,7 +739,7 @@ class RequestExcelExportService
 
         // Aplicar bordes a todas las filas de datos
         if ($row > 2) {
-            $dataRange = 'A1:H'.($row - 1);
+            $dataRange = 'A1:I'.($row - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => Border::BORDER_THIN],
@@ -745,7 +750,7 @@ class RequestExcelExportService
 
         // Agregar autofiltro
         if ($row > 2) {
-            $sheet->setAutoFilter('A1:H'.($row - 1));
+            $sheet->setAutoFilter('A1:I'.($row - 1));
         }
 
         // Congelar primera fila
@@ -1066,42 +1071,35 @@ class RequestExcelExportService
 
     /**
      * Obtener etiqueta amigable para subtipo de solicitud.
-     * Convierte valores en mayúsculas a un formato más legible.
+     * Agrupa variantes históricas (tildes, puntuación o etiquetas guardadas en lugar del valor) bajo un mismo subtipo.
      */
     private function getSubtypeLabel(?string $subtype): string
     {
-        if (! $subtype) {
+        if ($subtype === null || trim($subtype) === '') {
             return '';
         }
 
-        // Mapeo de subtipos a etiquetas amigables
         $subtypeLabels = [
-            'COMPENSACIÓN. FINAL (LIQUIDACIÓN)' => 'Compensación Final (Liquidación)',
-            'COMPENSACIÓN ANUAL DIFERIDA Y/O DESCANSO' => 'Compensación Anual Diferida y/o Descanso',
-            'COMPENSACIÓN POR DESCANSO' => 'Compensación por Descanso',
-            'DESCUENTOS SEGURIDAD SOCIAL' => 'Descuentos Seguridad Social',
-            'DUPLICADO COLILLAS' => 'Duplicado de Colillas',
-            'VIATICOS' => 'Viáticos',
-            'Ceiisas' => 'Ceiisas',
-            'COMPENSACIÓN. MENSUAL' => 'Compensación Mensual',
-            'COMPENSACIÓN SEMESTRAL' => 'Compensación Semestral',
-            'INCAPACIDADES' => 'Incapacidades',
-            'SUBSIDIOS' => 'Subsidios',
+            RequestSubtypes::COMPENSACION_FINAL_LIQUIDACION => 'Compensación Final (Liquidación)',
+            RequestSubtypes::COMPENSACION_ANUAL_DIFERIDA_DESCANSO => 'Compensación Anual Diferida y/o Descanso',
+            RequestSubtypes::COMPENSACION_POR_DESCANSO => 'Compensación por Descanso',
+            RequestSubtypes::DESCUENTOS_SEGURIDAD_SOCIAL => 'Descuentos Seguridad Social',
+            RequestSubtypes::DUPLICADO_COLILLAS => 'Duplicado de Colillas',
+            RequestSubtypes::VIATICOS => 'Viáticos',
+            RequestSubtypes::CEIISAS => 'Ceiisas',
+            RequestSubtypes::COMPENSACION_MENSUAL => 'Compensación Mensual',
+            RequestSubtypes::COMPENSACION_SEMESTRAL => 'Compensación Semestral',
+            RequestSubtypes::INCAPACIDADES => 'Incapacidades',
+            RequestSubtypes::SUBSIDIOS => 'Subsidios',
         ];
 
-        // Si existe un mapeo, usarlo
-        if (isset($subtypeLabels[$subtype])) {
-            return $subtypeLabels[$subtype];
+        $canonicalSubtype = RequestSubtypes::normalize($subtype);
+
+        if ($canonicalSubtype !== null) {
+            return $subtypeLabels[$canonicalSubtype];
         }
 
-        // Para otros valores, formatear automáticamente
-        // Convertir a título y limificar espacios
-        $formatted = ucwords(strtolower(trim($subtype)));
-
-        // Reemplazar puntos y caracteres extraños
-        $formatted = str_replace(['.', '  ', '  '], [' ', ' ', ' '], $formatted);
-
-        return $formatted;
+        return Str::of($subtype)->replace('.', ' ')->squish()->lower()->title()->toString();
     }
 
     /**
