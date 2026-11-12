@@ -39,7 +39,7 @@ class WellnessDeliveryTypeController extends Controller
             'fecha_desde' => $t->fecha_desde?->format('Y-m-d'),
             'fecha_hasta' => $t->fecha_hasta?->format('Y-m-d'),
             'siempre_activo' => $t->isSiempreActivo(),
-            'listado' => $t->esEntregaConListado() ? $this->listService->summary($t) : null,
+            'listado' => $t->usaListadoPropio() ? $this->listService->summary($t) : null,
             'created_by' => $t->createdBy ? [
                 'id' => $t->createdBy->id,
                 'name' => $t->createdBy->name,
@@ -124,7 +124,7 @@ class WellnessDeliveryTypeController extends Controller
                 'fecha_desde' => $wellnessDeliveryType->fecha_desde?->format('Y-m-d'),
                 'fecha_hasta' => $wellnessDeliveryType->fecha_hasta?->format('Y-m-d'),
                 'siempre_activo' => $wellnessDeliveryType->isSiempreActivo(),
-                'listado' => $wellnessDeliveryType->esEntregaConListado() ? $this->listService->summary($wellnessDeliveryType) : null,
+                'listado' => $wellnessDeliveryType->usaListadoPropio() ? $this->listService->summary($wellnessDeliveryType) : null,
                 'updated_at' => $wellnessDeliveryType->updated_at->toISOString(),
             ],
         ]);
@@ -147,7 +147,7 @@ class WellnessDeliveryTypeController extends Controller
                 'fecha_desde' => $wellnessDeliveryType->fecha_desde?->format('Y-m-d'),
                 'fecha_hasta' => $wellnessDeliveryType->fecha_hasta?->format('Y-m-d'),
                 'siempre_activo' => $wellnessDeliveryType->isSiempreActivo(),
-                'listado' => $wellnessDeliveryType->esEntregaConListado() ? $this->listService->summary($wellnessDeliveryType) : null,
+                'listado' => $wellnessDeliveryType->usaListadoPropio() ? $this->listService->summary($wellnessDeliveryType) : null,
                 'created_by' => $wellnessDeliveryType->createdBy ? [
                     'id' => $wellnessDeliveryType->createdBy->id,
                     'name' => $wellnessDeliveryType->createdBy->name,

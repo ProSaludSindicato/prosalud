@@ -134,6 +134,18 @@ class WellnessDeliveryType extends Model
         return $this->modo_acceso === self::MODO_LISTADO;
     }
 
+    /** True si la campaña usa un listado propio (inscripción con listado o entrega directa con listado). */
+    public function usaListadoPropio(): bool
+    {
+        return in_array($this->modo_acceso, [self::MODO_LISTADO, self::MODO_ENTREGA_LISTADO], true);
+    }
+
+    /** True si la campaña tiene un listado propio cargado. */
+    public function tieneListadoCargado(): bool
+    {
+        return $this->listado_cargado_at !== null;
+    }
+
     /** True si el personal entrega en el acto validando contra el listado propio de la campaña. */
     public function esEntregaConListado(): bool
     {

@@ -132,13 +132,17 @@ class KitBienestarController extends Controller
                 ->whereYear('created_at', $anoActual)
                 ->first();
 
+            $fueraDelListado = $tipo->requiereListado() && $tipo->tieneListadoCargado()
+                && $this->kitBienestarService->authenticateForCampaign($tipo, $documento, null, soloDocumento: true) === null;
+
             return $base + [
                 'tiene_solicitud' => $solicitudExistente !== null,
                 'solicitud_estado' => $solicitudExistente?->estado,
                 'solicitud_id' => $solicitudExistente?->id,
-                'disponible' => $solicitudExistente === null && $afiliado !== null,
+                'disponible' => $solicitudExistente === null && $afiliado !== null && ! $fueraDelListado,
                 'motivo_no_disponible' => match (true) {
                     $solicitudExistente !== null => 'Ya tiene una solicitud '.($solicitudExistente->estado === 'entregado' ? 'entregada' : 'pendiente').' para esta campaña.',
+                    $fueraDelListado => 'La persona no está en el listado de esta campaña.',
                     $afiliado === null => 'El afiliado no se encontró en la base de afiliados.',
                     default => null,
                 },
@@ -260,8 +264,29 @@ class KitBienestarController extends Controller
 
             $requiereListado = ($tipoActivo->modo_acceso ?? 'listado') === 'listado';
 
-            if ($requiereListado) {
-                // Modo listado: obligatorio tener Excel y que la persona esté en el listado
+            if ($requiereListado && $tipoActivo->tieneListadoCargado()) {
+                // Modo listado con listado propio de la campaña
+                $kitBienestar = $this->kitBienestarService->authenticateForCampaign($tipoActivo, $documento, $fechaExpedicion);
+
+                if ($kitBienestar === null) {
+                    Log::warning('KIT_BIENESTAR_AUTH: Autenticación fallida - persona no encontrada en el listado de la campaña', [
+                        'event_type' => 'authentication_failed',
+                        'status' => 'failed',
+                        'reason' => 'persona_no_encontrada',
+                        'wellness_delivery_type_id' => $tipoActivo->id,
+                        'documento' => $documento,
+                        'ip_address' => $request->ip(),
+                        'timestamp' => now()->toISOString(),
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No se encontró la información. La persona no está en el listado de esta campaña.',
+                        'data' => null,
+                    ], 404);
+                }
+            } elseif ($requiereListado) {
+                // Modo listado sin listado propio: se usa el archivo general (Gestión de Archivo Excel)
                 if (! $this->kitBienestarService->isFileAvailable()) {
                     Log::error('KIT_BIENESTAR_AUTH: Servicio no disponible (modo listado sin Excel)', [
                         'event_type' => 'service_unavailable',
@@ -454,6 +479,19 @@ class KitBienestarController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => "La campaña «{$tipoActivo->nombre}» se registra con la entrega directa con listado (POST /api/wellness-delivery-requests/list-delivery).",
+                ], 422);
+            }
+
+            if ($tipoActivo->requiereListado() && $tipoActivo->tieneListadoCargado()
+                && $this->kitBienestarService->authenticateForCampaign(
+                    $tipoActivo,
+                    $documentoAfiliado,
+                    $request->input('fecha_expedicion'),
+                    soloDocumento: $request->user() !== null,
+                ) === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "El documento {$documentoAfiliado} no está en el listado de la campaña «{$tipoActivo->nombre}».",
                 ], 422);
             }
 
@@ -1186,6 +1224,23 @@ class KitBienestarController extends Controller
                 ], 400);
             }
 
+            try {
+                $parsed = $this->kitBienestarService->parseFile($file->getRealPath());
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudo leer el archivo. Verifique que sea un Excel válido (.xlsx o .xls).',
+                    'errors' => [],
+                ], 422);
+            }
+            if ($parsed['errors'] !== []) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El listado tiene errores. Corríjalos y vuelva a cargarlo; se conserva el listado anterior.',
+                    'errors' => $parsed['errors'],
+                ], 422);
+            }
+
             DB::beginTransaction();
 
             // Configurar disco S3
@@ -1272,6 +1327,10 @@ class KitBienestarController extends Controller
                         'email' => $user->email,
                     ],
                     'created_at' => $fileVersion->created_at->toISOString(),
+                    'resumen' => $this->kitBienestarService->summarize($parsed['rows']) + [
+                        'formato_antiguo' => $parsed['legacy'],
+                        'columnas_ignoradas' => $parsed['ignored_columns'],
+                    ],
                 ],
             ], 201);
         } catch (\Exception $e) {
@@ -1288,6 +1347,19 @@ class KitBienestarController extends Controller
                 'message' => 'Error al procesar el archivo. Por favor, intente nuevamente.',
             ], 500);
         }
+    }
+
+    /**
+     * Descargar la plantilla del listado para campañas en modo "Inscripción con listado".
+     * GET /api/wellness-delivery-requests/file/template
+     */
+    public function downloadFileTemplate(): SymfonyBinaryFileResponse
+    {
+        return response()->download(
+            $this->kitBienestarService->buildTemplate(),
+            'Plantilla_Listado_Inscripcion.xlsx',
+            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+        )->deleteFileAfterSend(true);
     }
 
     /**

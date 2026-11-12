@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * Cupo del listado de una campaña de entregas (modo entrega_listado).
- * Una fila por beneficiario (o por afiliado si no hay beneficiarios) con la cantidad a entregar.
+ * Fila del listado de una campaña: cupo a entregar (modo entrega_listado) o persona habilitada para inscribirse (modo listado).
+ * Una fila por beneficiario (o por persona si no hay beneficiarios).
  *
  * @property int $id
  * @property int $wellness_delivery_type_id
@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $beneficiario
  * @property string|null $parentesco
  * @property string|null $edad
+ * @property string|null $fecha_expedicion
  * @property int $cantidad
  * @property Carbon $created_at
  * @property Carbon $updated_at
@@ -39,6 +40,7 @@ class WellnessDeliveryListEntry extends Model
         'beneficiario',
         'parentesco',
         'edad',
+        'fecha_expedicion',
         'cantidad',
     ];
 

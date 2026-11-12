@@ -38,6 +38,16 @@ class WellnessDeliveryTypeFactory extends Factory
     }
 
     /**
+     * Campaña con inscripción validada contra el listado (archivo Excel de inscripción).
+     */
+    public function inscripcionListado(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'modo_acceso' => WellnessDeliveryType::MODO_LISTADO,
+        ]);
+    }
+
+    /**
      * Campaña con rango de fechas.
      */
     public function vigente(string $desde, string $hasta): static

@@ -155,6 +155,7 @@ Route::middleware(['auth.token', 'ensure.api.user'])->prefix('wellness-delivery-
     // File management routes
     Route::post('/file/upload', [KitBienestarController::class, 'uploadFile'])->middleware('permission:wellness_delivery.manage');
     Route::get('/file/versions', [KitBienestarController::class, 'getFileVersions'])->middleware('permission:wellness_delivery.view');
+    Route::get('/file/template', [KitBienestarController::class, 'downloadFileTemplate'])->middleware('permission:wellness_delivery.view');
 });
 
 // Tipos de entrega de bienestar (CRUD) - requieren permiso wellness_delivery.manage para crear/editar

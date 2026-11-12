@@ -5,26 +5,40 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreWellnessListDeliveryRequest;
 use App\Http\Requests\UploadWellnessDeliveryListRequest;
 use App\Models\WellnessDeliveryType;
+use App\Services\KitBienestarService;
 use App\Services\LogSanitizationService;
 use App\Services\WellnessDeliveryListService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
- * Listado de cupos por campaña (modo entrega_listado): plantilla, carga del Excel y registro de entregas.
+ * Listado propio de cada campaña: cupos (modo entrega_listado) o personas habilitadas para inscribirse (modo listado).
+ * Plantilla, carga del Excel y registro de entregas.
  */
 class WellnessDeliveryListController extends Controller
 {
-    public function __construct(private WellnessDeliveryListService $listService) {}
+    public function __construct(
+        private WellnessDeliveryListService $listService,
+        private KitBienestarService $enrollmentListService,
+    ) {}
 
     /**
-     * Descargar la plantilla estándar del listado.
+     * Descargar la plantilla estándar del listado. Con ?modo=listado devuelve la de inscripción con listado.
      * GET /api/wellness-delivery-types/listado/plantilla
      */
-    public function template(): BinaryFileResponse
+    public function template(Request $request): BinaryFileResponse
     {
+        if ($request->query('modo') === WellnessDeliveryType::MODO_LISTADO) {
+            return response()->download(
+                $this->enrollmentListService->buildTemplate(),
+                'Plantilla_Listado_Inscripcion.xlsx',
+                ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+            )->deleteFileAfterSend(true);
+        }
+
         return response()->download(
             $this->listService->buildTemplate(),
             'Plantilla_Listado_Entregas_Bienestar.xlsx',
@@ -33,11 +47,15 @@ class WellnessDeliveryListController extends Controller
     }
 
     /**
-     * Cargar (o reemplazar) el listado de cupos de una campaña.
+     * Cargar (o reemplazar) el listado de una campaña.
      * POST /api/wellness-delivery-types/{wellness_delivery_type}/listado
      */
     public function upload(UploadWellnessDeliveryListRequest $request, WellnessDeliveryType $wellnessDeliveryType): JsonResponse
     {
+        if ($wellnessDeliveryType->requiereListado()) {
+            return $this->uploadEnrollmentList($request, $wellnessDeliveryType);
+        }
+
         $file = $request->file('file');
         $parsed = $this->listService->parseFile($file->getRealPath());
 
@@ -71,6 +89,57 @@ class WellnessDeliveryListController extends Controller
             'data' => [
                 'listado' => $summary,
                 'columnas_ignoradas' => $parsed['ignored_columns'],
+            ],
+        ], 201);
+    }
+
+    /**
+     * Carga el listado de personas habilitadas para inscribirse en una campaña en modo "Inscripción con listado".
+     */
+    private function uploadEnrollmentList(UploadWellnessDeliveryListRequest $request, WellnessDeliveryType $wellnessDeliveryType): JsonResponse
+    {
+        $file = $request->file('file');
+
+        try {
+            $parsed = $this->enrollmentListService->parseFile($file->getRealPath());
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo leer el archivo. Verifique que sea un Excel válido (.xlsx o .xls).',
+                'errors' => [],
+            ], 422);
+        }
+
+        if ($parsed['errors'] !== []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El listado tiene errores. Corríjalos y vuelva a cargarlo.',
+                'errors' => $parsed['errors'],
+                'total_errores' => count($parsed['errors']),
+            ], 422);
+        }
+
+        $summary = $this->listService->replaceList(
+            $wellnessDeliveryType,
+            $this->enrollmentListService->toListEntries($parsed['rows']),
+            $file->getClientOriginalName(),
+            $request->user(),
+        );
+
+        Log::info('Listado de inscripción de campaña cargado', [
+            'wellness_delivery_type_id' => $wellnessDeliveryType->id,
+            'filas' => $summary['filas'],
+            'personas' => $summary['afiliados'],
+            'user_id' => $request->user()?->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Listado cargado: {$summary['afiliados']} persona(s) en {$summary['filas']} fila(s).",
+            'data' => [
+                'listado' => $summary,
+                'columnas_ignoradas' => $parsed['ignored_columns'],
+                'formato_antiguo' => $parsed['legacy'],
             ],
         ], 201);
     }
