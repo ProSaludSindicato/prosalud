@@ -109,7 +109,19 @@ class WellnessDeliveryTypeController extends Controller
         if (array_key_exists('fecha_hasta', $update) && $update['fecha_hasta'] === '') {
             $update['fecha_hasta'] = null;
         }
+        if ($request->boolean('actualizar_slug')) {
+            $update['slug'] = WellnessDeliveryType::uniqueSlugFor($update['nombre'] ?? $wellnessDeliveryType->nombre, $wellnessDeliveryType->id);
+        }
+        $slugAnterior = $wellnessDeliveryType->slug;
         $wellnessDeliveryType->update($update);
+        if ($wellnessDeliveryType->slug !== $slugAnterior) {
+            Log::info('Enlace de inscripción de campaña reemplazado', [
+                'wellness_delivery_type_id' => $wellnessDeliveryType->id,
+                'slug_anterior' => $slugAnterior,
+                'slug_nuevo' => $wellnessDeliveryType->slug,
+                'user_id' => $request->user()?->id,
+            ]);
+        }
 
         Log::info('Tipo de entrega de bienestar actualizado', [
             'wellness_delivery_type_id' => $wellnessDeliveryType->id,

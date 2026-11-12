@@ -19,6 +19,7 @@ class UpdateWellnessDeliveryTypeRequest extends FormRequest
             'modo_acceso' => 'sometimes|string|in:listado,abierto,entrega_listado',
             'fecha_desde' => 'nullable|sometimes|date|date_format:Y-m-d|required_with:fecha_hasta',
             'fecha_hasta' => 'nullable|sometimes|date|date_format:Y-m-d|required_with:fecha_desde|after_or_equal:fecha_desde',
+            'actualizar_slug' => 'sometimes|boolean',
         ];
     }
 
@@ -30,6 +31,7 @@ class UpdateWellnessDeliveryTypeRequest extends FormRequest
             'fecha_desde.date_format' => 'La fecha desde debe estar en formato YYYY-MM-DD.',
             'fecha_hasta.date_format' => 'La fecha hasta debe estar en formato YYYY-MM-DD.',
             'fecha_hasta.after_or_equal' => 'La fecha hasta debe ser igual o posterior a la fecha desde.',
+            'actualizar_slug.boolean' => 'La opción de actualizar el enlace debe ser verdadera o falsa.',
         ];
     }
 }

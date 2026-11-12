@@ -390,6 +390,30 @@ class KitBienestarEnrollmentListTest extends TestCase
             ->assertJsonPath('data.slug', 'fiesta-de-fin-de-ano-2');
     }
 
+    public function test_slug_is_replaced_only_when_explicitly_requested(): void
+    {
+        WellnessDeliveryType::factory()->create(['nombre' => 'Encuentro cierre de año']);
+
+        $this->putJson("/api/wellness-delivery-types/{$this->campaign->id}", [
+            'nombre' => 'Encuentro cierre de año',
+            'actualizar_slug' => true,
+        ])->assertOk()->assertJsonPath('data.slug', 'encuentro-cierre-de-ano-2');
+
+        $this->putJson("/api/wellness-delivery-types/{$this->campaign->id}", [
+            'nombre' => 'Encuentro cierre de año',
+            'actualizar_slug' => true,
+        ])->assertOk()->assertJsonPath('data.slug', 'encuentro-cierre-de-ano-2');
+
+        $this->authenticateBySlugCampaignStillWorks();
+    }
+
+    private function authenticateBySlugCampaignStillWorks(): void
+    {
+        $tipo = collect($this->getJson('/api/kit-bienestar/current-type')->assertOk()->json('data'))
+            ->firstWhere('id', $this->campaign->id);
+        $this->assertSame('encuentro-cierre-de-ano-2', $tipo['slug']);
+    }
+
     public function test_current_type_exposes_slug_for_public_link(): void
     {
         $tipo = collect($this->getJson('/api/kit-bienestar/current-type')->assertOk()->json('data'))
