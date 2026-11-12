@@ -102,6 +102,7 @@ class KitBienestarController extends Controller
             $base = [
                 'id' => $tipo->id,
                 'nombre' => $tipo->nombre,
+                'slug' => $tipo->slug,
                 'modo_acceso' => $tipo->modo_acceso,
                 'fecha_desde' => $tipo->fecha_desde?->format('Y-m-d'),
                 'fecha_hasta' => $tipo->fecha_hasta?->format('Y-m-d'),
@@ -750,6 +751,7 @@ class KitBienestarController extends Controller
         $data = $tipos->map(fn (WellnessDeliveryType $t) => [
             'id' => $t->id,
             'nombre' => $t->nombre,
+            'slug' => $t->slug,
             'modo_acceso' => $t->modo_acceso,
             'fecha_desde' => $t->fecha_desde?->format('Y-m-d'),
             'fecha_hasta' => $t->fecha_hasta?->format('Y-m-d'),

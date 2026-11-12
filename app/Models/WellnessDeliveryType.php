@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * Tipo de entrega de bienestar (administrable).
@@ -16,6 +17,7 @@ use Illuminate\Support\Carbon;
  *
  * @property int $id
  * @property string $nombre
+ * @property string|null $slug Identificador legible para el enlace público de inscripción; se fija al crear la campaña
  * @property bool $activo
  * @property string $modo_acceso 'listado' | 'abierto' | 'entrega_listado'
  * @property string|null $listado_archivo_nombre
@@ -56,6 +58,7 @@ class WellnessDeliveryType extends Model
 
     protected $fillable = [
         'nombre',
+        'slug',
         'activo',
         'modo_acceso',
         'listado_archivo_nombre',
@@ -74,6 +77,31 @@ class WellnessDeliveryType extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (WellnessDeliveryType $type) {
+            if (blank($type->slug)) {
+                $type->slug = static::uniqueSlugFor($type->nombre);
+            }
+        });
+    }
+
+    /**
+     * Genera un slug único a partir del nombre (ej. "Fiesta fin de año" => "fiesta-fin-de-ano", "fiesta-fin-de-ano-2"...).
+     */
+    public static function uniqueSlugFor(string $nombre, ?int $ignoreId = null): string
+    {
+        $base = Str::limit(Str::slug($nombre), 100, '') ?: 'campana';
+        $slug = $base;
+        $ordinal = 1;
+        while (static::query()->where('slug', $slug)->when($ignoreId, fn ($q) => $q->whereKeyNot($ignoreId))->exists()) {
+            $ordinal++;
+            $slug = $base.'-'.$ordinal;
+        }
+
+        return $slug;
+    }
 
     /**
      * Scope: tipos activos para una fecha.

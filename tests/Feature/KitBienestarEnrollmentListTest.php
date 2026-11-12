@@ -375,6 +375,46 @@ class KitBienestarEnrollmentListTest extends TestCase
         $this->assertSame('La persona no está en el listado de esta campaña.', $fuera['motivo_no_disponible']);
     }
 
+    public function test_campaign_gets_unique_readable_slug_that_survives_renames(): void
+    {
+        $this->assertSame('fiesta-de-fin-de-ano', $this->campaign->slug);
+
+        $created = $this->postJson('/api/wellness-delivery-types', [
+            'nombre' => 'Fiesta de fin de año',
+            'modo_acceso' => 'listado',
+        ])->assertCreated()->assertJsonPath('data.slug', 'fiesta-de-fin-de-ano-2');
+
+        $id = $created->json('data.id');
+        $this->putJson("/api/wellness-delivery-types/{$id}", ['nombre' => 'Fiesta navideña'])
+            ->assertOk()
+            ->assertJsonPath('data.slug', 'fiesta-de-fin-de-ano-2');
+    }
+
+    public function test_current_type_exposes_slug_for_public_link(): void
+    {
+        $tipo = collect($this->getJson('/api/kit-bienestar/current-type')->assertOk()->json('data'))
+            ->firstWhere('id', $this->campaign->id);
+
+        $this->assertSame('fiesta-de-fin-de-ano', $tipo['slug']);
+    }
+
+    public function test_authenticate_requires_campaign_id_when_other_modes_are_also_active(): void
+    {
+        WellnessDeliveryType::factory()->create(['nombre' => 'Día de la mujer']);
+        $this->uploadToCampaign($this->campaign, [
+            ['DOCUMENTO', 'NOMBRE'],
+            ['8103936', 'GIRALDO MORENO JUAN CAMILO'],
+        ])->assertCreated();
+
+        $this->postJson('/api/kit-bienestar/authenticate', [
+            'tipo_documento' => 'CC',
+            'documento' => '8103936',
+            'fecha_expedicion' => '01/01/00',
+        ])->assertUnprocessable();
+
+        $this->authenticate('8103936')->assertOk();
+    }
+
     public function test_upload_with_row_errors_is_rejected_and_keeps_previous_version(): void
     {
         $this->upload([

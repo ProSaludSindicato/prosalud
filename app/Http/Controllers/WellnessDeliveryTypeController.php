@@ -34,6 +34,7 @@ class WellnessDeliveryTypeController extends Controller
         $data = $types->map(fn (WellnessDeliveryType $t) => [
             'id' => $t->id,
             'nombre' => $t->nombre,
+            'slug' => $t->slug,
             'activo' => $t->activo,
             'modo_acceso' => $t->modo_acceso,
             'fecha_desde' => $t->fecha_desde?->format('Y-m-d'),
@@ -75,6 +76,7 @@ class WellnessDeliveryTypeController extends Controller
         Log::info('Tipo de entrega de bienestar creado', [
             'wellness_delivery_type_id' => $type->id,
             'nombre' => $type->nombre,
+            'slug' => $type->slug,
             'user_id' => $user?->id,
         ]);
 
@@ -84,6 +86,7 @@ class WellnessDeliveryTypeController extends Controller
             'data' => [
                 'id' => $type->id,
                 'nombre' => $type->nombre,
+                'slug' => $type->slug,
                 'activo' => $type->activo,
                 'modo_acceso' => $type->modo_acceso,
                 'fecha_desde' => $type->fecha_desde?->format('Y-m-d'),
@@ -119,6 +122,7 @@ class WellnessDeliveryTypeController extends Controller
             'data' => [
                 'id' => $wellnessDeliveryType->id,
                 'nombre' => $wellnessDeliveryType->nombre,
+                'slug' => $wellnessDeliveryType->slug,
                 'activo' => $wellnessDeliveryType->activo,
                 'modo_acceso' => $wellnessDeliveryType->modo_acceso,
                 'fecha_desde' => $wellnessDeliveryType->fecha_desde?->format('Y-m-d'),
@@ -142,6 +146,7 @@ class WellnessDeliveryTypeController extends Controller
             'data' => [
                 'id' => $wellnessDeliveryType->id,
                 'nombre' => $wellnessDeliveryType->nombre,
+                'slug' => $wellnessDeliveryType->slug,
                 'activo' => $wellnessDeliveryType->activo,
                 'modo_acceso' => $wellnessDeliveryType->modo_acceso,
                 'fecha_desde' => $wellnessDeliveryType->fecha_desde?->format('Y-m-d'),
